@@ -38,7 +38,8 @@ if (corsOrigins) {
     credentials: true
   };
 } else {
-  corsOptions = { origin: true, credentials: true };
+  // 未配置 CORS_ORIGINS 时禁止跨域（同源访问不受影响，避免任意网站携带凭证跨域访问）
+  corsOptions = { origin: false, credentials: false };
 }
 app.use(cors(corsOptions));
 app.use(morgan('dev'));

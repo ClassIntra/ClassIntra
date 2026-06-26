@@ -2,6 +2,7 @@ var express = require('express');
 var router = express.Router();
 var path = require('path');
 var fs = require('fs');
+var crypto = require('crypto');
 var multer = require('multer');
 var auth = require('../middleware/auth');
 var db = require('../utils/db');
@@ -77,7 +78,8 @@ var LOCK_MINUTES = 5;
 function generateCode() {
   var code = '';
   for (var i = 0; i < 6; i++) {
-    code += CODE_CHARS.charAt(Math.floor(Math.random() * CODE_CHARS.length));
+    // 使用密码学安全的随机数生成器（避免 Math.random 可预测性）
+    code += CODE_CHARS.charAt(crypto.randomInt(0, CODE_CHARS.length));
   }
   return code;
 }
@@ -509,9 +511,9 @@ router.post('/save-from-url', auth.requireAuth, function(req, res) {
   } else if (imageUrl.indexOf('/resources/') === 0) {
     // Resources 目录下的图片
     var resourcesDir = path.resolve(process.env.RESOURCES_DIR || path.join(__dirname, '../../../Resources'));
-    filePath = path.join(resourcesDir, imageUrl.replace('/resources/', ''));
-    // 安全检查
-    if (filePath.indexOf('..') !== -1) {
+    // 使用 path.resolve 解析 .. 后再校验是否仍在 resourcesDir 内（防止路径遍历）
+    filePath = path.resolve(resourcesDir, imageUrl.replace('/resources/', ''));
+    if (filePath.indexOf(resourcesDir + path.sep) !== 0 && filePath !== resourcesDir) {
       return res.status(400).json({ code: 400, message: '无效的图片路径' });
     }
     if (!fs.existsSync(filePath)) {
@@ -520,8 +522,10 @@ router.post('/save-from-url', auth.requireAuth, function(req, res) {
   } else if (imageUrl.indexOf('/api/photos/') === 0) {
     // Photos API 的图片
     var resourcesDir = path.resolve(process.env.RESOURCES_DIR || path.join(__dirname, '../../../Resources'));
-    filePath = path.join(resourcesDir, 'public', 'photos', imageUrl.replace('/api/photos/', ''));
-    if (filePath.indexOf('..') !== -1) {
+    var photosBase = path.resolve(resourcesDir, 'public', 'photos');
+    // 使用 path.resolve 解析 .. 后再校验是否仍在 photosBase 内（防止路径遍历）
+    filePath = path.resolve(photosBase, imageUrl.replace('/api/photos/', ''));
+    if (filePath.indexOf(photosBase + path.sep) !== 0 && filePath !== photosBase) {
       return res.status(400).json({ code: 400, message: '无效的图片路径' });
     }
     if (!fs.existsSync(filePath)) {

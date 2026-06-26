@@ -318,7 +318,8 @@ router.get('/ban-info', authMiddleware, function(req, res) {
 // POST /api/auth/relay-verify - Internal endpoint for relay-based password verification
 router.post('/relay-verify', function(req, res) {
   var relaySecret = req.headers['x-relay-secret'];
-  if (relaySecret !== config.relay.secret) {
+  // config.relay.secret 为空时拒绝访问（避免空字符串导致认证被绕过）
+  if (!config.relay.secret || relaySecret !== config.relay.secret) {
     return res.status(403).json({ code: 403, message: 'Forbidden' });
   }
   var account = req.body.account;

@@ -524,7 +524,8 @@ function handleRelayConnection(ws) {
     if (!authenticated) {
       if (data.type === 'relay_auth') {
         clearTimeout(authTimeout);
-        if (RELAY_SECRET && data.secret !== RELAY_SECRET) {
+        if (!RELAY_SECRET || data.secret !== RELAY_SECRET) {
+          // RELAY_SECRET 未配置时拒绝所有中继认证（避免空字符串导致认证被跳过）
           try { ws.close(); } catch (e) {}
           return;
         }
