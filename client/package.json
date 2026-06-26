@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "vite",
+    "prebuild": "node scripts/prebuild.js",
     "build": "vite build",
     "preview": "vite preview"
   },

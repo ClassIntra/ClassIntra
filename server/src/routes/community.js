@@ -1046,7 +1046,7 @@ router.put('/profile', function(req, res) {
     try {
       var ps = typeof req.body.privacy_settings === 'string' ? JSON.parse(req.body.privacy_settings) : req.body.privacy_settings;
       var sanitizedPs = {};
-      var allowedPsKeys = ['wechat', 'qq', 'phone', 'address', 'signature', 'birthday'];
+      var allowedPsKeys = ['wechat', 'qq', 'phone', 'address', 'signature', 'birthday', 'hide_real_name'];
       for (var k = 0; k < allowedPsKeys.length; k++) {
         if (ps[allowedPsKeys[k]] !== undefined) {
           sanitizedPs[allowedPsKeys[k]] = !!ps[allowedPsKeys[k]];
@@ -1110,10 +1110,18 @@ router.get('/profile/:userId', function(req, res) {
   var result = {
     id: user.id,
     net_name: user.net_name,
-    real_name: user.real_name,
     gender: user.gender,
     signature: user.signature
   };
+
+  // 真实姓名：根据隐私设置决定是否显示（hide_real_name=true 则隐藏）
+  if (isSelf) {
+    result.real_name = user.real_name;
+  } else {
+    if (!privacySettings.hide_real_name) {
+      result.real_name = user.real_name;
+    }
+  }
 
   // 生日：根据隐私设置决定是否显示
   if (isSelf) {

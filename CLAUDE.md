@@ -38,7 +38,7 @@ ClassNet/
 │   └── config/           # 配置模块
 ├── server/public/        # 构建产物（前端 dist + setup.html）
 ├── server/database/      # SQLite 数据库文件目录
-├── Resources/            # 🔒 用户自行管理，AI 不得触碰
+├── Resources/            # 资源目录（图标、壁纸、等级图标等静态资源）
 └── .git/                 # Git 仓库（含 hooks 和修复脚本）
 ```
 
@@ -46,14 +46,7 @@ ClassNet/
 
 ## 🚫 禁区（AI 绝对不能做的事）
 
-### 1. Resources/ 目录
-```
-Resources/ 目录由用户手动管理，内容经常变动。
-AI 不得读取、修改、删除 Resources/ 下的任何文件。
-AI 不得将 Resources/ 下的文件加入 Git 暂存区。
-```
-
-### 2. 破坏性操作
+### 1. 破坏性操作
 ```
 以下操作必须获得用户明确确认后才能执行：
   - rm -rf（任何递归删除）
@@ -140,6 +133,43 @@ git health
 
 ---
 
+## 🏷️ 版本号管理
+
+ClassNet 使用 **SemVer（语义化版本）**：`主版本.次版本.修订号`（如 `1.3.2`）。
+
+### 版本号规则
+
+| 段位 | 触发条件 | 更新方式 |
+|------|---------|---------|
+| MAJOR（主版本） | 不兼容的架构变更、底层重写 | **手动**修改 `server/version.json` |
+| MINOR（次版本） | 新功能、新页面、新模块 | **手动**修改 `server/version.json` |
+| PATCH（修订号） | Bug 修复、样式调整、小优化 | 构建时**自动 +1** |
+
+**升级规则：**
+- 手动改 MINOR → PATCH 自动归零
+- 手动改 MAJOR → MINOR 和 PATCH 自动归零
+- 日常开发不碰版本号 → 构建时 PATCH 自动 +1
+
+### 关键文件
+
+| 文件 | 用途 |
+|------|------|
+| `server/version.json` | 版本号权威数据源（version、buildHash、buildTime、changelog） |
+| `client/scripts/prebuild.js` | 构建前脚本（PATCH +1、生成 changelog、更新 version.json） |
+| `CHANGELOG.md` | 自动生成的变更日志 |
+| `docs/version-management.md` | 完整版本管理制度文档 |
+
+### AI 修改版本号
+
+```
+AI 可以读取 server/version.json 了解当前版本。
+日常开发完全不用管版本号——构建时 PATCH 自动累加。
+当用户明确说"发版"或"升级版本号"时，AI 手动改 MINOR +1。
+MAJOR 极少变动，只有架构重写时才改。
+```
+
+---
+
 ## 🎨 代码风格约定
 
 ### JavaScript/Vue
@@ -185,6 +215,9 @@ git health
 | `server/src/services/stream-transcoder.js` | 视频流式转码（ffmpeg） |
 | `server/src/routes/setup.js` | 初始化向导 API |
 | `server/public/setup.html` | 可视化初始化配置页面 |
+| `server/version.json` | 版本号权威数据源 |
+| `client/scripts/prebuild.js` | 构建前版本自动递增 + changelog 生成 |
+| `CHANGELOG.md` | 自动生成的变更日志 |
 | `.git/fix-b2o-corruption.sh` | b→o 损坏自动修复脚本 |
 | `.git/hooks/pre-commit` | 提交前代码检查 |
 

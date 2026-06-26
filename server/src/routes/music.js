@@ -2,7 +2,6 @@ var express = require('express');
 var router = express.Router();
 var path = require('path');
 var fs = require('fs');
-var crypto = require('crypto');
 var auth = require('../middleware/auth');
 var config = require('../config');
 var db = require('../utils/db');
@@ -332,42 +331,19 @@ router.get('/playlist/detail', function(req, res) {
   }
 });
 
-router.post('/playlist/share', function(req, res) {
-  var userId = req.user.user_id;
-  var playlistId = req.body.playlistId;
-  if (!playlistId) return res.status(400).json({ code: 400, message: '参数错误' });
-
+// 公开获取歌单详情（用于转发分享，不需要 user_id 校验）
+router.get('/playlist/:id/public', function(req, res) {
+  var playlistId = req.params.id;
   try {
-    var pl = db.prepare('SELECT id, share_code FROM music_playlists WHERE id = ? AND user_id = ?').get(playlistId, userId);
-    if (!pl) return res.status(403).json({ code: 403, message: '无权限' });
-
-    var shareCode = pl.share_code;
-    if (!shareCode) {
-      shareCode = crypto.randomBytes(4).toString('hex');
-      db.prepare('UPDATE music_playlists SET share_code = ? WHERE id = ?').run(shareCode, playlistId);
+    var playlist = db.prepare('SELECT id, name, description, user_id, created_at FROM music_playlists WHERE id = ?').get(playlistId);
+    if (!playlist) {
+      return res.status(404).json({ code: 404, message: '歌单不存在' });
     }
-
-    res.json({ code: 200, data: { shareCode: shareCode } });
-  } catch (e) {
-    res.status(500).json({ code: 500, message: '分享失败' });
-  }
-});
-
-router.get('/playlist/shared', function(req, res) {
-  var shareCode = req.query.code;
-  if (!shareCode) return res.status(400).json({ code: 400, message: '参数错误' });
-
-  try {
-    var pl = db.prepare('SELECT id, name, description, cover_url, user_id FROM music_playlists WHERE share_code = ?').get(shareCode);
-    if (!pl) return res.status(404).json({ code: 404, message: '歌单不存在' });
-
-    var songs = db.prepare(
-      'SELECT song_id FROM music_playlist_songs WHERE playlist_id = ? ORDER BY sort_order'
-    ).all(pl.id);
-    var songIds = [];
-    for (var i = 0; i < songs.length; i++) songIds.push(songs[i].song_id);
-
-    res.json({ code: 200, data: { playlist: { name: pl.name, description: pl.description, coverUrl: pl.cover_url }, songIds: songIds } });
+    var songs = db.prepare('SELECT song_id, sort_order FROM music_playlist_songs WHERE playlist_id = ? ORDER BY sort_order').all(playlistId);
+    playlist.song_count = songs.length;
+    playlist.songIds = [];
+    for (var i = 0; i < songs.length; i++) playlist.songIds.push(songs[i].song_id);
+    res.json({ code: 200, data: playlist });
   } catch (e) {
     res.status(500).json({ code: 500, message: '查询失败' });
   }

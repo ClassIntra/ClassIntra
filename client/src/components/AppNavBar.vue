@@ -76,6 +76,9 @@ export default {
   flex-shrink: 0;
   user-select: none;
   -webkit-user-select: none;
+  /* 为后代下拉菜单的 z-index 提供层叠上下文 */
+  position: relative;
+  z-index: 20;
 }
 
 .nav-left {

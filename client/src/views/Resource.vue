@@ -2,6 +2,9 @@
   <div class="resource-page">
     <AppNavBar title="资源仓库">
       <template slot="actions">
+        <button class="nav-action-btn" @click="$router.push('/cloud')" title="我的云盘">
+          <i class="fa-solid fa-cloud"></i>
+        </button>
         <button class="nav-action-btn" @click="toggleSearch" title="搜索">
           <i class="fa-solid fa-magnifying-glass"></i>
         </button>
@@ -589,6 +592,7 @@ export default {
       videoEl.setAttribute('x5-playsinline', '');
       videoEl.setAttribute('x5-video-player-type', 'h5');
       videoEl.setAttribute('preload', 'metadata');
+      videoEl.setAttribute('muted', '');
       container.appendChild(videoEl);
 
       // MKV → 需预转码为 MP4（运行 Resources/视频批量转码MKV.bat）

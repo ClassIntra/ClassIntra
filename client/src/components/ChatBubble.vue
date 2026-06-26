@@ -47,6 +47,22 @@
         </div>
         <div class="forward-action">点击打开歌单 <i class="fa-solid fa-chevron-right"></i></div>
       </div>
+      <div v-else-if="message.type === 'ai_forward'" class="bubble-content bubble-forward bubble-ai" @click="onAiForwardClick">
+        <div class="forward-label"><i class="fa-solid fa-robot"></i> AI对话内容</div>
+        <div class="forward-card forward-card-ai">
+          <div class="forward-title">🤖 {{ aiForwardRoleLabel }}</div>
+          <div class="forward-preview">{{ aiForwardPreviewText }}</div>
+        </div>
+        <div class="forward-action">点击查看全文 <i class="fa-solid fa-chevron-right"></i></div>
+      </div>
+      <div v-else-if="message.type === 'ai_batch'" class="bubble-content bubble-forward bubble-ai" @click="onAiBatchClick">
+        <div class="forward-label"><i class="fa-solid fa-robot"></i> AI对话记录（{{ aiBatchCount }}条）</div>
+        <div class="forward-card forward-card-ai">
+          <div class="forward-title">🤖 对话记录</div>
+          <div class="forward-preview">{{ aiBatchPreview }}</div>
+        </div>
+        <div class="forward-action">点击查看全文 <i class="fa-solid fa-chevron-right"></i></div>
+      </div>
       <div v-else class="bubble-content">
         <div v-if="message.reply_to" class="reply-quote" @click="onReplyQuoteClick">
           <div class="reply-quote-name">{{ message.reply_to.user_name }}</div>
@@ -156,7 +172,10 @@ export default {
     return {
       showContextMenu: false,
       longPressTimer: null,
-      longPressFired: false
+      longPressFired: false,
+      longPressMediaUrl: null,
+      longPressMediaType: null,
+      audioPlayers: {} // 语音条 Audio 对象池，key=媒体URL
     };
   },
   computed: {
@@ -175,6 +194,42 @@ export default {
       } catch (e) {
         return {};
       }
+    },
+    aiForwardData: function() {
+      if (this.message.type !== 'ai_forward') return {};
+      try {
+        return JSON.parse(this.message.content);
+      } catch (e) {
+        return {};
+      }
+    },
+    aiForwardRoleLabel: function() {
+      return this.aiForwardData.role === 'user' ? '用户提问' : 'AI 回答';
+    },
+    aiForwardPreviewText: function() {
+      var text = this.aiForwardData.content || '';
+      if (!text) return '';
+      // 去除 Markdown 标记符号，生成纯文本预览
+      var plain = text.replace(/[#*`>\-\[\]()!]/g, '').replace(/\n+/g, ' ').trim();
+      return plain.length > 50 ? plain.substring(0, 50) + '...' : plain;
+    },
+    aiBatchData: function() {
+      if (this.message.type !== 'ai_batch') return {};
+      try {
+        return JSON.parse(this.message.content);
+      } catch (e) {
+        return {};
+      }
+    },
+    aiBatchCount: function() {
+      return (this.aiBatchData.messages || []).length;
+    },
+    aiBatchPreview: function() {
+      var msgs = this.aiBatchData.messages || [];
+      if (msgs.length === 0) return '';
+      var first = msgs[0];
+      var text = (first.content || '').replace(/[#*`>\-\[\]()!]/g, '').replace(/\n+/g, ' ').trim();
+      return text.length > 50 ? text.substring(0, 50) + '...' : text;
     },
     forwardTypeLabel: function() {
       var t = this.forwardData.postType;
@@ -224,6 +279,11 @@ export default {
   },
   mounted: function() {
     document.addEventListener('click', this.closeContextMenu);
+    this.$nextTick(this.initVoiceBars);
+  },
+  updated: function() {
+    // v-html 重新渲染后，初始化新增的语音条
+    this.$nextTick(this.initVoiceBars);
   },
   beforeDestroy: function() {
     document.removeEventListener('click', this.closeContextMenu);
@@ -231,21 +291,128 @@ export default {
       clearTimeout(this.longPressTimer);
       this.longPressTimer = null;
     }
+    this.cleanupAudioPlayers();
   },
   methods: {
     onContentClick: function(e) {
       var target = e.target;
-      while (target && target !== e.currentTarget) {
-        if (target.tagName === 'A' && target.getAttribute('data-external') === 'true') {
-          e.preventDefault();
-          var href = target.getAttribute('href');
-          if (href) {
-            this.$router.push('/browser?url=' + encodeURIComponent(href));
-          }
-          return;
+      // 语音条点击 → 切换播放（不触发全屏预览）
+      var voiceBar = target.closest && target.closest('.msg-voice-bar');
+      if (voiceBar) {
+        e.preventDefault();
+        e.stopPropagation();
+        var voiceUrl = voiceBar.getAttribute('data-media-url');
+        if (voiceUrl) {
+          this.toggleVoicePlay(voiceUrl, voiceBar);
         }
-        target = target.parentNode;
+        return;
       }
+      // 视频/图片媒体点击 → 全屏预览（向上查找 msg-media 包裹器）
+      var mediaEl = target.closest ? target.closest('.msg-media') : null;
+      if (!mediaEl && target.classList && target.classList.contains('msg-media')) {
+        mediaEl = target;
+      }
+      if (mediaEl && !mediaEl.classList.contains('msg-voice-bar')) {
+        e.preventDefault();
+        e.stopPropagation();
+        var mediaUrl = mediaEl.getAttribute('data-media-url');
+        var mediaType = mediaEl.getAttribute('data-media-type') || 'image';
+        if (mediaUrl) {
+          this.$emit('preview-media', { url: mediaUrl, type: mediaType });
+        }
+        return;
+      }
+      // 处理链接点击
+      if (target.tagName === 'A' && target.getAttribute('data-external') === 'true') {
+        e.preventDefault();
+        var href = target.getAttribute('href');
+        if (href) {
+          this.$router.push('/browser?url=' + encodeURIComponent(href));
+        }
+        return;
+      }
+    },
+    // 初始化未绑定的语音条：创建 Audio 对象，绑定事件
+    initVoiceBars: function() {
+      var self = this;
+      var bars = self.$el.querySelectorAll('.msg-voice-bar[data-voice-init="0"]');
+      for (var i = 0; i < bars.length; i++) {
+        (function(bar) {
+          var url = bar.getAttribute('data-media-url');
+          if (!url) return;
+          bar.setAttribute('data-voice-init', '1');
+          // 创建 Audio 对象（复用池）
+          if (!self.audioPlayers[url]) {
+            var audio = new Audio(url);
+            audio.preload = 'metadata';
+            audio.addEventListener('loadedmetadata', function() {
+              var dur = audio.duration;
+              if (isNaN(dur) || dur === Infinity) return;
+              var durEl = bar.querySelector('.voice-duration');
+              if (durEl) durEl.textContent = Math.ceil(dur) + '"';
+            });
+            audio.addEventListener('timeupdate', function() {
+              var dur = audio.duration;
+              if (isNaN(dur) || dur === Infinity || dur === 0) return;
+              var progress = (audio.currentTime / dur) * 100;
+              var progEl = bar.querySelector('.voice-progress');
+              if (progEl) progEl.style.width = progress + '%';
+              var waveBars = bar.querySelectorAll('.voice-wave-bars span');
+              var activeCount = Math.ceil((progress / 100) * waveBars.length);
+              for (var k = 0; k < waveBars.length; k++) {
+                if (k < activeCount) waveBars[k].classList.add('active');
+                else waveBars[k].classList.remove('active');
+              }
+            });
+            audio.addEventListener('ended', function() {
+              var playBtn = bar.querySelector('.voice-play-btn i');
+              if (playBtn) playBtn.className = 'fa-solid fa-play';
+              var progEl = bar.querySelector('.voice-progress');
+              if (progEl) progEl.style.width = '0%';
+              var waveBars = bar.querySelectorAll('.voice-wave-bars span');
+              for (var k = 0; k < waveBars.length; k++) {
+                waveBars[k].classList.remove('active');
+              }
+            });
+            self.audioPlayers[url] = audio;
+          }
+        })(bars[i]);
+      }
+    },
+    // 切换语音条播放/暂停
+    toggleVoicePlay: function(url, barEl) {
+      var audio = this.audioPlayers[url];
+      if (!audio) return;
+      var playIcon = barEl.querySelector('.voice-play-btn i');
+      if (audio.paused) {
+        // 暂停其他正在播放的语音
+        for (var key in this.audioPlayers) {
+          if (key !== url && !this.audioPlayers[key].paused) {
+            this.audioPlayers[key].pause();
+            var otherBar = this.$el.querySelector('.msg-voice-bar[data-media-url="' + key.replace(/"/g, '\\"') + '"]');
+            if (otherBar) {
+              var otherIcon = otherBar.querySelector('.voice-play-btn i');
+              if (otherIcon) otherIcon.className = 'fa-solid fa-play';
+            }
+          }
+        }
+        audio.play().catch(function() {});
+        if (playIcon) playIcon.className = 'fa-solid fa-pause';
+      } else {
+        audio.pause();
+        if (playIcon) playIcon.className = 'fa-solid fa-play';
+      }
+    },
+    // 清理所有 Audio 对象
+    cleanupAudioPlayers: function() {
+      for (var key in this.audioPlayers) {
+        var audio = this.audioPlayers[key];
+        if (audio) {
+          audio.pause();
+          audio.src = '';
+        }
+      }
+      this.audioPlayers = {};
     },
     onForwardClick: function() {
       if (this.forwardData.postId) {
@@ -254,10 +421,21 @@ export default {
     },
     onMusicPlaylistClick: function() {
       var data = this.playlistData;
-      if (data.shareCode) {
-        this.$router.push('/music?shareCode=' + data.shareCode);
-      } else if (data.playlistId) {
+      if (data.playlistId) {
         this.$router.push('/music?playlist=' + data.playlistId);
+      }
+    },
+    onAiForwardClick: function() {
+      var data = this.aiForwardData;
+      if (data.content) {
+        // 跳转到AI聊天页面查看完整内容
+        this.$router.push('/ai-chat?view=' + encodeURIComponent(data.content));
+      }
+    },
+    onAiBatchClick: function() {
+      var data = this.aiBatchData;
+      if (data.messages && data.messages.length) {
+        this.$router.push('/ai-chat?viewBatch=' + encodeURIComponent(JSON.stringify(data.messages)));
       }
     },
     formatTime: function(timestamp) {
@@ -298,25 +476,89 @@ export default {
     },
     renderContent: function(content) {
       if (!content) return '';
-      // Step 1: Extract URLs and replace with placeholders
+      var IMG_EXTS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
+      var VID_EXTS = ['.mp4', '.mov', '.webm', '.mkv', '.avi', '.3gp'];
+      var AUD_EXTS = ['.mp3', '.m4a', '.aac', '.wav', '.ogg', '.opus'];
+
+      function getMediaType(url) {
+        var lower = url.toLowerCase();
+        // 优先文件名中的类型标记（__audio / __video / __image）
+        if (lower.indexOf('__audio') > -1) return 'audio';
+        if (lower.indexOf('__video') > -1) return 'video';
+        if (lower.indexOf('__image') > -1) return 'image';
+        // 回退到扩展名
+        for (var e = 0; e < VID_EXTS.length; e++) { if (lower.indexOf(VID_EXTS[e]) > -1) return 'video'; }
+        for (var e = 0; e < AUD_EXTS.length; e++) { if (lower.indexOf(AUD_EXTS[e]) > -1) return 'audio'; }
+        for (var e = 0; e < IMG_EXTS.length; e++) { if (lower.indexOf(IMG_EXTS[e]) > -1) return 'image'; }
+        // 兜底：photos 目录视为图片
+        if (lower.indexOf('/photos/') > -1) return 'image';
+        return 'other';
+      }
+
+      // Step 1: Extract media URLs (image/video/audio) and replace with placeholders
+      var mediaItems = []; // { url, type, placeholder }
+      var text = content.replace(/(\/api\/cloud\/files\/[^\s<>"]+|\/resources\/[^\s<>"]+)/g, function(url) {
+        var type = getMediaType(url);
+        if (type === 'image' || type === 'video' || type === 'audio') {
+          var idx = mediaItems.length;
+          mediaItems.push({ url: url, type: type });
+          return '%%MEDIA' + idx + '%%';
+        }
+        return url;
+      });
+      // Step 2: Extract other URLs and replace with placeholders
       var urls = [];
-      var text = content.replace(/(https?:\/\/[^\s<>"]+)/g, function(url) {
+      text = text.replace(/(https?:\/\/[^\s<>"]+)/g, function(url) {
         urls.push(url);
         return '%%URL' + (urls.length - 1) + '%%';
       });
-      // Step 2: HTML-escape
+      // Step 3: HTML-escape
       var html = text
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
-      // Step 3: Apply search highlighting
+      // Step 4: Apply search highlighting
       if (this.searchTerm) {
         var escaped = this.searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         var regex = new RegExp('(' + escaped + ')', 'gi');
         html = html.replace(regex, '<mark class="search-highlight">$1</mark>');
       }
-      // Step 4: Restore URLs as clickable links
+      // Step 5: Restore media URLs as inline elements
+      for (var i = 0; i < mediaItems.length; i++) {
+        var placeholder = '%%MEDIA' + i + '%%';
+        var item = mediaItems[i];
+        var escapedUrl = item.url
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+        var mediaHtml = '';
+        if (item.type === 'image') {
+          mediaHtml = '<img class="msg-image msg-media" data-media-url="' + escapedUrl + '" data-media-type="image" src="' + escapedUrl + '" alt="图片" loading="lazy" />';
+        } else if (item.type === 'video') {
+          mediaHtml = '<div class="msg-media-wrapper msg-video-wrapper msg-media" data-media-url="' + escapedUrl + '" data-media-type="video">' +
+            '<video class="msg-video" data-media-url="' + escapedUrl + '" data-media-type="video" src="' + escapedUrl + '" preload="metadata" playsinline muted></video>' +
+            '<div class="msg-media-play"><i class="fa-solid fa-play"></i></div>' +
+            '</div>';
+        } else if (item.type === 'audio') {
+          // 微信式语音条 UI（播放按钮 + 波形 + 时长 + 进度）
+          var voiceBars = '';
+          for (var b = 0; b < 8; b++) {
+            voiceBars += '<span></span>';
+          }
+          mediaHtml = '<div class="msg-voice-bar msg-media" data-media-url="' + escapedUrl + '" data-media-type="audio" data-voice-init="0">' +
+            '<div class="voice-play-btn"><i class="fa-solid fa-play"></i></div>' +
+            '<div class="voice-wave">' +
+              '<div class="voice-wave-bars">' + voiceBars + '</div>' +
+              '<div class="voice-progress"></div>' +
+            '</div>' +
+            '<div class="voice-duration">--"</div>' +
+          '</div>';
+        }
+        html = html.replace(placeholder, mediaHtml);
+      }
+      // Step 6: Restore other URLs as clickable links
       for (var i = 0; i < urls.length; i++) {
         var placeholder = '%%URL' + i + '%%';
         var url = urls[i];
@@ -337,12 +579,38 @@ export default {
     onTouchStart: function(e) {
       var self = this;
       self.longPressFired = false;
+      self.longPressMediaUrl = null;
+      self.longPressMediaType = null;
+
+      // 检测触摸点是否在媒体元素上（图片/视频/音频/照片徽章）
+      var touch = e.touches[0];
+      var target = document.elementFromPoint(touch.clientX, touch.clientY);
+
+      self.longPressMediaUrl = null;
+      self.longPressMediaType = null;
+      while (target && target !== self.$el) {
+        if (target.classList && target.classList.contains('photo-badge')) {
+          self.longPressMediaUrl = target.getAttribute('data-media-url') || target.getAttribute('data-image-url');
+          self.longPressMediaType = 'image';
+          break;
+        }
+        if (target.classList && target.classList.contains('msg-media')) {
+          self.longPressMediaUrl = target.getAttribute('data-media-url');
+          self.longPressMediaType = target.getAttribute('data-media-type') || 'image';
+          break;
+        }
+        target = target.parentNode;
+      }
+
       self.longPressTimer = setTimeout(function() {
         self.longPressFired = true;
+        // 长按统一触发 context-menu，附带媒体 URL（如有）
         self.$emit('context-menu', self.message, {
-          clientX: e.touches[0].clientX,
-          clientY: e.touches[0].clientY,
-          preventDefault: function() {}
+          clientX: touch.clientX,
+          clientY: touch.clientY,
+          preventDefault: function() {},
+          imageUrl: self.longPressMediaUrl,
+          mediaType: self.longPressMediaType
         });
       }, 600);
     },
@@ -417,6 +685,10 @@ export default {
   display: flex;
   flex-direction: column;
   position: relative;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .chat-bubble.own-bubble {
@@ -503,6 +775,10 @@ export default {
   margin-bottom: 8px;
   background: rgba(0, 0, 0, 0.03);
   border-radius: 0 6px 6px 0;
+}
+/* 深色模式下对方气泡(深灰底)用半透明白，避免与气泡融为一片 */
+[data-theme="dark"] .forward-card {
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .own-bubble .forward-card {
@@ -603,6 +879,23 @@ export default {
   display: block;
 }
 
+/* AI forward card */
+.bubble-ai .forward-label {
+  color: var(--accent-ai, #007aff);
+}
+
+.own-bubble .bubble-ai .forward-label {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.forward-card-ai {
+  border-left-color: var(--accent-ai, #007aff);
+}
+
+.own-bubble .forward-card-ai {
+  border-left-color: rgba(255, 255, 255, 0.6);
+}
+
 /* Reply quote */
 .reply-quote {
   background: rgba(0, 0, 0, 0.06);
@@ -613,6 +906,10 @@ export default {
   cursor: pointer;
   transition: background 0.15s;
 }
+/* 深色模式下对方气泡引用块用半透明白 */
+[data-theme="dark"] .reply-quote {
+  background: rgba(255, 255, 255, 0.08);
+}
 
 .own-bubble .reply-quote {
   background: rgba(255, 255, 255, 0.15);
@@ -621,6 +918,9 @@ export default {
 
 .reply-quote:hover {
   background: rgba(0, 0, 0, 0.1);
+}
+[data-theme="dark"] .reply-quote:hover {
+  background: rgba(255, 255, 255, 0.14);
 }
 
 .own-bubble .reply-quote:hover {
@@ -748,6 +1048,27 @@ export default {
   color: #fff;
 }
 
+/* Message image */
+.chat-bubble >>> .msg-image {
+  max-width: 200px;
+  max-height: 200px;
+  width: auto;
+  height: auto;
+  border-radius: var(--radius-md);
+  margin: 4px 0;
+  display: block;
+  cursor: pointer;
+  object-fit: cover;
+}
+
+.own-bubble >>> .msg-image {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.chat-bubble:not(.own-bubble) >>> .msg-image {
+  background: var(--bg-color);
+}
+
 /* Unread divider */
 .unread-divider {
   display: flex;
@@ -816,5 +1137,182 @@ export default {
 
 .context-menu-item:hover {
   background: var(--bg-color);
+}
+
+.msg-image {
+  display: block;
+  max-width: 100%;
+  max-height: 240px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 0.15s;
+}
+
+.msg-image:active {
+  opacity: 0.85;
+}
+
+/* 视频/音频内联播放器 */
+.chat-bubble >>> .msg-media-wrapper {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  cursor: pointer;
+}
+
+.chat-bubble >>> .msg-video-wrapper {
+  width: 280px;
+  max-width: 100%;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: #000;
+}
+
+.chat-bubble >>> .msg-video {
+  display: block;
+  width: 100%;
+  max-height: 200px;
+  border-radius: var(--radius-md);
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.chat-bubble >>> .msg-media-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.chat-bubble >>> .msg-media-play i {
+  color: #fff;
+  font-size: 14px;
+  margin-left: 2px;
+}
+
+/* 语音条 UI（微信式） */
+.chat-bubble >>> .msg-voice-bar {
+  display: flex;
+  align-items: center;
+  min-width: 160px;
+  max-width: 240px;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 20px;
+  background: var(--bg-elevated, #f5f5f7);
+  cursor: pointer;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* 自己消息的语音条 */
+.chat-bubble.own-bubble >>> .msg-voice-bar {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.chat-bubble >>> .voice-play-btn {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--primary-color, #007aff);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 10px;
+}
+
+.own-bubble >>> .voice-play-btn {
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.own-bubble >>> .voice-play-btn i {
+  color: var(--primary-color, #007aff);
+}
+
+.chat-bubble >>> .voice-play-btn i {
+  color: #fff;
+  font-size: 11px;
+  margin-left: 1px;
+}
+
+.chat-bubble >>> .voice-wave {
+  flex: 1;
+  position: relative;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+}
+
+.chat-bubble >>> .voice-wave-bars {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+  height: 100%;
+}
+
+.chat-bubble >>> .voice-wave-bars span {
+  flex: 1;
+  height: 4px;
+  min-width: 2px;
+  max-width: 6px;
+  border-radius: 2px;
+  background: var(--text-color-secondary, rgba(0, 0, 0, 0.3));
+  transition: background 0.15s;
+}
+
+.own-bubble >>> .voice-wave-bars span {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.chat-bubble >>> .voice-wave-bars span.active {
+  background: var(--primary-color, #007aff);
+}
+
+.own-bubble >>> .voice-wave-bars span.active {
+  background: #fff;
+}
+
+.chat-bubble >>> .voice-progress {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 0%;
+  background: transparent;
+  pointer-events: none;
+}
+
+.chat-bubble >>> .voice-duration {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-color-secondary, rgba(0, 0, 0, 0.5));
+  margin-left: 8px;
+  min-width: 28px;
+  text-align: right;
+}
+
+.own-bubble >>> .voice-duration {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.chat-bubble >>> .msg-media {
+  cursor: pointer;
 }
 </style>

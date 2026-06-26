@@ -8,10 +8,24 @@
         <button class="nav-action-btn" @click="openResourcePicker" title="从资源仓库导入">
           <i class="fa-solid fa-file-import"></i>
         </button>
-        <button class="nav-action-btn nav-btn-primary" @click="showTemplatePicker = true" title="新建笔记">
-          <i class="fa-solid fa-plus"></i>
-        </button>
-        <div class="nav-mode-switch">
+        <div class="nav-create-dropdown">
+          <button class="nav-action-btn nav-btn-primary" @click="showCreateMenu = !showCreateMenu" title="新建">
+            <i class="fa-solid fa-plus"></i>
+          </button>
+          <transition name="dropdown-fade">
+            <div v-if="showCreateMenu" class="create-menu">
+              <button class="create-menu-item" @click="createNoteFile(); showCreateMenu = false">
+                <i class="fa-regular fa-note-sticky"></i>
+                <span>新建笔记</span>
+              </button>
+              <button class="create-menu-item" @click="createDrawFile(); showCreateMenu = false">
+                <i class="fa-solid fa-palette"></i>
+                <span>新建画板</span>
+              </button>
+            </div>
+          </transition>
+        </div>
+        <div class="nav-mode-switch" v-if="!isDrawFile">
           <button
             class="mode-btn"
             :class="{ active: viewMode === 'edit' }"
@@ -40,7 +54,29 @@
       </template>
     </AppNavBar>
 
-    <div class="notes-body">
+    <!-- ========== 画板文件：全屏 DrawCanvas ========== -->
+    <div class="draw-body" v-if="isDrawFile && activeFile" :key="'draw_' + activeFileId">
+      <DrawCanvas
+        ref="drawCanvas"
+        mode="full"
+        :initialLayers="activeFile.canvasData || []"
+        @save="onDrawSave"
+        @close="exitDrawFile"
+      />
+    </div>
+    <div class="draw-body draw-body--empty" v-else-if="isDrawFile && !activeFile">
+      <div class="draw-empty-state">
+        <i class="fa-solid fa-palette draw-empty-icon"></i>
+        <h3>选择或新建画板文件</h3>
+        <p>在左侧选择一个画板文件，或新建一个开始创作</p>
+        <button class="btn-primary" @click="createDrawFile">
+          <i class="fa-solid fa-plus"></i> 新建画板
+        </button>
+      </div>
+    </div>
+
+    <!-- ========== 笔记文件：正常笔记 UI ========== -->
+    <div class="notes-body" v-if="!isDrawFile">
       <transition name="sidebar-slide">
         <div v-if="showSidebar" class="notes-sidebar">
           <div class="sidebar-top">
@@ -84,7 +120,11 @@
               @contextmenu.prevent="showFileMenu($event, file)"
             >
               <div class="file-item-main">
-                <div class="file-item-title" v-html="highlightSearch(file.title || '未命名笔记')"></div>
+                <div class="file-item-title">
+                  <i v-if="file.type === 'draw'" class="fa-solid fa-palette file-type-icon draw-type" title="画板文件"></i>
+                  <i v-else class="fa-regular fa-note-sticky file-type-icon note-type" title="笔记文件"></i>
+                  <span v-html="highlightSearch(file.title || '未命名笔记')"></span>
+                </div>
                 <div class="file-item-meta">
                   <i v-if="file.pinned" class="fa-solid fa-thumbtack file-badge-icon" title="已置顶"></i>
                   <i v-if="file.starred" class="fa-solid fa-star file-badge-icon starred" title="已收藏"></i>
@@ -141,8 +181,8 @@
                 <button class="editor-tag-btn" @click="showTagModal = true" title="管理标签">
                   <i class="fa-solid fa-tags"></i>
                 </button>
-                <button class="editor-tag-btn" @click="openCanvas" title="画布" v-if="viewMode === 'edit' || viewMode === 'split'">
-                  <i class="fa-solid fa-paintbrush"></i>
+                <button class="editor-tag-btn" @click="startAnnotation" title="批注" v-if="(viewMode === 'edit' || viewMode === 'split') && activeFile && activeFile.type !== 'draw'">
+                  <i class="fa-solid fa-pen-to-square"></i>
                 </button>
                 <button class="editor-tag-btn" @click="showVersionHistory = true" title="版本历史">
                   <i class="fa-solid fa-clock-rotate-left"></i>
@@ -194,7 +234,7 @@
             <button class="toolbar-btn" @click="insertMarkdown('link')" title="链接">
               <i class="fa-solid fa-link"></i>
             </button>
-            <button class="toolbar-btn" @click="insertMarkdown('image')" title="图片">
+            <button class="toolbar-btn" @click="openCloudImagePicker" title="从云盘插入图片/音视频">
               <i class="fa-solid fa-image"></i>
             </button>
             <button class="toolbar-btn" @click="insertMarkdown('quote')" title="引用">
@@ -280,26 +320,81 @@
 
       <div
         v-if="activeFile && viewMode !== 'edit'"
-        class="preview-area scrollbar-thin"
-        ref="previewContainer"
-        @scroll="syncPreviewScroll"
+        class="preview-area"
         :style="previewAreaStyle"
       >
         <div class="preview-header">
           <span class="preview-label">预览</span>
+          <button
+            v-if="activeFile && activeFile.type !== 'draw'"
+            class="preview-anno-toggle"
+            :class="{ active: showAnnotationLayer }"
+            @click="toggleAnnotationLayer"
+            title="在文字上直接批注"
+          >
+            <i class="fa-solid fa-pen-to-square"></i>
+            <span>{{ showAnnotationLayer ? '退出批注' : '批注' }}</span>
+          </button>
         </div>
-        <div class="preview-content markdown-body" v-html="renderedContentHtml"></div>
-        <div v-if="activeFile && activeFile.canvasData && activeFile.canvasData.length" class="canvas-preview-section">
-          <div class="canvas-preview-label">
-            <i class="fa-solid fa-paintbrush"></i> 画布内容
+        <!-- 批注输入框 -->
+        <div v-if="showAnnotationInput" class="anno-input-bar">
+          <input
+            id="annotation-inline-input"
+            v-model="annotationInput"
+            class="anno-input-field"
+            placeholder="输入批注内容..."
+            @keydown.enter="commitAnnotationCard"
+            @keydown.escape="showAnnotationInput = false"
+          />
+          <button class="btn-primary btn-sm" @click="commitAnnotationCard">添加批注</button>
+          <button class="btn-secondary btn-sm" @click="showAnnotationInput = false">取消</button>
+        </div>
+        <div class="preview-content-wrap">
+          <div
+            class="preview-content markdown-body scrollbar-thin"
+            ref="previewContainer"
+            @scroll="syncPreviewScroll"
+            @mouseup="onPreviewTextSelect"
+            @touchend="onPreviewTextSelect"
+          >
+            <div class="preview-content-inner">
+              <div class="preview-content-html" v-html="renderedContentHtml"></div>
+              <!-- 批注涂鸦层：在滚动内容内部，随内容自然滚动 -->
+              <div v-if="showAnnotationLayer" class="annotation-overlay" :class="{ 'annotation-active': annoDrawing }">
+                <DrawCanvas
+                  ref="annotationCanvas"
+                  mode="annotation"
+                  :key="'anno_' + activeFileId"
+                  :initialLayers="activeFile.canvasData || []"
+                  @save="onAnnotationSave"
+                  @drawing="annoDrawing = $event"
+                />
+              </div>
+            </div>
           </div>
-          <div class="canvas-preview-images">
-            <img
-              v-for="(layer, idx) in activeFile.canvasData"
-              :key="idx"
-              :src="layer"
-              class="canvas-preview-img"
-            />
+        </div>
+
+        <!-- 结构化批注卡片（在内容下方） -->
+        <div v-if="annotationCards.length > 0" class="annotation-cards-section">
+          <div class="annotation-cards-label">
+            <i class="fa-solid fa-pen-to-square"></i> 批注 ({{ annotationCards.length }})
+          </div>
+          <div
+            v-for="card in annotationCards"
+            :key="card.id"
+            class="annotation-card"
+            :style="{ borderLeftColor: card.color || '#ffc107' }"
+          >
+            <div class="annotation-card-header">
+              <span class="annotation-card-time">{{ formatDate(card.createdAt) }}</span>
+              <button class="annotation-card-del" @click="deleteAnnotation(card.id)" title="删除批注">
+                <i class="fa-solid fa-xmark"></i>
+              </button>
+            </div>
+            <div v-if="card.selectedText" class="annotation-card-quote">
+              "{{ card.selectedText }}"
+            </div>
+            <div class="annotation-card-text" v-html="renderAnnotationText(card.text)"></div>
           </div>
         </div>
       </div>
@@ -860,144 +955,6 @@
       </div>
     </transition>
 
-    <transition name="modal-fade">
-      <div v-if="showCanvasModal" class="canvas-overlay" @click.self="closeCanvasWithoutSave">
-        <div class="canvas-panel">
-          <div class="canvas-toolbar">
-            <div class="canvas-tools-left">
-              <button
-                v-for="tool in canvasTools"
-                :key="tool.id"
-                class="canvas-tool-btn"
-                :class="{ active: canvasTool === tool.id }"
-                @click="canvasTool = tool.id"
-                :title="tool.name"
-              >
-                <i class="fa-solid" :class="tool.icon"></i>
-              </button>
-              <div class="toolbar-sep"></div>
-              <button
-                class="canvas-tool-btn"
-                :class="{ active: canvasFillShape }"
-                @click="canvasFillShape = !canvasFillShape"
-                title="填充/描边切换"
-              >
-                <i class="fa-solid" :class="canvasFillShape ? 'fa-fill-drip' : 'fa-fill'"></i>
-              </button>
-              <div class="toolbar-sep"></div>
-              <label class="canvas-color-wrap">
-                <input type="color" v-model="canvasColor" class="canvas-color-input" />
-                <span class="canvas-color-preview" :style="{ background: canvasColor }"></span>
-              </label>
-              <div class="canvas-preset-colors">
-                <span
-                  v-for="c in canvasPresetColors"
-                  :key="c"
-                  class="canvas-preset-color"
-                  :style="{ background: c }"
-                  :class="{ active: canvasColor === c }"
-                  @click="canvasColor = c"
-                ></span>
-              </div>
-              <div class="toolbar-sep"></div>
-              <div class="canvas-slider-group">
-                <label class="canvas-slider-label">大小</label>
-                <input type="range" min="1" max="50" v-model.number="canvasBrushSize" class="canvas-slider" />
-                <span class="canvas-slider-value">{{ canvasBrushSize }}</span>
-              </div>
-              <div class="canvas-slider-group">
-                <label class="canvas-slider-label">透明</label>
-                <input type="range" min="10" max="100" v-model.number="canvasOpacity" class="canvas-slider" />
-                <span class="canvas-slider-value">{{ Math.round(canvasOpacity) }}%</span>
-              </div>
-              <div class="toolbar-sep"></div>
-              <button class="canvas-tool-btn" :class="{ active: canvasShowGrid }" @click="toggleGrid" title="网格">
-                <i class="fa-solid fa-border-all"></i>
-              </button>
-              <button class="canvas-tool-btn" :class="{ active: canvasSnapToGrid }" @click="canvasSnapToGrid = !canvasSnapToGrid" title="吸附网格">
-                <i class="fa-solid fa-magnet"></i>
-              </button>
-            </div>
-            <div class="canvas-tools-right">
-              <button class="canvas-tool-btn" @click="canvasUndo" :disabled="canvasHistoryIdx <= 0" title="撤销">
-                <i class="fa-solid fa-rotate-left"></i>
-              </button>
-              <button class="canvas-tool-btn" @click="canvasRedo" :disabled="canvasHistoryIdx >= canvasHistory.length - 1" title="重做">
-                <i class="fa-solid fa-rotate-right"></i>
-              </button>
-              <button class="canvas-tool-btn" @click="clearCanvasLayer" title="清除当前图层">
-                <i class="fa-solid fa-trash-can"></i>
-              </button>
-              <div class="toolbar-sep"></div>
-              <button class="btn-secondary" @click="closeCanvasWithoutSave">取消</button>
-              <button class="btn-primary" @click="saveCanvasAndClose">保存并关闭</button>
-            </div>
-          </div>
-          <div class="canvas-workspace" ref="canvasWorkspace">
-            <div class="canvas-layers-container" ref="canvasLayersContainer" :style="{ width: canvasWidth + 'px', height: canvasHeight + 'px' }">
-              <canvas
-                v-for="(layer, idx) in canvasLayers"
-                :key="layer.id"
-                :ref="'canvasLayer_' + idx"
-                class="canvas-layer"
-                :style="{ zIndex: idx, opacity: layer.visible ? 1 : 0, pointerEvents: canvasActiveLayerIdx === idx ? 'auto' : 'none' }"
-                @mousedown="onCanvasMouseDown"
-                @mousemove="onCanvasMouseMove"
-                @mouseup="onCanvasMouseUp"
-                @mouseleave="onCanvasMouseUp"
-                @touchstart.prevent="onCanvasTouchStart"
-                @touchmove.prevent="onCanvasTouchMove"
-                @touchend.prevent="onCanvasTouchEnd"
-              ></canvas>
-              <canvas ref="canvasPreviewOverlay" class="canvas-layer canvas-preview-overlay" :style="{ zIndex: canvasLayers.length, pointerEvents: 'none' }"></canvas>
-              <canvas ref="canvasGridOverlay" class="canvas-layer canvas-grid-overlay" :style="{ zIndex: canvasLayers.length + 1, pointerEvents: 'none', opacity: canvasShowGrid ? 1 : 0 }"></canvas>
-              <div v-if="canvasTextInput.visible" class="canvas-text-input-wrap" :style="{ left: canvasTextInput.x + 'px', top: canvasTextInput.y + 'px' }">
-                <input
-                  ref="canvasTextInputEl"
-                  v-model="canvasTextInput.text"
-                  class="canvas-text-input"
-                  :style="{ fontSize: Math.max(14, canvasBrushSize * 3) + 'px', color: canvasColor }"
-                  @keydown.enter="commitCanvasText"
-                  @keydown.escape="cancelCanvasText"
-                  placeholder="输入文字后回车确认..."
-                />
-              </div>
-            </div>
-          </div>
-          <div class="canvas-layers-bar">
-            <button class="canvas-layer-btn" @click="addCanvasLayer" title="添加图层">
-              <i class="fa-solid fa-plus"></i>
-            </button>
-            <div class="canvas-layer-list">
-              <div
-                v-for="(layer, idx) in canvasLayers"
-                :key="layer.id"
-                class="canvas-layer-item"
-                :class="{ active: canvasActiveLayerIdx === idx }"
-                @click="canvasActiveLayerIdx = idx"
-              >
-                <button class="layer-vis-btn" @click.stop="toggleLayerVisibility(idx)" :title="layer.visible ? '隐藏' : '显示'">
-                  <i class="fa-solid" :class="layer.visible ? 'fa-eye' : 'fa-eye-slash'"></i>
-                </button>
-                <span class="layer-name">{{ layer.name }}</span>
-                <button class="layer-del-btn" @click.stop="removeCanvasLayer(idx)" v-if="canvasLayers.length > 1" title="删除图层">
-                  <i class="fa-solid fa-xmark"></i>
-                </button>
-              </div>
-            </div>
-            <div class="canvas-layer-reorder">
-              <button class="layer-reorder-btn" @click="moveLayerUp" :disabled="canvasActiveLayerIdx <= 0" title="上移图层">
-                <i class="fa-solid fa-chevron-up"></i>
-              </button>
-              <button class="layer-reorder-btn" @click="moveLayerDown" :disabled="canvasActiveLayerIdx >= canvasLayers.length - 1" title="下移图层">
-                <i class="fa-solid fa-chevron-down"></i>
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </transition>
-
     <div v-if="viewingCloudNote" class="cloud-note-fullscreen">
       <div class="cloud-note-fullscreen-header">
         <button class="btn-secondary" @click="viewingCloudNote = null"><i class="fa-solid fa-arrow-left"></i> 返回</button>
@@ -1015,6 +972,9 @@
       <div class="cloud-note-fullscreen-content markdown-body" v-html="renderMarkdown(viewingCloudNote.content || '')"></div>
     </div>
 
+    <!-- 云盘图片/音视频选择器 -->
+    <CloudImagePicker v-if="showCloudPicker" @select="onCloudImageSelect" @close="showCloudPicker = false" />
+
   </div>
 </template>
 
@@ -1027,6 +987,8 @@ import mermaid from 'mermaid';
 import 'highlight.js/styles/github-dark.min.css';
 import 'katex/dist/katex.min.css';
 import AppNavBar from '@/components/AppNavBar.vue';
+import DrawCanvas from '@/components/DrawCanvas.vue';
+import CloudImagePicker from '@/components/CloudImagePicker.vue';
 import api from '@/utils/api';
 import LatexRenderer from '@/utils/latex-renderer';
 
@@ -1181,7 +1143,7 @@ var NOTE_TEMPLATES = [
 
 export default {
   name: 'Notes',
-  components: { AppNavBar: AppNavBar },
+  components: { AppNavBar: AppNavBar, DrawCanvas: DrawCanvas, CloudImagePicker: CloudImagePicker },
   data: function() {
     return {
       files: [],
@@ -1217,45 +1179,13 @@ export default {
       showVersionHistory: false,
       showVersionPreview: false,
       versionPreviewHtml: '',
-      showCanvasModal: false,
-      canvasTool: 'brush',
-      canvasColor: '#000000',
-      canvasBrushSize: 3,
-      canvasOpacity: 100,
-      canvasLayers: [],
-      canvasActiveLayerIdx: 0,
-      canvasDrawing: false,
-      canvasStartX: 0,
-      canvasStartY: 0,
-      canvasLastX: 0,
-      canvasLastY: 0,
-      canvasHistory: [],
-      canvasHistoryIdx: -1,
-      canvasPresetColors: ['#000000', '#ff0000', '#ff6600', '#ffcc00', '#00cc00', '#0066ff', '#9900cc', '#ffffff'],
-      canvasTools: [
-        { id: 'select', name: '选择', icon: 'fa-arrow-pointer' },
-        { id: 'brush', name: '画笔', icon: 'fa-paintbrush' },
-        { id: 'eraser', name: '橡皮擦', icon: 'fa-eraser' },
-        { id: 'rect', name: '矩形', icon: 'fa-square' },
-        { id: 'circle', name: '圆形', icon: 'fa-circle' },
-        { id: 'line', name: '直线', icon: 'fa-minus' },
-        { id: 'triangle', name: '三角形', icon: 'fa-play' },
-        { id: 'arrow', name: '箭头', icon: 'fa-arrow-right' },
-        { id: 'diamond', name: '菱形', icon: 'fa-diamond' },
-        { id: 'text', name: '文字', icon: 'fa-font' },
-        { id: 'eyedropper', name: '吸管', icon: 'fa-eye-dropper' }
-      ],
-      canvasShapePreview: null,
-      canvasFillShape: false,
-      canvasTextInput: { visible: false, text: '', x: 0, y: 0, canvasX: 0, canvasY: 0 },
-      canvasWidth: 800,
-      canvasHeight: 600,
-      canvasSelectedObject: null,
-      canvasObjects: [],
-      canvasShowGrid: false,
-      canvasGridSize: 20,
-      canvasSnapToGrid: false,
-      canvasBrushType: 'pencil',
+      showCreateMenu: false,
+      showAnnotationLayer: false,
+      annoDrawing: false,
+      annotationInput: '',
+      annotationSelectedText: '',
+      annotationColor: '#ffc107',
+      showAnnotationInput: false,
       showResourcePicker: false,
       resourcePickerItems: [],
       resourcePickerPath: '/',
@@ -1276,6 +1206,9 @@ export default {
       chartEditorError: '',
       showCommandPalette: false,
       commandPaletteQuery: '',
+      // 云盘图片选择器
+      showCloudPicker: false,
+      imageInsertPos: null, // 打开选择器时保存的编辑器光标位置 { start, end }
       folders: ['全部', '默认'],
       activeFolder: '全部',
       sortBy: 'updatedAt',
@@ -1304,6 +1237,15 @@ export default {
     },
     allFiles: function() {
       return this.files.concat(this.privateFiles);
+    },
+    isDrawFile: function() {
+      var file = this.activeFile;
+      return file && file.type === 'draw';
+    },
+    annotationCards: function() {
+      var file = this.activeFile;
+      if (!file || file.type === 'draw') return [];
+      return file.annotations || [];
     },
     filteredFiles: function() {
       var self = this;
@@ -1450,6 +1392,10 @@ export default {
       self.$nextTick(function() {
         self.bindTodoClicks();
         self.renderMermaidCharts();
+        // 内容变化后，若批注层已开启，重新测量并初始化画布尺寸（保留现有图层）
+        if (self.showAnnotationLayer && self.$refs.annotationCanvas) {
+          self.$refs.annotationCanvas.init(self.activeFile.canvasData || []);
+        }
       });
     },
     'activeFile.content': {
@@ -1495,7 +1441,7 @@ export default {
       var result = LatexRenderer.processContent(content, marked);
       result.html = DOMPurify.sanitize(result.html, {
         ADD_TAGS: ['math', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'msqrt', 'mroot', 'mtable', 'mtr', 'mtd', 'munder', 'mover', 'munderover', 'mtext', 'mspace', 'mpadded', 'mphantom', 'mfenced', 'menclose', 'msubsup', 'mmultiscripts', 'maction'],
-        ADD_ATTR: ['displaystyle', 'scriptlevel', 'mathvariant', 'mathsize', 'mathcolor', 'mathbackground', 'linethickness', 'notation', 'open', 'close', 'separators', 'stretchy', 'symmetric', 'lspace', 'rspace', 'largeop', 'movablelimits', 'accent', 'accentunder', 'align', 'columnalign', 'rowalign', 'columnspacing', 'rowspacing', 'columnlines', 'rowlines', 'frame', 'framespacing', 'equalcolumns', 'equalrows', 'minlabelspacing', 'side', 'subscriptshift', 'superscriptshift']
+        ADD_ATTR: ['style', 'displaystyle', 'scriptlevel', 'mathvariant', 'mathsize', 'mathcolor', 'mathbackground', 'linethickness', 'notation', 'open', 'close', 'separators', 'stretchy', 'symmetric', 'lspace', 'rspace', 'largeop', 'movablelimits', 'accent', 'accentunder', 'align', 'columnalign', 'rowalign', 'columnspacing', 'rowspacing', 'columnlines', 'rowlines', 'frame', 'framespacing', 'equalcolumns', 'equalrows', 'minlabelspacing', 'side', 'subscriptshift', 'superscriptshift']
       });
       var html = LatexRenderer.renderFinalHtml(result.html, result.placeholders);
       return html;
@@ -1519,7 +1465,7 @@ export default {
       var result = LatexRenderer.processContent(content, marked);
       var html = DOMPurify.sanitize(result.html, {
         ADD_TAGS: ['math', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'msqrt', 'mroot', 'mtable', 'mtr', 'mtd', 'munder', 'mover', 'munderover', 'mtext', 'mspace', 'mpadded', 'mphantom', 'mfenced', 'menclose', 'msubsup', 'mmultiscripts', 'maction', 'svg', 'path', 'g', 'text', 'rect', 'circle', 'line', 'polygon', 'polyline', 'ellipse', 'defs', 'clipPath', 'marker', 'tspan', 'foreignObject', 'use', 'image', 'filter', 'feGaussianBlur', 'feOffset', 'feMerge', 'feMergeNode', 'linearGradient', 'stop', 'pattern', 'desc', 'title', 'style'],
-        ADD_ATTR: ['xmlns', 'viewBox', 'preserveAspectRatio', 'd', 'x', 'y', 'width', 'height', 'cx', 'cy', 'r', 'rx', 'ry', 'x1', 'y1', 'x2', 'y2', 'points', 'transform', 'fill', 'stroke', 'stroke-width', 'stroke-dasharray', 'opacity', 'font-size', 'font-family', 'font-weight', 'text-anchor', 'dominant-baseline', 'class', 'id', 'href', 'markerWidth', 'markerHeight', 'refX', 'refY', 'orient', 'offset', 'stop-color', 'stop-opacity', 'gradientUnits', 'gradientTransform', 'patternUnits', 'patternTransform', 'filterUnits', 'stdDeviation', 'dx', 'dy', 'result', 'in', 'in2', 'operator', 'k1', 'k2', 'k3', 'k4', 'displaystyle', 'scriptlevel', 'mathvariant', 'mathsize', 'mathcolor', 'mathbackground', 'linethickness', 'notation', 'open', 'close', 'separators', 'stretchy', 'symmetric', 'lspace', 'rspace', 'largeop', 'movablelimits', 'accent', 'accentunder', 'align', 'columnalign', 'rowalign', 'columnspacing', 'rowspacing', 'columnlines', 'rowlines', 'frame', 'framespacing', 'equalcolumns', 'equalrows', 'minlabelspacing', 'side', 'subscriptshift', 'superscriptshift', 'data-raw-b64', 'data-chart-id']
+        ADD_ATTR: ['style', 'xmlns', 'viewBox', 'preserveAspectRatio', 'd', 'x', 'y', 'width', 'height', 'cx', 'cy', 'r', 'rx', 'ry', 'x1', 'y1', 'x2', 'y2', 'points', 'transform', 'fill', 'stroke', 'stroke-width', 'stroke-dasharray', 'opacity', 'font-size', 'font-family', 'font-weight', 'text-anchor', 'dominant-baseline', 'class', 'id', 'href', 'markerWidth', 'markerHeight', 'refX', 'refY', 'orient', 'offset', 'stop-color', 'stop-opacity', 'gradientUnits', 'gradientTransform', 'patternUnits', 'patternTransform', 'filterUnits', 'stdDeviation', 'dx', 'dy', 'result', 'in', 'in2', 'operator', 'k1', 'k2', 'k3', 'k4', 'displaystyle', 'scriptlevel', 'mathvariant', 'mathsize', 'mathcolor', 'mathbackground', 'linethickness', 'notation', 'open', 'close', 'separators', 'stretchy', 'symmetric', 'lspace', 'rspace', 'largeop', 'movablelimits', 'accent', 'accentunder', 'align', 'columnalign', 'rowalign', 'columnspacing', 'rowspacing', 'columnlines', 'rowlines', 'frame', 'framespacing', 'equalcolumns', 'equalrows', 'minlabelspacing', 'side', 'subscriptshift', 'superscriptshift', 'data-raw-b64', 'data-chart-id']
       });
       html = LatexRenderer.renderFinalHtml(html, result.placeholders);
       html = this.renderAnnotations(html);
@@ -1676,7 +1622,7 @@ export default {
       var result = LatexRenderer.processContent(content, marked);
       var html = DOMPurify.sanitize(result.html, {
         ADD_TAGS: ['math', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'msqrt', 'mroot', 'mtable', 'mtr', 'mtd', 'munder', 'mover', 'munderover', 'mtext', 'mspace', 'mpadded', 'mphantom', 'mfenced', 'menclose', 'msubsup', 'mmultiscripts', 'maction', 'svg', 'path', 'g', 'text', 'rect', 'circle', 'line', 'polygon', 'polyline', 'ellipse', 'defs', 'clipPath', 'marker', 'tspan', 'foreignObject', 'use', 'image', 'filter', 'feGaussianBlur', 'feOffset', 'feMerge', 'feMergeNode', 'linearGradient', 'stop', 'pattern', 'desc', 'title', 'style'],
-        ADD_ATTR: ['xmlns', 'viewBox', 'preserveAspectRatio', 'd', 'x', 'y', 'width', 'height', 'cx', 'cy', 'r', 'rx', 'ry', 'x1', 'y1', 'x2', 'y2', 'points', 'transform', 'fill', 'stroke', 'stroke-width', 'stroke-dasharray', 'opacity', 'font-size', 'font-family', 'font-weight', 'text-anchor', 'dominant-baseline', 'class', 'id', 'href', 'markerWidth', 'markerHeight', 'refX', 'refY', 'orient', 'offset', 'stop-color', 'stop-opacity', 'gradientUnits', 'gradientTransform', 'patternUnits', 'patternTransform', 'filterUnits', 'stdDeviation', 'dx', 'dy', 'result', 'in', 'in2', 'operator', 'k1', 'k2', 'k3', 'k4', 'displaystyle', 'scriptlevel', 'mathvariant', 'mathsize', 'mathcolor', 'mathbackground', 'linethickness', 'notation', 'open', 'close', 'separators', 'stretchy', 'symmetric', 'lspace', 'rspace', 'largeop', 'movablelimits', 'accent', 'accentunder', 'align', 'columnalign', 'rowalign', 'columnspacing', 'rowspacing', 'columnlines', 'rowlines', 'frame', 'framespacing', 'equalcolumns', 'equalrows', 'minlabelspacing', 'side', 'subscriptshift', 'superscriptshift']
+        ADD_ATTR: ['style', 'xmlns', 'viewBox', 'preserveAspectRatio', 'd', 'x', 'y', 'width', 'height', 'cx', 'cy', 'r', 'rx', 'ry', 'x1', 'y1', 'x2', 'y2', 'points', 'transform', 'fill', 'stroke', 'stroke-width', 'stroke-dasharray', 'opacity', 'font-size', 'font-family', 'font-weight', 'text-anchor', 'dominant-baseline', 'class', 'id', 'href', 'markerWidth', 'markerHeight', 'refX', 'refY', 'orient', 'offset', 'stop-color', 'stop-opacity', 'gradientUnits', 'gradientTransform', 'patternUnits', 'patternTransform', 'filterUnits', 'stdDeviation', 'dx', 'dy', 'result', 'in', 'in2', 'operator', 'k1', 'k2', 'k3', 'k4', 'displaystyle', 'scriptlevel', 'mathvariant', 'mathsize', 'mathcolor', 'mathbackground', 'linethickness', 'notation', 'open', 'close', 'separators', 'stretchy', 'symmetric', 'lspace', 'rspace', 'largeop', 'movablelimits', 'accent', 'accentunder', 'align', 'columnalign', 'rowalign', 'columnspacing', 'rowspacing', 'columnlines', 'rowlines', 'frame', 'framespacing', 'equalcolumns', 'equalrows', 'minlabelspacing', 'side', 'subscriptshift', 'superscriptshift']
       });
       html = LatexRenderer.renderFinalHtml(html, result.placeholders);
       html = self.renderAnnotations(html);
@@ -1700,11 +1646,13 @@ export default {
         id: generateId(),
         title: '未命名笔记',
         content: '',
+        type: 'note',
         tags: [],
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         isPrivate: false,
-        canvasData: [],
+        canvasData: null,
+        annotations: [],
         templateId: 'blank',
         versions: []
       };
@@ -1724,11 +1672,13 @@ export default {
         id: generateId(),
         title: tpl.name + ' - ' + dateStr,
         content: content,
+        type: 'note',
         tags: [],
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         isPrivate: false,
-        canvasData: [],
+        canvasData: null,
+        annotations: [],
         templateId: tpl.id,
         versions: []
       };
@@ -1746,11 +1696,13 @@ export default {
         id: generateId(),
         title: '未命名隐私笔记',
         content: '',
+        type: 'note',
         tags: [],
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         isPrivate: true,
-        canvasData: [],
+        canvasData: null,
+        annotations: [],
         templateId: 'blank',
         versions: []
       };
@@ -1759,9 +1711,24 @@ export default {
       self.saveData();
     },
     selectFile: function(id) {
-      this.activeFileId = id;
-      this.saveData();
-      if (this.isMobile) this.showSidebar = false;
+      var self = this;
+      // 切换前自动保存画板数据
+      if (self.isDrawFile && self.activeFile && self.activeFile.id !== id && self.$refs.drawCanvas) {
+        try {
+          var currentData = self.$refs.drawCanvas.getData();
+          self.activeFile.canvasData = currentData;
+        } catch(e) {}
+      }
+      // 切换前自动保存批注数据
+      if (self.showAnnotationLayer && self.activeFile && self.$refs.annotationCanvas) {
+        try {
+          var annoData = self.$refs.annotationCanvas.getData();
+          self.activeFile.canvasData = annoData;
+        } catch(e) {}
+      }
+      self.activeFileId = id;
+      self.saveData();
+      if (self.isMobile) self.showSidebar = false;
     },
     deleteFile: function(id) {
       var self = this;
@@ -1806,11 +1773,13 @@ export default {
         id: generateId(),
         title: src.title + ' (副本)',
         content: src.content,
+        type: src.type || 'note',
         tags: (src.tags || []).slice(),
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         isPrivate: src.isPrivate,
         canvasData: (src.canvasData || []).slice(),
+        annotations: (src.annotations || []).slice(),
         templateId: src.templateId || 'blank',
         versions: []
       };
@@ -1964,6 +1933,61 @@ export default {
       }
       self.onFileChange();
     },
+    // ============ 云盘图片/音视频插入 ============
+    openCloudImagePicker: function() {
+      // 打开选择器前保存编辑器光标位置，选择后在该位置插入
+      var editor = this.$refs.editor;
+      if (editor) {
+        this.imageInsertPos = { start: editor.selectionStart, end: editor.selectionEnd };
+      }
+      this.showCloudPicker = true;
+    },
+    onCloudImageSelect: function(file) {
+      var self = this;
+      self.showCloudPicker = false;
+      if (!file || !file.name) return;
+      // 构造云盘文件访问 URL
+      var url = '/api/cloud/files/' + encodeURIComponent(file.name);
+      // 按文件类型分支：图片用 ![]()，音视频用 []()（customRenderer.link 渲染播放器）
+      var type = self.getCloudFileType(file.name);
+      var md = type === 'image' ? '![' + file.name + '](' + url + ')' : '[' + file.name + '](' + url + ')';
+      var editor = self.$refs.editor;
+      if (!editor) {
+        // 兜底：追加到末尾
+        self.activeFile.content = (self.activeFile.content || '') + '\n' + md + '\n';
+        self.onFileChange();
+        return;
+      }
+      // 在保存的光标位置插入（若未保存则用当前光标）
+      var pos = self.imageInsertPos || { start: editor.selectionStart, end: editor.selectionEnd };
+      var text = editor.value || '';
+      var before = text.substring(0, pos.start);
+      var after = text.substring(pos.end);
+      var insertText = (before && !before.endsWith('\n') ? '\n' : '') + md + '\n';
+      self.activeFile.content = before + insertText + after;
+      self.imageInsertPos = null;
+      // 恢复编辑器焦点并将光标移到插入内容之后
+      self.$nextTick(function() {
+        editor.focus();
+        var cursorPos = (before + insertText).length;
+        editor.setSelectionRange(cursorPos, cursorPos);
+      });
+      self.onFileChange();
+    },
+    getCloudFileType: function(name) {
+      // 与 CloudImagePicker.getFileType 保持一致的简化版
+      var lower = (name || '').toLowerCase();
+      if (lower.indexOf('__audio') > -1) return 'audio';
+      if (lower.indexOf('__video') > -1) return 'video';
+      if (lower.indexOf('__image') > -1) return 'image';
+      var VID_EXTS = ['.mp4', '.mov', '.webm', '.mkv', '.avi', '.3gp'];
+      var AUD_EXTS = ['.mp3', '.m4a', '.aac', '.wav', '.ogg', '.opus'];
+      var IMG_EXTS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
+      for (var v = 0; v < VID_EXTS.length; v++) { if (lower.indexOf(VID_EXTS[v]) > -1) return 'video'; }
+      for (var a = 0; a < AUD_EXTS.length; a++) { if (lower.indexOf(AUD_EXTS[a]) > -1) return 'audio'; }
+      for (var i = 0; i < IMG_EXTS.length; i++) { if (lower.indexOf(IMG_EXTS[i]) > -1) return 'image'; }
+      return 'other';
+    },
     insertMarkdown: function(type) {
       var self = this;
       var editor = self.$refs.editor;
@@ -2035,9 +2059,9 @@ export default {
           cursorOffset = 3;
           break;
         case 'annotation':
-          insert = '\n> [批注] ' + (selected || '批注内容') + '\n';
-          cursorOffset = 8;
-          break;
+          // 使用新的批注卡片系统
+          self.addAnnotationCard(selected || '');
+          return;
         case 'table':
           insert = '\n| 列1 | 列2 | 列3 |\n| --- | --- | --- |\n| 内容 | 内容 | 内容 |\n';
           cursorOffset = 3;
@@ -2453,524 +2477,6 @@ export default {
     },
     onResize: function() {
       this.isMobile = window.innerWidth <= 768;
-    },
-    openCanvas: function() {
-      var self = this;
-      if (!self.activeFile) return;
-      self.showCanvasModal = true;
-      var existingData = self.activeFile.canvasData || [];
-      self.canvasLayers = [];
-      self.canvasActiveLayerIdx = 0;
-      self.canvasHistory = [];
-      self.canvasHistoryIdx = -1;
-      self.canvasTool = 'brush';
-      self.canvasColor = '#000000';
-      self.canvasBrushSize = 3;
-      self.canvasOpacity = 100;
-      self.canvasFillShape = false;
-      self.canvasTextInput = { visible: false, text: '', x: 0, y: 0, canvasX: 0, canvasY: 0 };
-      self.$nextTick(function() {
-        var workspace = self.$refs.canvasWorkspace;
-        if (!workspace) return;
-        var maxW = workspace.offsetWidth - 40;
-        var maxH = workspace.offsetHeight - 40;
-        var w = Math.min(maxW, 1200);
-        var h = Math.min(maxH, 800);
-        if (w < 400) w = 400;
-        if (h < 300) h = 300;
-        w = Math.floor(w);
-        h = Math.floor(h);
-        self.canvasWidth = w;
-        self.canvasHeight = h;
-        if (existingData.length > 0) {
-          existingData.forEach(function(dataUrl, idx) {
-            self.canvasLayers.push({
-              id: generateId(),
-              name: '图层 ' + (idx + 1),
-              visible: true,
-              width: w,
-              height: h
-            });
-          });
-        } else {
-          self.canvasLayers.push({
-            id: generateId(),
-            name: '图层 1',
-            visible: true,
-            width: w,
-            height: h
-          });
-        }
-        self.$nextTick(function() {
-          self.canvasLayers.forEach(function(layer, idx) {
-            var refKey = 'canvasLayer_' + idx;
-            var canvasArr = self.$refs[refKey];
-            var canvas = canvasArr ? canvasArr[0] : null;
-            if (canvas) {
-              canvas.width = w;
-              canvas.height = h;
-              var ctx = canvas.getContext('2d');
-              ctx.fillStyle = '#ffffff';
-              ctx.fillRect(0, 0, w, h);
-              if (existingData[idx]) {
-                var img = new Image();
-                img.onload = (function(c, d) {
-                  return function() {
-                    c.drawImage(d, 0, 0, w, h);
-                  };
-                })(ctx, img);
-                img.src = existingData[idx];
-              }
-            }
-          });
-          var overlay = self.$refs.canvasPreviewOverlay;
-          if (overlay) {
-            overlay.width = w;
-            overlay.height = h;
-          }
-          var gridOverlay = self.$refs.canvasGridOverlay;
-          if (gridOverlay) {
-            gridOverlay.width = w;
-            gridOverlay.height = h;
-          }
-          self.canvasShowGrid = false;
-          self.canvasSnapToGrid = false;
-          self.saveCanvasState();
-        });
-      });
-    },
-    getActiveCanvas: function() {
-      var self = this;
-      var refKey = 'canvasLayer_' + self.canvasActiveLayerIdx;
-      var canvasArr = self.$refs[refKey];
-      return canvasArr ? canvasArr[0] : null;
-    },
-    getCanvasPos: function(e) {
-      var self = this;
-      var canvas = self.getActiveCanvas();
-      if (!canvas) return { x: 0, y: 0 };
-      var rect = canvas.getBoundingClientRect();
-      var scaleX = canvas.width / rect.width;
-      var scaleY = canvas.height / rect.height;
-      var pos = {
-        x: (e.clientX - rect.left) * scaleX,
-        y: (e.clientY - rect.top) * scaleY
-      };
-      if (self.canvasSnapToGrid && self.canvasShowGrid) {
-        pos.x = Math.round(pos.x / self.canvasGridSize) * self.canvasGridSize;
-        pos.y = Math.round(pos.y / self.canvasGridSize) * self.canvasGridSize;
-      }
-      return pos;
-    },
-    onCanvasMouseDown: function(e) {
-      var self = this;
-      if (self.canvasTool === 'select') return;
-      if (self.canvasTool === 'eyedropper') {
-        self.onCanvasMouseDownEyedropper(e);
-        return;
-      }
-      if (self.canvasTool === 'text') {
-        var containerRect = self.$refs.canvasLayersContainer.getBoundingClientRect();
-        var pos = self.getCanvasPos(e);
-        self.canvasTextInput = {
-          visible: true,
-          text: '',
-          x: e.clientX - containerRect.left,
-          y: e.clientY - containerRect.top,
-          canvasX: pos.x,
-          canvasY: pos.y
-        };
-        self.$nextTick(function() {
-          if (self.$refs.canvasTextInputEl) self.$refs.canvasTextInputEl.focus();
-        });
-        return;
-      }
-      self.canvasDrawing = true;
-      var pos = self.getCanvasPos(e);
-      self.canvasStartX = pos.x;
-      self.canvasStartY = pos.y;
-      self.canvasLastX = pos.x;
-      self.canvasLastY = pos.y;
-      var canvas = self.getActiveCanvas();
-      if (!canvas) return;
-      var ctx = canvas.getContext('2d');
-      if (self.canvasTool === 'brush' || self.canvasTool === 'eraser') {
-        ctx.beginPath();
-        ctx.moveTo(pos.x, pos.y);
-        ctx.globalCompositeOperation = 'source-over';
-        if (self.canvasTool === 'eraser') {
-          ctx.strokeStyle = '#ffffff';
-          ctx.globalAlpha = 1;
-        } else {
-          ctx.strokeStyle = self.canvasColor;
-          ctx.globalAlpha = self.canvasOpacity / 100;
-        }
-        ctx.lineWidth = self.canvasBrushSize;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-      }
-      if (self.canvasTool === 'rect' || self.canvasTool === 'circle' || self.canvasTool === 'line' || self.canvasTool === 'triangle' || self.canvasTool === 'arrow' || self.canvasTool === 'diamond') {
-        self.canvasShapePreview = {
-          tool: self.canvasTool,
-          startX: pos.x,
-          startY: pos.y,
-          endX: pos.x,
-          endY: pos.y
-        };
-      }
-    },
-    onCanvasMouseMove: function(e) {
-      var self = this;
-      if (!self.canvasDrawing) return;
-      var pos = self.getCanvasPos(e);
-      var canvas = self.getActiveCanvas();
-      if (!canvas) return;
-      var ctx = canvas.getContext('2d');
-      if (self.canvasTool === 'brush' || self.canvasTool === 'eraser') {
-        ctx.lineTo(pos.x, pos.y);
-        ctx.stroke();
-        self.canvasLastX = pos.x;
-        self.canvasLastY = pos.y;
-      }
-      if (self.canvasShapePreview) {
-        self.canvasShapePreview.endX = pos.x;
-        self.canvasShapePreview.endY = pos.y;
-        self.redrawShapePreview();
-      }
-    },
-    onCanvasMouseUp: function(e) {
-      var self = this;
-      if (!self.canvasDrawing) return;
-      self.canvasDrawing = false;
-      var canvas = self.getActiveCanvas();
-      if (!canvas) return;
-      var ctx = canvas.getContext('2d');
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.globalAlpha = 1;
-      if (self.canvasShapePreview) {
-        self.drawShapeOnCanvas(ctx, self.canvasShapePreview);
-        self.canvasShapePreview = null;
-        var overlay = self.$refs.canvasPreviewOverlay;
-        if (overlay) {
-          var octx = overlay.getContext('2d');
-          octx.clearRect(0, 0, overlay.width, overlay.height);
-        }
-      }
-      self.saveCanvasState();
-    },
-    onCanvasTouchStart: function(e) {
-      var self = this;
-      if (e.touches.length === 1) {
-        var touch = e.touches[0];
-        self.onCanvasMouseDown(touch);
-      }
-    },
-    onCanvasTouchMove: function(e) {
-      var self = this;
-      if (e.touches.length === 1) {
-        var touch = e.touches[0];
-        self.onCanvasMouseMove(touch);
-      }
-    },
-    onCanvasTouchEnd: function(e) {
-      var self = this;
-      self.onCanvasMouseUp(e);
-    },
-    redrawShapePreview: function() {
-      var self = this;
-      if (!self.canvasShapePreview) return;
-      var overlay = self.$refs.canvasPreviewOverlay;
-      if (!overlay) return;
-      var ctx = overlay.getContext('2d');
-      ctx.clearRect(0, 0, overlay.width, overlay.height);
-      self.drawShapeOnCanvas(ctx, self.canvasShapePreview);
-    },
-    drawShapeOnCanvas: function(ctx, shape) {
-      var self = this;
-      ctx.save();
-      ctx.strokeStyle = self.canvasColor;
-      ctx.fillStyle = self.canvasColor;
-      ctx.lineWidth = self.canvasBrushSize;
-      ctx.globalAlpha = self.canvasOpacity / 100;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      if (shape.tool === 'rect') {
-        if (self.canvasFillShape) {
-          ctx.fillRect(shape.startX, shape.startY, shape.endX - shape.startX, shape.endY - shape.startY);
-        } else {
-          ctx.strokeRect(shape.startX, shape.startY, shape.endX - shape.startX, shape.endY - shape.startY);
-        }
-      } else if (shape.tool === 'circle') {
-        var rx = Math.abs(shape.endX - shape.startX) / 2;
-        var ry = Math.abs(shape.endY - shape.startY) / 2;
-        var cx = (shape.startX + shape.endX) / 2;
-        var cy = (shape.startY + shape.endY) / 2;
-        ctx.beginPath();
-        ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
-        if (self.canvasFillShape) {
-          ctx.fill();
-        } else {
-          ctx.stroke();
-        }
-      } else if (shape.tool === 'line') {
-        ctx.beginPath();
-        ctx.moveTo(shape.startX, shape.startY);
-        ctx.lineTo(shape.endX, shape.endY);
-        ctx.stroke();
-      } else if (shape.tool === 'triangle') {
-        var midX = (shape.startX + shape.endX) / 2;
-        ctx.beginPath();
-        ctx.moveTo(midX, shape.startY);
-        ctx.lineTo(shape.endX, shape.endY);
-        ctx.lineTo(shape.startX, shape.endY);
-        ctx.closePath();
-        if (self.canvasFillShape) {
-          ctx.fill();
-        } else {
-          ctx.stroke();
-        }
-      } else if (shape.tool === 'arrow') {
-        var headLen = Math.max(10, self.canvasBrushSize * 4);
-        var dx = shape.endX - shape.startX;
-        var dy = shape.endY - shape.startY;
-        var angle = Math.atan2(dy, dx);
-        ctx.beginPath();
-        ctx.moveTo(shape.startX, shape.startY);
-        ctx.lineTo(shape.endX, shape.endY);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(shape.endX, shape.endY);
-        ctx.lineTo(shape.endX - headLen * Math.cos(angle - Math.PI / 6), shape.endY - headLen * Math.sin(angle - Math.PI / 6));
-        ctx.moveTo(shape.endX, shape.endY);
-        ctx.lineTo(shape.endX - headLen * Math.cos(angle + Math.PI / 6), shape.endY - headLen * Math.sin(angle + Math.PI / 6));
-        ctx.stroke();
-      } else if (shape.tool === 'diamond') {
-        var cx = (shape.startX + shape.endX) / 2;
-        var cy = (shape.startY + shape.endY) / 2;
-        var halfW = Math.abs(shape.endX - shape.startX) / 2;
-        var halfH = Math.abs(shape.endY - shape.startY) / 2;
-        ctx.beginPath();
-        ctx.moveTo(cx, cy - halfH);
-        ctx.lineTo(cx + halfW, cy);
-        ctx.lineTo(cx, cy + halfH);
-        ctx.lineTo(cx - halfW, cy);
-        ctx.closePath();
-        if (self.canvasFillShape) {
-          ctx.fill();
-        } else {
-          ctx.stroke();
-        }
-      }
-      ctx.restore();
-    },
-    saveCanvasState: function() {
-      var self = this;
-      var canvas = self.getActiveCanvas();
-      if (!canvas) return;
-      var dataUrl = canvas.toDataURL('image/png');
-      if (self.canvasHistoryIdx < self.canvasHistory.length - 1) {
-        self.canvasHistory = self.canvasHistory.slice(0, self.canvasHistoryIdx + 1);
-      }
-      self.canvasHistory.push(dataUrl);
-      if (self.canvasHistory.length > 50) {
-        self.canvasHistory = self.canvasHistory.slice(self.canvasHistory.length - 50);
-      }
-      self.canvasHistoryIdx = self.canvasHistory.length - 1;
-    },
-    canvasUndo: function() {
-      var self = this;
-      if (self.canvasHistoryIdx <= 0) return;
-      self.canvasHistoryIdx--;
-      self.restoreCanvasFromHistory();
-    },
-    canvasRedo: function() {
-      var self = this;
-      if (self.canvasHistoryIdx >= self.canvasHistory.length - 1) return;
-      self.canvasHistoryIdx++;
-      self.restoreCanvasFromHistory();
-    },
-    restoreCanvasFromHistory: function() {
-      var self = this;
-      var canvas = self.getActiveCanvas();
-      if (!canvas) return;
-      var ctx = canvas.getContext('2d');
-      var dataUrl = self.canvasHistory[self.canvasHistoryIdx];
-      if (!dataUrl) return;
-      var img = new Image();
-      img.onload = function() {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(img, 0, 0);
-      };
-      img.src = dataUrl;
-    },
-    clearCanvasLayer: function() {
-      var self = this;
-      var canvas = self.getActiveCanvas();
-      if (!canvas) return;
-      var ctx = canvas.getContext('2d');
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      self.saveCanvasState();
-    },
-    addCanvasLayer: function() {
-      var self = this;
-      var w = self.canvasWidth;
-      var h = self.canvasHeight;
-      var newLayer = {
-        id: generateId(),
-        name: '图层 ' + (self.canvasLayers.length + 1),
-        visible: true,
-        width: w,
-        height: h
-      };
-      self.canvasLayers.push(newLayer);
-      self.canvasActiveLayerIdx = self.canvasLayers.length - 1;
-      self.$nextTick(function() {
-        var refKey = 'canvasLayer_' + (self.canvasLayers.length - 1);
-        var canvasArr = self.$refs[refKey];
-        var canvas = canvasArr ? canvasArr[0] : null;
-        if (canvas) {
-          canvas.width = w;
-          canvas.height = h;
-          var ctx = canvas.getContext('2d');
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(0, 0, w, h);
-        }
-        var overlay = self.$refs.canvasPreviewOverlay;
-        if (overlay) {
-          overlay.width = w;
-          overlay.height = h;
-          overlay.getContext('2d').clearRect(0, 0, w, h);
-        }
-        self.saveCanvasState();
-      });
-    },
-    removeCanvasLayer: function(idx) {
-      var self = this;
-      if (self.canvasLayers.length <= 1) return;
-      self.canvasLayers.splice(idx, 1);
-      if (self.canvasActiveLayerIdx >= self.canvasLayers.length) {
-        self.canvasActiveLayerIdx = self.canvasLayers.length - 1;
-      } else if (self.canvasActiveLayerIdx > idx) {
-        self.canvasActiveLayerIdx--;
-      } else if (self.canvasActiveLayerIdx === idx) {
-        self.canvasActiveLayerIdx = Math.min(idx, self.canvasLayers.length - 1);
-      }
-      self.canvasHistory = [];
-      self.canvasHistoryIdx = -1;
-      self.$nextTick(function() {
-        self.saveCanvasState();
-      });
-    },
-    toggleLayerVisibility: function(idx) {
-      this.canvasLayers[idx].visible = !this.canvasLayers[idx].visible;
-    },
-    moveLayerUp: function() {
-      var self = this;
-      var idx = self.canvasActiveLayerIdx;
-      if (idx <= 0) return;
-      var temp = self.canvasLayers[idx];
-      self.$set(self.canvasLayers, idx, self.canvasLayers[idx - 1]);
-      self.$set(self.canvasLayers, idx - 1, temp);
-      self.canvasActiveLayerIdx = idx - 1;
-    },
-    moveLayerDown: function() {
-      var self = this;
-      var idx = self.canvasActiveLayerIdx;
-      if (idx >= self.canvasLayers.length - 1) return;
-      var temp = self.canvasLayers[idx];
-      self.$set(self.canvasLayers, idx, self.canvasLayers[idx + 1]);
-      self.$set(self.canvasLayers, idx + 1, temp);
-      self.canvasActiveLayerIdx = idx + 1;
-    },
-    saveCanvasAndClose: function() {
-      var self = this;
-      if (!self.activeFile) return;
-      var canvasData = [];
-      self.canvasLayers.forEach(function(layer, idx) {
-        var refKey = 'canvasLayer_' + idx;
-        var canvasArr = self.$refs[refKey];
-        var canvas = canvasArr ? canvasArr[0] : null;
-        if (canvas) {
-          canvasData.push(canvas.toDataURL('image/png'));
-        }
-      });
-      self.activeFile.canvasData = canvasData;
-      self.showCanvasModal = false;
-      self.saveData();
-      self.$store.commit('toast/SHOW_TOAST', { message: '画布已保存', type: 'success' });
-    },
-    toggleGrid: function() {
-      var self = this;
-      self.canvasShowGrid = !self.canvasShowGrid;
-      self.$nextTick(function() {
-        self.drawGrid();
-      });
-    },
-    drawGrid: function() {
-      var self = this;
-      var overlay = self.$refs.canvasGridOverlay;
-      if (!overlay) return;
-      var w = self.canvasWidth;
-      var h = self.canvasHeight;
-      overlay.width = w;
-      overlay.height = h;
-      var ctx = overlay.getContext('2d');
-      ctx.clearRect(0, 0, w, h);
-      if (!self.canvasShowGrid) return;
-      ctx.strokeStyle = 'rgba(0,0,0,0.08)';
-      ctx.lineWidth = 1;
-      var gs = self.canvasGridSize;
-      for (var x = gs; x < w; x += gs) {
-        ctx.beginPath();
-        ctx.moveTo(x + 0.5, 0);
-        ctx.lineTo(x + 0.5, h);
-        ctx.stroke();
-      }
-      for (var y = gs; y < h; y += gs) {
-        ctx.beginPath();
-        ctx.moveTo(0, y + 0.5);
-        ctx.lineTo(w, y + 0.5);
-        ctx.stroke();
-      }
-    },
-    onCanvasMouseDownEyedropper: function(e) {
-      var self = this;
-      var canvas = self.getActiveCanvas();
-      if (!canvas) return;
-      var pos = self.getCanvasPos(e);
-      var ctx = canvas.getContext('2d');
-      var pixel = ctx.getImageData(Math.round(pos.x), Math.round(pos.y), 1, 1).data;
-      var hex = '#' + ((1 << 24) + (pixel[0] << 16) + (pixel[1] << 8) + pixel[2]).toString(16).slice(1);
-      self.canvasColor = hex;
-      self.canvasTool = 'brush';
-      self.$store.commit('toast/SHOW_TOAST', { message: '已取色: ' + hex, type: 'success' });
-    },
-    commitCanvasText: function() {
-      var self = this;
-      if (!self.canvasTextInput.text.trim()) {
-        self.canvasTextInput.visible = false;
-        return;
-      }
-      var canvas = self.getActiveCanvas();
-      if (!canvas) return;
-      var ctx = canvas.getContext('2d');
-      ctx.save();
-      ctx.font = Math.max(14, self.canvasBrushSize * 3) + 'px sans-serif';
-      ctx.fillStyle = self.canvasColor;
-      ctx.globalAlpha = self.canvasOpacity / 100;
-      ctx.textBaseline = 'top';
-      var lines = self.canvasTextInput.text.split('\n');
-      var lineHeight = Math.max(14, self.canvasBrushSize * 3) * 1.3;
-      for (var i = 0; i < lines.length; i++) {
-        ctx.fillText(lines[i], self.canvasTextInput.canvasX, self.canvasTextInput.canvasY + i * lineHeight);
-      }
-      ctx.restore();
-      self.canvasTextInput.visible = false;
-      self.saveCanvasState();
-    },
-    cancelCanvasText: function() {
-      this.canvasTextInput.visible = false;
     },
     renderMermaidCharts: function(retryCount) {
       var self = this;
@@ -3436,7 +2942,7 @@ export default {
         case 'table': self.insertMarkdown('table'); break;
         case 'fontSizeUp': self.adjustFontSize(1); break;
         case 'fontSizeDown': self.adjustFontSize(-1); break;
-        case 'canvas': self.openCanvas(); break;
+        case 'canvas': self.createDrawFile(); break;
         case 'tags': self.showTagModal = true; break;
         case 'versions': self.showVersionHistory = true; break;
         case 'focusMode': self.toggleFocusMode(); break;
@@ -3513,6 +3019,13 @@ export default {
           self.$set(self.activeFile, 'cloudVisibility', data.visibility);
           self.$store.commit('toast/SHOW_TOAST', { message: '已上传到云端', type: 'success' });
           self.loadCloudNotes();
+          // 同步保存到云盘 note 目录（静默执行，不影响主流程）
+          api.post('/cloud/note/' + data.id, {
+            content: data.content,
+            title: data.title,
+            tags: data.tags,
+            folder: data.folder
+          }).catch(function() {});
         }
       }).catch(function(err) {
         var msg = '上传失败';
@@ -3637,11 +3150,13 @@ export default {
         id: 'note_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
         title: note.title || '未命名笔记',
         content: note.content || '',
+        type: 'note',
         tags: note.tags || [],
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         isPrivate: false,
         canvasData: null,
+        annotations: [],
         templateId: null,
         versions: [],
         folder: '默认',
@@ -3654,8 +3169,164 @@ export default {
       self.showCloudPanel = false;
       self.$store.commit('toast/SHOW_TOAST', { message: '已转载到本地笔记', type: 'success' });
     },
-    closeCanvasWithoutSave: function() {
-      this.showCanvasModal = false;
+    // ============ 批注系统 ============
+    startAnnotation: function() {
+      var self = this;
+      if (self.viewMode === 'edit') {
+        self.viewMode = 'split';
+        // 等分屏渲染后再打开批注层
+        self.$nextTick(function() {
+          self.showAnnotationLayer = true;
+        });
+      } else {
+        self.showAnnotationLayer = true;
+      }
+    },
+
+    toggleAnnotationLayer: function() {
+      var self = this;
+      self.showAnnotationLayer = !self.showAnnotationLayer;
+      if (!self.showAnnotationLayer) {
+        // 退出批注时保存
+        self.saveData();
+      }
+    },
+
+    onAnnotationSave: function(canvasData) {
+      var self = this;
+      if (!self.activeFile) return;
+      self.activeFile.canvasData = canvasData;
+      self.activeFile.updatedAt = new Date().toISOString();
+      self.saveData();
+    },
+
+    commitAnnotationCard: function() {
+      var self = this;
+      var text = self.annotationInput.trim();
+      if (!text) { self.showAnnotationInput = false; return; }
+      if (!self.activeFile || self.activeFile.type === 'draw') return;
+      if (!self.activeFile.annotations) {
+        self.$set(self.activeFile, 'annotations', []);
+      }
+      self.activeFile.annotations.push({
+        id: 'a_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
+        text: text,
+        selectedText: self.annotationSelectedText || '',
+        color: self.annotationColor,
+        createdAt: new Date().toISOString()
+      });
+      self.activeFile.updatedAt = new Date().toISOString();
+      self.annotationInput = '';
+      self.annotationSelectedText = '';
+      self.showAnnotationInput = false;
+      self.saveData();
+      self.$store.commit('toast/SHOW_TOAST', { message: '批注已添加', type: 'success' });
+    },
+
+    addAnnotationCard: function(selectedText) {
+      var self = this;
+      if (!self.activeFile || self.activeFile.type === 'draw') return;
+      if (!self.activeFile.annotations) {
+        self.$set(self.activeFile, 'annotations', []);
+      }
+      self.annotationInput = '';
+      self.annotationSelectedText = selectedText || '';
+      self.annotationColor = '#ffc107';
+      self.showAnnotationInput = true;
+      // 不弹出原生 prompt，显示内置输入框
+      self.$nextTick(function() {
+        var el = document.getElementById('annotation-inline-input');
+        if (el) el.focus();
+      });
+    },
+
+    deleteAnnotation: function(annoId) {
+      var self = this;
+      if (!self.activeFile || !self.activeFile.annotations) return;
+      var idx = self.activeFile.annotations.findIndex(function(a) { return a.id === annoId; });
+      if (idx > -1) {
+        self.activeFile.annotations.splice(idx, 1);
+        self.activeFile.updatedAt = new Date().toISOString();
+        self.saveData();
+      }
+    },
+
+    onPreviewTextSelect: function() {
+      var self = this;
+      if (self.showAnnotationLayer) return; // 批注涂鸦模式下不触发
+      setTimeout(function() {
+        var selection = window.getSelection();
+        if (!selection || selection.isCollapsed || !selection.toString().trim()) return;
+        var selectedText = selection.toString().trim();
+        if (selectedText.length < 1) return;
+        // 在预览区选中文字时自动弹出批注提示
+        // 使用轻量提示：在选中的文本下方显示一个小按钮
+        // 为了避免过于复杂，这里直接用简单的确认
+        if (selectedText.length > 0 && selectedText.length < 500) {
+          // 不自动弹出，让用户通过编辑器批注按钮来添加
+          // 但保留这个钩子供未来扩展
+        }
+      }, 300);
+    },
+
+    renderAnnotationText: function(text) {
+      if (!text) return '';
+      // 简单的 markdown 处理
+      var html = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.+?)\*/g, '<em>$1</em>')
+        .replace(/`(.+?)`/g, '<code>$1</code>')
+        .replace(/\n/g, '<br>');
+      return html;
+    },
+
+    // ============ 画板模式 ============
+    createNoteFile: function() {
+      this.showTemplatePicker = true;
+    },
+
+    exitDrawFile: function() {
+      var self = this;
+      // 切到最近的非画板文件
+      var noteFile = self.allFiles.find(function(f) { return f.type !== 'draw'; });
+      if (noteFile) {
+        self.activeFileId = noteFile.id;
+      }
+    },
+
+    onDrawSave: function(canvasData) {
+      var self = this;
+      if (!self.activeFile) return;
+      self.activeFile.canvasData = canvasData;
+      self.activeFile.updatedAt = new Date().toISOString();
+      self.saveData();
+    },
+
+    createDrawFile: function() {
+      var self = this;
+      var id = generateId();
+      var now = new Date().toISOString();
+      var file = {
+        id: id,
+        title: '未命名画板 ' + new Date().toLocaleDateString('zh-CN'),
+        content: '',
+        type: 'draw',
+        tags: [],
+        folder: self.activeFolder !== '全部' ? self.activeFolder : null,
+        canvasData: [],
+        annotations: null,
+        createdAt: now,
+        updatedAt: now,
+        pinned: false,
+        privacyId: null
+      };
+      self.files.unshift(file);
+      self.activeFileId = id;
+      self.showSidebar = true;
+      self.saveData();
     }
   }
 };
@@ -3702,6 +3373,68 @@ export default {
 .nav-btn-primary:hover {
   opacity: .9;
   background: var(--primary-color);
+}
+
+/* 新建下拉菜单 */
+.nav-create-dropdown {
+  position: relative;
+}
+
+.create-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 6px;
+  background: var(--card-bg);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  border: 0.5px solid var(--separator-color);
+  padding: 6px;
+  z-index: 3000;
+  min-width: 160px;
+}
+
+.create-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  background: none;
+  color: var(--text-primary);
+  font-size: 14px;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background 0.15s;
+  touch-action: manipulation;
+  min-height: 44px;
+}
+
+.create-menu-item:hover {
+  background: var(--bg-color);
+}
+
+.create-menu-item:active {
+  background: var(--primary-light);
+  transform: scale(0.97);
+}
+
+.create-menu-item i {
+  font-size: 18px;
+  width: 24px;
+  text-align: center;
+}
+
+.dropdown-fade-enter-active,
+.dropdown-fade-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.dropdown-fade-enter,
+.dropdown-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
 }
 
 .nav-mode-switch {
@@ -3923,6 +3656,22 @@ export default {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.file-type-icon {
+  flex-shrink: 0;
+  font-size: 14px;
+}
+
+.file-type-icon.note-type {
+  color: var(--text-tertiary);
+}
+
+.file-type-icon.draw-type {
+  color: #ff6b6b;
 }
 
 .file-item-date {
@@ -4326,41 +4075,18 @@ export default {
   min-height: 0;
   word-break: break-word;
   overflow-wrap: break-word;
-}
-
-.canvas-preview-section {
-  padding: 16px 24px;
-  border-top: 0.5px solid var(--separator-color);
-}
-
-.canvas-preview-label {
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-semibold);
-  color: var(--text-secondary);
-  margin-bottom: 8px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.canvas-preview-images {
+  /* 让 .annotation-overlay 的 absolute 定位以本元素为参照 */
   position: relative;
-  min-height: 200px;
 }
 
-.canvas-preview-images::after {
-  content: '';
-  display: block;
-  padding-top: 75%;
+/* 内容内部容器：包裹渲染HTML和批注涂鸦层，作为滚动内容的一部分 */
+.preview-content-inner {
+  position: relative;
 }
 
-.canvas-preview-img {
-  width: 100%;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-color);
-  position: absolute;
-  top: 0;
-  left: 0;
+/* 承载 v-html 的容器 */
+.preview-content-html {
+  position: relative;
 }
 
 .modal-overlay {
@@ -4375,7 +4101,7 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: 3000;
 }
 
 .modal-panel {
@@ -4702,391 +4428,196 @@ export default {
   color: var(--text-primary);
 }
 
-.canvas-overlay {
-  position: fixed;
+/* ========== 批注系统 ========== */
+.preview-anno-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  margin-left: auto;
+  transition: all 0.15s;
+  touch-action: manipulation;
+  min-height: 36px;
+}
+
+.preview-anno-toggle:active {
+  transform: scale(0.95);
+  opacity: 0.7;
+}
+
+.preview-anno-toggle.active {
+  background: var(--primary-color);
+  color: #FFFFFF;
+  border-color: var(--primary-color);
+}
+
+.preview-content-wrap {
+  position: relative;
+  /* 在 .preview-area 的 flex 列布局中占满剩余空间并允许收缩 */
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.annotation-overlay {
+  position: absolute;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.6);
-  z-index: 2000;
+  z-index: 10;
+  overflow: hidden;
+  pointer-events: none;
+  background: transparent;
+}
+
+.annotation-overlay.annotation-active {
+  pointer-events: auto;
+}
+
+.anno-input-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 24px;
+  background: var(--card-bg);
+  border-bottom: 0.5px solid var(--separator-color);
+}
+
+.anno-input-field {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  font-size: 14px;
+  outline: none;
+  background: var(--bg-color);
+  color: var(--text-primary);
+  min-height: 36px;
+}
+
+.anno-input-field:focus {
+  border-color: var(--primary-color);
+}
+
+.annotation-cards-section {
+  padding: 12px 24px 16px;
+  border-top: 0.5px solid var(--separator-color);
+}
+
+.annotation-cards-label {
+  font-size: 13px;
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.annotation-card {
+  border-left: 4px solid #ffc107;
+  background: var(--card-bg);
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  border-radius: 0 10px 10px 0;
+  box-shadow: var(--shadow-sm);
+}
+
+.annotation-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.annotation-card-time {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.annotation-card-del {
   display: flex;
   align-items: center;
   justify-content: center;
+  min-width: 32px;
+  height: 32px;
+  border: none;
+  background: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  border-radius: 6px;
+  font-size: 13px;
+  touch-action: manipulation;
 }
 
-.canvas-panel {
-  width: 95vw;
-  height: 90vh;
-  background: var(--card-bg);
-  border-radius: var(--radius-lg);
+.annotation-card-del:active {
+  color: var(--danger-color);
+  transform: scale(0.9);
+}
+
+.annotation-card-quote {
+  font-style: italic;
+  color: var(--text-secondary);
+  border-left: 2px solid var(--border-color);
+  padding-left: 10px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.annotation-card-text {
+  font-size: 14px;
+  color: var(--text-primary);
+  line-height: 1.6;
+}
+
+/* ========== 画板模式 ========== */
+.draw-body {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  box-shadow: var(--shadow-lg);
 }
 
-.canvas-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 16px;
-  border-bottom: 0.5px solid var(--separator-color);
-  background: var(--bg-color);
-  flex-shrink: 0;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.canvas-tools-left {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.canvas-tools-right {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.canvas-tool-btn {
+.draw-body--empty {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-  font-size: var(--font-size-callout);
-  cursor: pointer;
-  border: 1px solid transparent;
-  background: none;
-  transition: all 0.15s;
+  background: var(--bg-color);
 }
 
-.canvas-tool-btn:hover {
-  background: var(--primary-light);
-  color: var(--primary-color);
+.draw-empty-state {
+  text-align: center;
+  padding: 40px;
 }
 
-.canvas-tool-btn:active:not(:disabled) {
-  transform: scale(0.92);
-  opacity: 0.7;
-}
-
-.canvas-tool-btn.active {
-  background: var(--primary-color);
-  color: #FFFFFF;
-  border-color: var(--primary-color);
-}
-
-.canvas-tool-btn:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
-}
-
-.canvas-color-wrap {
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-}
-
-.canvas-color-input {
-  position: absolute;
-  width: 0;
-  height: 0;
-  opacity: 0;
-}
-
-.canvas-color-preview {
-  width: 44px;
-  height: 44px;
-  border-radius: var(--radius-md);
-  border: 2px solid var(--border-color);
-  cursor: pointer;
-}
-
-.canvas-preset-colors {
-  display: flex;
-  gap: 4px;
-  align-items: center;
-}
-
-.canvas-preset-color {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  cursor: pointer;
-  border: 2px solid transparent;
-  transition: border-color 0.15s, transform 0.15s;
-}
-
-.canvas-preset-color:hover {
-  transform: scale(1.2);
-}
-
-.canvas-preset-color:active {
-  transform: scale(0.92);
-  opacity: 0.7;
-}
-
-.canvas-preset-color.active {
-  border-color: var(--primary-color);
-}
-
-.canvas-slider-group {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.canvas-slider-label {
-  font-size: var(--font-size-sm);
+.draw-empty-icon {
+  font-size: 64px;
   color: var(--text-tertiary);
-  white-space: nowrap;
+  margin-bottom: 16px;
+  display: block;
 }
 
-.canvas-slider {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 80px;
-  height: 2px;
-  background: var(--separator-color);
-  border-radius: 1px;
-  cursor: pointer;
-  outline: none;
-}
-
-.canvas-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: #FFFFFF;
-  border: none;
-  box-shadow: var(--shadow-sm);
-  cursor: pointer;
-  transition: transform 0.15s var(--ease-standard);
-}
-
-.canvas-slider::-webkit-slider-thumb:active {
-  transform: scale(1.15);
-}
-
-.canvas-slider::-moz-range-thumb {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: #FFFFFF;
-  border: none;
-  box-shadow: var(--shadow-sm);
-  cursor: pointer;
-}
-
-.canvas-slider-value {
-  font-size: var(--font-size-sm);
-  color: var(--text-secondary);
-  min-width: 30px;
-}
-
-.canvas-workspace {
-  flex: 1;
-  min-height: 0;
-  position: relative;
-  background: var(--bg-color);
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.canvas-layers-container {
-  position: relative;
-  background: var(--card-bg);
-  box-shadow: var(--shadow-md);
-}
-
-.canvas-preview-overlay {
-  pointer-events: none;
-}
-
-.canvas-text-input-wrap {
-  position: absolute;
-  z-index: 999;
-}
-
-.canvas-text-input {
-  border: 2px dashed var(--primary-color);
-  background: rgba(255, 255, 255, 0.9);
-  padding: 4px 8px;
-  outline: none;
-  min-width: 120px;
-  font-family: sans-serif;
-  border-radius: var(--radius-xs);
-}
-
-.canvas-grid-overlay {
-  pointer-events: none;
-  transition: opacity 0.2s;
-}
-
-.canvas-layer {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  cursor: crosshair;
-}
-
-.canvas-layers-bar {
-  display: flex;
-  align-items: center;
-  padding: 8px 16px;
-  border-top: 0.5px solid var(--separator-color);
-  background: var(--bg-color);
-  flex-shrink: 0;
-  gap: 8px;
-}
-
-.canvas-layer-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: var(--radius-sm);
-  background: var(--primary-color);
-  color: #FFFFFF;
-  font-size: var(--font-size-sm);
-  cursor: pointer;
-  border: none;
-  flex-shrink: 0;
-  transition: opacity 0.15s;
-}
-
-.canvas-layer-btn:hover {
-  opacity: 0.9;
-}
-
-.canvas-layer-list {
-  flex: 1;
-  display: flex;
-  gap: 4px;
-  overflow-x: auto;
-  padding: 4px 0;
-}
-
-.canvas-layer-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-color);
-  cursor: pointer;
-  background: var(--card-bg);
-  white-space: nowrap;
-  transition: all 0.15s;
-  flex-shrink: 0;
-}
-
-.canvas-layer-item.active {
-  border-color: var(--primary-color);
-  background: var(--primary-light);
-}
-
-.layer-vis-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  border: none;
-  background: none;
-  color: var(--text-secondary);
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-caption);
-}
-
-.layer-vis-btn:hover {
-  color: var(--primary-color);
-  background: var(--primary-light);
-}
-
-.layer-vis-btn:active {
-  transform: scale(0.92);
-  opacity: 0.7;
-}
-
-.layer-name {
-  font-size: var(--font-size-sm);
+.draw-empty-state h3 {
+  font-size: 18px;
+  font-weight: var(--font-weight-semibold);
+  margin-bottom: 8px;
   color: var(--text-primary);
 }
 
-.layer-del-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  border: none;
-  background: none;
-  color: var(--text-tertiary);
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-caption2);
-}
-
-.layer-del-btn:hover {
-  color: var(--danger-color);
-  background: rgba(var(--danger-rgb), 0.08);
-}
-
-.layer-del-btn:active {
-  transform: scale(0.92);
-  opacity: 0.7;
-}
-
-.canvas-layer-reorder {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  flex-shrink: 0;
-}
-
-.layer-reorder-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 28px;
-  border: 1px solid var(--border-color);
-  background: var(--card-bg);
+.draw-empty-state p {
+  font-size: 14px;
   color: var(--text-secondary);
-  cursor: pointer;
-  border-radius: var(--radius-xs);
-  font-size: var(--font-size-caption2);
-}
-
-.layer-reorder-btn:hover:not(:disabled) {
-  background: var(--primary-light);
-  color: var(--primary-color);
-  border-color: var(--primary-color);
-}
-
-.layer-reorder-btn:active:not(:disabled) {
-  transform: scale(0.92);
-  opacity: 0.7;
-}
-
-.layer-reorder-btn:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
+  margin-bottom: 20px;
 }
 
 .resource-picker-item {
@@ -6254,11 +5785,6 @@ export default {
     flex: 1;
   }
 
-  .canvas-panel {
-    width: 100vw;
-    height: 100vh;
-  }
-
   /* Tablet Mermaid improvements */
   .mermaid-chart {
     padding: 8px;
@@ -6346,27 +5872,6 @@ export default {
 
   .editor-resizer {
     width: 12px;
-  }
-
-  .canvas-tool-btn {
-    width: 48px;
-    height: 48px;
-    font-size: var(--font-size-subheadline);
-  }
-
-  .canvas-slider {
-    width: 100px;
-    height: 8px;
-  }
-
-  .canvas-layer-btn {
-    width: 48px;
-    height: 48px;
-    font-size: var(--font-size-callout);
-  }
-
-  .canvas-layer-item {
-    padding: 8px 14px;
   }
 
   .chart-editor-body {

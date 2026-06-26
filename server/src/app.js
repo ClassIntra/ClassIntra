@@ -125,6 +125,7 @@ app.use('/api/admin', require('./routes/admin'));
 app.use('/api/assets', require('./routes/assets'));
 app.use('/api/community', require('./routes/community'));
 app.use('/api/notes', require('./routes/notes'));
+app.use('/api/cloud', require('./routes/cloud'));
 app.use('/api/setup', require('./routes/setup'));
 app.use('/api/level', require('./routes/level'));
 app.use('/api/cdn', require('./routes/cdn-proxy'));

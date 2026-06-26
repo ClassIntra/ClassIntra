@@ -33,9 +33,30 @@ server/public/assets/
 !server/public/index.html
 
 # Resources 目录（含音乐、视频、启动器等版权/私有内容）
-Resources/
-# 但保留等级图标
+# 忽略所有直接子项，再按需保留
+Resources/*
+# 保留 public 目录（仅 level 等级图标 + icons 应用图标）
+!Resources/public/
+Resources/public/*
 !Resources/public/level/
+!Resources/public/icons/
+# 保留壁纸目录结构（空文件夹，壁纸内容不提交）
+!Resources/public/wallpaper/
+Resources/public/wallpaper/*
+!Resources/public/wallpaper/.gitkeep
+# 保留媒体目录结构（空文件夹，实际内容不提交）
+!Resources/cloud/
+!Resources/music/
+!Resources/photos/
+!Resources/videos/
+Resources/cloud/*
+!Resources/cloud/.gitkeep
+Resources/music/*
+!Resources/music/.gitkeep
+Resources/photos/*
+!Resources/photos/.gitkeep
+Resources/videos/*
+!Resources/videos/.gitkeep
 
 # Syncthing
 *sync-conflict*

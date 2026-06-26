@@ -1292,7 +1292,7 @@ function handleTextMessage(ws, data) {
   var senderName = userInfo.net_name || userInfo.real_name || userId;
 
   var msgType = data.msg_type || 'text';
-  if (msgType !== 'text' && msgType !== 'community_forward' && msgType !== 'music_playlist') {
+  if (msgType !== 'text' && msgType !== 'community_forward' && msgType !== 'music_playlist' && msgType !== 'ai_forward' && msgType !== 'ai_batch') {
     msgType = 'text';
   }
 
@@ -1411,7 +1411,7 @@ function handlePrivateMessage(ws, data) {
   trackClientMsg(userId, targetUserId + ':' + content);
 
   var msgType = data.msg_type || 'text';
-  if (msgType !== 'text' && msgType !== 'community_forward' && msgType !== 'music_playlist') {
+  if (msgType !== 'text' && msgType !== 'community_forward' && msgType !== 'music_playlist' && msgType !== 'ai_forward' && msgType !== 'ai_batch') {
     msgType = 'text';
   }
 
@@ -1614,7 +1614,7 @@ function handleGroupMessage(ws, data) {
   var senderName = userInfo.net_name || userInfo.real_name || userId;
 
   var msgType = data.msg_type || 'text';
-  if (msgType !== 'text' && msgType !== 'community_forward' && msgType !== 'music_playlist') {
+  if (msgType !== 'text' && msgType !== 'community_forward' && msgType !== 'music_playlist' && msgType !== 'ai_forward' && msgType !== 'ai_batch') {
     msgType = 'text';
   }
 

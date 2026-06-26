@@ -160,7 +160,15 @@
                   </div>
                   <button v-if="!hasVoted(post)" class="btn-primary poll-submit-btn" @click.stop="submitSurveyVote(post)">提交问卷</button>
                 </div>
-                <div v-else class="post-preview markdown-body" v-html="renderMarkdown(post.content)"></div>
+                <div v-else class="post-preview">{{ getPostPreview(post.content) }}</div>
+                <div v-if="getPlaylistShare(post)" class="playlist-share-card" @click.stop="openPlaylistFromPost(post)">
+                  <div class="playlist-share-icon"><i class="fa-solid fa-music"></i></div>
+                  <div class="playlist-share-info">
+                    <div class="playlist-share-name">{{ getPlaylistShare(post).playlist_name || '歌单' }}</div>
+                    <div class="playlist-share-meta">{{ getPlaylistShare(post).song_count || 0 }} 首歌曲</div>
+                  </div>
+                  <i class="fa-solid fa-chevron-right playlist-share-arrow"></i>
+                </div>
                 <div class="post-tags" v-if="post.tags && post.tags.length > 0">
                   <span v-for="tag in post.tags" :key="tag" class="tag-badge" @click.stop="selectTag(tag)">{{ tag }}</span>
                 </div>
@@ -302,7 +310,7 @@
             <div class="profile-card" v-if="currentUser">
               <div class="profile-card-left">
                 <div class="profile-card-avatar" :style="{ background: getAvatarColor(currentUser.user_id) }">
-                  {{ (currentUser.net_name || '?').charAt(0) }}
+                  {{ getAvatarText(currentUser.net_name) }}
                 </div>
                 <div class="profile-card-info">
                   <div class="profile-card-name">{{ currentUser.net_name }}</div>
@@ -345,7 +353,7 @@
                         <span v-if="post.anonymous" class="post-type-badge anon">匿名</span>
                       </div>
                       <div v-if="post.title" class="post-title">{{ post.title }}</div>
-                      <div class="post-preview markdown-body" v-html="renderMarkdown(post.content)"></div>
+                      <div class="post-preview">{{ getPostPreview(post.content) }}</div>
                       <div class="post-stats">
                         <span class="stat-item"><i class="fa-regular fa-heart"></i> {{ post.like_count || 0 }}</span>
                         <span class="stat-item"><i class="fa-regular fa-comment"></i> {{ post.comment_count || 0 }}</span>
@@ -394,7 +402,7 @@
                       </div>
                       <div v-if="post.title" class="post-title">{{ post.title }}</div>
                       <span v-if="post.featured" class="featured-badge"><i class="fa-solid fa-star"></i> 精选</span>
-                      <div class="post-preview markdown-body" v-html="renderMarkdown(post.content)"></div>
+                      <div class="post-preview">{{ getPostPreview(post.content) }}</div>
                       <div class="post-tags" v-if="post.tags && post.tags.length > 0">
                         <span v-for="tag in post.tags" :key="tag" class="tag-badge" @click.stop="selectTag(tag)">{{ tag }}</span>
                       </div>
@@ -519,7 +527,15 @@
             <button v-if="!hasVoted(currentPost)" class="btn-primary poll-submit-btn" @click="submitSurveyVote(currentPost)">提交问卷</button>
           </div>
           <div v-if="currentPost.title && currentPost.type === 'forum'" class="full-detail-title">{{ currentPost.title }}</div>
-          <div v-if="currentPost.type !== 'poll' && currentPost.type !== 'survey'" class="full-detail-content markdown-body" v-html="renderMarkdown(currentPost.content)"></div>
+          <div v-if="currentPost.type !== 'poll' && currentPost.type !== 'survey'" class="full-detail-content markdown-body" v-html="renderMarkdown(currentPost.content)" @click="onMarkdownClick" @touchstart="onMarkdownTouchStart" @touchmove="onMarkdownTouchMove" @touchend="onMarkdownTouchEnd"></div>
+          <div v-if="getPlaylistShare(currentPost)" class="playlist-share-card" @click="openPlaylistFromPost(currentPost)">
+            <div class="playlist-share-icon"><i class="fa-solid fa-music"></i></div>
+            <div class="playlist-share-info">
+              <div class="playlist-share-name">{{ getPlaylistShare(currentPost).playlist_name || '歌单' }}</div>
+              <div class="playlist-share-meta">{{ getPlaylistShare(currentPost).song_count || 0 }} 首歌曲</div>
+            </div>
+            <i class="fa-solid fa-chevron-right playlist-share-arrow"></i>
+          </div>
           <div class="detail-tags" v-if="currentPost.tags && currentPost.tags.length > 0">
             <span v-for="tag in currentPost.tags" :key="tag" class="tag-badge" @click="selectTag(tag)">{{ tag }}</span>
           </div>
@@ -564,7 +580,7 @@
                   <span class="comment-author">{{ comment.net_name || '未知用户' }}</span>
                   <span class="comment-time">{{ formatTime(comment.created_at) }}</span>
                 </div>
-                <div class="comment-text markdown-body" v-html="renderMarkdown(comment.content)"></div>
+                <div class="comment-text markdown-body" v-html="renderMarkdown(comment.content)" @click="onMarkdownClick" @touchstart="onMarkdownTouchStart" @touchmove="onMarkdownTouchMove" @touchend="onMarkdownTouchEnd"></div>
                 <div class="comment-actions">
                   <button class="comment-action-btn" @click="likeComment(comment)">
                     <i :class="comment.liked ? 'fa-solid fa-heart' : 'fa-regular fa-heart'"></i>
@@ -595,7 +611,7 @@
                         <span v-if="reply.parent_author" class="reply-to">@{{ reply.parent_author }}</span>
                         <span class="comment-time">{{ formatTime(reply.created_at) }}</span>
                       </div>
-                      <div class="comment-text markdown-body" v-html="renderMarkdown(reply.content)"></div>
+                      <div class="comment-text markdown-body" v-html="renderMarkdown(reply.content)" @click="onMarkdownClick" @touchstart="onMarkdownTouchStart" @touchmove="onMarkdownTouchMove" @touchend="onMarkdownTouchEnd"></div>
                       <div class="comment-actions">
                         <button class="comment-action-btn" @click="likeComment(reply)">
                           <i :class="reply.liked ? 'fa-solid fa-heart' : 'fa-regular fa-heart'"></i>
@@ -620,6 +636,22 @@
           <div v-if="replyToUser" class="reply-indicator">
             <span>回复 @{{ replyToUser }}</span>
             <button class="reply-clear" @click="clearReplyTo"><i class="fa-solid fa-xmark"></i></button>
+          </div>
+          <div class="comment-toolbar">
+            <button class="comment-tool-btn" @click="commentEmojiOpen = !commentEmojiOpen" title="表情">
+              <i class="fa-regular fa-face-smile"></i>
+            </button>
+            <button class="comment-tool-btn" @click="commentCloudTarget = 'comment'; showCloudPicker = true" title="云盘文件">
+              <i class="fa-solid fa-cloud"></i>
+            </button>
+          </div>
+          <div v-if="commentEmojiOpen" class="emoji-picker comment-emoji-picker">
+            <button
+              v-for="emoji in emojiList"
+              :key="emoji"
+              class="emoji-btn"
+              @click="insertCommentEmoji(emoji)"
+            >{{ emoji }}</button>
           </div>
           <div class="full-detail-input-wrap">
             <input
@@ -817,6 +849,9 @@
               <button class="toolbar-btn" :class="{ active: showEmojiPicker }" @click="toggleEmojiPicker" title="表情">
                 <i class="fa-regular fa-face-smile"></i>
               </button>
+              <button class="toolbar-btn" @click="commentCloudTarget = 'post'; showCloudPicker = true" title="云盘文件">
+                <i class="fa-solid fa-cloud"></i>
+              </button>
               <div class="char-counter" :class="{ over: isContentOverLimit }">{{ contentCharCount }}/{{ maxContentLength }}</div>
             </div>
             <div v-if="showEmojiPicker" class="emoji-picker">
@@ -967,7 +1002,7 @@
         <button class="modal-close" @click="closeUserCard"><i class="fa-solid fa-xmark"></i></button>
         <div class="user-card">
           <div class="user-card-avatar" :style="{ background: getAvatarColor(userCardUserId) }">
-            {{ (userProfile.net_name || '?').charAt(0) }}
+            {{ getAvatarText(userProfile.net_name) }}
           </div>
           <h3 class="user-card-name">{{ userProfile.net_name || '未知用户' }}</h3>
           <div v-if="userProfile.real_name" class="user-card-realname">{{ userProfile.real_name }}</div>
@@ -1018,6 +1053,30 @@
         </div>
       </div>
     </div>
+
+    <!-- Cloud Image Picker -->
+    <CloudImagePicker
+      v-if="showCloudPicker"
+      @select="onCloudImageSelect"
+      @close="showCloudPicker = false"
+    />
+
+    <!-- Image Preview -->
+    <ImagePreview :visible="showImagePreview" :image-url="imagePreviewUrl" :media-type="mediaPreviewType" @close="closeImagePreview" />
+
+    <!-- 媒体长按菜单（图片/视频/音频通用） -->
+    <transition name="fade-quick">
+      <div v-if="showImageMenu" class="image-menu-overlay" @click="closeImageMenu">
+        <div class="image-menu-popup" :style="{ top: imageMenuPos.y + 'px', left: imageMenuPos.x + 'px' }" @click.stop>
+          <button class="ctx-item" @click="previewImageFromMenu">
+            <i class="fa-solid" :class="menuMediaIcon"></i> {{ menuMediaLabel }}
+          </button>
+          <button v-if="canSaveMenuMedia" class="ctx-item" @click="saveMenuImageToCloud">
+            <i class="fa-solid fa-cloud-arrow-up"></i> 转存到云盘
+          </button>
+        </div>
+      </div>
+    </transition>
   </div>
 </template>
 
@@ -1026,6 +1085,8 @@ import AppNavBar from '@/components/AppNavBar.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue';
+import CloudImagePicker from '@/components/CloudImagePicker.vue';
+import ImagePreview from '@/components/ImagePreview.vue';
 import api from '@/utils/api';
 import helpers from '@/utils/helpers';
 import wsManager from '@/utils/websocket';
@@ -1035,7 +1096,9 @@ import hljs from 'highlight.js';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import 'highlight.js/styles/github-dark.min.css';
+import 'video.js/dist/video-js.css';
 import LatexRenderer from '@/utils/latex-renderer';
+import { getMediaTypeByName } from '@/utils/media-recorder.js';
 
 var TAG_COLORS = [
   '#007AFF', '#34C759', '#FF9500', '#AF52DE', '#FF3B30',
@@ -1077,6 +1140,45 @@ customRenderer.tablecell = function(content, flags) {
   var align = flags.align ? ' style="text-align:' + flags.align + '"' : '';
   return '<' + tag + align + '>' + content + '</' + tag + '>';
 };
+// 自定义图片渲染：添加 class 和 data 属性以支持点击预览/长按转存
+customRenderer.image = function(href, title, text) {
+  var url = href || '';
+  var alt = text || '图片';
+  var safeUrl = url.replace(/"/g, '&quot;');
+  var safeAlt = alt.replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  return '<img class="md-media" data-media-url="' + safeUrl + '" data-media-type="image" src="' + safeUrl + '" alt="' + safeAlt + '" loading="lazy" />';
+};
+// 链接渲染器：检测视频/音频链接并嵌入播放器
+var origLinkRenderer = customRenderer.link;
+customRenderer.link = function(href, title, text) {
+  var url = href || '';
+  var safeUrl = url.replace(/"/g, '&quot;');
+  var lower = url.toLowerCase();
+  var mediaType = null;
+  // 检测视频/音频扩展名或标记
+  if (lower.indexOf('__video') > -1 || lower.indexOf('.mp4') > -1 || lower.indexOf('.mov') > -1 ||
+      lower.indexOf('.webm') > -1 || lower.indexOf('.mkv') > -1 || lower.indexOf('.avi') > -1 || lower.indexOf('.3gp') > -1) {
+    mediaType = 'video';
+  } else if (lower.indexOf('__audio') > -1 || lower.indexOf('.mp3') > -1 || lower.indexOf('.m4a') > -1 ||
+             lower.indexOf('.aac') > -1 || lower.indexOf('.wav') > -1 || lower.indexOf('.ogg') > -1 || lower.indexOf('.opus') > -1) {
+    mediaType = 'audio';
+  }
+  if (mediaType === 'video') {
+    return '<div class="md-media-wrapper md-video-wrapper md-media" data-media-url="' + safeUrl + '" data-media-type="video">' +
+      '<video class="video-js md-video" data-media-url="' + safeUrl + '" data-media-type="video" src="' + safeUrl + '" preload="metadata" playsinline muted></video>' +
+      '<div class="md-video-play"><i class="fa-solid fa-play"></i></div>' +
+      '<div class="md-media-hint">点击全屏播放</div>' +
+      '</div>';
+  }
+  if (mediaType === 'audio') {
+    return '<div class="md-media-wrapper md-audio-wrapper">' +
+      '<audio class="video-js md-audio md-media" data-media-url="' + safeUrl + '" data-media-type="audio" src="' + safeUrl + '" preload="metadata" controls></audio>' +
+      '</div>';
+  }
+  // 普通链接：使用默认渲染
+  if (origLinkRenderer) return origLinkRenderer.call(this, href, title, text);
+  return '<a href="' + safeUrl + '" target="_blank" rel="noopener">' + (text || safeUrl) + '</a>';
+};
 
 marked.setOptions({
   renderer: customRenderer,
@@ -1089,7 +1191,7 @@ marked.setOptions({
 
 export default {
   name: 'Community',
-  components: { AppNavBar: AppNavBar, UserAvatar: UserAvatar, ConfirmDialog: ConfirmDialog, LoadingSkeleton: LoadingSkeleton },
+  components: { AppNavBar: AppNavBar, UserAvatar: UserAvatar, ConfirmDialog: ConfirmDialog, LoadingSkeleton: LoadingSkeleton, CloudImagePicker: CloudImagePicker, ImagePreview: ImagePreview },
   data: function() {
     return {
       tabs: [
@@ -1113,6 +1215,21 @@ export default {
       showPostModal: false,
       showPostPreview: false,
       showEmojiPicker: false,
+      showCloudPicker: false,
+      commentCloudTarget: 'post', // 云盘选择目标：'post'(发帖) / 'comment'(评论)
+      // 评论工具栏
+      commentEmojiOpen: false,
+      // 图片预览
+      showImagePreview: false,
+      imagePreviewUrl: '',
+      mediaPreviewType: 'image',
+      // 图片长按菜单
+      showImageMenu: false,
+      imageMenuPos: { x: 0, y: 0 },
+      imageMenuUrl: '',
+      imageMenuType: 'image',
+      mdLongPressTimer: null,
+      mdLongPressTriggered: false,
       newPost: { content: '', title: '', groupIds: [], isAnonymous: false, type: 'forum', tags: [], foodForm: { dish_name: '', canteen: '', window: '' }, hotForm: { title: '', location: '' }, pollForm: { title: '', options: ['', ''], allowMultiple: false, maxChoices: 1 }, surveyForm: { title: '', questions: [{ question: '', type: 'text', options: [] }] } },
       showCreateFood: false,
       foodForm: { dish_name: '', canteen: '', window: '', reason: '' },
@@ -1158,6 +1275,23 @@ export default {
   computed: {
     currentUser: function() {
       return this.$store.state.auth.user;
+    },
+    // 当前长按菜单的图片是否可转存到云盘（仅本站图片）
+    canSaveMenuMedia: function() {
+      var url = this.imageMenuUrl || '';
+      return url.indexOf('/api/cloud/files/') === 0 || url.indexOf('/resources/') === 0 || url.indexOf('/api/photos/') === 0;
+    },
+    menuMediaLabel: function() {
+      var t = this.imageMenuType;
+      if (t === 'video') return '查看视频';
+      if (t === 'audio') return '查看音频';
+      return '查看图片';
+    },
+    menuMediaIcon: function() {
+      var t = this.imageMenuType;
+      if (t === 'video') return 'fa-video';
+      if (t === 'audio') return 'fa-music';
+      return 'fa-image';
     },
     canViewAnonymous: function() {
       var user = this.$store.state.auth.user;
@@ -1305,6 +1439,123 @@ export default {
   },
   beforeDestroy: function() { this.cleanupWSListeners(); },
   methods: {
+    // === 图片预览与长按菜单 ===
+    onMarkdownClick: function(e) {
+      var target = e.target;
+      // 跳过音频原生控件点击（音频保留 controls）
+      if (target.tagName === 'AUDIO') return;
+      // 向上查找最近的 md-media 元素（支持视频包裹器和图片）
+      var mediaEl = target.closest ? target.closest('.md-media') : null;
+      if (!mediaEl && target.classList && target.classList.contains('md-media')) {
+        mediaEl = target;
+      }
+      if (mediaEl) {
+        if (this.mdLongPressTriggered) {
+          this.mdLongPressTriggered = false;
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        var url = mediaEl.getAttribute('data-media-url') || mediaEl.getAttribute('data-preview-url') || mediaEl.src;
+        var type = mediaEl.getAttribute('data-media-type') || 'image';
+        this.previewMedia({ url: url, type: type });
+      }
+    },
+    onMarkdownTouchStart: function(e) {
+      var self = this;
+      var touch = e.touches[0];
+      var target = document.elementFromPoint(touch.clientX, touch.clientY);
+      // 检测是否触摸在媒体元素上（图片/视频/音频）
+      var mediaEl = null;
+      while (target && target !== e.currentTarget) {
+        if (target.classList && target.classList.contains('md-media')) {
+          mediaEl = target;
+          break;
+        }
+        target = target.parentNode;
+      }
+      if (!mediaEl) return;
+      var url = mediaEl.getAttribute('data-media-url') || mediaEl.getAttribute('data-preview-url') || mediaEl.src;
+      var mediaType = mediaEl.getAttribute('data-media-type') || 'image';
+      if (self.mdLongPressTimer) {
+        clearTimeout(self.mdLongPressTimer);
+        self.mdLongPressTimer = null;
+      }
+      self.mdLongPressTriggered = false;
+      self.mdLongPressTimer = setTimeout(function() {
+        // 长按：显示媒体菜单
+        self.mdLongPressTriggered = true;
+        var x = touch.clientX;
+        var y = touch.clientY;
+        var menuWidth = 160;
+        var menuHeight = 120;
+        if (x + menuWidth > window.innerWidth) x = window.innerWidth - menuWidth - 8;
+        if (y + menuHeight > window.innerHeight) y = window.innerHeight - menuHeight - 8;
+        self.imageMenuUrl = url;
+        self.imageMenuType = mediaType;
+        self.imageMenuPos = { x: x, y: y };
+        self.showImageMenu = true;
+      }, 600);
+    },
+    onMarkdownTouchMove: function() {
+      // 手指移动即取消长按（避免滚动/拖动误触发菜单）
+      if (this.mdLongPressTimer) {
+        clearTimeout(this.mdLongPressTimer);
+        this.mdLongPressTimer = null;
+      }
+    },
+    onMarkdownTouchEnd: function() {
+      // 手指抬起：若长按未触发则清除定时器，让 click 正常进入预览
+      if (this.mdLongPressTimer) {
+        clearTimeout(this.mdLongPressTimer);
+        this.mdLongPressTimer = null;
+      }
+    },
+    previewMedia: function(media) {
+      if (typeof media === 'string') {
+        this.imagePreviewUrl = media;
+        this.mediaPreviewType = 'image';
+      } else {
+        this.imagePreviewUrl = media.url;
+        this.mediaPreviewType = media.type || 'image';
+      }
+      this.showImagePreview = true;
+    },
+    previewImage: function(url) {
+      this.previewMedia({ url: url, type: 'image' });
+    },
+    closeImagePreview: function() {
+      this.showImagePreview = false;
+      this.imagePreviewUrl = '';
+    },
+    previewImageFromMenu: function() {
+      var url = this.imageMenuUrl;
+      this.closeImageMenu();
+      this.previewImage(url);
+    },
+    closeImageMenu: function() {
+      this.showImageMenu = false;
+      this.imageMenuUrl = '';
+    },
+    saveMenuImageToCloud: function() {
+      var self = this;
+      var url = self.imageMenuUrl;
+      if (!url) return;
+      var typeLabel = self.imageMenuType === 'video' ? '视频' : (self.imageMenuType === 'audio' ? '音频' : '图片');
+      self.closeImageMenu();
+      api.post('/cloud/save-from-url', { url: url }).then(function(res) {
+        if (res.data.code === 200) {
+          self.$store.commit('toast/SHOW_TOAST', { message: typeLabel + '已转存到云盘', type: 'success' });
+        } else {
+          self.$store.commit('toast/SHOW_TOAST', { message: res.data.message || '转存失败', type: 'error' });
+        }
+      }).catch(function(err) {
+        console.error('转存' + typeLabel + '失败:', err);
+        self.$store.commit('toast/SHOW_TOAST', { message: '转存失败，请重试', type: 'error' });
+      });
+    },
     setupWSListeners: function() {
       var self = this;
       self._wsCommunityHandler = function(data) {
@@ -1584,7 +1835,9 @@ export default {
     },
     getAvatarText: function(post) {
       if (post.is_anonymous) return '?';
-      return (post.net_name || '?').charAt(0);
+      var name = post.net_name || '?';
+      var chars = Array.from(name);
+      return chars[0] || '?';
     },
     isPostOwner: function(post) {
       var user = this.currentUser;
@@ -1638,6 +1891,23 @@ export default {
     },
     insertEmoji: function(emoji) {
       this.newPost.content = this.newPost.content + emoji;
+    },
+    onCloudImageSelect: function(file) {
+      // 按类型分支插入：图片用 ![]()，音视频用 []()（customRenderer.link 渲染播放器）
+      var type = getMediaTypeByName(file.name);
+      var url = '/api/cloud/files/' + encodeURIComponent(file.name);
+      var md = type === 'image' ? '![' + file.name + '](' + url + ')' : '[' + file.name + '](' + url + ')';
+      if (this.commentCloudTarget === 'comment') {
+        this.commentText += md;
+      } else {
+        this.newPost.content += md;
+      }
+      this.showCloudPicker = false;
+      this.commentCloudTarget = 'post'; // 重置目标
+    },
+    // 评论插入表情
+    insertCommentEmoji: function(emoji) {
+      this.commentText += emoji;
     },
     toggleEmojiPicker: function() {
       this.showEmojiPicker = !this.showEmojiPicker;
@@ -1711,6 +1981,9 @@ export default {
         if (this.newPost.title && this.newPost.title.trim()) {
           data.title = this.newPost.title.trim();
         }
+        if (this.newPostExtra) {
+          data.extra = this.newPostExtra;
+        }
       } else if (this.newPost.type === 'poll') {
         data.title = this.newPost.pollForm.title;
         data.content = this.newPost.pollForm.title;
@@ -1736,6 +2009,7 @@ export default {
       var self = this;
       this.$store.dispatch('community/createPost', data).then(function() {
         self.showPostModal = false;
+        self.newPostExtra = null;
         self.$store.commit('toast/SHOW_TOAST', { message: '发布成功', type: 'success' });
         self.initData();
       }).catch(function(err) {
@@ -2019,10 +2293,24 @@ export default {
     },
     showPlaylistSharePost: function(plData) {
       var self = this;
-      self.newPostType = 'forum';
-      self.newPostTitle = '🎵 分享歌单：' + (plData.playlistName || '歌单');
-      self.newPostContent = '分享了一个音乐歌单「' + (plData.playlistName || '歌单') + '」，共 ' + (plData.songCount || 0) + ' 首歌曲。' + (plData.description ? '\n\n' + plData.description : '') + '\n\n分享码：' + (plData.shareCode || '');
-      self.showNewPostModal = true;
+      self.newPost.type = 'forum';
+      self.newPost.title = '🎵 分享歌单：' + (plData.playlistName || '歌单');
+      self.newPost.content = '分享了一个音乐歌单「' + (plData.playlistName || '歌单') + '」，共 ' + (plData.songCount || 0) + ' 首歌曲。' + (plData.description ? '\n\n' + plData.description : '');
+      self.newPostExtra = { playlist_id: plData.playlistId, playlist_name: plData.playlistName, song_count: plData.songCount };
+      self.showPostModal = true;
+    },
+    getPlaylistShare: function(post) {
+      try {
+        var extra = typeof post.extra_json === 'string' ? JSON.parse(post.extra_json) : (post.extra_json || {});
+        if (extra.playlist_id) return extra;
+        return null;
+      } catch (e) { return null; }
+    },
+    openPlaylistFromPost: function(post) {
+      var pl = this.getPlaylistShare(post);
+      if (pl && pl.playlist_id) {
+        this.$router.push('/music?playlist=' + pl.playlist_id);
+      }
     },
     submitComment: function() {
       if (!this.commentText.trim() || !this.currentPost) return;
@@ -2183,6 +2471,21 @@ export default {
       var html = LatexRenderer.renderFinalHtml(result.html, result.placeholders);
       return html;
     },
+    // 生成纯文本预览，用于列表页性能优化
+    getPostPreview: function(content) {
+      if (!content) return '';
+      // 去除 Markdown 和 LaTeX 标记，生成纯文本预览
+      var text = content
+        .replace(/```[\s\S]*?```/g, '') // 移除代码块
+        .replace(/\$\$[\s\S]*?\$\$/g, '') // 移除块级 LaTeX
+        .replace(/\$[\s\S]*?\$/g, '') // 移除行内 LaTeX
+        .replace(/\\[\s\S]*?\\[\s\S]*?/g, '') // 移除 LaTeX 环境
+        .replace(/\[.*?\]\(.*?\)/g, '') // 移除链接
+        .replace(/[#*`>\-\[\]()!]/g, '') // 移除 Markdown 标记
+        .replace(/\n+/g, ' ') // 换行转空格
+        .trim();
+      return text.length > 100 ? text.substring(0, 100) + '...' : text;
+    },
     canDeleteComment: function(comment) {
       var user = this.currentUser;
       if (!user) return false;
@@ -2334,11 +2637,11 @@ export default {
 .results-total { font-size: var(--font-size-sm); color: var(--text-secondary); display: flex; align-items: center; gap: 5px; font-weight: 500; }
 .results-total i { color: var(--primary-color); }
 .results-multi-badge { font-size: var(--font-size-caption2); padding: 3px 10px; border-radius: var(--radius-md); background: rgba(var(--primary-rgb),0.1); color: var(--info-color); font-weight: 600; border: 1px solid rgba(var(--primary-rgb),0.15); }
-.results-voted-badge { font-size: var(--font-size-caption2); padding: 3px 10px; border-radius: var(--radius-md); background: rgba(76,175,80,0.1); color: var(--success-color); font-weight: 600; display: flex; align-items: center; gap: 4px; border: 1px solid rgba(76,175,80,0.15); }
+.results-voted-badge { font-size: var(--font-size-caption2); padding: 3px 10px; border-radius: var(--radius-md); background: rgba(var(--success-rgb),0.1); color: var(--success-color); font-weight: 600; display: flex; align-items: center; gap: 4px; border: 1px solid rgba(var(--success-rgb),0.15); }
 .results-poll-item { position: relative; margin-bottom: 10px; border-radius: var(--radius-md); overflow: hidden; background: var(--bg-color); border: 2px solid var(--border-color); transition: all 0.25s; }
 .results-poll-item:hover { border-color: var(--primary-color); }
 .results-poll-item.results-leading { border-color: rgba(var(--primary-rgb),0.25); background: rgba(var(--primary-rgb),0.02); }
-.results-poll-item.results-my-vote { border-color: rgba(76,175,80,0.35); background: rgba(76,175,80,0.02); }
+.results-poll-item.results-my-vote { border-color: rgba(var(--success-rgb),0.35); background: rgba(var(--success-rgb),0.02); }
 .results-poll-bar-wrap { height: 38px; position: relative; }
 .results-poll-bar { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(var(--primary-rgb),0.08); border-radius: var(--radius-md); transition: width 0.7s cubic-bezier(0, 0, 0.2, 1); }
 .results-leading .results-poll-bar { background: rgba(var(--primary-rgb),0.15); }
@@ -2370,6 +2673,13 @@ export default {
 .remote-badge { display: inline-block; font-size: var(--font-size-caption2); font-weight: 600; color: #fff; background: var(--primary-color); border-radius: var(--radius-xs); padding: 1px 5px; margin-left: 4px; vertical-align: middle; line-height: 1.4; }
 .post-title { font-size: var(--font-size-sm); font-weight: 600; color: var(--text-primary); margin-bottom: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .post-preview { font-size: var(--font-size-sm); color: var(--text-secondary); line-height: 1.5; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; max-width: 100%; margin-top: 3px; }
+.playlist-share-card { display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 10px 14px; border-radius: var(--radius-md); background: rgba(var(--primary-rgb), 0.06); border: 0.5px solid rgba(var(--primary-rgb), 0.15); cursor: pointer; transition: background 0.15s, border-color 0.15s; }
+.playlist-share-card:hover { background: rgba(var(--primary-rgb), 0.12); border-color: var(--primary-color); }
+.playlist-share-icon { width: 36px; height: 36px; border-radius: var(--radius-sm); background: rgba(var(--primary-rgb), 0.15); display: flex; align-items: center; justify-content: center; color: var(--primary-color); font-size: 16px; flex-shrink: 0; }
+.playlist-share-info { flex: 1; min-width: 0; }
+.playlist-share-name { font-size: var(--font-size-sm); font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.playlist-share-meta { font-size: var(--font-size-caption2); color: var(--text-tertiary); margin-top: 1px; }
+.playlist-share-arrow { color: var(--text-tertiary); font-size: var(--font-size-caption); flex-shrink: 0; }
 .post-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
 .tag-badge { display: inline-flex; align-items: center; gap: 3px; font-size: var(--font-size-caption2); padding: 1px 8px; border-radius: var(--radius-md); background: rgba(var(--primary-rgb),0.1); color: var(--primary-color); cursor: pointer; transition: all 0.15s; white-space: nowrap; }
 .tag-badge:hover { background: rgba(var(--primary-rgb),0.2); }
@@ -2621,6 +2931,21 @@ export default {
 .emoji-btn { width: 44px; height: 44px; border: none; background: transparent; font-size: var(--font-size-subheadline); cursor: pointer; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; transition: background 0.15s; }
 .emoji-btn:hover { background: var(--bg-color); }
 .emoji-btn:active { transform: scale(0.92); opacity: 0.7; }
+
+/* 评论工具栏 */
+.comment-toolbar { display: flex; align-items: center; gap: 4px; padding: 4px 0; margin-bottom: 4px; }
+.comment-tool-btn { width: 36px; height: 36px; border-radius: var(--radius-sm); border: none; background: transparent; color: var(--text-secondary); display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 16px; transition: all 0.2s; -webkit-tap-highlight-color: transparent; }
+.comment-tool-btn:active { transform: scale(0.92); opacity: 0.7; }
+.comment-emoji-picker { max-height: 120px; }
+
+/* video.js CSS 覆盖（仅样式，不初始化 JS） */
+.md-video-wrapper ::v-deep .video-js { width: 100%; max-width: 720px; border-radius: var(--radius-md); overflow: hidden; }
+.md-video-wrapper ::v-deep .vjs-big-play-button { display: none !important; }
+.md-audio-wrapper ::v-deep .video-js { width: 100%; max-width: 360px; height: 44px; border-radius: var(--radius-sm); overflow: hidden; }
+.md-audio-wrapper ::v-deep .vjs-big-play-button { display: none !important; }
+.md-audio-wrapper ::v-deep .vjs-control-bar { font-size: 10px; }
+.md-audio-wrapper ::v-deep .vjs-volume-panel { min-width: 40px; }
+.md-audio-wrapper ::v-deep .vjs-progress-control { margin: 0 4px; }
 
 /* 预览卡片 */
 .preview-card { padding: 16px; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--card-bg); }
@@ -2968,8 +3293,8 @@ export default {
 .markdown-body >>> .latex-Huge        { font-size: 2.5em; }
 
 .markdown-body >>> .latex-error {
-  color: #e74c3c;
-  background: rgba(231, 76, 60, 0.1);
+  color: var(--danger-color, #FF3B30);
+  background: rgba(var(--danger-rgb, 255, 59, 48), 0.1);
   padding: 2px 6px;
   border-radius: var(--radius-xs);
   font-size: var(--font-size-sm);
@@ -3048,5 +3373,124 @@ export default {
 .markdown-body >>> .task-list-item {
   list-style: none;
   margin-left: -20px;
+}
+
+/* 论坛媒体元素：可点击预览/长按转存 */
+.markdown-body >>> .md-media {
+  max-width: 100%;
+  max-height: 400px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 0.15s;
+}
+.markdown-body >>> .md-media:active {
+  opacity: 0.85;
+}
+/* 视频包裹器 */
+.markdown-body >>> .md-video-wrapper {
+  position: relative;
+  display: inline-block;
+  max-width: 720px;
+  width: 100%;
+  margin: 8px 0;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: #000;
+}
+.markdown-body >>> .md-video {
+  display: block;
+  width: 100%;
+  max-height: 400px;
+  border-radius: var(--radius-md);
+  background: #000;
+}
+/* 视频播放按钮覆盖层 */
+.markdown-body >>> .md-video-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 1;
+}
+.markdown-body >>> .md-video-play i {
+  color: #fff;
+  font-size: 18px;
+  margin-left: 2px;
+}
+/* 音频 */
+.markdown-body >>> .md-audio-wrapper {
+  max-width: 360px;
+  margin: 6px 0;
+}
+.markdown-body >>> .md-audio {
+  width: 100%;
+  height: 48px;
+  border-radius: var(--radius-sm);
+}
+.markdown-body >>> .md-media-hint {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+  text-align: center;
+}
+
+/* 图片长按菜单 */
+.image-menu-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10003;
+}
+
+.image-menu-popup {
+  position: absolute;
+  background: var(--card-bg, #fff);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  border: 0.5px solid var(--separator-color, rgba(0, 0, 0, 0.1));
+  padding: 4px;
+  min-width: 150px;
+  overflow: hidden;
+}
+
+.image-menu-popup .ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 16px;
+  border: none;
+  background: transparent;
+  font-size: var(--font-size-body, 16px);
+  color: var(--text-primary, #000);
+  text-align: left;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.12s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.image-menu-popup .ctx-item:active {
+  background: var(--bg-color, #f5f5f7);
+}
+
+.image-menu-popup .ctx-item i {
+  width: 18px;
+  text-align: center;
+  color: var(--text-secondary, #8e8e93);
 }
 </style>

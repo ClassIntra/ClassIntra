@@ -124,6 +124,23 @@ var routes = [
     meta: { requiresAuth: true }
   },
   {
+    path: '/cloud',
+    name: 'CloudDrive',
+    component: function() { return import('@/views/CloudDrive.vue'); },
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/cloud-upload',
+    name: 'CloudUpload',
+    component: function() { return import('@/views/CloudUpload.vue'); },
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/guest-upload',
+    name: 'GuestUpload',
+    component: function() { return import('@/views/GuestUpload.vue'); }
+  },
+  {
     path: '/settings',
     name: 'Settings',
     component: function() { return import('@/views/Settings.vue'); },

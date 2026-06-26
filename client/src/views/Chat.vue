@@ -44,7 +44,7 @@
                 @click="selectChat(group.group_id)"
               >
                 <div class="chat-item-avatar-wrap">
-                  <div class="chat-item-avatar" :style="{ background: getGroupColor(group.group_id) }">{{ (group.group_name || '?').charAt(0) }}</div>
+                  <div class="chat-item-avatar" :style="{ background: getGroupColor(group.group_id) }">{{ firstChar(group.group_name) }}</div>
                 </div>
                 <div class="chat-item-info">
                   <div class="chat-item-name">
@@ -78,7 +78,7 @@
                 @click="selectChat(contact.user_id)"
               >
                 <div class="chat-item-avatar-wrap">
-                  <div class="chat-item-avatar" :style="{ background: getAvatarColor(contact.user_id) }">{{ (getContactDisplayName(contact) || '?').charAt(0) }}</div>
+                  <div class="chat-item-avatar" :style="{ background: getAvatarColor(contact.user_id) }">{{ firstChar(getContactDisplayName(contact)) }}</div>
                   <div v-if="isUserOnline(contact.user_id)" class="chat-item-online-dot"></div>
                 </div>
                 <div class="chat-item-info">
@@ -105,7 +105,7 @@
                 @click="selectChat(group.group_id)"
               >
                 <div class="chat-item-avatar-wrap">
-                  <div class="chat-item-avatar" :style="{ background: getGroupColor(group.group_id) }">{{ (group.group_name || '?').charAt(0) }}</div>
+                  <div class="chat-item-avatar" :style="{ background: getGroupColor(group.group_id) }">{{ firstChar(group.group_name) }}</div>
                 </div>
                 <div class="chat-item-info">
                   <div class="chat-item-name">
@@ -198,6 +198,7 @@
               :senderTitle="getSenderTitle(msg.sender_id || msg.user_id)"
               @recall="recallMessage"
               @context-menu="openContextMenu"
+              @preview-media="previewMedia"
               @toggle-reaction="toggleReaction"
               @scroll-to="scrollToMessage"
             />
@@ -214,6 +215,7 @@
           <div class="input-wrapper">
             <button class="emoji-toggle" @click="showEmoji = !showEmoji"><i class="fa-regular fa-face-smile"></i></button>
             <EmojiPicker :visible="showEmoji" @select="insertEmoji" />
+            <button class="cloud-toggle" @click="showCloudPicker = true" title="云盘图片"><i class="fa-solid fa-cloud"></i></button>
             <textarea
               v-model="inputText"
               class="chat-input"
@@ -249,12 +251,18 @@
           <button class="ctx-item" @click="handleContextAction('forward')">
             <i class="fa-solid fa-share"></i> 转发
           </button>
+          <button v-if="contextMenuMediaUrl" class="ctx-item" @click="handleContextAction('saveMedia')">
+            <i class="fa-solid fa-cloud-arrow-up"></i> 转存到云盘
+          </button>
           <button v-if="contextMenuTarget && isOwnMessage(contextMenuTarget)" class="ctx-item ctx-item-danger" @click="handleContextAction('delete')">
             <i class="fa-solid fa-trash"></i> 删除
           </button>
         </div>
       </div>
     </transition>
+
+    <!-- Image Preview -->
+    <ImagePreview :visible="showImagePreview" :image-url="mediaPreviewUrl" :media-type="mediaPreviewType" @close="closeImagePreview" />
 
     <!-- Reaction Picker -->
     <transition name="fade-quick">
@@ -287,7 +295,7 @@
             <div class="member-select-list scrollbar-thin">
               <label v-for="contact in contacts" :key="contact.user_id" class="member-select-item">
                 <input type="checkbox" :value="contact.user_id" v-model="newGroupMembers" />
-                <div class="member-select-avatar">{{ (contact.net_name || '?').charAt(0) }}</div>
+                <div class="member-select-avatar">{{ firstChar(contact.net_name) }}</div>
                 <span class="member-select-name">{{ contact.net_name }}</span>
               </label>
               <div v-if="contacts.length === 0" class="empty-hint">暂无联系人</div>
@@ -323,7 +331,7 @@
             <div class="member-list">
               <div v-for="member in currentGroupMembers" :key="member.user_id" class="member-item">
                 <div class="member-avatar-wrap">
-                  <div class="member-avatar">{{ (member.net_name || member.real_name || '?').charAt(0) }}</div>
+                  <div class="member-avatar">{{ firstChar(member.net_name || member.real_name) }}</div>
                   <div v-if="isUserOnline(member.user_id)" class="member-online-dot"></div>
                 </div>
                 <span class="member-name">{{ member.net_name || member.real_name || member.user_id }}</span>
@@ -402,7 +410,7 @@
         <div class="settings-body">
           <div class="settings-section">
             <div class="settings-user-card" v-if="currentPrivateContact">
-              <div class="settings-user-avatar" :style="{ background: getAvatarColor(currentChat) }">{{ (getContactDisplayName(currentPrivateContact) || '?').charAt(0) }}</div>
+              <div class="settings-user-avatar" :style="{ background: getAvatarColor(currentChat) }">{{ firstChar(getContactDisplayName(currentPrivateContact)) }}</div>
               <div class="settings-user-info">
                 <div class="settings-user-name">{{ getContactDisplayName(currentPrivateContact) }}</div>
                 <div v-if="friendRemarks[currentChat]" class="settings-user-realname">{{ currentPrivateContact.net_name || currentPrivateContact.real_name }}</div>
@@ -477,7 +485,7 @@
           <div class="member-select-list scrollbar-thin" style="max-height: 300px;">
             <label v-for="contact in availableInviteContacts" :key="contact.user_id" class="member-select-item">
               <input type="checkbox" :value="contact.user_id" v-model="inviteUserIds" />
-              <div class="member-select-avatar">{{ (contact.net_name || '?').charAt(0) }}</div>
+              <div class="member-select-avatar">{{ firstChar(contact.net_name) }}</div>
               <span class="member-select-name">{{ contact.net_name }}</span>
             </label>
             <div v-if="availableInviteContacts.length === 0" class="empty-hint">没有可邀请的联系人</div>
@@ -503,7 +511,7 @@
               class="member-select-item member-select-item-clickable"
               @click="confirmTransfer(member.user_id)"
             >
-              <div class="member-select-avatar">{{ (member.net_name || member.real_name || '?').charAt(0) }}</div>
+              <div class="member-select-avatar">{{ firstChar(member.net_name || member.real_name) }}</div>
               <span class="member-select-name">{{ member.net_name || member.real_name || member.user_id }}</span>
             </div>
             <div v-if="transferableMembers.length === 0" class="empty-hint">没有可转让的成员</div>
@@ -573,7 +581,7 @@
               </div>
             </div>
             <div v-for="group in classGroups" :key="'fcg-' + group.group_id" class="forward-target-item" @click="sendForwardTo(group.group_id)">
-              <div class="forward-target-avatar" :style="{ background: getGroupColor(group.group_id) }">{{ (group.group_name || '?').charAt(0) }}</div>
+              <div class="forward-target-avatar" :style="{ background: getGroupColor(group.group_id) }">{{ firstChar(group.group_name) }}</div>
               <div class="forward-target-info">
                 <div class="forward-target-name">{{ group.group_name }}</div>
                 <div class="forward-target-desc">{{ group.member_count || 0 }} 人</div>
@@ -581,7 +589,7 @@
             </div>
             <div v-if="nonClassGroups.length > 0" class="forward-target-section">群聊</div>
             <div v-for="group in nonClassGroups" :key="'fg-' + group.group_id" class="forward-target-item" @click="sendForwardTo(group.group_id)">
-              <div class="forward-target-avatar" :style="{ background: getGroupColor(group.group_id) }">{{ (group.group_name || '?').charAt(0) }}</div>
+              <div class="forward-target-avatar" :style="{ background: getGroupColor(group.group_id) }">{{ firstChar(group.group_name) }}</div>
               <div class="forward-target-info">
                 <div class="forward-target-name">{{ group.group_name }}</div>
                 <div class="forward-target-desc">{{ group.member_count || 0 }} 人</div>
@@ -589,7 +597,7 @@
             </div>
             <div v-if="contacts.length > 0" class="forward-target-section">私聊</div>
             <div v-for="contact in contacts" :key="'fc-' + contact.user_id" class="forward-target-item" @click="sendForwardTo(contact.user_id)">
-              <div class="forward-target-avatar" :style="{ background: getAvatarColor(contact.user_id) }">{{ (getContactDisplayName(contact) || '?').charAt(0) }}</div>
+              <div class="forward-target-avatar" :style="{ background: getAvatarColor(contact.user_id) }">{{ firstChar(getContactDisplayName(contact)) }}</div>
               <div class="forward-target-info">
                 <div class="forward-target-name">{{ getContactDisplayName(contact) }}</div>
                 <div v-if="isUserOnline(contact.user_id)" class="forward-target-desc online-desc">在线</div>
@@ -616,6 +624,13 @@
         </div>
       </div>
     </transition>
+
+    <!-- Cloud Image Picker -->
+    <CloudImagePicker
+      v-if="showCloudPicker"
+      @select="onCloudImageSelect"
+      @close="showCloudPicker = false"
+    />
   </div>
 </template>
 
@@ -623,6 +638,8 @@
 import ChatBubble from '@/components/ChatBubble.vue';
 import EmojiPicker from '@/components/EmojiPicker.vue';
 import AppNavBar from '@/components/AppNavBar.vue';
+import CloudImagePicker from '@/components/CloudImagePicker.vue';
+import ImagePreview from '@/components/ImagePreview.vue';
 import helpers from '@/utils/helpers';
 import wsManager from '@/utils/websocket';
 import { autoConnect } from '@/utils/websocket';
@@ -633,7 +650,9 @@ export default {
   components: {
     ChatBubble: ChatBubble,
     EmojiPicker: EmojiPicker,
-    AppNavBar: AppNavBar
+    AppNavBar: AppNavBar,
+    CloudImagePicker: CloudImagePicker,
+    ImagePreview: ImagePreview
   },
   data: function() {
     return {
@@ -641,6 +660,7 @@ export default {
       currentChat: 'public',
       inputText: '',
       showEmoji: false,
+      showCloudPicker: false,
       showCreateGroup: false,
       newGroupName: '',
       newGroupMembers: [],
@@ -690,6 +710,11 @@ export default {
       showContextMenu: false,
       contextMenuTarget: null,
       contextMenuPos: { x: 0, y: 0 },
+      contextMenuMediaUrl: null,
+      // Media preview (image/video/audio)
+      showImagePreview: false,
+      mediaPreviewUrl: null,
+      mediaPreviewType: 'image',
       // Reaction picker
       showReactionPicker: false,
       reactionPickerTarget: null,
@@ -974,6 +999,7 @@ export default {
     forwardModalTypeLabel: function() {
       if (!this.pendingForward) return '帖子';
       if (this.pendingForwardType === 'music_playlist' || this.pendingForward.playlistId) return '音乐歌单';
+      if (this.pendingForwardType === 'ai_batch') return 'AI对话记录';
       var t = this.pendingForward.postType;
       if (t === 'food') return '美食推荐';
       if (t === 'hot') return '热事爆料';
@@ -1066,6 +1092,11 @@ export default {
     }
   },
   methods: {
+    // 安全获取字符串首字符（支持 emoji / 数学粗体等代理对字符）
+    firstChar: function(str) {
+      var chars = Array.from(str || '?');
+      return chars[0] || '?';
+    },
     onDocumentClick: function() {
       if (this.showContextMenu) {
         this.closeContextMenu();
@@ -1755,7 +1786,11 @@ export default {
     sendMessage: function(options) {
       var self = this;
       var isForward = !!(options && options.forwardData);
-      var content = isForward ? JSON.stringify(options.forwardData) : self.inputText.trim();
+      var rawContent = isForward ? JSON.stringify(options.forwardData) : self.inputText.trim();
+      // 将云盘媒体标记转换为实际 URL
+      var content = rawContent.replace(/\[cloud-(img|video|audio):([^\]]+)\]/g, function(match, tag, filename) {
+        return '/api/cloud/files/' + encodeURIComponent(filename);
+      });
       var msgType = isForward ? 'community_forward' : 'text';
       if (!content || self.sending) return;
       var user = self.currentUser;
@@ -1815,6 +1850,19 @@ export default {
     insertEmoji: function(emoji) {
       this.inputText += emoji;
       this.showEmoji = false;
+    },
+    onCloudImageSelect: function(file) {
+      var lower = (file.name || '').toLowerCase();
+      var tag = 'cloud-img';
+      if (lower.indexOf('__video') > -1 || lower.indexOf('.mp4') > -1 || lower.indexOf('.mov') > -1 ||
+          lower.indexOf('.webm') > -1 || lower.indexOf('.mkv') > -1 || lower.indexOf('.avi') > -1 || lower.indexOf('.3gp') > -1) {
+        tag = 'cloud-video';
+      } else if (lower.indexOf('__audio') > -1 || lower.indexOf('.mp3') > -1 || lower.indexOf('.m4a') > -1 ||
+                 lower.indexOf('.aac') > -1 || lower.indexOf('.wav') > -1 || lower.indexOf('.ogg') > -1 || lower.indexOf('.opus') > -1) {
+        tag = 'cloud-audio';
+      }
+      this.inputText += '[' + tag + ':' + file.name + ']';
+      this.showCloudPicker = false;
     },
     scrollToBottom: function() {
       var self = this;
@@ -2477,8 +2525,27 @@ export default {
       var forwardData = self.pendingForward;
       var isCommunityForward = !!forwardData.postId;
       var isMusicPlaylist = self.pendingForwardType === 'music_playlist' || !!forwardData.playlistId;
-      var msgType = isMusicPlaylist ? 'music_playlist' : (isCommunityForward ? 'community_forward' : 'text');
-      var content = isCommunityForward ? JSON.stringify(forwardData) : (isMusicPlaylist ? JSON.stringify(forwardData) : forwardData.content);
+      var isAiForward = self.pendingForwardType === 'ai_forward';
+      var isAiBatch = self.pendingForwardType === 'ai_batch';
+      var msgType = isMusicPlaylist ? 'music_playlist' : (isCommunityForward ? 'community_forward' : (isAiForward ? 'ai_forward' : (isAiBatch ? 'ai_batch' : 'text')));
+      var content;
+      if (isCommunityForward) {
+        content = JSON.stringify(forwardData);
+      } else if (isMusicPlaylist) {
+        content = JSON.stringify(forwardData);
+      } else if (isAiForward) {
+        content = JSON.stringify({
+          content: forwardData.content,
+          role: forwardData.role || 'assistant'
+        });
+      } else if (isAiBatch) {
+        content = JSON.stringify({
+          messages: forwardData.messages,
+          timestamp: forwardData.timestamp
+        });
+      } else {
+        content = forwardData.content;
+      }
 
       // Optimistic local add so sender sees the forwarded message immediately
       var user = self.currentUser;
@@ -2528,6 +2595,14 @@ export default {
       }
 
       self.showForwardModal = false;
+      self.pendingForward = null;
+      self.pendingForwardType = 'community_forward';
+
+      // AI 转发：用户已在聊天页，消息会立即出现，无需弹出成功对话框
+      if (isAiForward) return;
+      // AI 批量转发：同上，无需弹出成功对话框
+      if (isAiBatch) return;
+
       var targetName = '公共聊天室';
       if (self.isGroupChat(chatId)) {
         var group = self.groups.find(function(g) { return g.group_id === chatId; });
@@ -2538,8 +2613,6 @@ export default {
       }
       self.forwardSuccessTarget = targetName;
       self.showForwardSuccess = true;
-      self.pendingForward = null;
-      self.pendingForwardType = 'community_forward';
     },
     cancelForward: function() {
       this.showForwardModal = false;
@@ -2589,11 +2662,13 @@ export default {
     },
     // Context menu
     openContextMenu: function(msg, event) {
+      this.closeReactionPicker();
+
       var x = event.clientX;
       var y = event.clientY;
       // Adjust position to avoid overflow
       var menuWidth = 160;
-      var menuHeight = 220;
+      var menuHeight = 280;
       if (x + menuWidth > window.innerWidth) {
         x = window.innerWidth - menuWidth - 8;
       }
@@ -2602,15 +2677,57 @@ export default {
       }
       this.contextMenuTarget = msg;
       this.contextMenuPos = { x: x, y: y };
+      this.contextMenuMediaUrl = event.imageUrl || null;
       this.showContextMenu = true;
     },
     closeContextMenu: function() {
       this.showContextMenu = false;
       this.contextMenuTarget = null;
+      this.contextMenuMediaUrl = null;
+    },
+    // Media preview (image/video/audio)
+    previewMedia: function(media) {
+      // 兼容旧的字符串格式和新的对象格式
+      if (typeof media === 'string') {
+        this.mediaPreviewUrl = media;
+        this.mediaPreviewType = 'image';
+      } else {
+        this.mediaPreviewUrl = media.url;
+        this.mediaPreviewType = media.type || 'image';
+      }
+      this.showImagePreview = true;
+    },
+    closeImagePreview: function() {
+      this.showImagePreview = false;
+      this.mediaPreviewUrl = null;
+      this.mediaPreviewType = 'image';
+    },
+    saveMediaToCloud: function(mediaUrl) {
+      var self = this;
+      if (!mediaUrl) return;
+
+      api.post('/cloud/save-from-url', { url: mediaUrl }).then(function(res) {
+        if (res.data.code === 200) {
+          self.$store.commit('toast/SHOW_TOAST', { message: '文件已转存到云盘', type: 'success' });
+        } else {
+          self.$store.commit('toast/SHOW_TOAST', { message: res.data.message || '转存失败', type: 'error' });
+        }
+      }).catch(function(err) {
+        console.error('转存文件失败:', err);
+        self.$store.commit('toast/SHOW_TOAST', { message: '转存失败，请重试', type: 'error' });
+      });
     },
     handleContextAction: function(action) {
       var self = this;
       var msg = self.contextMenuTarget;
+      var imageUrl = self.contextMenuMediaUrl;
+
+      if (action === 'saveMedia') {
+        self.closeContextMenu();
+        self.saveMediaToCloud(imageUrl);
+        return;
+      }
+
       self.closeContextMenu();
 
       if (!msg) return;
@@ -3378,6 +3495,29 @@ export default {
 }
 
 .emoji-toggle:active {
+  transform: scale(0.92);
+  opacity: 0.7;
+}
+
+.cloud-toggle {
+  font-size: var(--font-size-subheadline);
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard);
+}
+
+.cloud-toggle:hover {
+  background: var(--bg-color);
+  color: var(--accent-ai);
+}
+
+.cloud-toggle:active {
   transform: scale(0.92);
   opacity: 0.7;
 }

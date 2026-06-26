@@ -78,7 +78,9 @@ function setAvatarColor(userId, color) {
 
 function getAvatarText(name) {
   if (!name) return '?';
-  return name.charAt(0);
+  // Array.from 正确处理 emoji / 数学粗体等代理对字符（charAt 会把它们拆成半个显示为 ?）
+  var chars = Array.from(name);
+  return chars[0] || '?';
 }
 
 function escapeHtml(str) {

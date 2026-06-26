@@ -47,12 +47,53 @@
         <router-link to="/register" class="footer-link">立即注册</router-link>
         <span v-if="isLoggedIn" class="footer-divider">|</span>
         <router-link v-if="isLoggedIn" to="/" class="footer-link">返回桌面</router-link>
+        <span class="footer-divider">|</span>
+        <a href="javascript:void(0)" class="footer-link" @click="showQuickUpload = true">快捷上传</a>
       </div>
     </div>
+
+    <!-- 快捷上传（登录码）弹窗 -->
+    <transition name="modal-fade">
+      <div v-if="showQuickUpload" class="quick-upload-overlay" @click.self="closeQuickUpload">
+        <div class="quick-upload-card">
+          <button class="quick-close" @click="closeQuickUpload" aria-label="关闭">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+          <div class="quick-header">
+            <i class="fa-solid fa-cloud-arrow-up quick-header-icon"></i>
+            <h3 class="quick-title">快捷上传</h3>
+            <p class="quick-desc">请输入已登录用户云盘页显示的上传码</p>
+          </div>
+          <form class="quick-form" @submit.prevent="verifyCode">
+            <div class="quick-input-wrap">
+              <input
+                v-model="quickCode"
+                type="text"
+                class="quick-input"
+                :class="{ 'input-error': quickError }"
+                placeholder="请输入6位上传码"
+                maxlength="6"
+                autocomplete="off"
+                @input="onCodeInput"
+              />
+            </div>
+            <transition name="error-fade">
+              <div v-if="quickError" class="quick-error" role="alert">{{ quickError }}</div>
+            </transition>
+            <button type="submit" class="quick-submit" :disabled="quickLoading || quickCode.length !== 6">
+              <span v-if="quickLoading" class="btn-loading"></span>
+              <span v-else>验证并上传</span>
+            </button>
+          </form>
+        </div>
+      </div>
+    </transition>
   </div>
 </template>
 
 <script>
+import axios from 'axios';
+
 export default {
   name: 'Login',
   data: function() {
@@ -64,7 +105,12 @@ export default {
       accountError: false,
       passwordError: false,
       entered: false,
-      showPassword: false
+      showPassword: false,
+      // 快捷上传相关
+      showQuickUpload: false,
+      quickCode: '',
+      quickError: '',
+      quickLoading: false
     };
   },
   computed: {
@@ -79,6 +125,40 @@ export default {
     });
   },
   methods: {
+    onCodeInput: function() {
+      // 自动转大写，过滤非字母数字
+      this.quickCode = this.quickCode.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      if (this.quickError) this.quickError = '';
+    },
+    closeQuickUpload: function() {
+      this.showQuickUpload = false;
+      this.quickCode = '';
+      this.quickError = '';
+      this.quickLoading = false;
+    },
+    verifyCode: function() {
+      var self = this;
+      if (self.quickCode.length !== 6) {
+        self.quickError = '请输入6位上传码';
+        return;
+      }
+      self.quickLoading = true;
+      self.quickError = '';
+      // 使用独立 axios 实例，避免触发 401 拦截器
+      axios.post('/api/cloud/verify-code', { code: self.quickCode }).then(function(res) {
+        self.quickLoading = false;
+        var data = res.data;
+        if (data.code === 200 && data.data && data.data.valid) {
+          // 验证通过，跳转到免登录上传页
+          self.$router.push({ path: '/guest-upload', query: { code: self.quickCode } });
+        } else {
+          self.quickError = (data.data && data.data.message) || '上传码无效';
+        }
+      }).catch(function() {
+        self.quickLoading = false;
+        self.quickError = '验证失败，请检查网络后重试';
+      });
+    },
     handleLogin: function() {
       var self = this;
       self.errorMsg = '';
@@ -322,5 +402,142 @@ export default {
 
 .footer-link:hover {
   text-decoration: underline;
+}
+
+/* 快捷上传弹窗 */
+.quick-upload-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.quick-upload-card {
+  position: relative;
+  width: 100%;
+  max-width: 380px;
+  background: var(--card-bg, #fff);
+  border-radius: var(--radius-xl, 20px);
+  padding: 32px 28px 28px;
+  box-shadow: var(--shadow-lg, 0 10px 40px rgba(0,0,0,0.2));
+}
+.quick-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary, #999);
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.quick-close:active { transform: scale(0.92); opacity: 0.7; }
+.quick-header {
+  text-align: center;
+  margin-bottom: 24px;
+}
+.quick-header-icon {
+  font-size: 48px;
+  color: var(--primary-color, #007aff);
+  margin-bottom: 12px;
+}
+.quick-title {
+  font-size: var(--font-size-title3, 20px);
+  font-weight: 600;
+  color: var(--text-primary, #000);
+  margin: 0 0 6px 0;
+}
+.quick-desc {
+  font-size: var(--font-size-sm, 13px);
+  color: var(--text-secondary, #999);
+  margin: 0;
+}
+.quick-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.quick-input-wrap {
+  width: 100%;
+}
+.quick-input {
+  width: 100%;
+  height: 52px;
+  padding: 0 16px;
+  border: 1px solid var(--border-color, #e5e5ea);
+  border-radius: var(--radius-md, 12px);
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: 8px;
+  text-align: center;
+  text-transform: uppercase;
+  color: var(--text-primary, #000);
+  background: var(--bg-color, #fff);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.quick-input:focus {
+  border-color: var(--primary-color, #007aff);
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15);
+  outline: none;
+}
+.quick-input.input-error {
+  border-color: var(--danger-color, #ff3b30);
+  box-shadow: 0 0 0 3px rgba(255, 59, 48, 0.15);
+}
+.quick-error {
+  padding: 10px 14px;
+  background: rgba(255, 59, 48, 0.1);
+  color: var(--danger-color, #ff3b30);
+  border-radius: var(--radius-md, 12px);
+  font-size: var(--font-size-sm, 13px);
+  text-align: center;
+}
+.quick-submit {
+  width: 100%;
+  height: 50px;
+  background: var(--primary-color, #007aff);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-md, 12px);
+  font-size: var(--font-size-subheadline, 15px);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.15s;
+}
+.quick-submit:active { transform: scale(0.92); opacity: 0.7; }
+.quick-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* 弹窗动画 */
+.modal-fade-enter-active,
+.modal-fade-leave-active {
+  transition: opacity 0.25s;
+}
+.modal-fade-enter,
+.modal-fade-leave-to {
+  opacity: 0;
+}
+.modal-fade-enter-active .quick-upload-card,
+.modal-fade-leave-active .quick-upload-card {
+  transition: transform 0.25s var(--ease-standard, ease), opacity 0.25s;
+}
+.modal-fade-enter .quick-upload-card {
+  transform: scale(0.92) translateY(8px);
+  opacity: 0;
+}
+.modal-fade-leave-to .quick-upload-card {
+  transform: scale(0.97) translateY(-4px);
+  opacity: 0;
 }
 </style>

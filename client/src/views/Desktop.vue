@@ -75,7 +75,7 @@
         <div class="dock-icon">
           <img :src="app.icon" :alt="app.label" loading="eager">
         </div>
-        <span v-if="appBadges[app.name]" class="dock-badge">{{ appBadges[app.name] }}</span>
+        <span v-if="appBadges[app.name]" class="dock-badge" :class="{ 'dock-badge-dot': appBadges[app.name] === '●' }">{{ appBadges[app.name] === '●' ? '' : appBadges[app.name] }}</span>
       </div>
     </div>
   </div>
@@ -83,6 +83,7 @@
 
 <script>
 import api from '@/utils/api';
+import updateChecker from '@/utils/update-checker';
 
 var WALLPAPER_MAP = {
   'default': 'linear-gradient(135deg, #007AFF 0%, #5AC8FA 50%, #BFEEFF 100%)',
@@ -131,6 +132,8 @@ export default {
       unreadAnnouncements: [],
       showAnnouncementFloat: false,
       currentAnnouncementIndex: 0,
+      newVersionAvailable: false,
+      latestVersion: '',
       dockApps: [
         { name: 'chat', label: '聊天', icon: '/resources/public/icons/Chat.svg', color: '#007AFF', route: '/chat' },
         { name: 'community', label: '社区', icon: '/resources/public/icons/Community.svg', color: '#FF9500', route: '/community' },
@@ -189,6 +192,10 @@ export default {
       if (totalChat > 0) {
         badges['chat'] = totalChat > 99 ? '99+' : totalChat;
       }
+      // 新版本角标
+      if (this.newVersionAvailable) {
+        badges['settings'] = '●';
+      }
       return badges;
     },
     // 根据后端应用管控状态过滤出启用的应用
@@ -217,8 +224,13 @@ export default {
     });
     self.loadUnreadAnnouncements();
     self.loadEnabledApps();
+    self.checkVersionUpdate();
   },
   beforeDestroy: function() {
+    if (this._updateUnsubscribe) {
+      this._updateUnsubscribe();
+      this._updateUnsubscribe = null;
+    }
     if (this.performanceCheckTimer) {
       clearInterval(this.performanceCheckTimer);
       this.performanceCheckTimer = null;
@@ -399,6 +411,10 @@ export default {
     onMouseUp: function() {},
     launchApp: function(app) {
       var self = this;
+      // 打开设置时清除新版本角标
+      if (app.name === 'settings') {
+        self.markVersionSeen();
+      }
       self.launchingApp = app.name;
       setTimeout(function() {
         self.launchingApp = '';
@@ -452,6 +468,39 @@ export default {
         // 降级：全部启用
         self.enabledApps = self.dockApps.map(function(app) { return app.name; });
       });
+    },
+    // 检查新版本角标（复用 update-checker 模块）
+    checkVersionUpdate: function() {
+      var self = this;
+      // 如果 update-checker 已检测到更新，直接显示角标
+      if (updateChecker.isUpdateAvailable()) {
+        var info = updateChecker.getCurrentVersionInfo();
+        if (info) {
+          var storedVersion = localStorage.getItem('classnet_seen_version') || '0.0.0';
+          if (updateChecker.compareVersions(info.version, storedVersion) > 0) {
+            self.newVersionAvailable = true;
+            self.latestVersion = info.version;
+          }
+        }
+      }
+      // 监听后续的更新通知（WebSocket 推送或定时检查），保存取消订阅函数
+      self._updateUnsubscribe = updateChecker.onUpdateAvailable(function(event, info) {
+        if (info && info.serverVersion) {
+          var storedVer = localStorage.getItem('classnet_seen_version') || '0.0.0';
+          if (updateChecker.compareVersions(info.serverVersion, storedVer) > 0) {
+            self.newVersionAvailable = true;
+            self.latestVersion = info.serverVersion;
+          }
+        }
+      });
+    },
+    // 用户点击设置时清除新版本角标
+    markVersionSeen: function() {
+      if (this.newVersionAvailable && this.latestVersion) {
+        localStorage.setItem('classnet_seen_version', this.latestVersion);
+        this.newVersionAvailable = false;
+        this.latestVersion = '';
+      }
     },
     dismissAnnouncement: function() {
       var self = this;
@@ -653,6 +702,19 @@ export default {
   -webkit-box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
   border: 2px solid var(--dock-bg);
+}
+
+/* 纯红点角标（新版本提示） */
+.dock-badge-dot {
+  min-width: 10px;
+  width: 10px;
+  height: 10px;
+  padding: 0;
+  border-radius: 50%;
+  line-height: 0;
+  font-size: 0;
+  top: -3px;
+  right: -3px;
 }
 
 /* 小屏适配 - 保持 iPad 比例 */

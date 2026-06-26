@@ -38,10 +38,6 @@
             <i class="fa-solid fa-plus"></i>
             <span>新建歌单</span>
           </button>
-          <button class="sidebar-import-btn" @click="showImportShareCode = true">
-            <i class="fa-solid fa-download"></i>
-            <span>导入歌单</span>
-          </button>
         </div>
 
         <div class="list-content scrollbar-thin">
@@ -55,25 +51,21 @@
             </div>
           </div>
 
-          <div v-if="(typeof activeTab === 'number' && currentPlaylist) || (typeof activeTab === 'string' && activeTab.indexOf('shared_') === 0)" class="playlist-header">
+          <div v-if="typeof activeTab === 'number' && currentPlaylist" class="playlist-header">
             <div class="playlist-header-info">
-              <h2 class="playlist-header-name">{{ typeof activeTab === 'string' ? sharedPlaylistName : currentPlaylist.name }}</h2>
-              <p v-if="typeof activeTab === 'string' ? sharedPlaylistDesc : currentPlaylist.description" class="playlist-header-desc">{{ typeof activeTab === 'string' ? sharedPlaylistDesc : currentPlaylist.description }}</p>
+              <h2 class="playlist-header-name">{{ currentPlaylist.name }}</h2>
+              <p v-if="currentPlaylist.description" class="playlist-header-desc">{{ currentPlaylist.description }}</p>
             </div>
             <div class="playlist-header-actions">
-              <button v-if="typeof activeTab === 'number'" class="playlist-action-btn" @click="playPlaylist(activeTab)">
+              <button class="playlist-action-btn" @click="playPlaylist(activeTab)">
                 <i class="fa-solid fa-play"></i>
                 <span>播放全部</span>
               </button>
-              <button v-if="typeof activeTab === 'string' && activeTab.indexOf('shared_') === 0" class="playlist-action-btn" @click="playSharedPlaylist">
-                <i class="fa-solid fa-play"></i>
-                <span>播放全部</span>
-              </button>
-              <button v-if="typeof activeTab === 'number'" class="playlist-action-btn" @click="sharePlaylist(activeTab)">
+              <button class="playlist-action-btn" @click="sharePlaylist(activeTab)">
                 <i class="fa-solid fa-share-nodes"></i>
                 <span>分享</span>
               </button>
-              <button v-if="typeof activeTab === 'number'" class="playlist-action-btn playlist-action-btn-danger" @click="deletePlaylist(activeTab)">
+              <button class="playlist-action-btn playlist-action-btn-danger" @click="deletePlaylist(activeTab)">
                 <i class="fa-solid fa-trash"></i>
                 <span>删除</span>
               </button>
@@ -352,12 +344,8 @@
     <div v-if="showShareDialog" class="modal-overlay" @click.self="showShareDialog = false">
       <div class="modal-box">
         <div class="modal-title">分享歌单</div>
-        <div class="modal-share-name">{{ sharePlaylistName }}</div>
-        <div class="modal-share-code">{{ shareCode }}</div>
+        <div class="modal-share-name">{{ currentPlaylist ? currentPlaylist.name : '' }}</div>
         <div class="modal-share-actions">
-          <button class="modal-btn modal-btn-primary" @click="copyShareCode">
-            <i class="fa-solid fa-copy"></i> 复制分享码
-          </button>
           <button class="modal-btn modal-btn-accent" @click="shareToChat">
             <i class="fa-solid fa-comment"></i> 分享到聊天
           </button>
@@ -367,19 +355,6 @@
         </div>
         <div class="modal-actions">
           <button class="modal-btn" @click="showShareDialog = false">关闭</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Modal: Import Share Code -->
-    <div v-if="showImportShareCode" class="modal-overlay" @click.self="showImportShareCode = false">
-      <div class="modal-box">
-        <div class="modal-title">导入歌单</div>
-        <p class="modal-hint">输入分享码以导入他人分享的歌单</p>
-        <input class="modal-input" v-model="importShareCodeInput" placeholder="请输入8位分享码" @keyup.enter="importShareCode" />
-        <div class="modal-actions">
-          <button class="modal-btn" @click="showImportShareCode = false">取消</button>
-          <button class="modal-btn modal-btn-primary" @click="importShareCode" :disabled="!importShareCodeInput.trim()">导入</button>
         </div>
       </div>
     </div>
@@ -422,13 +397,7 @@ export default {
       showAddToPlaylist: false,
       addToPlaylistSongId: null,
       showShareDialog: false,
-      shareCode: '',
-      sharePlaylistName: '',
       playlistDetailSongs: [],
-      sharedPlaylistName: '',
-      sharedPlaylistDesc: '',
-      showImportShareCode: false,
-      importShareCodeInput: '',
       _bgCrossfadeActive: false,
       _bgCrossfadeTimer: null
     };
@@ -468,9 +437,6 @@ export default {
       } else if (typeof vm.activeTab === 'number') {
         var detailIds = vm.playlistDetailSongs;
         list = vm.songs.filter(function(s) { return detailIds.indexOf(s.id) !== -1; });
-      } else if (typeof vm.activeTab === 'string' && vm.activeTab.indexOf('shared_') === 0) {
-        var sharedIds = vm.playlistDetailSongs;
-        list = vm.songs.filter(function(s) { return sharedIds.indexOf(s.id) !== -1; });
       } else {
         list = vm.songs;
       }
@@ -564,12 +530,8 @@ export default {
     if (this.currentSong && !this.lyrics) {
       this.fetchLyrics(this.currentSong);
     }
-    var shareCode = this.$route.query.shareCode;
     var playlistId = this.$route.query.playlist;
-    if (shareCode) {
-      this.openSharedPlaylist(shareCode);
-      this.$router.replace({ query: {} }).catch(function() {});
-    } else if (playlistId) {
+    if (playlistId) {
       var pl = { id: parseInt(playlistId, 10) };
       this.openPlaylistDetail(pl);
       this.$router.replace({ query: {} }).catch(function() {});
@@ -936,14 +898,12 @@ export default {
     },
     sharePlaylist: function(playlistId) {
       var vm = this;
-      api.post('/music/playlist/share', { playlistId: playlistId }).then(function(res) {
-        if (res.data.code === 200) {
-          vm.shareCode = res.data.data.shareCode || '';
-          var pl = vm.playlists.find(function(p) { return p.id === playlistId; });
-          vm.sharePlaylistName = pl ? pl.name : '';
-          vm.showShareDialog = true;
-        }
-      }).catch(function() {});
+      var pl = vm.currentPlaylist;
+      if (!pl) {
+        vm.$toast.show('请先选择一个歌单', { type: 'warning' });
+        return;
+      }
+      vm.showShareDialog = true;
     },
     openPlaylistDetail: function(playlist) {
       var vm = this;
@@ -974,83 +934,36 @@ export default {
         }
       }).catch(function() {});
     },
-    copyShareCode: function() {
-      var vm = this;
-      if (navigator.clipboard && window.isSecureContext) {
-        navigator.clipboard.writeText(vm.shareCode).catch(function() {
-          vm._copyShareCodeFallback();
-        });
-      } else {
-        vm._copyShareCodeFallback();
-      }
-    },
-    _copyShareCodeFallback: function() {
-      var ta = document.createElement('textarea');
-      ta.value = this.shareCode;
-      ta.style.position = 'fixed';
-      ta.style.left = '-9999px';
-      document.body.appendChild(ta);
-      ta.select();
-      try { document.execCommand('copy'); } catch (e) {}
-      document.body.removeChild(ta);
-    },
     shareToChat: function() {
       var vm = this;
       var pl = vm.currentPlaylist;
-      if (!pl) return;
-      var songCount = vm.playlistDetailSongs.length;
+      if (!pl) {
+        vm.$toast.show('请先选择一个歌单', { type: 'warning' });
+        return;
+      }
       var forwardData = {
         playlistId: pl.id,
         playlistName: pl.name,
-        shareCode: vm.shareCode,
-        songCount: songCount,
-        description: pl.description || ''
+        songCount: vm.playlistDetailSongs.length
       };
-      vm.showShareDialog = false;
       vm.$router.push('/chat?forward=' + encodeURIComponent(JSON.stringify(forwardData)) + '&forwardType=music_playlist');
+      vm.showShareDialog = false;
     },
     shareToCommunity: function() {
       var vm = this;
       var pl = vm.currentPlaylist;
-      if (!pl) return;
-      var songCount = vm.playlistDetailSongs.length;
+      if (!pl) {
+        vm.$toast.show('请先选择一个歌单', { type: 'warning' });
+        return;
+      }
       var postData = {
         playlistId: pl.id,
         playlistName: pl.name,
-        shareCode: vm.shareCode,
-        songCount: songCount,
+        songCount: vm.playlistDetailSongs.length,
         description: pl.description || ''
       };
-      vm.showShareDialog = false;
       vm.$router.push('/community?sharePlaylist=' + encodeURIComponent(JSON.stringify(postData)));
-    },
-    openSharedPlaylist: function(shareCode) {
-      var vm = this;
-      api.get('/music/playlist/shared', { params: { code: shareCode } }).then(function(res) {
-        if (res.data.code === 200) {
-          var data = res.data.data;
-          vm.playlistDetailSongs = data.songIds || [];
-          vm.activeTab = 'shared_' + shareCode;
-          vm.sharedPlaylistName = (data.playlist && data.playlist.name) || '分享的歌单';
-          vm.sharedPlaylistDesc = (data.playlist && data.playlist.description) || '';
-        }
-      }).catch(function() {});
-    },
-    playSharedPlaylist: function() {
-      var vm = this;
-      var ids = vm.playlistDetailSongs;
-      var playlistSongs = vm.songs.filter(function(s) { return ids.indexOf(s.id) !== -1; });
-      if (playlistSongs.length === 0) return;
-      vm.$store.commit('music/SET_PLAY_QUEUE', playlistSongs.slice());
-      vm.playSong(playlistSongs[0]);
-    },
-    importShareCode: function() {
-      var vm = this;
-      var code = vm.importShareCodeInput.trim();
-      if (!code) return;
-      vm.openSharedPlaylist(code);
-      vm.showImportShareCode = false;
-      vm.importShareCodeInput = '';
+      vm.showShareDialog = false;
     }
   }
 };

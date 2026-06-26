@@ -14,9 +14,9 @@ if (!fs.existsSync(RESOURCES_DIR)) {
 var db = require('../utils/db');
 
 function getHiddenFolders(req) {
-  var hidden = ['public'];
+  var hidden = ['public', 'cloud'];
   if (req.user && req.user.is_admin) {
-    hidden = [];
+    hidden = ['cloud'];
   }
   if (!req.user || !req.user.is_admin) {
     try {

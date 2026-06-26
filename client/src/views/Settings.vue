@@ -370,6 +370,15 @@
                   </div>
                 </div>
               </template>
+              <div class="form-row">
+                <label class="form-label">
+                  <i class="fa-solid fa-id-card form-row-icon"></i>在社区显示真实姓名
+                </label>
+                <label class="switch">
+                  <input type="checkbox" v-model="privacyCustomize.showRealName" @change="savePrivacyCustomize" />
+                  <span class="switch-slider"></span>
+                </label>
+              </div>
             </div>
           </div>
 
@@ -411,30 +420,32 @@
               </div>
               <div class="about-item">
                 <span class="about-label">版本</span>
-                <span class="about-value">1.0.0</span>
-              </div>
-              <div class="about-item">
-                <span class="about-label">构建日期</span>
-                <span class="about-value">{{ buildDate }}</span>
+                <span class="about-value">{{ versionInfo.version }}</span>
               </div>
               <div class="about-item">
                 <span class="about-label">前端框架</span>
                 <span class="about-value">Vue 2.7 + Vite</span>
               </div>
-              <div class="about-item">
-                <span class="about-label">开发者</span>
-                <span class="about-value">ClassNet Team</span>
+              <div v-if="versionInfo.changelog" class="about-changelog">
+                <div class="about-changelog-title">更新介绍</div>
+                <div class="about-changelog-list">
+                  <div v-for="(line, idx) in versionInfo.changelogLines" :key="idx" class="about-changelog-line">{{ line }}</div>
+                </div>
               </div>
               <div class="about-item">
-                <span class="about-label">联系方式</span>
-                <span class="about-value">classnet@example.com</span>
+                <span class="about-label">开发者</span>
+                <span class="about-value">Nevino</span>
               </div>
               <div v-if="isOfficer && officerTitle" class="about-item">
                 <span class="about-label">我的头衔</span>
                 <span class="about-value" style="color:var(--primary-color)">{{ officerTitle }}</span>
               </div>
               <div class="about-footer">
-                <p class="about-copyright">ClassNet Team. All rights reserved.</p>
+                <button class="btn-outline check-update-btn" @click="checkForUpdate" :disabled="updateChecking">
+                  <i class="fa-solid fa-rotate" :class="{ 'fa-spin': updateChecking }"></i>
+                  {{ updateChecking ? '检查中...' : '检查更新' }}
+                </button>
+                <p class="about-copyright">Nevino. All rights reserved.</p>
               </div>
             </div>
           </div>
@@ -458,6 +469,7 @@
 <script>
 import api from '@/utils/api';
 import helpers from '@/utils/helpers';
+import updateChecker from '@/utils/update-checker';
 import AppNavBar from '@/components/AppNavBar.vue';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 
@@ -517,7 +529,11 @@ export default {
         { key: 'about', icon: 'fa-solid fa-circle-info', label: '关于系统' },
         { key: 'admin', icon: 'fa-solid fa-screwdriver-wrench', label: '系统管理' }
       ],
-      buildDate: '',
+      versionInfo: {
+        version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0',
+        changelog: '',
+        changelogLines: []
+      },
       levelInfo: {
         level: 0,
         exp: 0,
@@ -533,7 +549,11 @@ export default {
         streak_bonus: 0
       },
       dailyLoginClaimed: false,
-      dailyLoginLoading: false
+      dailyLoginLoading: false,
+      updateChecking: false,
+      privacyCustomize: {
+        showRealName: true  // 默认在社区显示真实姓名
+      }
     };
   },
   computed: {
@@ -583,7 +603,7 @@ export default {
     if (this.autoWallpaper) {
       this.startAutoWallpaper();
     }
-    this.buildDate = this.getBuildDate();
+    this.fetchVersionInfo();
     this.loadLevelInfo();
     this.avatarColor = localStorage.getItem('avatar_color_' + (this.user && this.user.user_id)) || '';
   },
@@ -661,6 +681,8 @@ export default {
             self.profileForm.qq_private = privacy.qq !== false;
             self.profileForm.phone_private = privacy.phone !== false;
             self.profileForm.address_private = privacy.address !== false;
+            // 真实姓名显示设置：hide_real_name=true 时关闭开关
+            self.privacyCustomize.showRealName = !privacy.hide_real_name;
           }
         })
         .catch(function() {
@@ -759,6 +781,20 @@ export default {
         self.$store.commit('settings/SET_WALLPAPER', allWallpapers[nextIdx]);
       }, 30000);
     },
+    savePrivacyCustomize: function() {
+      var self = this;
+      api.put('/community/profile', {
+        privacy_settings: {
+          hide_real_name: !self.privacyCustomize.showRealName
+        }
+      }).then(function() {
+        self.$store.commit('toast/SHOW_TOAST', { message: '隐私设置已保存', type: 'success' });
+      }).catch(function() {
+        self.$store.commit('toast/SHOW_TOAST', { message: '保存失败，请重试', type: 'error' });
+        // 回滚开关状态
+        self.privacyCustomize.showRealName = !self.privacyCustomize.showRealName;
+      });
+    },
     saveNotifications: function() {
       var self = this;
       self.$store.commit('settings/SET_NOTIFICATIONS', self.notifications);
@@ -835,12 +871,56 @@ export default {
         }
       }).catch(function() {});
     },
-    getBuildDate: function() {
-      var now = new Date();
-      var y = now.getFullYear();
-      var m = (now.getMonth() + 1).toString().padStart(2, '0');
-      var d = now.getDate().toString().padStart(2, '0');
-      return y + '-' + m + '-' + d;
+    fetchVersionInfo: function() {
+      var self = this;
+      api.get('/system/version')
+        .then(function(response) {
+          var data = response.data && response.data.data;
+          if (data) {
+            self.versionInfo.version = data.version || self.versionInfo.version;
+            self.versionInfo.changelog = data.changelog || '';
+            self.versionInfo.changelogLines = self.parseChangelog(data.changelog);
+          }
+        })
+        .catch(function() {
+          // 使用构建时注入的 __APP_VERSION__ 作为回退
+        });
+    },
+    parseChangelog: function(text) {
+      if (!text) return [];
+      // changelog 是多行文本，按行分割
+      var lines = text.split('\n');
+      var result = [];
+      for (var i = 0; i < lines.length; i++) {
+        var line = lines[i].trim();
+        if (line) result.push(line);
+      }
+      return result;
+    },
+    // 手动检查更新
+    checkForUpdate: function() {
+      var self = this;
+      if (self.updateChecking) return;
+      self.updateChecking = true;
+      updateChecker.checkForUpdate().then(function(result) {
+        self.updateChecking = false;
+        if (result && result.needsUpdate) {
+          self.$store.commit('toast/SHOW_TOAST', {
+            message: '发现新版本 ' + result.serverVersion + '，请刷新页面获取更新',
+            type: 'info'
+          });
+          // 刷新 changelog 显示
+          self.fetchVersionInfo();
+        } else {
+          self.$store.commit('toast/SHOW_TOAST', {
+            message: '已是最新版本 ' + self.versionInfo.version,
+            type: 'success'
+          });
+        }
+      }).catch(function() {
+        self.updateChecking = false;
+        self.$store.commit('toast/SHOW_TOAST', { message: '检查更新失败，请稍后重试', type: 'error' });
+      });
     },
     goToAdmin: function() {
       this.$router.push({ name: 'Admin' });
@@ -1612,11 +1692,53 @@ export default {
   font-weight: var(--font-weight-medium);
 }
 
+/* 更新日志 */
+.about-changelog {
+  padding: 14px 0;
+  border-bottom: 0.5px solid var(--separator-color);
+}
+
+.about-changelog-title {
+  font-size: var(--font-size-footnote);
+  color: var(--text-secondary);
+  font-weight: var(--font-weight-medium);
+  margin-bottom: 10px;
+}
+
+.about-changelog-list {
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.about-changelog-line {
+  font-size: var(--font-size-caption);
+  color: var(--text-primary);
+  padding: 4px 0;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.about-changelog-line::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary-color);
+  margin-right: 8px;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
 .about-footer {
   margin-top: 20px;
   text-align: center;
   padding-top: 16px;
   border-top: 0.5px solid var(--separator-color);
+}
+
+.check-update-btn {
+  margin-bottom: 12px;
 }
 
 .about-copyright {

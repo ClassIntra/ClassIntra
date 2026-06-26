@@ -681,6 +681,18 @@ function initDatabase() {
     initAppStmt.run(defaultApps[di]);
   }
 
+  // 上传码表 — 已登录用户生成码，供未登录浏览器免登录上传文件
+  db.exec([
+    'CREATE TABLE IF NOT EXISTS upload_codes (',
+    '  code TEXT PRIMARY KEY,',
+    '  owner_id TEXT NOT NULL,',
+    '  fail_count INTEGER DEFAULT 0,',
+    '  locked_until TEXT DEFAULT NULL,',
+    '  created_at TEXT DEFAULT (datetime(\'now\'))',
+    ')'
+  ].join('\n'));
+  db.exec('CREATE INDEX IF NOT EXISTS idx_upload_codes_owner ON upload_codes(owner_id)');
+
   var watermarkTypes = [
     { type: 'chat_messages', query: 'SELECT MAX(id) as max_id FROM chat_messages' },
     { type: 'private_messages', query: 'SELECT MAX(id) as max_id FROM private_messages' },
