@@ -470,7 +470,7 @@ export default {
           }
         } catch (e) {}
         var mime = pickMimeTypes('audio');
-        var options = { audioBitsPerSecond: 192000 }; // 192kbps 高质量语音
+        var options = { audioBitsPerSecond: 256000 }; // 256kbps 高质量语音
         if (mime) options.mimeType = mime;
         var recorder = new MediaRecorder(stream, options);
         recorder.ondataavailable = function(e) {
@@ -645,7 +645,7 @@ export default {
         return;
       }
       var constraints = {
-        video: { facingMode: self.facingMode, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
+        video: { facingMode: self.facingMode, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 60 } },
         audio: getVideoAudioConstraints()
       };
       navigator.mediaDevices.getUserMedia(constraints).then(function(stream) {
@@ -682,7 +682,7 @@ export default {
       }
       self.videoChunks = [];
       var mime = pickMimeTypes('video');
-      var options = { videoBitsPerSecond: 6000000, audioBitsPerSecond: 192000 }; // 6Mbps 1080p 画质 + 192kbps 音质
+      var options = { videoBitsPerSecond: 8000000, audioBitsPerSecond: 256000 }; // 8Mbps 1080p60 画质 + 256kbps 音质
       if (mime) options.mimeType = mime;
       try {
         var recorder = new MediaRecorder(self.videoStream, options);
