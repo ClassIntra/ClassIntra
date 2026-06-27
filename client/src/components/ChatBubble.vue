@@ -100,6 +100,9 @@
 </template>
 
 <script>
+import RichTextRenderer from '@/utils/rich-text-renderer';
+import AudioPlayerManager from '@/utils/audio-player-manager';
+
 export default {
   name: 'ChatBubble',
   props: {
@@ -175,7 +178,7 @@ export default {
       longPressFired: false,
       longPressMediaUrl: null,
       longPressMediaType: null,
-      audioPlayers: {} // 语音条 Audio 对象池，key=媒体URL
+      audioManager: new AudioPlayerManager() // 语音条播放管理器
     };
   },
   computed: {
@@ -279,11 +282,17 @@ export default {
   },
   mounted: function() {
     document.addEventListener('click', this.closeContextMenu);
-    this.$nextTick(this.initVoiceBars);
+    var self = this;
+    this.$nextTick(function() {
+      self.audioManager.initBars(self.$el);
+    });
   },
   updated: function() {
     // v-html 重新渲染后，初始化新增的语音条
-    this.$nextTick(this.initVoiceBars);
+    var self = this;
+    this.$nextTick(function() {
+      self.audioManager.initBars(self.$el);
+    });
   },
   beforeDestroy: function() {
     document.removeEventListener('click', this.closeContextMenu);
@@ -291,7 +300,7 @@ export default {
       clearTimeout(this.longPressTimer);
       this.longPressTimer = null;
     }
-    this.cleanupAudioPlayers();
+    this.audioManager.cleanup();
   },
   methods: {
     onContentClick: function(e) {
@@ -303,7 +312,7 @@ export default {
         e.stopPropagation();
         var voiceUrl = voiceBar.getAttribute('data-media-url');
         if (voiceUrl) {
-          this.toggleVoicePlay(voiceUrl, voiceBar);
+          this.audioManager.togglePlay(voiceUrl, voiceBar);
         }
         return;
       }
@@ -331,88 +340,6 @@ export default {
         }
         return;
       }
-    },
-    // 初始化未绑定的语音条：创建 Audio 对象，绑定事件
-    initVoiceBars: function() {
-      var self = this;
-      var bars = self.$el.querySelectorAll('.msg-voice-bar[data-voice-init="0"]');
-      for (var i = 0; i < bars.length; i++) {
-        (function(bar) {
-          var url = bar.getAttribute('data-media-url');
-          if (!url) return;
-          bar.setAttribute('data-voice-init', '1');
-          // 创建 Audio 对象（复用池）
-          if (!self.audioPlayers[url]) {
-            var audio = new Audio(url);
-            audio.preload = 'metadata';
-            audio.addEventListener('loadedmetadata', function() {
-              var dur = audio.duration;
-              if (isNaN(dur) || dur === Infinity) return;
-              var durEl = bar.querySelector('.voice-duration');
-              if (durEl) durEl.textContent = Math.ceil(dur) + '"';
-            });
-            audio.addEventListener('timeupdate', function() {
-              var dur = audio.duration;
-              if (isNaN(dur) || dur === Infinity || dur === 0) return;
-              var progress = (audio.currentTime / dur) * 100;
-              var progEl = bar.querySelector('.voice-progress');
-              if (progEl) progEl.style.width = progress + '%';
-              var waveBars = bar.querySelectorAll('.voice-wave-bars span');
-              var activeCount = Math.ceil((progress / 100) * waveBars.length);
-              for (var k = 0; k < waveBars.length; k++) {
-                if (k < activeCount) waveBars[k].classList.add('active');
-                else waveBars[k].classList.remove('active');
-              }
-            });
-            audio.addEventListener('ended', function() {
-              var playBtn = bar.querySelector('.voice-play-btn i');
-              if (playBtn) playBtn.className = 'fa-solid fa-play';
-              var progEl = bar.querySelector('.voice-progress');
-              if (progEl) progEl.style.width = '0%';
-              var waveBars = bar.querySelectorAll('.voice-wave-bars span');
-              for (var k = 0; k < waveBars.length; k++) {
-                waveBars[k].classList.remove('active');
-              }
-            });
-            self.audioPlayers[url] = audio;
-          }
-        })(bars[i]);
-      }
-    },
-    // 切换语音条播放/暂停
-    toggleVoicePlay: function(url, barEl) {
-      var audio = this.audioPlayers[url];
-      if (!audio) return;
-      var playIcon = barEl.querySelector('.voice-play-btn i');
-      if (audio.paused) {
-        // 暂停其他正在播放的语音
-        for (var key in this.audioPlayers) {
-          if (key !== url && !this.audioPlayers[key].paused) {
-            this.audioPlayers[key].pause();
-            var otherBar = this.$el.querySelector('.msg-voice-bar[data-media-url="' + key.replace(/"/g, '\\"') + '"]');
-            if (otherBar) {
-              var otherIcon = otherBar.querySelector('.voice-play-btn i');
-              if (otherIcon) otherIcon.className = 'fa-solid fa-play';
-            }
-          }
-        }
-        audio.play().catch(function() {});
-        if (playIcon) playIcon.className = 'fa-solid fa-pause';
-      } else {
-        audio.pause();
-        if (playIcon) playIcon.className = 'fa-solid fa-play';
-      }
-    },
-    // 清理所有 Audio 对象
-    cleanupAudioPlayers: function() {
-      for (var key in this.audioPlayers) {
-        var audio = this.audioPlayers[key];
-        if (audio) {
-          audio.pause();
-          audio.src = '';
-        }
-      }
-      this.audioPlayers = {};
     },
     onForwardClick: function() {
       if (this.forwardData.postId) {
@@ -465,112 +392,13 @@ export default {
     },
     highlightContent: function(content) {
       if (!this.searchTerm || !content) return content;
-      var htmlEscaped = content
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
-      var escaped = this.searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      var regex = new RegExp('(' + escaped + ')', 'gi');
-      return htmlEscaped.replace(regex, '<mark class="search-highlight">$1</mark>');
+      var htmlEscaped = RichTextRenderer.escapeHtml(content);
+      return RichTextRenderer.applyHighlight(htmlEscaped, this.searchTerm);
     },
     renderContent: function(content) {
-      if (!content) return '';
-      var IMG_EXTS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
-      var VID_EXTS = ['.mp4', '.mov', '.webm', '.mkv', '.avi', '.3gp'];
-      var AUD_EXTS = ['.mp3', '.m4a', '.aac', '.wav', '.ogg', '.opus'];
-
-      function getMediaType(url) {
-        var lower = url.toLowerCase();
-        // 优先文件名中的类型标记（__audio / __video / __image）
-        if (lower.indexOf('__audio') > -1) return 'audio';
-        if (lower.indexOf('__video') > -1) return 'video';
-        if (lower.indexOf('__image') > -1) return 'image';
-        // 回退到扩展名
-        for (var e = 0; e < VID_EXTS.length; e++) { if (lower.indexOf(VID_EXTS[e]) > -1) return 'video'; }
-        for (var e = 0; e < AUD_EXTS.length; e++) { if (lower.indexOf(AUD_EXTS[e]) > -1) return 'audio'; }
-        for (var e = 0; e < IMG_EXTS.length; e++) { if (lower.indexOf(IMG_EXTS[e]) > -1) return 'image'; }
-        // 兜底：photos 目录视为图片
-        if (lower.indexOf('/photos/') > -1) return 'image';
-        return 'other';
-      }
-
-      // Step 1: Extract media URLs (image/video/audio) and replace with placeholders
-      var mediaItems = []; // { url, type, placeholder }
-      var text = content.replace(/(\/api\/cloud\/files\/[^\s<>"]+|\/resources\/[^\s<>"]+)/g, function(url) {
-        var type = getMediaType(url);
-        if (type === 'image' || type === 'video' || type === 'audio') {
-          var idx = mediaItems.length;
-          mediaItems.push({ url: url, type: type });
-          return '%%MEDIA' + idx + '%%';
-        }
-        return url;
+      return RichTextRenderer.renderRichText(content, {
+        highlightTerm: this.searchTerm
       });
-      // Step 2: Extract other URLs and replace with placeholders
-      var urls = [];
-      text = text.replace(/(https?:\/\/[^\s<>"]+)/g, function(url) {
-        urls.push(url);
-        return '%%URL' + (urls.length - 1) + '%%';
-      });
-      // Step 3: HTML-escape
-      var html = text
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
-      // Step 4: Apply search highlighting
-      if (this.searchTerm) {
-        var escaped = this.searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        var regex = new RegExp('(' + escaped + ')', 'gi');
-        html = html.replace(regex, '<mark class="search-highlight">$1</mark>');
-      }
-      // Step 5: Restore media URLs as inline elements
-      for (var i = 0; i < mediaItems.length; i++) {
-        var placeholder = '%%MEDIA' + i + '%%';
-        var item = mediaItems[i];
-        var escapedUrl = item.url
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;');
-        var mediaHtml = '';
-        if (item.type === 'image') {
-          mediaHtml = '<img class="msg-image msg-media" data-media-url="' + escapedUrl + '" data-media-type="image" src="' + escapedUrl + '" alt="图片" loading="lazy" />';
-        } else if (item.type === 'video') {
-          mediaHtml = '<div class="msg-media-wrapper msg-video-wrapper msg-media" data-media-url="' + escapedUrl + '" data-media-type="video">' +
-            '<video class="msg-video" data-media-url="' + escapedUrl + '" data-media-type="video" src="' + escapedUrl + '" preload="metadata" playsinline muted></video>' +
-            '<div class="msg-media-play"><i class="fa-solid fa-play"></i></div>' +
-            '</div>';
-        } else if (item.type === 'audio') {
-          // 微信式语音条 UI（播放按钮 + 波形 + 时长 + 进度）
-          var voiceBars = '';
-          for (var b = 0; b < 8; b++) {
-            voiceBars += '<span></span>';
-          }
-          mediaHtml = '<div class="msg-voice-bar msg-media" data-media-url="' + escapedUrl + '" data-media-type="audio" data-voice-init="0">' +
-            '<div class="voice-play-btn"><i class="fa-solid fa-play"></i></div>' +
-            '<div class="voice-wave">' +
-              '<div class="voice-wave-bars">' + voiceBars + '</div>' +
-              '<div class="voice-progress"></div>' +
-            '</div>' +
-            '<div class="voice-duration">--"</div>' +
-          '</div>';
-        }
-        html = html.replace(placeholder, mediaHtml);
-      }
-      // Step 6: Restore other URLs as clickable links
-      for (var i = 0; i < urls.length; i++) {
-        var placeholder = '%%URL' + i + '%%';
-        var url = urls[i];
-        var escapedUrl = url
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;');
-        var urlHtml = '<a href="' + escapedUrl + '" class="msg-link" data-external="true">' + escapedUrl + '</a>';
-        html = html.replace(placeholder, urlHtml);
-      }
-      return html;
     },
     onContextMenu: function(e) {
       if (this.message.recalled === 1) return;

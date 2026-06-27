@@ -38,4 +38,186 @@ function detectMediaType(url) {
   for (var e = 0; e < IMG_EXTS.length; e++) { if (lower.indexOf(IMG_EXTS[e]) > -1) return 'image'; }
   // 兜底：photos 目录视为图片
   if (lower.indexOf('/photos/') > -1) return 'image';
-  return 'other
+  return 'other';
+}
+
+// ========== HTML 转义与安全清理 ==========
+
+/**
+ * HTML 转义：将 & < > " 替换为实体，防止注入
+ * @param {string} text - 原始文本
+ * @returns {string} 转义后的文本
+ */
+function escapeHtml(text) {
+  if (!text) return '';
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
+ * 安全清理 HTML：优先使用 DOMPurify，不可用时回退到基础转义
+ * @param {string} html - 待清理的 HTML 字符串
+ * @returns {string} 安全的 HTML 字符串
+ */
+function sanitizeHtml(html) {
+  if (typeof window !== 'undefined' && window.DOMPurify) {
+    return window.DOMPurify.sanitize(html);
+  }
+  // 回退：DOMPurify 不可用时仅保留基础转义
+  return escapeHtml(html);
+}
+
+// ========== 搜索高亮 ==========
+
+/**
+ * 对 HTML 内容中的搜索词添加高亮标记
+ * 注意：应在媒体/URL 占位符还原之后调用，避免破坏占位符
+ * @param {string} html - 已转义的 HTML 内容
+ * @param {string} term - 搜索关键词
+ * @returns {string} 带高亮标记的 HTML
+ */
+function applyHighlight(html, term) {
+  if (!term || !html) return html;
+  var escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  var regex = new RegExp('(' + escaped + ')', 'gi');
+  return html.replace(regex, '<mark class="search-highlight">$1</mark>');
+}
+
+// ========== 媒体 HTML 生成 ==========
+
+/**
+ * 根据媒体类型生成对应的内联 HTML 元素
+ * @param {string} url - 已转义的媒体 URL
+ * @param {'image'|'video'|'audio'} type - 媒体类型
+ * @returns {string} 媒体 HTML 字符串
+ */
+function generateMediaHtml(url, type) {
+  if (type === 'image') {
+    return '<img class="msg-image msg-media" data-media-url="' + url + '" data-media-type="image" src="' + url + '" alt="图片" loading="lazy" />';
+  }
+  if (type === 'video') {
+    return '<div class="msg-media-wrapper msg-video-wrapper msg-media" data-media-url="' + url + '" data-media-type="video">' +
+      '<video class="msg-video" data-media-url="' + url + '" data-media-type="video" src="' + url + '" preload="metadata" playsinline muted></video>' +
+      '<div class="msg-media-play"><i class="fa-solid fa-play"></i></div>' +
+      '</div>';
+  }
+  if (type === 'audio') {
+    // 微信式语音条 UI（播放按钮 + 波形 + 时长 + 进度）
+    var voiceBars = '';
+    for (var b = 0; b < 8; b++) {
+      voiceBars += '<span></span>';
+    }
+    return '<div class="msg-voice-bar msg-media" data-media-url="' + url + '" data-media-type="audio" data-voice-init="0">' +
+      '<div class="voice-play-btn"><i class="fa-solid fa-play"></i></div>' +
+      '<div class="voice-wave">' +
+        '<div class="voice-wave-bars">' + voiceBars + '</div>' +
+        '<div class="voice-progress"></div>' +
+      '</div>' +
+      '<div class="voice-duration">--"</div>' +
+    '</div>';
+  }
+  return '';
+}
+
+// ========== 统一渲染接口 ==========
+
+/**
+ * 渲染富文本内容（聊天消息专用）
+ *
+ * 处理流程：
+ * 1. 提取媒体 URL → 占位符
+ * 2. 提取普通 URL → 占位符
+ * 3. HTML 转义剩余文本
+ * 4. 应用搜索高亮（如启用）
+ * 5. 还原媒体占位符为 HTML 元素
+ * 6. 还原 URL 占位符为可点击链接
+ *
+ * @param {string} content - 原始消息内容
+ * @param {Object} [options] - 渲染选项
+ * @param {string} [options.highlightTerm=''] - 搜索高亮关键词
+ * @param {boolean} [options.enableMedia=true] - 是否处理媒体 URL
+ * @returns {string} 渲染后的 HTML
+ */
+function renderRichText(content, options) {
+  if (!content) return '';
+  options = options || {};
+  var highlightTerm = options.highlightTerm || '';
+  var enableMedia = options.enableMedia !== false;
+
+  // Step 1: 提取媒体 URL 并替换为占位符
+  var mediaItems = []; // { url, type, placeholder }
+  var text = content;
+  if (enableMedia) {
+    text = content.replace(/(\/api\/cloud\/files\/[^\s<>"]+|\/resources\/[^\s<>"]+)/g, function(url) {
+      var type = detectMediaType(url);
+      if (type === 'image' || type === 'video' || type === 'audio') {
+        var idx = mediaItems.length;
+        mediaItems.push({ url: url, type: type });
+        return '%%MEDIA' + idx + '%%';
+      }
+      return url;
+    });
+  }
+
+  // Step 2: 提取普通 URL 并替换为占位符
+  var urls = [];
+  text = text.replace(/(https?:\/\/[^\s<>"]+)/g, function(url) {
+    urls.push(url);
+    return '%%URL' + (urls.length - 1) + '%%';
+  });
+
+  // Step 3: HTML 转义
+  var html = escapeHtml(text);
+
+  // Step 4: 应用搜索高亮
+  if (highlightTerm) {
+    html = applyHighlight(html, highlightTerm);
+  }
+
+  // Step 5: 还原媒体占位符为 HTML 元素
+  for (var i = 0; i < mediaItems.length; i++) {
+    var placeholder = '%%MEDIA' + i + '%%';
+    var item = mediaItems[i];
+    var escapedUrl = escapeHtml(item.url);
+    var mediaHtml = generateMediaHtml(escapedUrl, item.type);
+    html = html.replace(placeholder, mediaHtml);
+  }
+
+  // Step 6: 还原普通 URL 为可点击链接
+  for (var j = 0; j < urls.length; j++) {
+    var urlPlaceholder = '%%URL' + j + '%%';
+    var url = urls[j];
+    var escapedUrl = escapeHtml(url);
+    var urlHtml = '<a href="' + escapedUrl + '" class="msg-link" data-external="true">' + escapedUrl + '</a>';
+    html = html.replace(urlPlaceholder, urlHtml);
+  }
+
+  return html;
+}
+
+/**
+ * 渲染用户消息的轻量 Markdown（AIChat 专用）
+ * 处理行内代码和加粗，换行转为 <br>
+ * @param {string} content - 原始用户消息
+ * @returns {string} 渲染后的 HTML
+ */
+function renderUserMarkdown(content) {
+  if (!content) return '';
+  var escaped = escapeHtml(content).replace(/\n/g, '<br>');
+  escaped = escaped.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
+  escaped = escaped.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  return escaped;
+}
+
+export default {
+  detectMediaType: detectMediaType,
+  escapeHtml: escapeHtml,
+  sanitizeHtml: sanitizeHtml,
+  applyHighlight: applyHighlight,
+  generateMediaHtml: generateMediaHtml,
+  renderRichText: renderRichText,
+  renderUserMarkdown: renderUserMarkdown
+};

@@ -416,6 +416,7 @@ import hljs from 'highlight.js';
 import 'katex/dist/katex.min.css';
 import 'highlight.js/styles/github-dark.min.css';
 import LatexRenderer from '@/utils/latex-renderer';
+import RichTextRenderer from '@/utils/rich-text-renderer';
 
 var customRenderer = new marked.Renderer();
 customRenderer.code = function(code, lang) {
@@ -1397,16 +1398,7 @@ export default {
       this.$store.commit('toast/SHOW_TOAST', { message: '已恢复默认提示词', type: 'success' });
     },
     renderUserMarkdown: function(content) {
-      if (!content) return '';
-      var escaped = content
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/\n/g, '<or>');
-      escaped = escaped.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
-      escaped = escaped.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-      return escaped;
+      return RichTextRenderer.renderUserMarkdown(content);
     },
     togglePin: function(convId) {
       var self = this;
