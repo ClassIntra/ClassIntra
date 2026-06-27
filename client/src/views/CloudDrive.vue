@@ -8,8 +8,6 @@
       </template>
     </AppNavBar>
 
-    <input ref="fileInput" type="file" accept="image/*,audio/*,video/*" multiple style="display:none" @change="handleUpload" />
-
     <div class="cloud-content">
       <!-- 上传码模块 -->
       <div class="upload-code-card">
@@ -91,12 +89,6 @@
       </div>
       <button class="preview-close" @click="closePreview"><i class="fa-solid fa-xmark"></i></button>
     </div>
-
-    <!-- 上传中提示 -->
-    <div v-if="uploading" class="upload-progress">
-      <div class="upload-spinner"></div>
-      <span>上传中...</span>
-    </div>
   </div>
 </template>
 
@@ -133,7 +125,6 @@ export default {
     return {
       files: [],
       loading: true,
-      uploading: false,
       previewFile_data: null,
       // 上传码相关
       uploadCode: '',
@@ -200,39 +191,8 @@ export default {
       return getMediaType(name);
     },
     triggerUpload: function() {
-      this.$refs.fileInput.click();
-    },
-    handleUpload: function(e) {
-      var self = this;
-      var files = e.target.files;
-      if (!files || files.length === 0) return;
-
-      self.uploading = true;
-      var formData = new FormData();
-      for (var i = 0; i < files.length; i++) {
-        formData.append('files', files[i]);
-      }
-
-      api.post('/cloud/upload-batch', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 120000
-      }).then(function(res) {
-        if (res.data.code === 200) {
-          self.$store.commit('toast/SHOW_TOAST', { message: '上传成功', type: 'success' });
-          self.loadFiles();
-        } else {
-          self.$store.commit('toast/SHOW_TOAST', { message: res.data.message || '上传失败', type: 'error' });
-        }
-      }).catch(function(err) {
-        var msg = '上传失败';
-        if (err.response && err.response.data && err.response.data.message) {
-          msg = err.response.data.message;
-        }
-        self.$store.commit('toast/SHOW_TOAST', { message: msg, type: 'error' });
-      }).finally(function() {
-        self.uploading = false;
-        e.target.value = '';
-      });
+      // 跳转到快捷上传页面（支持录音/录像/文件上传）
+      this.$router.push('/cloud-upload');
     },
     deleteFile: function(file) {
       var self = this;
