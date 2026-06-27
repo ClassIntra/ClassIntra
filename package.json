@@ -17,8 +17,5 @@
       "es5-ext",
       "esbuild"
     ]
-  },
-  "dependencies": {
-    "xgplayer": "^2.32.6"
   }
 }

@@ -172,7 +172,6 @@ export default defineConfig({
           'vendor-markdown': ['marked'],
           'vendor-katex': ['katex'],
           'vendor-mermaid': ['mermaid'],
-          'vendor-player': ['xgplayer'],
           'vendor-vhs': ['@videojs/http-streaming'],
           'vendor-purify': ['dompurify']
         }
