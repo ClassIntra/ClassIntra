@@ -1,5 +1,6 @@
 var express = require('express');
 var router = express.Router();
+var crypto = require('crypto');
 var db = require('../utils/db');
 var jwtUtil = require('../utils/jwt');
 var pwdUtil = require('../utils/password');
@@ -8,6 +9,15 @@ var auth = require('../middleware/auth');
 var authMiddleware = require('../middleware/auth').requireAuth;
 var time = require('../utils/time');
 var constants = require('../utils/constants');
+
+// 时序安全的字符串比较（防止时序侧信道攻击）
+function safeCompare(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  var bufA = Buffer.from(a);
+  var bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
 
 // Helper: build user_info object (never include password_hash)
 function buildUserInfo(row) {
@@ -319,7 +329,7 @@ router.get('/ban-info', authMiddleware, function(req, res) {
 router.post('/relay-verify', function(req, res) {
   var relaySecret = req.headers['x-relay-secret'];
   // config.relay.secret 为空时拒绝访问（避免空字符串导致认证被绕过）
-  if (!config.relay.secret || relaySecret !== config.relay.secret) {
+  if (!config.relay.secret || !safeCompare(relaySecret || '', config.relay.secret)) {
     return res.status(403).json({ code: 403, message: 'Forbidden' });
   }
   var account = req.body.account;

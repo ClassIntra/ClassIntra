@@ -1,4 +1,5 @@
 var WebSocket = require('ws');
+var crypto = require('crypto');
 var db = require('../utils/db');
 var exp = require('../utils/exp');
 var jwtUtil = require('../utils/jwt');
@@ -10,6 +11,15 @@ var constants = require('../utils/constants');
 var relayBus = require('../utils/relay-bus');
 // 加载事件处理器注册
 require('../utils/relay-handlers');
+
+// 时序安全的字符串比较（防止时序侧信道攻击）
+function safeCompare(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  var bufA = Buffer.from(a);
+  var bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
 
 var PORT = parseInt(config.wsPort || process.env.WS_PORT || 10001, 10);
 var RELAY_PORT = parseInt(config.relayPort || process.env.RELAY_PORT, 10) || 10011;
@@ -524,7 +534,7 @@ function handleRelayConnection(ws) {
     if (!authenticated) {
       if (data.type === 'relay_auth') {
         clearTimeout(authTimeout);
-        if (!RELAY_SECRET || data.secret !== RELAY_SECRET) {
+        if (!RELAY_SECRET || !safeCompare(data.secret || '', RELAY_SECRET)) {
           // RELAY_SECRET 未配置时拒绝所有中继认证（避免空字符串导致认证被跳过）
           try { ws.close(); } catch (e) {}
           return;

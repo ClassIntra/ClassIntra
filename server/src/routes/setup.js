@@ -3,12 +3,44 @@ var router = express.Router();
 var fs = require('fs');
 var path = require('path');
 var db = require('../utils/db');
+var auth = require('../middleware/auth');
 
 var PRE_RECORDS_PATH = path.join(__dirname, '../../config/pre-records.json');
 var ENV_PATH = path.join(__dirname, '../../.env');
 
+// 敏感环境变量关键词（值不返回给客户端，防止密钥泄露）
+var SENSITIVE_KEYS = ['SECRET', 'KEY', 'PASSWORD', 'PASSWD', 'TOKEN', 'CREDENTIAL'];
+
+function isSensitiveKey(key) {
+  var upper = (key || '').toUpperCase();
+  for (var i = 0; i < SENSITIVE_KEYS.length; i++) {
+    if (upper.indexOf(SENSITIVE_KEYS[i]) > -1) return true;
+  }
+  return false;
+}
+
+// 检查是否已完成初始化（数据库中有普通用户，不止管理员）
+function isInitialized() {
+  try {
+    var row = db.prepare('SELECT COUNT(*) as cnt FROM users').get();
+    return row.cnt > 2;
+  } catch (e) {
+    return false;
+  }
+}
+
+// 初始化完成后要求管理员认证；首次运行时允许匿名访问
+function requireSetupAuth(req, res, next) {
+  if (!isInitialized()) {
+    return next();
+  }
+  return auth.requireAuth(req, res, function() {
+    auth.requireAdmin(req, res, next);
+  });
+}
+
 // 读取当前配置状态
-router.get('/status', function(req, res) {
+router.get('/status', requireSetupAuth, function(req, res) {
   var hasPreRecords = fs.existsSync(PRE_RECORDS_PATH);
   var hasEnv = fs.existsSync(ENV_PATH);
   var preRecordsData = null;
@@ -70,11 +102,21 @@ router.get('/status', function(req, res) {
     dbUserCount = row.cnt;
   } catch (e) {}
 
+  // 过滤敏感环境变量（密钥值不返回，防止泄露）
+  var safeEnv = {};
+  Object.keys(envData).forEach(function(key) {
+    if (isSensitiveKey(key)) {
+      safeEnv[key] = envData[key] ? '***' : '';
+    } else {
+      safeEnv[key] = envData[key];
+    }
+  });
+
   res.json({
     hasPreRecords: hasPreRecords,
     hasEnv: hasEnv,
     preRecords: preRecordsData,
-    env: envData,
+    env: safeEnv,
     cohorts: cohorts,
     classes: classes,
     preRecordCounts: preRecordCounts,
@@ -84,7 +126,7 @@ router.get('/status', function(req, res) {
 });
 
 // 保存届数和班级配置 + 预注册名单
-router.post('/save', function(req, res) {
+router.post('/save', requireSetupAuth, function(req, res) {
   try {
     var data = req.body;
     var cohort = String(data.cohort || '').trim();
@@ -246,7 +288,7 @@ router.post('/save', function(req, res) {
 });
 
 // 从文本导入预注册名单
-router.post('/import', function(req, res) {
+router.post('/import', requireSetupAuth, function(req, res) {
   try {
     var text = String(req.body.text || '').trim();
     var classNum = String(req.body.classNum || '').trim();

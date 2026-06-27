@@ -101,6 +101,7 @@ router.get('/proxy', function(req, res) {
     url: targetUrl,
     responseType: 'stream',
     timeout: 15000,
+    maxRedirects: 0, // 禁止跟随重定向，防止 SSRF 通过重定向访问内网
     headers: {
       'User-Agent': 'ClassNet-Server/1.0',
       'Accept': '*/*'
