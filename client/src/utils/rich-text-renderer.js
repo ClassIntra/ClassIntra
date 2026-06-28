@@ -96,7 +96,7 @@ function applyHighlight(html, term) {
  */
 function generateMediaHtml(url, type) {
   if (type === 'image') {
-    return '<img class="msg-image msg-media" data-media-url="' + url + '" data-media-type="image" src="' + url + '" alt="图片" loading="lazy" />';
+    return '<img class="msg-image msg-media" data-media-url="' + url + '" data-media-type="image" src="' + url + '" alt="图片" loading="lazy" decoding="async" width="200" height="200" />';
   }
   if (type === 'video') {
     return '<div class="msg-media-wrapper msg-video-wrapper msg-media" data-media-url="' + url + '" data-media-type="video">' +

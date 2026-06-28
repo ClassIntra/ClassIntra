@@ -2408,11 +2408,17 @@ export default {
       return (currTime - prevTime) >= 60000;
     },
     onMessageScroll: function() {
-      var container = this.$refs.messageContainer;
-      if (!container) return;
-      if (container.scrollTop <= 50 && !this.chatLoadingMore && this.chatHasMore) {
-        this.loadOlderMessages();
-      }
+      // rAF 节流，避免高频滚动事件触发重排
+      if (this._scrollRaf) return;
+      var self = this;
+      this._scrollRaf = requestAnimationFrame(function() {
+        self._scrollRaf = null;
+        var container = self.$refs.messageContainer;
+        if (!container) return;
+        if (container.scrollTop <= 50 && !self.chatLoadingMore && self.chatHasMore) {
+          self.loadOlderMessages();
+        }
+      });
     },
     loadOlderMessages: function() {
       var self = this;

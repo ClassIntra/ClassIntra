@@ -876,17 +876,17 @@ export default {
   color: #fff;
 }
 
-/* Message image */
+/* Message image — 固定尺寸防止图片加载时布局重排导致滚动卡顿 */
 .chat-bubble >>> .msg-image {
-  max-width: 200px;
-  max-height: 200px;
-  width: auto;
-  height: auto;
+  width: 200px;
+  height: 200px;
   border-radius: var(--radius-md);
   margin: 4px 0;
   display: block;
   cursor: pointer;
   object-fit: cover;
+  background: var(--bg-color);
+  will-change: transform;
 }
 
 .own-bubble >>> .msg-image {
