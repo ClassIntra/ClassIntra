@@ -60,18 +60,12 @@
         ref="drawCanvas"
         mode="full"
         :initialLayers="activeFile.canvasData || []"
+        :showCloudUpload="!activeFile.isPrivate"
+        :cloudSyncing="cloudSyncing"
         @save="onDrawSave"
         @close="exitDrawFile"
+        @upload-to-cloud="uploadToCloud"
       />
-      <button
-        v-if="!activeFile.isPrivate"
-        class="draw-cloud-btn"
-        @click="uploadToCloud"
-        :disabled="cloudSyncing"
-        title="上传到云端"
-      >
-        <i class="fa-solid fa-cloud-arrow-up" :class="{ 'fa-spin': cloudSyncing }"></i>
-      </button>
     </div>
     <div class="draw-body draw-body--empty" v-else-if="isDrawFile && !activeFile">
       <div class="draw-empty-state">
@@ -4611,42 +4605,6 @@ export default {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-}
-
-/* 画板模式云端上传按钮（浮层右上角） */
-.draw-cloud-btn {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  width: 44px;
-  height: 44px;
-  border: none;
-  border-radius: 50%;
-  background: var(--glass-bg, rgba(255, 255, 255, 0.72));
-  backdrop-filter: var(--glass-blur-container, blur(20px));
-  -webkit-backdrop-filter: var(--glass-blur-container, blur(20px));
-  color: var(--primary, #007aff);
-  font-size: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  z-index: 100;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
-  -webkit-tap-highlight-color: transparent;
-  -webkit-touch-callout: none;
-  user-select: none;
-  transition: transform 0.15s var(--ease-standard, ease), opacity 0.15s var(--ease-standard, ease);
-}
-
-.draw-cloud-btn:active {
-  transform: scale(0.92);
-  opacity: 0.7;
-}
-
-.draw-cloud-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .draw-body--empty {
