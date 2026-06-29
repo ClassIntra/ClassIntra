@@ -835,6 +835,7 @@ export default {
       if (!content) return '';
       // community_forward 已在各预览函数单独处理
       if (type === 'community_forward') return content;
+      if (typeof content !== 'string') content = String(content);
       var mediaType = detectMediaType(content);
       if (mediaType === 'image') return '[图片]';
       if (mediaType === 'video') return '[视频]';
