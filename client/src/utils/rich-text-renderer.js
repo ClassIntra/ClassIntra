@@ -27,6 +27,7 @@ var AUD_EXTS = ['.mp3', '.m4a', '.aac', '.wav', '.ogg', '.opus'];
  * @returns {'image'|'video'|'audio'|'other'} 媒体类型
  */
 function detectMediaType(url) {
+  if (typeof url !== 'string') return 'other';
   var lower = url.toLowerCase();
   // 优先文件名中的类型标记（__audio / __video / __image）
   if (lower.indexOf('__audio') > -1) return 'audio';
@@ -105,7 +106,7 @@ var VIDEO_MIME_MAP = {
  * @returns {string} MIME 类型，默认 video/mp4
  */
 function getVideoMime(url) {
-  if (!url) return 'video/mp4';
+  if (!url || typeof url !== 'string') return 'video/mp4';
   var lower = url.toLowerCase();
   for (var ext in VIDEO_MIME_MAP) {
     if (lower.indexOf(ext) > -1) return VIDEO_MIME_MAP[ext];
@@ -170,7 +171,7 @@ function generateMediaHtml(url, type) {
  * @returns {string} 渲染后的 HTML
  */
 function renderRichText(content, options) {
-  if (!content) return '';
+  if (!content || typeof content !== 'string') return '';
   options = options || {};
   var highlightTerm = options.highlightTerm || '';
   var enableMedia = options.enableMedia !== false;
