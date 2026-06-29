@@ -14,6 +14,55 @@ var cloudDir = path.resolve(process.env.RESOURCES_DIR || path.join(__dirname, '.
 // 需要转码为 mp4 的视频扩展名（mp4 本身跳过）
 var TRANSCODE_EXTS = ['.mov', '.mkv', '.avi', '.webm', '.3gp'];
 
+// 媒体文件 MIME 类型映射
+var MEDIA_MIME = {
+  '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm',
+  '.mkv': 'video/x-matroska', '.avi': 'video/x-msvideo', '.3gp': 'video/3gpp',
+  '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac',
+  '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.opus': 'audio/opus',
+  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
+  '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp'
+};
+
+// 流式发送媒体文件，支持 Range 请求（视频/音频播放必需）
+function sendMediaFile(req, res, filePath) {
+  var stat;
+  try { stat = fs.statSync(filePath); } catch (e) { return false; }
+
+  var ext = path.extname(filePath).toLowerCase();
+  var mimeType = MEDIA_MIME[ext] || 'application/octet-stream';
+  var isVideo = mimeType.indexOf('video/') === 0;
+  var isAudio = mimeType.indexOf('audio/') === 0;
+
+  // 覆盖全局 no-cache：媒体文件允许浏览器缓存和缓冲
+  res.set('Content-Type', mimeType);
+  res.set('Accept-Ranges', 'bytes');
+  res.set('Cache-Control', 'public, max-age=3600');
+  res.removeHeader('Pragma');
+  res.removeHeader('Expires');
+
+  // 处理 Range 请求（视频/音频必需，浏览器用 206 分段加载实现 seek 和缓冲）
+  var rangeHeader = req.get('Range');
+  if (rangeHeader && (isVideo || isAudio)) {
+    var parts = rangeHeader.replace(/bytes=/, '').split('-');
+    var start = parseInt(parts[0], 10) || 0;
+    var end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
+    var chunkSize = end - start + 1;
+    if (start >= stat.size) {
+      res.status(416).set('Content-Range', 'bytes */' + stat.size).end();
+      return true;
+    }
+    res.status(206);
+    res.set('Content-Range', 'bytes ' + start + '-' + end + '/' + stat.size);
+    res.set('Content-Length', chunkSize);
+    fs.createReadStream(filePath, { start: start, end: end }).pipe(res);
+  } else {
+    res.set('Content-Length', stat.size);
+    fs.createReadStream(filePath).pipe(res);
+  }
+  return true;
+}
+
 // 尝试将视频文件转码为 mp4：成功返回新文件名（同目录，扩展名改为 .mp4），失败/跳过返回 null
 // 失败不抛错，由调用方用原文件 URL 兜底
 function tryTranscodeVideoToMp4(filePath) {
@@ -380,6 +429,7 @@ router.post('/upload-batch', auth.requireAuth, upload.array('files', 10), functi
 });
 
 // 获取文件（需登录，支持访问其他用户的共享图片）
+// 对于视频/音频文件，支持 HTTP Range 请求以启用浏览器原生播放
 router.get('/files/:filename', auth.requireAuth, function(req, res) {
   var filename = decodeURIComponent(req.params.filename);
 
@@ -394,7 +444,7 @@ router.get('/files/:filename', auth.requireAuth, function(req, res) {
     var ownerId = parts[0];
     var filePath = path.join(getUserDir(ownerId), 'photos', filename);
     if (fs.existsSync(filePath)) {
-      return res.sendFile(filePath);
+      return sendMediaFile(req, res, filePath);
     }
   }
 
@@ -405,7 +455,7 @@ router.get('/files/:filename', auth.requireAuth, function(req, res) {
       for (var i = 0; i < users.length; i++) {
         var candidatePath = path.join(cloudDir, users[i], 'photos', filename);
         if (fs.existsSync(candidatePath)) {
-          return res.sendFile(candidatePath);
+          return sendMediaFile(req, res, candidatePath);
         }
       }
     }
