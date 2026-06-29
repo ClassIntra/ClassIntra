@@ -34,6 +34,9 @@
           <template v-if="isShapeTool"><div class="dc-opt-sep"></div><button class="dc-opt-btn" :class="{ active: fillShape }" @click="fillShape = !fillShape"><i class="fa-solid" :class="fillShape ? 'fa-fill-drip' : 'fa-fill'"></i><span>{{ fillShape ? '填充' : '描边' }}</span></button></template>
           <div class="dc-opt-spacer"></div>
           <button class="dc-opt-btn" @click="clearLayer"><i class="fa-solid fa-trash-can"></i><span>清空画布</span></button>
+          <button v-if="showCloudUpload" class="dc-opt-btn dc-upload-btn" @click="$emit('upload-to-cloud')" :disabled="cloudSyncing" title="上传到云端">
+            <i class="fa-solid fa-cloud-arrow-up" :class="{ 'fa-spin': cloudSyncing }"></i><span>上传云端</span>
+          </button>
           <button class="btn-secondary btn-sm" @click="$emit('close')">退出</button>
           <button class="btn-primary btn-sm" @click="saveAndClose">保存</button>
         </div>
@@ -139,7 +142,9 @@ export default {
     mode: { type: String, default: 'full' },
     initialLayers: { type: Array, default: function() { return []; } },
     canvasWidth: { type: Number, default: 0 },
-    canvasHeight: { type: Number, default: 0 }
+    canvasHeight: { type: Number, default: 0 },
+    showCloudUpload: { type: Boolean, default: false },
+    cloudSyncing: { type: Boolean, default: false }
   },
   data: function() {
     return {
@@ -1151,6 +1156,16 @@ export default {
   background: var(--primary-color);
   color: #FFFFFF;
   border-color: var(--primary-color);
+}
+
+.dc-upload-btn {
+  color: var(--primary, #007aff);
+  font-weight: 600;
+}
+
+.dc-upload-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .dc-opt-sep {
