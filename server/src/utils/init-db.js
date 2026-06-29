@@ -453,6 +453,10 @@ function initDatabase() {
   db.exec("CREATE TABLE IF NOT EXISTS cloud_notes (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, title TEXT DEFAULT '', content TEXT DEFAULT '', tags TEXT DEFAULT '[]', folder TEXT DEFAULT '默认', visibility TEXT DEFAULT 'private', is_pinned INTEGER DEFAULT 0, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))");
   db.exec("CREATE TABLE IF NOT EXISTS cloud_note_folders (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, name TEXT NOT NULL, created_at TEXT DEFAULT (datetime('now')), UNIQUE(user_id, name))");
 
+  // cloud_notes 增量迁移：画板数据 + 笔记类型
+  try { db.exec("ALTER TABLE cloud_notes ADD COLUMN canvas_data TEXT"); } catch(e) {}
+  try { db.exec("ALTER TABLE cloud_notes ADD COLUMN type TEXT DEFAULT 'note'"); } catch(e) {}
+
   // 跨班帖子ID映射表（relay post ID remapping）
   db.exec("CREATE TABLE IF NOT EXISTS post_id_mappings (original_id TEXT PRIMARY KEY, local_id INTEGER NOT NULL, source_server TEXT DEFAULT '', created_at TEXT DEFAULT (datetime('now')))");
 

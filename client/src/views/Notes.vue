@@ -63,6 +63,15 @@
         @save="onDrawSave"
         @close="exitDrawFile"
       />
+      <button
+        v-if="!activeFile.isPrivate"
+        class="draw-cloud-btn"
+        @click="uploadToCloud"
+        :disabled="cloudSyncing"
+        title="上传到云端"
+      >
+        <i class="fa-solid fa-cloud-arrow-up" :class="{ 'fa-spin': cloudSyncing }"></i>
+      </button>
     </div>
     <div class="draw-body draw-body--empty" v-else-if="isDrawFile && !activeFile">
       <div class="draw-empty-state">
@@ -3004,6 +3013,11 @@ export default {
       var self = this;
       if (!self.activeFile || self.activeFile.isPrivate) return;
       self.cloudSyncing = true;
+      // 画板模式：先从组件取最新画板数据
+      var canvasData = '';
+      if (self.isDrawFile && self.$refs.drawCanvas) {
+        try { canvasData = JSON.stringify(self.$refs.drawCanvas.getData()); } catch (e) {}
+      }
       var data = {
         id: self.activeFile.id,
         title: self.activeFile.title || '',
@@ -3011,7 +3025,9 @@ export default {
         tags: self.activeFile.tags || [],
         folder: self.activeFile.folder || '默认',
         visibility: self.activeFile.cloudVisibility || 'private',
-        is_pinned: self.activeFile.pinned ? 1 : 0
+        is_pinned: self.activeFile.pinned ? 1 : 0,
+        canvas_data: canvasData,
+        type: self.isDrawFile ? 'draw' : 'note'
       };
       api.post('/notes/notes', data).then(function(response) {
         if (response.data.code === 200) {
@@ -3024,7 +3040,9 @@ export default {
             content: data.content,
             title: data.title,
             tags: data.tags,
-            folder: data.folder
+            folder: data.folder,
+            canvas_data: data.canvas_data,
+            type: data.type
           }).catch(function() {});
         }
       }).catch(function(err) {
@@ -3046,6 +3064,12 @@ export default {
             if (synced) {
               var cloudNote = self.cloudNotes.find(function(cn) { return cn.id === self.files[i].id; });
               self.$set(self.files[i], 'cloudVisibility', cloudNote ? cloudNote.visibility : 'private');
+              // 画板数据回填：从云端还原 canvasData
+              if (cloudNote && cloudNote.canvas_data) {
+                try {
+                  self.$set(self.files[i], 'canvasData', JSON.parse(cloudNote.canvas_data));
+                } catch (e) {}
+              }
             }
           }
         }
@@ -4581,11 +4605,48 @@ export default {
 
 /* ========== 画板模式 ========== */
 .draw-body {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+/* 画板模式云端上传按钮（浮层右上角） */
+.draw-cloud-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 44px;
+  height: 44px;
+  border: none;
+  border-radius: 50%;
+  background: var(--glass-bg, rgba(255, 255, 255, 0.72));
+  backdrop-filter: var(--glass-blur-container, blur(20px));
+  -webkit-backdrop-filter: var(--glass-blur-container, blur(20px));
+  color: var(--primary, #007aff);
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 100;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  user-select: none;
+  transition: transform 0.15s var(--ease-standard, ease), opacity 0.15s var(--ease-standard, ease);
+}
+
+.draw-cloud-btn:active {
+  transform: scale(0.92);
+  opacity: 0.7;
+}
+
+.draw-cloud-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .draw-body--empty {

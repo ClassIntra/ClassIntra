@@ -789,6 +789,8 @@ export default {
         }
       }).then(function() {
         self.$store.commit('toast/SHOW_TOAST', { message: '隐私设置已保存', type: 'success' });
+        // 重新拉取 profile，刷新 community 模块的 privacy_settings（影响"我的"页 real_name 显示）
+        self.$store.dispatch('community/fetchProfile');
       }).catch(function() {
         self.$store.commit('toast/SHOW_TOAST', { message: '保存失败，请重试', type: 'error' });
         // 回滚开关状态

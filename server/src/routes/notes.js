@@ -66,13 +66,16 @@ router.post('/notes', auth.requireAuth, function(req, res) {
   var folder = (req.body.folder || '默认').trim();
   var visibility = req.body.visibility === 'public' ? 'public' : 'private';
   var isPinned = req.body.is_pinned ? 1 : 0;
+  // 画板数据 + 笔记类型
+  var canvasData = req.body.canvas_data || '';
+  var noteType = req.body.type === 'draw' ? 'draw' : 'note';
   if (!id) return res.status(400).json({ code: 400, message: '缺少笔记ID' });
   try {
     var existing = db.prepare('SELECT id FROM cloud_notes WHERE id = ?').get(id);
     if (existing) {
-      db.prepare('UPDATE cloud_notes SET title = ?, content = ?, tags = ?, folder = ?, visibility = ?, is_pinned = ?, updated_at = datetime(\'now\') WHERE id = ?').run(title, content, JSON.stringify(tags), folder, visibility, isPinned, id);
+      db.prepare('UPDATE cloud_notes SET title = ?, content = ?, tags = ?, folder = ?, visibility = ?, is_pinned = ?, canvas_data = ?, type = ?, updated_at = datetime(\'now\') WHERE id = ?').run(title, content, JSON.stringify(tags), folder, visibility, isPinned, canvasData, noteType, id);
     } else {
-      db.prepare('INSERT INTO cloud_notes (id, user_id, title, content, tags, folder, visibility, is_pinned) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(id, userId, title, content, JSON.stringify(tags), folder, visibility, isPinned);
+      db.prepare('INSERT INTO cloud_notes (id, user_id, title, content, tags, folder, visibility, is_pinned, canvas_data, type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, userId, title, content, JSON.stringify(tags), folder, visibility, isPinned, canvasData, noteType);
     }
     res.json({ code: 200, message: '保存成功' });
   } catch (e) {

@@ -1111,19 +1111,17 @@ router.get('/profile/:userId', function(req, res) {
     id: user.id,
     net_name: user.net_name,
     gender: user.gender,
-    signature: user.signature
+    signature: user.signature,
+    // 暴露 hide_real_name 标记，供前端"我的"页条件显示 real_name
+    hide_real_name: !!privacySettings.hide_real_name
   };
 
-  // 真实姓名：根据隐私设置决定是否显示（hide_real_name=true 则隐藏）
-  if (isSelf) {
+  // 真实姓名：根据隐私设置决定是否显示（hide_real_name=true 则隐藏，含自己——开关即彻底隐藏）
+  if (!privacySettings.hide_real_name) {
     result.real_name = user.real_name;
-  } else {
-    if (!privacySettings.hide_real_name) {
-      result.real_name = user.real_name;
-    }
   }
 
-  // 生日：根据隐私设置决定是否显示
+  // 生日：根据隐私设置决定是否显示（isSelf 也尊重隐私，与真实姓名一致）
   if (isSelf) {
     result.birthday = birthday;
   } else {

@@ -239,14 +239,12 @@ router.post('/groups', function(req, res) {
     if (!Array.isArray(memberIds)) {
       return res.status(400).json({ code: 400, message: 'member_ids 格式不正确', data: null });
     }
-    var placeholders = memberIds.map(function() { return '?'; }).join(',');
-    var validStmt = db.prepare('SELECT user_id FROM users WHERE user_id IN (' + placeholders + ')');
-    var validUsers = validStmt.all.apply(validStmt, memberIds);
-    var validIds = {};
-    for (var vi = 0; vi < validUsers.length; vi++) { validIds[validUsers[vi].user_id] = true; }
+    // 轻量格式校验：member_id 为 6 位数字（YYCCNN 格式）
+    // 不校验本地 users 表存在性——多服务器中继模式下跨班用户可能尚未同步到本地
     for (var i = 0; i < memberIds.length; i++) {
-      if (!validIds[memberIds[i]]) {
-        return res.status(400).json({ code: 400, message: '用户 ' + memberIds[i] + ' 不存在', data: null });
+      var mid = memberIds[i];
+      if (typeof mid !== 'string' || mid.length !== 6 || !/^\d{6}$/.test(mid)) {
+        return res.status(400).json({ code: 400, message: '成员ID格式不正确: ' + mid, data: null });
       }
     }
     var members = [req.user.user_id];

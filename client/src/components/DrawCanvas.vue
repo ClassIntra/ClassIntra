@@ -14,11 +14,10 @@
           <i class="fa-solid" :class="bt.icon"></i>
         </button>
         <div class="dc-side-sep"></div>
-        <button class="dc-side-btn" @click="triggerImageImport" title="导入图片"><i class="fa-solid fa-image"></i></button>
+        <button class="dc-side-btn" @click="showCloudPicker = true" title="从云盘导入图片"><i class="fa-solid fa-image"></i></button>
         <button class="dc-side-btn" :class="{ active: showGrid }" @click="toggleGrid" title="网格"><i class="fa-solid fa-border-all"></i></button>
         <button class="dc-side-btn" :class="{ active: snapToGrid }" @click="snapToGrid = !snapToGrid" title="吸附"><i class="fa-solid fa-magnet"></i></button>
         <button class="dc-side-btn" :class="{ active: showGuides }" @click="showGuides = !showGuides" title="参考线"><i class="fa-solid fa-grip-lines"></i></button>
-        <input type="file" ref="imageInput" accept="image/*" style="display:none" @change="onImageImport" />
         <div class="dc-side-spacer"></div>
         <button class="dc-side-btn" @click="undo" :disabled="historyIdx <= 0" title="撤销"><i class="fa-solid fa-rotate-left"></i></button>
         <button class="dc-side-btn" @click="redo" :disabled="historyIdx >= history.length - 1" title="重做"><i class="fa-solid fa-rotate-right"></i></button>
@@ -56,6 +55,9 @@
       </div>
     </div>
 
+    <!-- 云盘图片选择器 -->
+    <CloudImagePicker v-if="showCloudPicker" @select="onCloudImageSelect" @close="showCloudPicker = false" />
+
     <!-- ================================================================== -->
     <!--  批注模式：浮动工具栏 + 透明画布                                     -->
     <!-- ================================================================== -->
@@ -87,6 +89,8 @@
 </template>
 
 <script>
+import CloudImagePicker from '@/components/CloudImagePicker.vue';
+
 // ============ 工具函数 ============
 function generateId() {
   return 'dc_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
@@ -128,6 +132,9 @@ var SHAPE_TOOLS = ['rect', 'circle', 'line', 'triangle', 'arrow', 'diamond'];
 
 export default {
   name: 'DrawCanvas',
+  components: {
+    CloudImagePicker: CloudImagePicker
+  },
   props: {
     mode: { type: String, default: 'full' },
     initialLayers: { type: Array, default: function() { return []; } },
@@ -183,6 +190,7 @@ export default {
       // 图片导入
       importedImage: null,
       imageTransform: { x: 0, y: 0, scale: 1, rotation: 0 },
+      showCloudPicker: false,
 
       // 批注模式
       annotating: false,
@@ -837,31 +845,26 @@ export default {
     },
 
     // ============ 图片导入 ============
-    triggerImageImport: function() {
-      this.$refs.imageInput.click();
-    },
-
-    onImageImport: function(e) {
+    // 从云盘选择图片导入画板
+    onCloudImageSelect: function(file) {
       var self = this;
-      var file = e.target.files[0];
-      if (!file) return;
-      var reader = new FileReader();
-      reader.onload = function(ev) {
-        var img = new Image();
-        img.onload = function() {
-          self.importedImage = img;
-          self.imageTransform = {
-            x: 100,
-            y: 100,
-            scale: 1,
-            rotation: 0
-          };
-          self.drawImportedImagePreview();
+      self.showCloudPicker = false;
+      if (!file || !file.url) return;
+      var img = new Image();
+      img.onload = function() {
+        self.importedImage = img;
+        self.imageTransform = {
+          x: 100,
+          y: 100,
+          scale: 1,
+          rotation: 0
         };
-        img.src = ev.target.result;
+        self.drawImportedImagePreview();
       };
-      reader.readAsDataURL(file);
-      e.target.value = '';
+      img.onerror = function() {
+        self.$store.commit('toast/SHOW_TOAST', { message: '图片加载失败', type: 'error' });
+      };
+      img.src = file.url;
     },
 
     drawImportedImagePreview: function() {
