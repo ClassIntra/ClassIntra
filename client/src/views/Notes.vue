@@ -869,6 +869,7 @@
                     <div class="cloud-note-info" @click="viewCloudNoteDetail(note)">
                       <div class="cloud-note-title">
                         <i v-if="note.is_pinned" class="fa-solid fa-thumbtack" style="font-size: 10px; margin-right: 4px; color: var(--text-tertiary);"></i>
+                        <i v-if="note.type === 'draw'" class="fa-solid fa-palette" style="margin-right: 4px; color: var(--primary); font-size: 12px;" title="画板笔记"></i>
                         {{ note.title || '未命名笔记' }}
                       </div>
                       <div class="cloud-note-meta">
@@ -918,7 +919,10 @@
                     @click="viewCloudNoteDetail(note)"
                   >
                     <div class="cloud-note-info">
-                      <div class="cloud-note-title">{{ note.title || '未命名笔记' }}</div>
+                      <div class="cloud-note-title">
+                        <i v-if="note.type === 'draw'" class="fa-solid fa-palette" style="margin-right: 4px; color: var(--primary); font-size: 12px;" title="画板笔记"></i>
+                        {{ note.title || '未命名笔记' }}
+                      </div>
                       <div class="cloud-note-meta">
                         <span class="cloud-note-author"><i class="fa-solid fa-user" style="margin-right:3px;"></i>{{ note.net_name || '未知用户' }}</span>
                         <span class="cloud-note-folder"><i class="fa-solid fa-folder" style="margin-right: 3px;"></i>{{ note.folder || '默认' }}</span>
@@ -972,7 +976,13 @@
         </span>
         <span><i class="fa-solid fa-clock"></i> {{ formatDate(viewingCloudNote.updated_at) }}</span>
       </div>
-      <div class="cloud-note-fullscreen-content markdown-body" v-html="renderMarkdown(viewingCloudNote.content || '')"></div>
+      <div v-if="viewingCloudNote.type === 'draw'" class="cloud-note-fullscreen-content" style="display: flex; align-items: center; justify-content: center; padding: 60px 20px; color: var(--text-secondary);">
+        <div style="text-align: center;">
+          <i class="fa-solid fa-palette" style="font-size: 48px; margin-bottom: 16px; opacity: 0.5;"></i>
+          <p style="font-size: 15px;">这是一个画板笔记，转载后可查看和编辑</p>
+        </div>
+      </div>
+      <div v-else class="cloud-note-fullscreen-content markdown-body" v-html="renderMarkdown(viewingCloudNote.content || '')"></div>
     </div>
 
     <!-- 云盘图片/音视频选择器 -->
@@ -3164,16 +3174,21 @@ export default {
     },
     importCloudNote: function(note) {
       var self = this;
+      var isDraw = note.type === 'draw';
+      var canvasData = null;
+      if (isDraw && note.canvas_data) {
+        try { canvasData = JSON.parse(note.canvas_data); } catch (e) { canvasData = []; }
+      }
       var newFile = {
         id: 'note_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
         title: note.title || '未命名笔记',
         content: note.content || '',
-        type: 'note',
+        type: isDraw ? 'draw' : 'note',
         tags: note.tags || [],
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         isPrivate: false,
-        canvasData: null,
+        canvasData: canvasData,
         annotations: [],
         templateId: null,
         versions: [],
