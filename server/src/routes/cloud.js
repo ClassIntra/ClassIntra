@@ -6,9 +6,66 @@ var crypto = require('crypto');
 var multer = require('multer');
 var auth = require('../middleware/auth');
 var db = require('../utils/db');
+var transcoder = require('../services/stream-transcoder');
 
 // 云盘根目录
 var cloudDir = path.resolve(process.env.RESOURCES_DIR || path.join(__dirname, '../../../Resources'), 'cloud');
+
+// 需要转码为 mp4 的视频扩展名（mp4 本身跳过）
+var TRANSCODE_EXTS = ['.mov', '.mkv', '.avi', '.webm', '.3gp'];
+
+// 尝试将视频文件转码为 mp4：成功返回新文件名（同目录，扩展名改为 .mp4），失败/跳过返回 null
+// 失败不抛错，由调用方用原文件 URL 兜底
+function tryTranscodeVideoToMp4(filePath) {
+  return new Promise(function(resolve) {
+    var ext = path.extname(filePath).toLowerCase();
+    if (TRANSCODE_EXTS.indexOf(ext) === -1) {
+      return resolve(null); // 非需转码格式，跳过
+    }
+    if (!transcoder.checkFFmpeg()) {
+      console.warn('[Cloud] ffmpeg 不可用，跳过转码:', path.basename(filePath));
+      return resolve(null);
+    }
+
+    // 输出到同目录的临时文件（同扩展名 .mp4，转码成功后会重命名覆盖原文件名）
+    var dir = path.dirname(filePath);
+    var baseName = path.basename(filePath, ext); // 去掉原扩展名
+    var tmpOutput = path.join(dir, baseName + '.mp4.tmp');
+
+    console.log('[Cloud] 开始转码:', path.basename(filePath), '->', path.basename(tmpOutput));
+    var startTime = Date.now();
+
+    transcoder.transcodeFileToMp4(filePath, tmpOutput, 60000).then(function(result) {
+      if (result.ok) {
+        // 转码成功：用 .mp4 内容替换原文件（删除原文件，重命名 tmp 为 .mp4）
+        var finalPath = path.join(dir, baseName + '.mp4');
+        try {
+          // 先删除原文件（如 .mov）
+          if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+          // 重命名 tmp 为最终 .mp4 文件名
+          if (fs.existsSync(finalPath)) fs.unlinkSync(finalPath); // 兜底：避免同名冲突
+          fs.renameSync(tmpOutput, finalPath);
+          var elapsed = Date.now() - startTime;
+          console.log('[Cloud] 转码成功:', path.basename(filePath), '->', path.basename(finalPath), '(' + elapsed + 'ms)');
+          resolve(path.basename(finalPath));
+        } catch (e) {
+          console.error('[Cloud] 转码后文件操作失败:', e.message);
+          // 清理 tmp
+          try { if (fs.existsSync(tmpOutput)) fs.unlinkSync(tmpOutput); } catch (e2) {}
+          resolve(null);
+        }
+      } else {
+        console.error('[Cloud] 转码失败 exitCode=' + result.exitCode + ':', result.stderr);
+        try { if (fs.existsSync(tmpOutput)) fs.unlinkSync(tmpOutput); } catch (e) {}
+        resolve(null);
+      }
+    }).catch(function(err) {
+      console.error('[Cloud] 转码异常:', err.message);
+      try { if (fs.existsSync(tmpOutput)) fs.unlinkSync(tmpOutput); } catch (e) {}
+      resolve(null);
+    });
+  });
+}
 
 // 确保云盘目录存在
 function ensureUserDir(userId) {
@@ -207,13 +264,18 @@ router.post('/guest-upload', guestUpload.single('file'), function(req, res) {
   if (!req.file) {
     return res.status(400).json({ code: 400, message: '未收到文件' });
   }
-  res.json({
-    code: 200,
-    data: {
-      name: req.file.filename,
-      size: req.file.size,
-      url: '/api/cloud/files/' + encodeURIComponent(req.file.filename)
-    }
+  var originalName = req.file.filename;
+  var filePath = req.file.path;
+  tryTranscodeVideoToMp4(filePath).then(function(newName) {
+    var finalName = newName || originalName;
+    res.json({
+      code: 200,
+      data: {
+        name: finalName,
+        size: req.file.size,
+        url: '/api/cloud/files/' + encodeURIComponent(finalName)
+      }
+    });
   });
 });
 
@@ -275,29 +337,46 @@ router.post('/upload', auth.requireAuth, upload.single('file'), function(req, re
   if (!req.file) {
     return res.status(400).json({ code: 400, message: '未收到文件' });
   }
-  res.json({
-    code: 200,
-    data: {
-      name: req.file.filename,
-      size: req.file.size,
-      url: '/api/cloud/files/' + encodeURIComponent(req.file.filename)
-    }
+  var originalName = req.file.filename;
+  var filePath = req.file.path;
+  tryTranscodeVideoToMp4(filePath).then(function(newName) {
+    var finalName = newName || originalName;
+    res.json({
+      code: 200,
+      data: {
+        name: finalName,
+        size: req.file.size,
+        url: '/api/cloud/files/' + encodeURIComponent(finalName)
+      }
+    });
   });
 });
 
-// 批量上传
+// 批量上传（串行转码，避免并发 ffmpeg）
 router.post('/upload-batch', auth.requireAuth, upload.array('files', 10), function(req, res) {
   if (!req.files || req.files.length === 0) {
     return res.status(400).json({ code: 400, message: '未收到文件' });
   }
-  var results = req.files.map(function(f) {
-    return {
-      name: f.filename,
-      size: f.size,
-      url: '/api/cloud/files/' + encodeURIComponent(f.filename)
-    };
-  });
-  res.json({ code: 200, data: { files: results } });
+  var files = req.files;
+  var results = [];
+  var idx = 0;
+  function processNext() {
+    if (idx >= files.length) {
+      return res.json({ code: 200, data: { files: results } });
+    }
+    var f = files[idx];
+    idx++;
+    tryTranscodeVideoToMp4(f.path).then(function(newName) {
+      var finalName = newName || f.filename;
+      results.push({
+        name: finalName,
+        size: f.size,
+        url: '/api/cloud/files/' + encodeURIComponent(finalName)
+      });
+      processNext();
+    });
+  }
+  processNext();
 });
 
 // 获取文件（需登录，支持访问其他用户的共享图片）

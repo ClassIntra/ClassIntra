@@ -254,8 +254,8 @@
           <button v-if="contextMenuMediaUrl" class="ctx-item" @click="handleContextAction('saveMedia')">
             <i class="fa-solid fa-cloud-arrow-up"></i> 转存到云盘
           </button>
-          <button v-if="contextMenuTarget && isOwnMessage(contextMenuTarget)" class="ctx-item ctx-item-danger" @click="handleContextAction('delete')">
-            <i class="fa-solid fa-trash"></i> 删除
+          <button v-if="contextMenuTarget && canRecallMessage(contextMenuTarget)" class="ctx-item ctx-item-danger" @click="handleContextAction('delete')">
+            <i class="fa-solid fa-rotate-left"></i> 撤回
           </button>
         </div>
       </div>
@@ -1779,8 +1779,15 @@ export default {
           chatId: chatId,
           groupId: groupId
         })
-        .catch(function() {
-          self.$store.commit('toast/SHOW_TOAST', { message: '撤回失败', type: 'error' });
+        .then(function() {
+          self.$store.commit('toast/SHOW_TOAST', { message: '已撤回', type: 'success' });
+        })
+        .catch(function(err) {
+          // 透传后端错误消息（如"消息已超过2分钟，无法撤回"），兜底显示通用失败
+          var errMsg = (err && err.response && err.response.data && err.response.data.message) ||
+                       (err && err.message) ||
+                       '撤回失败';
+          self.$store.commit('toast/SHOW_TOAST', { message: errMsg, type: 'error' });
         });
     },
     sendMessage: function(options) {
