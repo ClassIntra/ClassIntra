@@ -455,6 +455,8 @@ router.post('/note/:noteId', auth.requireAuth, function(req, res) {
     title: req.body.title || '',
     tags: req.body.tags || [],
     folder: req.body.folder || '默认',
+    canvasData: req.body.canvas_data || null,
+    type: req.body.type || 'note',
     updated_at: new Date().toISOString()
   };
 

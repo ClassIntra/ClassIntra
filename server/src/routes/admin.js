@@ -76,8 +76,13 @@ router.get('/users', auth.requirePermission('manage_users'), function(req, res) 
     // 班管：只看本班用户 (YYCCXX 格式，CC = adminClass)
     whereClause += ' AND u.user_id LIKE ?';
     params.push('__' + adminClass + '%');
+  } else if (req.user && req.user.role === 'officer') {
+    // 班干：通过 user_id 班级前缀过滤本班（YYCCNN 取第 3-4 位为班号）
+    var officerClass = req.user.user_id.substring(2, 4);
+    whereClause += ' AND u.user_id LIKE ?';
+    params.push('__' + officerClass + '%');
   } else if (classFilter) {
-    // 其他管理员：可按班级筛选查看
+    // 超管/其他：可按班级筛选查看
     whereClause += ' AND u.user_id LIKE ?';
     params.push('__' + classFilter + '%');
   }
@@ -509,9 +514,26 @@ router.patch('/officers/:userId/permissions', function(req, res) {
 
 router.get('/available-officers', function(req, res) {
   try {
-    var users = db.prepare(
-      'SELECT user_id, net_name, real_name FROM users WHERE role != ? AND is_admin = 0 AND status = ?'
-    ).all('officer', 'active');
+    var sql = 'SELECT user_id, net_name, real_name FROM users WHERE role != ? AND is_admin = 0 AND status = ?';
+    var sqlParams = ['officer', 'active'];
+    // 班管/班干只能看本班用户
+    var adminClass = getUserAdminClass(req.user.user_id);
+    if (adminClass) {
+      sql += ' AND user_id LIKE ?';
+      sqlParams.push('__' + adminClass + '%');
+    } else if (req.user && req.user.role === 'officer') {
+      var officerClass = req.user.user_id.substring(2, 4);
+      sql += ' AND user_id LIKE ?';
+      sqlParams.push('__' + officerClass + '%');
+    }
+    // cohortPrefix 修复：将 __CC% 转为 YYCC%
+    var cohortPrefix = (process.env.COHORT || '25');
+    sqlParams = sqlParams.map(function(p) {
+      if (typeof p === 'string' && p.indexOf('__') === 0) return cohortPrefix + p.substring(2);
+      return p;
+    });
+    var stmt = db.prepare(sql);
+    var users = stmt.all.apply(stmt, sqlParams);
     res.json({ code: 200, message: 'ok', data: users });
   } catch (e) {
     res.status(500).json({ code: 500, message: '获取用户列表失败' });

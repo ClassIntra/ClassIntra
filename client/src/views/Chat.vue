@@ -644,6 +644,8 @@ import helpers from '@/utils/helpers';
 import wsManager from '@/utils/websocket';
 import { autoConnect } from '@/utils/websocket';
 import api from '@/utils/api';
+import richTextRenderer from '@/utils/rich-text-renderer';
+var detectMediaType = richTextRenderer.detectMediaType;
 
 export default {
   name: 'Chat',
@@ -828,11 +830,22 @@ export default {
       if (group) return group.group_name;
       return '聊天';
     },
+    // 格式化预览内容：云盘媒体 URL 替换为 [图片]/[视频]/[音频]
+    formatPreviewContent: function(content, type) {
+      if (!content) return '';
+      // community_forward 已在各预览函数单独处理
+      if (type === 'community_forward') return content;
+      var mediaType = detectMediaType(content);
+      if (mediaType === 'image') return '[图片]';
+      if (mediaType === 'video') return '[视频]';
+      if (mediaType === 'audio') return '[音频]';
+      return content;
+    },
     publicPreview: function() {
       var msgs = this.$store.state.chat.messages;
       if (msgs.length === 0) return '暂无消息';
       var last = msgs[msgs.length - 1];
-      return (last.sender_name || '') + ': ' + (last.content || '').substring(0, 20);
+      return (last.sender_name || '') + ': ' + this.formatPreviewContent(last.content, last.type).substring(0, 20);
     },
     publicLastTime: function() {
       var msgs = this.$store.state.chat.messages;
@@ -1933,6 +1946,8 @@ export default {
         var content = last.content || '';
         if (last.type === 'community_forward') {
           try { var fwd = JSON.parse(content); content = '[分享] ' + (fwd.title || fwd.dish_name || '帖子'); } catch (e) {}
+        } else {
+          content = this.formatPreviewContent(content, last.type);
         }
         return prefix + content.substring(0, 20);
       }
@@ -1943,6 +1958,8 @@ export default {
         var content = contact.last_message || '';
         if (contact.last_message_type === 'community_forward') {
           try { var fwd = JSON.parse(content); content = '[分享] ' + (fwd.title || fwd.dish_name || '帖子'); } catch (e) {}
+        } else {
+          content = this.formatPreviewContent(content, contact.last_message_type);
         }
         return prefix + content.substring(0, 20);
       }
@@ -1959,6 +1976,8 @@ export default {
         var content = last.content || '';
         if (last.type === 'community_forward') {
           try { var fwd = JSON.parse(content); content = '[分享] ' + (fwd.title || fwd.dish_name || '帖子'); } catch (e) {}
+        } else {
+          content = this.formatPreviewContent(content, last.type);
         }
         return prefix + ': ' + content.substring(0, 15);
       }
@@ -1970,6 +1989,8 @@ export default {
         var content = group.last_message || '';
         if (group.last_message_type === 'community_forward') {
           try { var fwd = JSON.parse(content); content = '[分享] ' + (fwd.title || fwd.dish_name || '帖子'); } catch (e) {}
+        } else {
+          content = this.formatPreviewContent(content, group.last_message_type);
         }
         return sender + ': ' + content.substring(0, 15);
       }

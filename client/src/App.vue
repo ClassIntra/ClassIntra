@@ -1,7 +1,6 @@
 <template>
   <div id="app" :data-theme="theme" @click="handleGlobalTap">
-    <SuperIsland v-show="!isLocked" />
-    <WeatherAlertCapsule ref="weatherAlertCapsule" v-show="!isLocked && !isBannedPage" />
+    <SuperIsland ref="superIsland" v-show="!isLocked" />
     <transition name="page-fade" mode="out-in">
       <ErrorBoundary><router-view></router-view></ErrorBoundary>
     </transition>
@@ -21,7 +20,6 @@
 <script>
 import SuperIsland from '@/components/SuperIsland.vue';
 import LockScreen from '@/components/LockScreen.vue';
-import WeatherAlertCapsule from '@/components/WeatherAlertCapsule.vue';
 import api from '@/utils/api';
 import updateChecker from '@/utils/update-checker';
 import wsManager from '@/utils/websocket';
@@ -31,8 +29,7 @@ export default {
   name: 'App',
   components: {
     SuperIsland: SuperIsland,
-    LockScreen: LockScreen,
-    WeatherAlertCapsule: WeatherAlertCapsule
+    LockScreen: LockScreen
   },
   data: function() {
     return {
@@ -226,8 +223,27 @@ export default {
         }
       }
       if (data.type === 'weather_alert') {
-        if (self.$refs.weatherAlertCapsule) {
-          self.$refs.weatherAlertCapsule.showAlert(data);
+        // 天气预警集成进超能岛通知系统（位置/样式/动画与普通通知一致）
+        if (self.$refs.superIsland && self.$refs.superIsland.enqueueNotification) {
+          var w = data;
+          var hasRain = !!(w.rain || w.has_rain || w.alert_type === 'rain' || w.alert_type === 'both');
+          var hasWarning = !!(w.warning || w.has_warning || w.alert_type === 'warning' || w.alert_type === 'both');
+          var parts = [];
+          if (hasRain) {
+            parts.push((w.rain && w.rain.description) || w.rain_text || '降雨提醒');
+          }
+          if (hasWarning) {
+            var wt = (w.warning && w.warning.title) || (w.warnings && w.warnings[0] && (w.warnings[0].title || w.warnings[0].typeName)) || '天气预警';
+            parts.push(wt);
+          }
+          self.$refs.superIsland.enqueueNotification({
+            icon: hasRain ? 'fa-cloud-rain' : 'fa-triangle-exclamation',
+            color: (hasRain && hasWarning) ? 'var(--color-orange)' : (hasWarning ? 'var(--color-red)' : 'var(--primary)'),
+            title: '天气预警',
+            text: parts.join(' · '),
+            category: 'weather',
+            priority: 'urgent'
+          });
         }
       }
     };

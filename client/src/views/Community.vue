@@ -314,7 +314,7 @@
                 </div>
                 <div class="profile-card-info">
                   <div class="profile-card-name">{{ currentUser.net_name }}</div>
-                  <div class="profile-card-id">{{ currentUser.real_name }} · {{ currentUser.user_id }}</div>
+                  <div class="profile-card-id"><template v-if="currentUser.real_name && !(profile && profile.privacy_settings && profile.privacy_settings.hide_real_name)">{{ currentUser.real_name }} · </template>{{ currentUser.user_id }}</div>
                   <div v-if="profile && profile.signature" class="profile-card-signature">{{ profile.signature }}</div>
                 </div>
               </div>
@@ -2751,7 +2751,7 @@ export default {
 
 .profile-card { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; background: linear-gradient(135deg, rgba(var(--primary-rgb),0.06), rgba(var(--primary-rgb),0.02)); border-bottom: 0.5px solid var(--separator-color); }
 .profile-card-left { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; }
-.profile-card-avatar { width: 48px; height: 48px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-size: var(--font-size-headline); font-weight: 600; flex-shrink: 0; }
+.profile-card-avatar { width: 48px; height: 48px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-size: var(--font-size-headline); font-weight: 600; flex-shrink: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI Symbol', 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif; }
 .profile-card-info { flex: 1; min-width: 0; }
 .profile-card-name { font-size: var(--font-size-body); font-weight: 600; color: var(--text-primary); }
 .profile-card-id { font-size: var(--font-size-caption); color: var(--text-secondary); margin-top: 1px; }
@@ -2852,7 +2852,7 @@ export default {
 .user-card-modal { width: 340px; background: var(--card-bg); border-radius: var(--radius-lg); padding: 24px; position: relative; box-shadow: var(--shadow-lg); }
 .user-card-modal .modal-close { position: absolute; top: 10px; right: 10px; }
 .user-card { display: flex; flex-direction: column; align-items: center; }
-.user-card-avatar { width: 56px; height: 56px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 600; margin-bottom: 10px; }
+.user-card-avatar { width: 56px; height: 56px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 600; margin-bottom: 10px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI Symbol', 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif; }
 .user-card-name { font-size: var(--font-size-subheadline); font-weight: 600; color: var(--text-primary); margin: 0 0 2px 0; }
 .user-card-realname { font-size: var(--font-size-caption); color: var(--text-secondary); margin-bottom: 4px; }
 .user-card-signature { font-size: var(--font-size-caption); color: var(--text-secondary); margin-bottom: 12px; text-align: center; max-width: 260px; }
