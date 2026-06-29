@@ -88,6 +88,31 @@ function applyHighlight(html, term) {
 
 // ========== 媒体 HTML 生成 ==========
 
+// 视频扩展名 → MIME 类型映射表
+var VIDEO_MIME_MAP = {
+  '.mp4': 'video/mp4',
+  '.mov': 'video/quicktime',
+  '.webm': 'video/webm',
+  '.mkv': 'video/x-matroska',
+  '.avi': 'video/x-msvideo',
+  '.3gp': 'video/3gpp'
+};
+
+/**
+ * 根据 URL 中的扩展名返回对应的视频 MIME 类型
+ * 用于 <source type="..."> 声明，让浏览器尝试解码 mov 等非 mp4 容器
+ * @param {string} url - 视频 URL
+ * @returns {string} MIME 类型，默认 video/mp4
+ */
+function getVideoMime(url) {
+  if (!url) return 'video/mp4';
+  var lower = url.toLowerCase();
+  for (var ext in VIDEO_MIME_MAP) {
+    if (lower.indexOf(ext) > -1) return VIDEO_MIME_MAP[ext];
+  }
+  return 'video/mp4';
+}
+
 /**
  * 根据媒体类型生成对应的内联 HTML 元素
  * @param {string} url - 已转义的媒体 URL
@@ -99,8 +124,11 @@ function generateMediaHtml(url, type) {
     return '<img class="msg-image msg-media" data-media-url="' + url + '" data-media-type="image" src="' + url + '" alt="图片" loading="lazy" decoding="async" width="200" height="200" />';
   }
   if (type === 'video') {
+    var videoMime = getVideoMime(url);
     return '<div class="msg-media-wrapper msg-video-wrapper msg-media" data-media-url="' + url + '" data-media-type="video">' +
-      '<video class="msg-video" data-media-url="' + url + '" data-media-type="video" src="' + url + '" preload="metadata" playsinline muted></video>' +
+      '<video class="msg-video" data-media-url="' + url + '" data-media-type="video" preload="metadata" playsinline muted>' +
+      '<source src="' + url + '" type="' + videoMime + '">' +
+      '</video>' +
       '<div class="msg-media-play"><i class="fa-solid fa-play"></i></div>' +
       '</div>';
   }
@@ -218,6 +246,7 @@ export default {
   sanitizeHtml: sanitizeHtml,
   applyHighlight: applyHighlight,
   generateMediaHtml: generateMediaHtml,
+  getVideoMime: getVideoMime,
   renderRichText: renderRichText,
   renderUserMarkdown: renderUserMarkdown
 };

@@ -367,6 +367,140 @@ function getTask(hash) {
   return _tasks[hash] || null;
 }
 
+// 同步转码为可移植 MP4（用于云盘上传后转码 mov/mkv/avi/webm/3gp → mp4）
+// 与 start() 区别：输出 +faststart 而非 fragmented mp4；不写入 _tasks、不占 MAX_CONCURRENT 配额；等待完成而非流式预热
+// 返回 Promise<{ok, exitCode, stderr}>；超时杀进程并 reject
+function transcodeFileToMp4(srcPath, destPath, timeoutMs) {
+  return new Promise(function(resolve, reject) {
+    var fullPath = path.resolve(srcPath);
+    if (!fs.existsSync(fullPath)) {
+      return reject(new Error('源文件不存在: ' + fullPath));
+    }
+    var ffmpegBin = _getFFmpegPath();
+    if (!ffmpegBin) {
+      return reject(new Error('ffmpeg 未安装，无法转码'));
+    }
+
+    // 确保输出目录存在
+    var destDir = path.dirname(destPath);
+    _ensureDir(destDir);
+
+    // 选择最优编码方案：硬件加速 > 软件轻量
+    var hwType = _detectHardwareEncoder();
+    var args;
+    if (hwType === 'qsv') {
+      // Intel Quick Sync — GPU 转码
+      args = [
+        '-hwaccel', 'qsv', '-qsv_device', 'auto',
+        '-i', fullPath,
+        '-c:v', 'h264_qsv', '-preset', 'veryfast', '-b:v', '2M', '-maxrate', '4M',
+        '-c:a', 'aac', '-b:a', '128k', '-ac', '2',
+        '-movflags', '+faststart',
+        '-f', 'mp4', '-y',
+        destPath
+      ];
+    } else if (hwType === 'nvenc') {
+      // NVIDIA NVENC — GPU 转码
+      args = [
+        '-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda',
+        '-i', fullPath,
+        '-c:v', 'h264_nvenc', '-preset', 'p1', '-tune', 'll', '-b:v', '2M', '-maxrate', '4M',
+        '-c:a', 'aac', '-b:a', '128k', '-ac', '2',
+        '-movflags', '+faststart',
+        '-f', 'mp4', '-y',
+        destPath
+      ];
+    } else if (hwType === 'amf') {
+      // AMD AMF — GPU 转码
+      args = [
+        '-hwaccel', 'auto',
+        '-i', fullPath,
+        '-c:v', 'h264_amf', '-usage', 'transcoding', '-quality', 'speed', '-b:v', '2M',
+        '-c:a', 'aac', '-b:a', '128k', '-ac', '2',
+        '-movflags', '+faststart',
+        '-f', 'mp4', '-y',
+        destPath
+      ];
+    } else {
+      // 纯 CPU — 极限轻量参数，限线程防卡死
+      args = [
+        '-threads', '2',
+        '-i', fullPath,
+        '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'fastdecode', '-crf', '32',
+        '-vf', 'scale=trunc(iw/4)*2:trunc(ih/4)*2:flags=fast_bilinear',
+        '-c:a', 'aac', '-b:a', '96k', '-ac', '2',
+        '-movflags', '+faststart',
+        '-f', 'mp4', '-y',
+        destPath
+      ];
+    }
+
+    console.log('[Transcoder-File] Starting ' + (hwType || 'CPU') + ' for: ' + path.basename(fullPath) + ' -> ' + path.basename(destPath));
+
+    var ffproc = spawn(ffmpegBin, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true
+    });
+
+    // 降低 ffmpeg 进程优先级，避免卡死系统
+    try {
+      if (ffproc.pid) {
+        require('child_process').execSync('wmic process where ProcessId=' + ffproc.pid + ' CALL setpriority 64', { windowsHide: true });
+      }
+    } catch (e) {}
+
+    var stderrChunks = [];
+    ffproc.stderr.on('data', function(chunk) {
+      stderrChunks.push(chunk.toString());
+    });
+
+    var maxWait = timeoutMs || 60000;
+    var settled = false;
+
+    var timeoutTimer = setTimeout(function() {
+      if (settled) return;
+      settled = true;
+      try { ffproc.kill('SIGTERM'); } catch (e) {}
+      setTimeout(function() {
+        try { ffproc.kill('SIGKILL'); } catch (e2) {}
+      }, 3000);
+      // 删除部分写入的输出文件
+      try { if (fs.existsSync(destPath)) fs.unlinkSync(destPath); } catch (e) {}
+      reject(new Error('转码超时（' + maxWait + 'ms）'));
+    }, maxWait);
+
+    ffproc.on('error', function(err) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutTimer);
+      reject(new Error('ffmpeg 启动失败: ' + err.message));
+    });
+
+    ffproc.on('exit', function(code) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutTimer);
+      var stderr = stderrChunks.join('');
+      if (code === 0) {
+        // 校验输出文件存在且非空
+        try {
+          if (fs.existsSync(destPath) && fs.statSync(destPath).size > 0) {
+            resolve({ ok: true, exitCode: 0, stderr: stderr });
+          } else {
+            reject(new Error('转码输出文件为空或不存在'));
+          }
+        } catch (e) {
+          reject(new Error('转码输出校验失败: ' + e.message));
+        }
+      } else {
+        // 失败时清理半成品
+        try { if (fs.existsSync(destPath)) fs.unlinkSync(destPath); } catch (e) {}
+        resolve({ ok: false, exitCode: code, stderr: stderr.slice(-500) });
+      }
+    });
+  });
+}
+
 module.exports = {
   CACHE_DIR: CACHE_DIR,
   MAX_CONCURRENT: MAX_CONCURRENT,
@@ -375,6 +509,7 @@ module.exports = {
   touch: touch,
   waitForReady: waitForReady,
   getTask: getTask,
+  transcodeFileToMp4: transcodeFileToMp4,
   get activeCount() {
     return getActiveCount();
   }
