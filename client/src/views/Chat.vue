@@ -830,18 +830,6 @@ export default {
       if (group) return group.group_name;
       return '聊天';
     },
-    // 格式化预览内容：云盘媒体 URL 替换为 [图片]/[视频]/[音频]
-    formatPreviewContent: function(content, type) {
-      if (!content) return '';
-      // community_forward 已在各预览函数单独处理
-      if (type === 'community_forward') return content;
-      if (typeof content !== 'string') content = String(content);
-      var mediaType = detectMediaType(content);
-      if (mediaType === 'image') return '[图片]';
-      if (mediaType === 'video') return '[视频]';
-      if (mediaType === 'audio') return '[音频]';
-      return content;
-    },
     publicPreview: function() {
       var msgs = this.$store.state.chat.messages;
       if (msgs.length === 0) return '暂无消息';
@@ -1106,6 +1094,18 @@ export default {
     }
   },
   methods: {
+    // 格式化预览内容：云盘媒体 URL 替换为 [图片]/[视频]/[音频]
+    formatPreviewContent: function(content, type) {
+      if (!content) return '';
+      // community_forward 已在各预览函数单独处理
+      if (type === 'community_forward') return content;
+      if (typeof content !== 'string') content = String(content);
+      var mediaType = detectMediaType(content);
+      if (mediaType === 'image') return '[图片]';
+      if (mediaType === 'video') return '[视频]';
+      if (mediaType === 'audio') return '[音频]';
+      return content;
+    },
     // 安全获取字符串首字符（支持 emoji / 数学粗体等代理对字符）
     firstChar: function(str) {
       var chars = Array.from(str || '?');
