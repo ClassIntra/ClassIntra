@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.1.5] - 2026-06-30
+【新增】
+修复视频播放/天气预警超能岛/iPad桌面图标模式
+支持论坛/聊天 mov 视频播放 + 私聊/群聊消息撤回 UI 修复
+云盘上传按钮跳转快捷上传页 + 优化录音录像质量
+
+【修复/优化】
+聊天 MP4 视频无法播放——cloud.js 添加 Range 请求支持 + 媒体 Cache-Control 头 + 流式传输
+画板笔记上传云端后转载丢失数据——importCloudNote 保留 type/canvasData + 详情页显示画板标识
+画板上传云端按钮从浮动层移入顶部工具栏——与其他操作按钮统一风格
+formatPreviewContent 从 computed 移入 methods——computed 不支持带参数调用
+修复聊天页 e.toLowerCase is not a function 错误——detectMediaType/getVideoMime 添加字符串类型校验
+八项问题修复
+
+【其他】
+feat(desktop): Settings.vue 新增重置桌面布局入口（ 确认 + API 获取启用应用 + 降级 APP_REGISTRY）
+feat(desktop): 文件夹组件 + 设置面板 + 分页指示器
+feat(desktop): 拖拽引擎 + 手势 mixin（ghost/落点检测/FLIP/文件夹创建 + 长按/捏合/横滑）
+feat(desktop): AppIcon 扩展（editing/pinned/showLabel props + wiggle 动画 + 删除按钮 + 锁图标）
+feat(desktop): 前端 desktop store 模块（state/getters/mutations/actions + 默认布局 + 后端同步 + localStorage 缓存）
+feat(desktop): 后端持久化基础设施（user_settings.desktop_layout_json 列 + GET/POST /settings 读写 + 校验）
+perf: 修复聊天滑动时图片加载卡顿
+perf: 提升视频帧率至60fps + 音频比特率256kbps
+fix(security): 修复2个CRITICAL+2个HIGH安全漏洞
+Revert "chore(deps): bump the npm_and_yarn group across 1 directory with 2 updates"
+fix(security): pnpm.overrides 强制升级5个传递依赖到安全版本
+chore(deps): bump the npm_and_yarn group across 1 directory with 2 updates
+
+
+
 ## [1.1.4] - 2026-06-27
 【新增】
 笔记图片从云盘调用——集成 CloudImagePicker 选择器
