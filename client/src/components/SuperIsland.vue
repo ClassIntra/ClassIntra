@@ -85,6 +85,15 @@
           @cancel="goCompact"
         />
 
+        <!-- Weather Compact Mode -->
+        <IslandWeatherPanel
+          v-else-if="islandMode === 'weather-compact'"
+          key="weather-compact"
+          :alert="currentWeatherAlert"
+          @dismiss="dismissWeather"
+          @request-close="dismissWeather"
+        />
+
         <!-- Music Compact Mode -->
         <IslandMusicPanel
           v-else-if="islandMode === 'music-compact'"
@@ -130,6 +139,7 @@ import IslandHistoryPanel from './island/IslandHistoryPanel.vue';
 import IslandActionsPanel from './island/IslandActionsPanel.vue';
 import IslandBrowserPanel from './island/IslandBrowserPanel.vue';
 import IslandMusicPanel from './island/IslandMusicPanel.vue';
+import IslandWeatherPanel from './island/IslandWeatherPanel.vue';
 
 export default {
   name: 'SuperIsland',
@@ -138,7 +148,8 @@ export default {
     IslandHistoryPanel: IslandHistoryPanel,
     IslandActionsPanel: IslandActionsPanel,
     IslandBrowserPanel: IslandBrowserPanel,
-    IslandMusicPanel: IslandMusicPanel
+    IslandMusicPanel: IslandMusicPanel,
+    IslandWeatherPanel: IslandWeatherPanel
   },
   mixins: [islandNotificationsMixin, islandGesturesMixin],
   data: function() {
@@ -152,7 +163,9 @@ export default {
       browserUrl: '',
       browserEnabled: false,
       // 音乐岛关闭标记
-      musicIslandDismissed: false
+      musicIslandDismissed: false,
+      // 天气预警
+      currentWeatherAlert: null
     };
   },
   computed: {
@@ -176,10 +189,11 @@ export default {
       if (this.isOnDesktop) return true;
       if (this.activeActivities.length > 0) return true;
       if (this.hasMusicPlaying && !this.musicIslandDismissed) return true;
+      if (this.currentWeatherAlert) return true;
       return false;
     },
     isExpanded: function() {
-      return this.islandMode !== 'compact' && this.islandMode !== 'split' && this.islandMode !== 'music-compact';
+      return this.islandMode !== 'compact' && this.islandMode !== 'split' && this.islandMode !== 'music-compact' && this.islandMode !== 'weather-compact';
     },
     compactIcon: function() {
       if (this.hasMusicPlaying && this.islandMode === 'compact' && !this.musicIslandDismissed) return 'fa-solid fa-music';
@@ -320,10 +334,26 @@ export default {
       }
     },
 
+    // ===== 天气预警 =====
+    showWeatherAlert: function(alert) {
+      this.currentWeatherAlert = alert;
+      this.prevMode = this.islandMode;
+      this.islandMode = 'weather-compact';
+    },
+
+    dismissWeather: function() {
+      this.currentWeatherAlert = null;
+      this.goCompact();
+    },
+
     handleClick: function() {
       if (this.isDismissing) return;
       var self = this;
-      if (self.islandMode === 'music-compact') {
+      if (self.islandMode === 'weather-compact') {
+        // 点击天气预警岛 → 跳转天气页
+        self.$router.push('/weather').catch(function() {});
+        self.dismissWeather();
+      } else if (self.islandMode === 'music-compact') {
         self.islandMode = 'music-expanded';
       } else if (self.islandMode === 'music-expanded') {
         self.islandMode = 'music-compact';
