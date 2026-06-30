@@ -544,6 +544,12 @@ function initDatabase() {
     db.exec("ALTER TABLE user_settings ADD COLUMN deepseek_enabled INTEGER DEFAULT 0");
   }
 
+  // 桌面布局持久化：存储图标位置/分页/文件夹/Dock 成员（JSON 字符串）
+  var desktopLayoutCol = settingsCols.indexOf('desktop_layout_json');
+  if (desktopLayoutCol === -1) {
+    db.exec("ALTER TABLE user_settings ADD COLUMN desktop_layout_json TEXT DEFAULT NULL");
+  }
+
   var convPersonaCol = convColNames.indexOf('persona');
   if (convPersonaCol === -1) {
     db.exec("ALTER TABLE conversations ADD COLUMN persona TEXT DEFAULT ''");
