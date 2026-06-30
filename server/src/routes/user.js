@@ -187,11 +187,23 @@ router.get('/settings', function(req, res) {
       settings = db.prepare('SELECT * FROM user_settings WHERE user_id = ?').get(req.user.user_id);
     }
 
+    // 解析桌面布局 JSON（损坏时返回 null，前端用默认布局）
+    var desktopLayout = null;
+    try {
+      if (settings.desktop_layout_json) {
+        desktopLayout = JSON.parse(settings.desktop_layout_json);
+      }
+    } catch (e) {
+      console.error('[User] desktop_layout_json 解析失败，前端将使用默认布局:', e.message);
+      desktopLayout = null;
+    }
+
     var result = {
       user_id: settings.user_id,
       theme: settings.theme,
       wallpaper: settings.wallpaper,
       notifications: JSON.parse(settings.notifications_json || '{}'),
+      desktop_layout: desktopLayout,
       updated_at: time.toISOString(settings.updated_at)
     };
 
@@ -208,6 +220,7 @@ router.post('/settings', function(req, res) {
     var theme = req.body.theme;
     var wallpaper = req.body.wallpaper;
     var notifications = req.body.notifications;
+    var desktopLayout = req.body.desktop_layout;
 
     // Build updates
     var updates = [];
@@ -226,6 +239,16 @@ router.post('/settings', function(req, res) {
     if (notifications) {
       updates.push('notifications_json = ?');
       params.push(JSON.stringify(notifications));
+    }
+
+    // 桌面布局持久化：校验结构后序列化存储
+    if (desktopLayout !== undefined) {
+      var validated = validateDesktopLayout(desktopLayout);
+      if (validated === null) {
+        return res.status(400).json({ code: 400, message: '桌面布局数据格式无效', data: null });
+      }
+      updates.push('desktop_layout_json = ?');
+      params.push(JSON.stringify(validated));
     }
 
     if (updates.length === 0) {
@@ -255,11 +278,20 @@ router.post('/settings', function(req, res) {
 
     // Return updated settings
     var settings = db.prepare('SELECT * FROM user_settings WHERE user_id = ?').get(req.user.user_id);
+    var updatedDesktopLayout = null;
+    try {
+      if (settings.desktop_layout_json) {
+        updatedDesktopLayout = JSON.parse(settings.desktop_layout_json);
+      }
+    } catch (e) {
+      updatedDesktopLayout = null;
+    }
     var result = {
       user_id: settings.user_id,
       theme: settings.theme,
       wallpaper: settings.wallpaper,
       notifications: JSON.parse(settings.notifications_json || '{}'),
+      desktop_layout: updatedDesktopLayout,
       updated_at: time.toISOString(settings.updated_at)
     };
 
@@ -279,6 +311,68 @@ router.post('/settings', function(req, res) {
     return res.status(500).json({ code: 500, message: '服务器内部错误', data: null });
   }
 });
+
+// 校验桌面布局数据结构，合法则返回规范化对象，否则返回 null
+// 结构：{ version, pages:[{id, slots:[24]}], dock:[name...], pinnedApps:[name...], folders:{id:{id,name,apps}} }
+function validateDesktopLayout(layout) {
+  if (!layout || typeof layout !== 'object' || Array.isArray(layout)) return null;
+  if (!Array.isArray(layout.pages) || layout.pages.length < 1 || layout.pages.length > 9) return null;
+  if (!Array.isArray(layout.dock) || layout.dock.length > 4) return null;
+  if (!Array.isArray(layout.pinnedApps)) return null;
+  if (layout.folders !== null && (typeof layout.folders !== 'object' || Array.isArray(layout.folders))) return null;
+
+  var MAX_SLOTS = 24;
+  // 规范化单个 slot：合法返回 {type,...}，非法/空返回 null
+  function normalizeSlot(slot) {
+    if (slot === null) return null;
+    if (!slot || typeof slot !== 'object') return null;
+    if (slot.type === 'app' && typeof slot.name === 'string' && slot.name) {
+      return { type: 'app', name: slot.name };
+    }
+    if (slot.type === 'folder' && typeof slot.id === 'string' && slot.id) {
+      return { type: 'folder', id: slot.id };
+    }
+    return null;
+  }
+
+  var pages = layout.pages.map(function(page, pi) {
+    if (!page || typeof page !== 'object') return null;
+    if (!Array.isArray(page.slots) || page.slots.length !== MAX_SLOTS) return null;
+    var slots = page.slots.map(normalizeSlot);
+    return { id: typeof page.id === 'string' ? page.id : ('page-' + pi), slots: slots };
+  });
+  if (pages.indexOf(null) !== -1) return null;
+
+  // 校验 dock / pinnedApps 元素为字符串
+  var dock = layout.dock.filter(function(name) { return typeof name === 'string' && name; });
+  var pinnedApps = layout.pinnedApps.filter(function(name) { return typeof name === 'string' && name; });
+
+  // 校验 folders 结构
+  var folders = {};
+  if (layout.folders) {
+    var folderKeys = Object.keys(layout.folders);
+    for (var i = 0; i < folderKeys.length; i++) {
+      var fid = folderKeys[i];
+      var f = layout.folders[fid];
+      if (!f || typeof f !== 'object') continue;
+      if (typeof f.id !== 'string' || typeof f.name !== 'string') continue;
+      if (!Array.isArray(f.apps)) continue;
+      folders[fid] = {
+        id: f.id,
+        name: f.name,
+        apps: f.apps.filter(function(name) { return typeof name === 'string' && name; })
+      };
+    }
+  }
+
+  return {
+    version: typeof layout.version === 'number' ? layout.version : 1,
+    pages: pages,
+    dock: dock,
+    pinnedApps: pinnedApps,
+    folders: folders
+  };
+}
 
 // GET /api/user/remote-profile/:userId
 router.get('/remote-profile/:userId', function(req, res) {
