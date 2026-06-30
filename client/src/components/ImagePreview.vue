@@ -75,8 +75,7 @@ export default {
       isPinching: false, isDragging: false,
       pinchStartDist: 0, pinchStartScale: 1,
       dragStartX: 0, dragStartY: 0,
-      lastTapTime: 0,
-      videoPlayer: null, audioPlayer: null
+      lastTapTime: 0
     };
   },
   computed: {
@@ -90,55 +89,22 @@ export default {
         self.scale = 1; self.x = 0; self.y = 0;
         self.isPinching = false; self.isDragging = false;
         self.lastTapTime = 0;
-        // 视频/音频：初始化 Video.js 播放器
-        if (self.mediaType === 'video') {
-          self.$nextTick(function() { self.initVideoPlayer(); });
-        } else if (self.mediaType === 'audio') {
-          self.$nextTick(function() { self.initAudioPlayer(); });
-        }
       } else {
-        // 关闭时销毁播放器
-        self.disposePlayers();
+        // 关闭时暂停原生播放器
+        if (self.$refs.videoPlayer) self.$refs.videoPlayer.pause();
+        if (self.$refs.audioPlayer) self.$refs.audioPlayer.pause();
       }
     }
   },
   beforeDestroy: function() {
-    this.disposePlayers();
+    // 暂停原生播放器
+    if (this.$refs.videoPlayer) this.$refs.videoPlayer.pause();
+    if (this.$refs.audioPlayer) this.$refs.audioPlayer.pause();
   },
   methods: {
-    initVideoPlayer: function() {
-      var self = this;
-      self.disposePlayers();
-      var el = self.$refs.videoPlayer;
-      if (!el) return;
-      self.videoPlayer = videojs(el, {
-        controls: true, autoplay: true, muted: true, preload: 'auto',
-        fluid: true, fill: true,
-        playbackRates: [0.5, 1, 1.25, 1.5, 2],
-        controlBar: {
-          volumePanel: { inline: false },
-          pictureInPictureToggle: false
-        }
-      });
-    },
-    initAudioPlayer: function() {
-      var self = this;
-      self.disposePlayers();
-      var el = self.$refs.audioPlayer;
-      if (!el) return;
-      self.audioPlayer = videojs(el, {
-        controls: true, autoplay: true, preload: 'auto',
-        fluid: false, fill: false,
-        controlBar: {
-          volumePanel: { inline: false },
-          pictureInPictureToggle: false,
-          fullscreenToggle: false
-        }
-      });
-    },
-    disposePlayers: function() {
-      if (this.videoPlayer) { this.videoPlayer.dispose(); this.videoPlayer = null; }
-      if (this.audioPlayer) { this.audioPlayer.dispose(); this.audioPlayer = null; }
+    onVideoError: function(e) {
+      console.error('[ImagePreview] 视频加载失败:', e);
+      this.$store.commit('toast/SHOW_TOAST', { message: '视频加载失败，请重试', type: 'error' });
     },
     onImageLoad: function(e) {
       var img = e.target; var nw = img.naturalWidth; var nh = img.naturalHeight;

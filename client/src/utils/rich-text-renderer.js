@@ -92,7 +92,7 @@ function applyHighlight(html, term) {
 // 视频扩展名 → MIME 类型映射表
 var VIDEO_MIME_MAP = {
   '.mp4': 'video/mp4',
-  '.mov': 'video/quicktime',
+  '.mov': 'video/mp4',
   '.webm': 'video/webm',
   '.mkv': 'video/x-matroska',
   '.avi': 'video/x-msvideo',
@@ -125,11 +125,8 @@ function generateMediaHtml(url, type) {
     return '<img class="msg-image msg-media" data-media-url="' + url + '" data-media-type="image" src="' + url + '" alt="图片" loading="lazy" decoding="async" width="200" height="200" />';
   }
   if (type === 'video') {
-    var videoMime = getVideoMime(url);
     return '<div class="msg-media-wrapper msg-video-wrapper msg-media" data-media-url="' + url + '" data-media-type="video">' +
-      '<video class="msg-video" data-media-url="' + url + '" data-media-type="video" preload="metadata" playsinline muted>' +
-      '<source src="' + url + '" type="' + videoMime + '">' +
-      '</video>' +
+      '<video class="msg-video" data-media-url="' + url + '" data-media-type="video" src="' + url + '" preload="metadata" playsinline webkit-playsinline muted></video>' +
       '<div class="msg-media-play"><i class="fa-solid fa-play"></i></div>' +
       '</div>';
   }

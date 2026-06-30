@@ -64,9 +64,21 @@
       </div>
     </transition>
 
+    <!-- 桌面图标网格（iPad 模式） -->
+    <div v-if="isGridLayout" class="desktop-grid">
+      <AppIcon
+        v-for="app in gridAppsList"
+        :key="'grid-' + app.name"
+        :app="app"
+        :badge="appBadges[app.name] || ''"
+        :launching="launchingApp === app.name"
+        @launch="launchApp"
+      />
+    </div>
+
     <div class="dock-bar">
       <div
-        v-for="app in visibleDockApps"
+        v-for="app in (isGridLayout ? dockAppsList : visibleDockApps)"
         :key="app.name"
         class="dock-item"
         :class="{ 'dock-launching': launchingApp === app.name }"
@@ -84,6 +96,7 @@
 <script>
 import api from '@/utils/api';
 import updateChecker from '@/utils/update-checker';
+import AppIcon from '@/components/AppIcon.vue';
 
 var WALLPAPER_MAP = {
   'default': 'linear-gradient(135deg, #007AFF 0%, #5AC8FA 50%, #BFEEFF 100%)',
@@ -115,6 +128,7 @@ function isImageFile(wp) {
 
 export default {
   name: 'Desktop',
+  components: { AppIcon: AppIcon },
   data: function() {
     return {
       entered: false,
@@ -205,6 +219,21 @@ export default {
       if (self.enabledApps === null) return self.dockApps;
       return self.dockApps.filter(function(app) {
         return self.enabledApps.indexOf(app.name) !== -1;
+      });
+    },
+    // 桌面布局模式：'grid'（iPad 桌面图标）| 'dock'（仅 Dock）
+    isGridLayout: function() {
+      return this.$store.getters['settings/desktopLayout'] === 'grid';
+    },
+    // grid 模式下网格显示所有启用应用
+    gridAppsList: function() {
+      return this.visibleDockApps;
+    },
+    // grid 模式下 Dock 保留 4 个最常用应用
+    dockAppsList: function() {
+      var dockNames = ['chat', 'community', 'notes', 'settings'];
+      return this.visibleDockApps.filter(function(app) {
+        return dockNames.indexOf(app.name) !== -1;
       });
     },
     hasUnreadAnnouncements: function() {
@@ -596,6 +625,28 @@ export default {
   width: 100%;
   height: 100%;
   z-index: 0;
+}
+
+/* 桌面图标网格（iPad 模式） */
+.desktop-grid {
+  position: absolute;
+  top: 70px;
+  left: 24px;
+  right: 24px;
+  bottom: 120px;
+  z-index: 1;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-flex-wrap: wrap;
+  flex-wrap: wrap;
+  -webkit-align-content: flex-start;
+  align-content: flex-start;
+  -webkit-justify-content: flex-start;
+  justify-content: flex-start;
+  gap: 16px;
+  -webkit-overflow-scrolling: touch;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
 }
 
 .dock-bar {

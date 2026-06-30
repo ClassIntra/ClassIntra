@@ -223,27 +223,36 @@ export default {
         }
       }
       if (data.type === 'weather_alert') {
-        // 天气预警集成进超能岛通知系统（位置/样式/动画与普通通知一致）
-        if (self.$refs.superIsland && self.$refs.superIsland.enqueueNotification) {
+        // 天气预警以超能岛专用样式显示（滚动文字，两遍后自动关闭）
+        if (self.$refs.superIsland && self.$refs.superIsland.showWeatherAlert) {
           var w = data;
           var hasRain = !!(w.rain || w.has_rain || w.alert_type === 'rain' || w.alert_type === 'both');
           var hasWarning = !!(w.warning || w.has_warning || w.alert_type === 'warning' || w.alert_type === 'both');
-          var parts = [];
-          if (hasRain) {
-            parts.push((w.rain && w.rain.description) || w.rain_text || '降雨提醒');
-          }
+          // 构造预警事件名
+          var eventName = '天气预警';
           if (hasWarning) {
-            var wt = (w.warning && w.warning.title) || (w.warnings && w.warnings[0] && (w.warnings[0].title || w.warnings[0].typeName)) || '天气预警';
-            parts.push(wt);
+            eventName = (w.warning && w.warning.title) || (w.warnings && w.warnings[0] && (w.warnings[0].title || w.warnings[0].typeName)) || '天气预警';
+          } else if (hasRain) {
+            eventName = '降雨提醒';
           }
-          self.$refs.superIsland.enqueueNotification({
-            icon: hasRain ? 'fa-cloud-rain' : 'fa-triangle-exclamation',
-            color: (hasRain && hasWarning) ? 'var(--color-orange)' : (hasWarning ? 'var(--color-red)' : 'var(--primary)'),
-            title: '天气预警',
-            text: parts.join(' · '),
-            category: 'weather',
-            priority: 'urgent'
-          });
+          // 构造预警描述
+          var description = '';
+          if (hasRain) {
+            description = (w.rain && w.rain.description) || w.rain_text || '';
+          }
+          if (hasWarning && !description) {
+            description = eventName;
+          }
+          if (!description) description = '请注意防范';
+          // 构造 alert 对象（与 Weather.vue 的 warningData.alerts 结构一致）
+          var weatherAlert = {
+            eventType: { name: eventName },
+            severity: hasWarning ? 'severe' : 'moderate',
+            color: null,
+            headline: eventName,
+            description: description
+          };
+          self.$refs.superIsland.showWeatherAlert(weatherAlert);
         }
       }
     };

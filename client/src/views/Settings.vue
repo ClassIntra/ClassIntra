@@ -372,6 +372,23 @@
               </template>
               <div class="form-row">
                 <label class="form-label">
+                  <i class="fa-solid fa-table-cells-large form-row-icon"></i>桌面布局
+                </label>
+                <div class="toggle-group">
+                  <button
+                    class="toggle-btn"
+                    :class="{ active: desktopLayout === 'grid' }"
+                    @click="setDesktopLayout('grid')"
+                  ><i class="fa-solid fa-table-cells"></i> 桌面图标</button>
+                  <button
+                    class="toggle-btn"
+                    :class="{ active: desktopLayout === 'dock' }"
+                    @click="setDesktopLayout('dock')"
+                  ><i class="fa-solid fa-grip-lines"></i> 仅 Dock</button>
+                </div>
+              </div>
+              <div class="form-row">
+                <label class="form-label">
                   <i class="fa-solid fa-id-card form-row-icon"></i>在社区显示真实姓名
                 </label>
                 <label class="switch">
@@ -585,6 +602,9 @@ export default {
     wallpaper: function() {
       return this.$store.state.settings.wallpaper;
     },
+    desktopLayout: function() {
+      return this.$store.getters['settings/desktopLayout'];
+    },
     notifications: function() {
       return this.$store.state.settings.notifications;
     },
@@ -742,6 +762,10 @@ export default {
       this.$store.commit('toast/SHOW_TOAST', { message: '壁纸已更换', type: 'success' });
       var self = this;
       api.post('/user/settings', { wallpaper: wallpaper }).catch(function() {});
+    },
+    setDesktopLayout: function(layout) {
+      this.$store.commit('settings/SET_DESKTOP_LAYOUT', layout);
+      this.$store.commit('toast/SHOW_TOAST', { message: '桌面布局已切换', type: 'success' });
     },
     loadAllWallpapers: function() {
       var self = this;
