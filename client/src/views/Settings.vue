@@ -124,7 +124,7 @@
             <div class="form-card">
               <div class="form-row">
                 <label class="form-label">当前密码</label>
-                <input v-model="securityForm.old_password" type="password" class="form-input" placeholder="输入当前密码" />
+                <input v-model="securityForm.current_password" type="password" class="form-input" placeholder="输入当前密码" />
               </div>
               <div class="form-row">
                 <label class="form-label">新密码</label>
@@ -515,7 +515,7 @@ export default {
       },
       profileLoading: false,
       securityForm: {
-        old_password: '',
+        current_password: '',
         new_password: '',
         confirm_password: ''
       },
@@ -697,7 +697,7 @@ export default {
     },
     changePassword: function() {
       var self = this;
-      if (!self.securityForm.old_password) {
+      if (!self.securityForm.current_password) {
         self.$store.commit('toast/SHOW_TOAST', { message: '请输入当前密码', type: 'error' });
         return;
       }
@@ -715,11 +715,12 @@ export default {
       }
       self.saving = true;
       api.post('/user/change-password', {
-        old_password: self.securityForm.old_password,
-        new_password: self.securityForm.new_password
+        current_password: self.securityForm.current_password,
+        new_password: self.securityForm.new_password,
+        confirm_password: self.securityForm.confirm_password
       })
         .then(function() {
-          self.securityForm = { old_password: '', new_password: '', confirm_password: '' };
+          self.securityForm = { current_password: '', new_password: '', confirm_password: '' };
           self.$store.commit('toast/SHOW_TOAST', { message: '密码修改成功', type: 'success' });
         })
         .catch(function(err) {

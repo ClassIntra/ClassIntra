@@ -1,7 +1,11 @@
 <template>
   <div class="notes-page">
-    <AppNavBar title="灵感笔记">
+    <AppNavBar :title="isDrawFile && activeFile ? '画板' : '灵感笔记'">
       <template slot="actions">
+        <!-- 画板模式：上传云端按钮（移至标题栏） -->
+        <button v-if="isDrawFile && activeFile" class="nav-action-btn" @click="uploadToCloud" :disabled="cloudSyncing" :title="cloudSyncing ? '同步中...' : '上传到云端'">
+          <i :class="cloudSyncing ? 'fa-solid fa-spinner fa-spin' : 'fa-solid fa-cloud-arrow-up'"></i>
+        </button>
         <button class="nav-action-btn" @click="toggleSidebar" :title="showSidebar ? '收起侧栏' : '展开侧栏'">
           <i class="fa-solid fa-bars"></i>
         </button>
@@ -976,10 +980,16 @@
         </span>
         <span><i class="fa-solid fa-clock"></i> {{ formatDate(viewingCloudNote.updated_at) }}</span>
       </div>
-      <div v-if="viewingCloudNote.type === 'draw'" class="cloud-note-fullscreen-content" style="display: flex; align-items: center; justify-content: center; padding: 60px 20px; color: var(--text-secondary);">
-        <div style="text-align: center;">
-          <i class="fa-solid fa-palette" style="font-size: 48px; margin-bottom: 16px; opacity: 0.5;"></i>
-          <p style="font-size: 15px;">这是一个画板笔记，转载后可查看和编辑</p>
+      <div v-if="viewingCloudNote.type === 'draw'" class="cloud-note-fullscreen-content cloud-note-draw-readonly">
+        <DrawCanvas
+          v-if="viewingCloudNote.canvas_data"
+          mode="full"
+          :readonly="true"
+          :initialLayers="parseCanvasData(viewingCloudNote.canvas_data)"
+        />
+        <div v-else class="cloud-note-draw-empty">
+          <i class="fa-solid fa-palette"></i>
+          <p>画板数据为空</p>
         </div>
       </div>
       <div v-else class="cloud-note-fullscreen-content markdown-body" v-html="renderMarkdown(viewingCloudNote.content || '')"></div>
@@ -3165,12 +3175,19 @@ export default {
       api.get('/notes/notes/' + note.id).then(function(response) {
         if (response.data.code === 200) {
           self.viewingCloudNote = response.data.data;
+          // 关闭云盘浮窗，避免遮挡全屏查看
+          self.showCloudPanel = false;
         }
       }).catch(function(err) {
         var msg = '获取笔记详情失败';
         if (err.response && err.response.data && err.response.data.message) msg = err.response.data.message;
         self.$store.commit('toast/SHOW_TOAST', { message: msg, type: 'error' });
       });
+    },
+    // 解析画板数据（JSON 字符串 → 数组）
+    parseCanvasData: function(canvasDataStr) {
+      if (!canvasDataStr) return [];
+      try { return JSON.parse(canvasDataStr); } catch (e) { return []; }
     },
     importCloudNote: function(note) {
       var self = this;
@@ -5744,7 +5761,7 @@ export default {
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 1000;
+  z-index: 4000;
   background: var(--bg-color);
   display: flex;
   flex-direction: column;
@@ -5790,6 +5807,29 @@ export default {
   width: 100%;
   line-height: 1.8;
   font-size: var(--font-size-body);
+}
+
+/* 画板只读查看：撑满内容区，无 max-width 限制 */
+.cloud-note-draw-readonly {
+  padding: 0;
+  max-width: none;
+  overflow: hidden;
+}
+.cloud-note-draw-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  color: var(--text-secondary);
+}
+.cloud-note-draw-empty i {
+  font-size: 48px;
+  margin-bottom: 16px;
+  opacity: 0.5;
+}
+.cloud-note-draw-empty p {
+  font-size: 15px;
   color: var(--text-primary);
 }
 
