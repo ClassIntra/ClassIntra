@@ -1,7 +1,7 @@
 <template>
   <button
     class="app-icon"
-    :class="{ 'app-icon--launching': launching }"
+    :class="{ 'app-icon--editing': editing, 'app-icon--pinned': pinned, 'app-icon--launching': launching }"
     @click="onClick"
   >
     <div class="app-icon-img-wrap" :style="{ background: app.color }">
@@ -9,8 +9,21 @@
       <span v-if="badge" class="app-icon-badge" :class="{ 'app-icon-badge--dot': badge === '●' }">
         {{ badge === '●' ? '' : badge }}
       </span>
+      <!-- 编辑态 + 非固定：删除按钮 -->
+      <button
+        v-if="editing && !pinned"
+        class="app-icon-remove"
+        @click.stop="onRemove"
+        aria-label="移除"
+      >
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+      <!-- 固定图标：右下角小锁 -->
+      <span v-if="pinned" class="app-icon-pin-lock" aria-label="已固定">
+        <i class="fa-solid fa-lock"></i>
+      </span>
     </div>
-    <span class="app-icon-label">{{ app.label }}</span>
+    <span v-if="showLabel" class="app-icon-label">{{ app.label }}</span>
   </button>
 </template>
 
@@ -23,11 +36,22 @@ export default {
     // 角标：数字字符串、'●' 表示红点
     badge: { type: [String, Number], default: '' },
     // 是否正在启动（触发 launching 动画）
-    launching: { type: Boolean, default: false }
+    launching: { type: Boolean, default: false },
+    // 是否处于编辑态（wiggle 抖动 + 显示删除按钮）
+    editing: { type: Boolean, default: false },
+    // 是否固定（显示锁图标，编辑态下不可删除/拖拽）
+    pinned: { type: Boolean, default: false },
+    // 是否显示文字标签（桌面图标默认 false，Dock 不显示，文件夹内显示）
+    showLabel: { type: Boolean, default: true }
   },
   methods: {
     onClick: function() {
+      // 编辑态下点击图标不启动应用（仅 wiggle），符合 iPad 行为
+      if (this.editing) return;
       this.$emit('launch', this.app);
+    },
+    onRemove: function() {
+      this.$emit('remove', this.app);
     }
   }
 };
@@ -47,6 +71,7 @@ export default {
   -webkit-tap-highlight-color: transparent;
   -webkit-user-select: none;
   user-select: none;
+  -webkit-touch-callout: none;
   transition: transform 0.15s var(--ease-standard);
 }
 
@@ -61,7 +86,7 @@ export default {
   width: 60px;
   height: 60px;
   border-radius: var(--radius-xl);
-  overflow: hidden;
+  overflow: visible;  /* 允许删除按钮/角标溢出 */
   box-shadow: var(--shadow-sm);
   display: flex;
   align-items: center;
@@ -73,6 +98,7 @@ export default {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  border-radius: var(--radius-xl);
   pointer-events: none;
   -webkit-user-drag: none;
 }
@@ -108,6 +134,7 @@ export default {
   justify-content: center;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
   border: 1.5px solid rgba(0, 0, 0, 0.15);
+  z-index: 2;
 }
 
 .app-icon-badge--dot {
@@ -116,6 +143,71 @@ export default {
   padding: 0;
   top: 0;
   right: 0;
+}
+
+/* 编辑态 wiggle 抖动动画 */
+.app-icon--editing {
+  animation: appIconWiggle 0.25s var(--ease-standard) infinite alternate;
+  cursor: grab;
+}
+
+.app-icon--editing:active {
+  cursor: grabbing;
+  transform: scale(0.95);
+}
+
+.app-icon--editing .app-icon-img-wrap {
+  transform: scale(1.05);
+}
+
+@keyframes appIconWiggle {
+  0% { transform: rotate(-2deg); }
+  100% { transform: rotate(2deg); }
+}
+
+/* 编辑态删除按钮 */
+.app-icon-remove {
+  position: absolute;
+  top: -6px;
+  left: -6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 9999px;
+  background: var(--danger-color);
+  color: #fff;
+  border: 2px solid #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  cursor: pointer;
+  padding: 0;
+  z-index: 3;
+  box-shadow: var(--shadow-sm);
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.15s var(--ease-standard);
+}
+
+.app-icon-remove:active {
+  transform: scale(0.85);
+}
+
+/* 固定图标锁标记 */
+.app-icon-pin-lock {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid #fff;
+  z-index: 2;
 }
 
 /* launching 启动动画 */
