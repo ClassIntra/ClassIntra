@@ -75,12 +75,47 @@ function normalizeLayout(serverLayout, enabledAppNames) {
   });
   if (pages.length < 1) pages = [{ id: 'page-0', slots: new Array(SLOTS_PER_PAGE).fill(null) }];
 
+  var dock = Array.isArray(serverLayout.dock) ? serverLayout.dock.slice(0, MAX_DOCK).filter(function(n) { return n !== null && n; }) : [];
+  var pinnedApps = Array.isArray(serverLayout.pinnedApps) ? serverLayout.pinnedApps : ['settings'];
+  var folders = (serverLayout.folders && typeof serverLayout.folders === 'object') ? serverLayout.folders : {};
+
+  // 补全 enabledAppNames 中缺失的应用（新启用应用自动出现在桌面）
+  if (Array.isArray(enabledAppNames) && enabledAppNames.length > 0) {
+    var existingApps = {};
+    for (var pi = 0; pi < pages.length; pi++) {
+      for (var si = 0; si < pages[pi].slots.length; si++) {
+        var s = pages[pi].slots[si];
+        if (s && s.type === 'app') existingApps[s.name] = true;
+      }
+    }
+    for (var di = 0; di < dock.length; di++) { existingApps[dock[di]] = true; }
+    var folderKeys = Object.keys(folders);
+    for (var fi = 0; fi < folderKeys.length; fi++) {
+      var folderApps = folders[folderKeys[fi]].apps || [];
+      for (var fa = 0; fa < folderApps.length; fa++) { existingApps[folderApps[fa]] = true; }
+    }
+    for (var ei = 0; ei < enabledAppNames.length; ei++) {
+      var appName = enabledAppNames[ei];
+      if (!existingApps[appName]) {
+        var placed = false;
+        for (var pp = 0; pp < pages.length; pp++) {
+          if (pushToFirstEmptySlot(pages[pp], appName)) { placed = true; break; }
+        }
+        if (!placed && pages.length < MAX_PAGES) {
+          var newPage = { id: 'page-' + Date.now() + '-' + pages.length, slots: new Array(SLOTS_PER_PAGE).fill(null) };
+          pushToFirstEmptySlot(newPage, appName);
+          pages.push(newPage);
+        }
+      }
+    }
+  }
+
   return {
     version: typeof serverLayout.version === 'number' ? serverLayout.version : 1,
     pages: pages,
-    dock: Array.isArray(serverLayout.dock) ? serverLayout.dock.slice(0, MAX_DOCK) : [],
-    pinnedApps: Array.isArray(serverLayout.pinnedApps) ? serverLayout.pinnedApps : ['settings'],
-    folders: (serverLayout.folders && typeof serverLayout.folders === 'object') ? serverLayout.folders : {}
+    dock: dock,
+    pinnedApps: pinnedApps,
+    folders: folders
   };
 }
 
