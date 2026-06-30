@@ -8,6 +8,7 @@ import community from './modules/community';
 import island from './modules/island';
 import music from './modules/music';
 import network from './modules/network';
+import desktop from './modules/desktop';
 
 Vue.use(Vuex);
 
@@ -20,6 +21,7 @@ export default new Vuex.Store({
     community: community,
     island: island,
     music: music,
-    network: network
+    network: network,
+    desktop: desktop
   }
 });
