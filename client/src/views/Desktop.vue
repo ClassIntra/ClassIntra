@@ -1,11 +1,11 @@
 <template>
   <div
     class="desktop"
-    :class="{ 'desktop-enter': entered }"
-    @touchstart="onTouchStart"
-    @touchend="onTouchEnd"
-    @mousedown="onMouseDown"
-    @mouseup="onMouseUp"
+    :class="{ 'desktop-enter': entered, 'desktop--editing': isEditMode, 'desktop--dragging': isDragging, 'desktop--grid': isGridLayout }"
+    @touchstart="onDesktopTouchStart"
+    @touchmove="onDesktopTouchMove"
+    @touchend="onDesktopTouchEnd"
+    @mousedown="onDesktopMouseDown"
   >
     <template v-if="videoWallpaperSrc && !videoWallpaperFailed">
       <video
@@ -64,32 +64,119 @@
       </div>
     </transition>
 
-    <!-- 桌面图标网格（iPad 模式） -->
-    <div v-if="isGridLayout" class="desktop-grid">
-      <AppIcon
-        v-for="app in gridAppsList"
-        :key="'grid-' + app.name"
-        :app="app"
-        :badge="appBadges[app.name] || ''"
-        :launching="launchingApp === app.name"
-        @launch="launchApp"
-      />
-    </div>
-
-    <div class="dock-bar">
+    <!-- iPad 桌面模式：多页面容器 + 4×6 网格 -->
+    <div v-if="isGridLayout && isLoaded" class="desktop-pages" :style="pagesTransformStyle">
       <div
-        v-for="app in (isGridLayout ? dockAppsList : visibleDockApps)"
-        :key="app.name"
-        class="dock-item"
-        :class="{ 'dock-launching': launchingApp === app.name }"
-        @click="launchApp(app)"
+        v-for="(page, pageIndex) in pages"
+        :key="page.id"
+        class="desktop-page"
       >
-        <div class="dock-icon">
-          <img :src="app.icon" :alt="app.label" loading="eager">
+        <div class="desktop-grid">
+          <div
+            v-for="(slot, index) in page.slots"
+            :key="index"
+            class="desktop-slot"
+            :class="{
+              'slot--empty': !slot,
+              'slot--drop-target': isDropTarget('page', pageIndex, index)
+            }"
+            :data-dst-type="'page'"
+            :data-dst-page="pageIndex"
+            :data-dst-idx="index"
+          >
+            <template v-if="slot">
+              <AppIcon
+                v-if="slot.type === 'app'"
+                :app="appMeta(slot.name) || placeholderApp(slot.name)"
+                :badge="appBadges[slot.name] || ''"
+                :launching="launchingApp === slot.name"
+                :editing="isEditMode"
+                :pinned="pinnedAppNames.indexOf(slot.name) !== -1"
+                :show-label="false"
+                :data-src-type="'page'"
+                :data-src-page="pageIndex"
+                :data-src-idx="index"
+                :data-src-app="slot.name"
+                :data-flip-key="'page-app-' + slot.name"
+                @launch="launchApp"
+                @remove="onRemoveApp(pageIndex, index)"
+              />
+              <DesktopFolder
+                v-else
+                :folder="folderById(slot.id) || { id: slot.id, name: '文件夹', apps: [] }"
+                :editing="isEditMode"
+                :data-src-type="'page'"
+                :data-src-page="pageIndex"
+                :data-src-idx="index"
+                :data-src-app="slot.id"
+                :data-flip-key="'page-folder-' + slot.id"
+                @open="openFolder(slot.id)"
+                @remove="onDeleteFolder(slot.id)"
+              />
+            </template>
+          </div>
         </div>
-        <span v-if="appBadges[app.name]" class="dock-badge" :class="{ 'dock-badge-dot': appBadges[app.name] === '●' }">{{ appBadges[app.name] === '●' ? '' : appBadges[app.name] }}</span>
       </div>
     </div>
+
+    <!-- 分页点指示器 -->
+    <DesktopPageIndicator
+      v-if="isGridLayout && isLoaded"
+      :total="totalPages"
+      :current="currentPage"
+      :max-pages="9"
+      @jump="setCurrentPage"
+      @add-page="addPage"
+    />
+
+    <!-- Dock 栏 -->
+    <div class="dock-bar" :class="{ 'dock-bar--editing': isEditMode }">
+      <div
+        v-for="(name, i) in dockAppNames"
+        :key="'dock-' + name"
+        class="dock-slot"
+        :class="{ 'dock-slot--launching': launchingApp === name, 'slot--drop-target': isDropTarget('dock', null, i) }"
+        :data-dst-type="'dock'"
+        :data-dst-dock="i"
+        :data-src-type="'dock'"
+        :data-src-dock="i"
+        :data-src-app="name"
+        :data-flip-key="'dock-' + name"
+        @click="launchApp(appMeta(name))"
+      >
+        <div class="dock-icon">
+          <img :src="appMeta(name).icon" :alt="appMeta(name).label" loading="eager">
+        </div>
+        <span v-if="appBadges[name]" class="dock-badge" :class="{ 'dock-badge-dot': appBadges[name] === '●' }">{{ appBadges[name] === '●' ? '' : appBadges[name] }}</span>
+      </div>
+    </div>
+
+    <!-- 文件夹展开层 -->
+    <transition name="folder-expand">
+      <DesktopFolder
+        v-if="openFolderId"
+        :folder="folderById(openFolderId)"
+        :expanded="true"
+        :editing="isEditMode"
+        @close="closeFolder"
+        @rename="onRenameFolder"
+        @remove="onDeleteFolder(openFolderId)"
+        @launch-app="launchAppByName"
+        @remove-app="onRemoveAppFromFolder"
+      />
+    </transition>
+
+    <!-- 捏合调出的设置面板 -->
+    <DesktopSettingsPanel
+      :visible="settingsPanelOpen"
+      :total-pages="totalPages"
+      :max-pages="9"
+      @close="closeSettingsPanel"
+      @done="onSettingsDone"
+      @add-page="addPage"
+      @tidy="tidyCurrentPage"
+      @reset="resetLayout"
+    />
   </div>
 </template>
 
@@ -97,6 +184,12 @@
 import api from '@/utils/api';
 import updateChecker from '@/utils/update-checker';
 import AppIcon from '@/components/AppIcon.vue';
+import DesktopFolder from '@/components/DesktopFolder.vue';
+import DesktopPageIndicator from '@/components/DesktopPageIndicator.vue';
+import DesktopSettingsPanel from '@/components/DesktopSettingsPanel.vue';
+import desktopDrag from '@/mixins/desktop-drag.js';
+import desktopGestures from '@/mixins/desktop-gestures.js';
+import { APP_REGISTRY } from '@/store/modules/desktop.js';
 
 var WALLPAPER_MAP = {
   'default': 'linear-gradient(135deg, #007AFF 0%, #5AC8FA 50%, #BFEEFF 100%)',
@@ -128,7 +221,13 @@ function isImageFile(wp) {
 
 export default {
   name: 'Desktop',
-  components: { AppIcon: AppIcon },
+  components: {
+    AppIcon: AppIcon,
+    DesktopFolder: DesktopFolder,
+    DesktopPageIndicator: DesktopPageIndicator,
+    DesktopSettingsPanel: DesktopSettingsPanel
+  },
+  mixins: [desktopDrag, desktopGestures],
   data: function() {
     return {
       entered: false,
@@ -148,16 +247,8 @@ export default {
       currentAnnouncementIndex: 0,
       newVersionAvailable: false,
       latestVersion: '',
-      dockApps: [
-        { name: 'chat', label: '聊天', icon: '/resources/public/icons/Chat.svg', color: '#007AFF', route: '/chat' },
-        { name: 'community', label: '社区', icon: '/resources/public/icons/Community.svg', color: '#FF9500', route: '/community' },
-        { name: 'ai-chat', label: 'AI', icon: '/resources/public/icons/AI-Chat.svg', color: '#AF52DE', route: '/ai-chat' },
-        { name: 'notes', label: '笔记', icon: '/resources/public/icons/Note.svg', color: '#FFCC00', route: '/notes' },
-        { name: 'resource', label: '资源', icon: '/resources/public/icons/Files.svg', color: '#5856D6', route: '/resource' },
-        { name: 'weather', label: '天气', icon: '/resources/public/icons/Weather.svg', color: '#5AC8FA', route: '/weather' },
-        { name: 'music', label: '音乐', icon: '/resources/public/icons/Music.svg', color: '#FF2D55', route: '/music' },
-        { name: 'settings', label: '设置', icon: '/resources/public/icons/Settings.svg', color: '#8E8E93', route: '/settings' }
-      ],
+      // 应用元数据（从 APP_REGISTRY 引用，作为降级备份）
+      dockApps: APP_REGISTRY,
       enabledApps: null  // null=未加载，数组=已加载的启用应用名列表
     };
   },
@@ -206,35 +297,64 @@ export default {
       if (totalChat > 0) {
         badges['chat'] = totalChat > 99 ? '99+' : totalChat;
       }
-      // 新版本角标
       if (this.newVersionAvailable) {
         badges['settings'] = '●';
       }
       return badges;
     },
-    // 根据后端应用管控状态过滤出启用的应用
-    visibleDockApps: function() {
-      var self = this;
-      // 未加载时显示全部（避免闪烁），加载后过滤
-      if (self.enabledApps === null) return self.dockApps;
-      return self.dockApps.filter(function(app) {
-        return self.enabledApps.indexOf(app.name) !== -1;
-      });
+    // 桌面布局是否已加载
+    isLoaded: function() {
+      return this.$store.getters['desktop/isLoaded'];
     },
     // 桌面布局模式：'grid'（iPad 桌面图标）| 'dock'（仅 Dock）
     isGridLayout: function() {
       return this.$store.getters['settings/desktopLayout'] === 'grid';
     },
-    // grid 模式下网格显示所有启用应用
-    gridAppsList: function() {
-      return this.visibleDockApps;
+    // 所有页面
+    pages: function() {
+      var layout = this.$store.state.desktop.layout;
+      return layout ? layout.pages : [];
     },
-    // grid 模式下 Dock 保留 4 个最常用应用
-    dockAppsList: function() {
-      var dockNames = ['chat', 'community', 'notes', 'settings'];
-      return this.visibleDockApps.filter(function(app) {
-        return dockNames.indexOf(app.name) !== -1;
-      });
+    // 当前页索引
+    currentPage: function() {
+      return this.$store.state.desktop.currentPage;
+    },
+    // 页面容器 transform
+    pagesTransformStyle: function() {
+      return { transform: 'translateX(-' + (this.currentPage * 100) + '%)' };
+    },
+    // 总页数
+    totalPages: function() {
+      return this.$store.getters['desktop/totalPages'];
+    },
+    // 是否编辑态
+    isEditMode: function() {
+      return this.$store.getters['desktop/isEditMode'];
+    },
+    // 是否拖拽中
+    isDragging: function() {
+      return this.$store.getters['desktop/isDragging'];
+    },
+    // Dock 应用名列表
+    dockAppNames: function() {
+      var dockNames = this.$store.getters['desktop/dockApps'];
+      // 应用管控过滤：未加载时全显示，加载后过滤禁用的
+      if (this.enabledApps === null) return dockNames;
+      return dockNames.filter(function(name) {
+        return this.enabledApps.indexOf(name) !== -1;
+      }.bind(this));
+    },
+    // 固定应用名列表
+    pinnedAppNames: function() {
+      return this.$store.getters['desktop/pinnedApps'];
+    },
+    // 当前打开的文件夹 id
+    openFolderId: function() {
+      return this.$store.getters['desktop/openFolderId'];
+    },
+    // 设置面板是否打开
+    settingsPanelOpen: function() {
+      return this.$store.getters['desktop/settingsPanelOpen'];
     },
     hasUnreadAnnouncements: function() {
       return this.unreadAnnouncements.length > 0;
@@ -428,19 +548,105 @@ export default {
         video.playbackRate = 1.0;
       }
     },
-    onTouchStart: function(e) {
-      if (e.touches && e.touches.length > 0) {
-        this.touchStartY = e.touches[0].clientY;
+    // ===== 桌面手势入口（转发到 mixin）=====
+    onDesktopTouchStart: function(e) {
+      this.onDesktopGestureTouchStart(e);
+      // 编辑态下转发到拖拽引擎
+      if (this.isEditMode) {
+        this.onPointerDown(e);
       }
     },
-    onTouchEnd: function() {},
-    onMouseDown: function(e) {
-      this.mouseStartY = e.clientY;
+    onDesktopTouchMove: function(e) {
+      this.onDesktopGestureTouchMove(e);
     },
-    onMouseUp: function() {},
+    onDesktopTouchEnd: function(e) {
+      this.onDesktopGestureTouchEnd(e);
+    },
+    onDesktopMouseDown: function(e) {
+      if (this.isEditMode) {
+        this.onPointerDown(e);
+      }
+    },
+    // ===== 应用元数据 =====
+    appMeta: function(name) {
+      return this.$store.getters['desktop/appByName'](name);
+    },
+    placeholderApp: function(name) {
+      return { name: name, label: name, icon: '', color: '#8E8E93', route: '' };
+    },
+    // ===== 文件夹操作 =====
+    openFolder: function(folderId) {
+      this.$store.commit('desktop/SET_OPEN_FOLDER', folderId);
+    },
+    closeFolder: function() {
+      this.$store.commit('desktop/SET_OPEN_FOLDER', null);
+    },
+    onRenameFolder: function(payload) {
+      this.$store.commit('desktop/RENAME_FOLDER', { folderId: payload.folder.id, name: payload.name });
+      this.$store.dispatch('desktop/saveDesktopLayout');
+    },
+    onDeleteFolder: function(folderId) {
+      this.$store.commit('desktop/DELETE_FOLDER', { folderId: folderId });
+      this.$store.dispatch('desktop/saveDesktopLayout');
+    },
+    onRemoveAppFromFolder: function(payload) {
+      this.$store.commit('desktop/REMOVE_FROM_FOLDER', { folderId: payload.folder.id, appName: payload.appName });
+      this.$store.dispatch('desktop/saveDesktopLayout');
+    },
+    // ===== 桌面图标移除 =====
+    onRemoveApp: function(pageIndex, index) {
+      var self = this;
+      var slot = this.pages[pageIndex].slots[index];
+      if (!slot || slot.type !== 'app') return;
+      var appName = slot.name;
+      if (this.$modal && this.$modal.confirm) {
+        this.$modal.confirm('移除应用', '将"' + (this.appMeta(appName) || {}).label + '"从桌面移除？可在设置中重置布局恢复。', {
+          confirmText: '移除',
+          cancelText: '取消',
+          danger: true
+        }).then(function() {
+          self.$store.commit('desktop/MOVE_APP', {
+            from: { type: 'page', pageIndex: pageIndex, index: index, appName: appName },
+            to: { type: 'page', pageIndex: pageIndex, index: -1 }  // 特殊标记：移除
+          });
+          // 简化：直接置空该槽位
+          var layout = JSON.parse(JSON.stringify(self.$store.state.desktop.layout));
+          layout.pages[pageIndex].slots[index] = null;
+          self.$store.commit('desktop/SET_LAYOUT', layout);
+          self.$store.dispatch('desktop/saveDesktopLayout');
+        }).catch(function() {});
+      }
+    },
+    // ===== 页面管理 =====
+    setCurrentPage: function(pageIndex) {
+      this.$store.commit('desktop/SET_CURRENT_PAGE', pageIndex);
+    },
+    addPage: function() {
+      this.$store.commit('desktop/ADD_PAGE');
+      this.$store.dispatch('desktop/saveDesktopLayout');
+    },
+    tidyCurrentPage: function() {
+      this.$store.commit('desktop/TIDY_PAGE', this.currentPage);
+      this.$store.dispatch('desktop/saveDesktopLayout');
+    },
+    resetLayout: function() {
+      this.$store.dispatch('desktop/resetLayout', this.enabledApps || []);
+      if (this.$store.state.toast) {
+        this.$store.commit('toast/SHOW_TOAST', { message: '桌面布局已重置', type: 'success' });
+      }
+    },
+    // ===== 设置面板 =====
+    closeSettingsPanel: function() {
+      this.$store.commit('desktop/SET_SETTINGS_PANEL', false);
+    },
+    onSettingsDone: function() {
+      this.$store.commit('desktop/SET_SETTINGS_PANEL', false);
+      this.$store.dispatch('desktop/exitEditMode');
+    },
+    // ===== 启动应用 =====
     launchApp: function(app) {
       var self = this;
-      // 打开设置时清除新版本角标
+      if (!app) return;
       if (app.name === 'settings') {
         self.markVersionSeen();
       }
@@ -449,6 +655,13 @@ export default {
         self.launchingApp = '';
         self.$router.push(app.route).catch(function() {});
       }, 250);
+    },
+    launchAppByName: function(name) {
+      var meta = this.appMeta(name);
+      if (meta) {
+        this.closeFolder();
+        this.launchApp(meta);
+      }
     },
     playVideoWallpaper: function() {
       var self = this;
@@ -493,15 +706,16 @@ export default {
       api.get('/system/app-control').then(function(response) {
         var data = response.data.data || {};
         self.enabledApps = data.enabled_apps || [];
+        // 加载桌面布局（传入启用的应用列表用于默认布局生成）
+        self.$store.dispatch('desktop/loadDesktopLayout', self.enabledApps);
       }).catch(function() {
         // 降级：全部启用
         self.enabledApps = self.dockApps.map(function(app) { return app.name; });
+        self.$store.dispatch('desktop/loadDesktopLayout', self.enabledApps);
       });
     },
-    // 检查新版本角标（复用 update-checker 模块）
     checkVersionUpdate: function() {
       var self = this;
-      // 如果 update-checker 已检测到更新，直接显示角标
       if (updateChecker.isUpdateAvailable()) {
         var info = updateChecker.getCurrentVersionInfo();
         if (info) {
@@ -512,7 +726,6 @@ export default {
           }
         }
       }
-      // 监听后续的更新通知（WebSocket 推送或定时检查），保存取消订阅函数
       self._updateUnsubscribe = updateChecker.onUpdateAvailable(function(event, info) {
         if (info && info.serverVersion) {
           var storedVer = localStorage.getItem('classnet_seen_version') || '0.0.0';
@@ -523,7 +736,6 @@ export default {
         }
       });
     },
-    // 用户点击设置时清除新版本角标
     markVersionSeen: function() {
       if (this.newVersionAvailable && this.latestVersion) {
         localStorage.setItem('classnet_seen_version', this.latestVersion);
@@ -627,28 +839,80 @@ export default {
   z-index: 0;
 }
 
-/* 桌面图标网格（iPad 模式） */
-.desktop-grid {
+/* ===== 多页面容器 ===== */
+.desktop-pages {
   position: absolute;
-  top: 70px;
-  left: 24px;
-  right: 24px;
-  bottom: 120px;
-  z-index: 1;
+  top: 60px;
+  left: 0;
+  right: 0;
+  bottom: 130px;
   display: -webkit-flex;
   display: flex;
-  -webkit-flex-wrap: wrap;
-  flex-wrap: wrap;
-  -webkit-align-content: flex-start;
-  align-content: flex-start;
-  -webkit-justify-content: flex-start;
-  justify-content: flex-start;
-  gap: 16px;
-  -webkit-overflow-scrolling: touch;
-  overflow-y: auto;
-  overscroll-behavior-y: contain;
+  z-index: 1;
+  transition: transform 0.35s var(--ease-decelerate);
+  will-change: transform;
 }
 
+.desktop-page {
+  min-width: 100%;
+  -webkit-flex: 0 0 100%;
+  flex: 0 0 100%;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: center;
+  align-items: center;
+  -webkit-justify-content: center;
+  justify-content: center;
+  padding: 0 32px;
+}
+
+/* ===== 4×6 网格 ===== */
+.desktop-grid {
+  width: 100%;
+  max-width: 760px;
+  height: 100%;
+  max-height: 440px;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  grid-template-rows: repeat(4, 1fr);
+  grid-gap: 12px;
+}
+
+.desktop-slot {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: center;
+  align-items: center;
+  -webkit-justify-content: center;
+  justify-content: center;
+  position: relative;
+  border-radius: var(--radius-lg);
+  transition: background 0.15s var(--ease-standard), box-shadow 0.15s var(--ease-standard);
+}
+
+/* 落点高亮 */
+.slot--drop-target {
+  background: rgba(255, 255, 255, 0.22);
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.55);
+}
+
+/* 编辑态空槽位虚线提示 */
+.desktop--editing .slot--empty::after {
+  content: '';
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-md);
+  border: 1px dashed rgba(255, 255, 255, 0.25);
+}
+
+.desktop--editing .desktop-slot {
+  cursor: grab;
+}
+.desktop--dragging {
+  cursor: grabbing;
+}
+
+/* ===== Dock 栏 ===== */
 .dock-bar {
   position: fixed;
   bottom: 24px;
@@ -673,7 +937,21 @@ export default {
   transition: background 0.3s var(--ease-standard), box-shadow 0.3s var(--ease-standard);
 }
 
-.dock-item {
+.dock-bar--editing {
+  -webkit-animation: dockWiggle 0.25s var(--ease-standard) infinite alternate;
+  animation: dockWiggle 0.25s var(--ease-standard) infinite alternate;
+}
+
+@-webkit-keyframes dockWiggle {
+  0% { -webkit-transform: translateX(-50%) rotate(-1deg); }
+  100% { -webkit-transform: translateX(-50%) rotate(1deg); }
+}
+@keyframes dockWiggle {
+  0% { transform: translateX(-50%) rotate(-1deg); }
+  100% { transform: translateX(-50%) rotate(1deg); }
+}
+
+.dock-slot {
   display: -webkit-flex;
   display: flex;
   -webkit-flex-direction: column;
@@ -685,20 +963,21 @@ export default {
   margin: 0 9px;
   -webkit-transition: -webkit-transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
   transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  border-radius: var(--radius-xl);
 }
 
-.dock-item:hover {
+.dock-slot:hover {
   -webkit-transform: scale(1.15) translateY(-6px);
   transform: scale(1.15) translateY(-6px);
 }
 
-.dock-item:active {
+.dock-slot:active {
   -webkit-transform: scale(0.92) translateY(0);
   transform: scale(0.92) translateY(0);
   transition-duration: 0.12s;
 }
 
-.dock-item.dock-launching {
+.dock-slot.dock-slot--launching {
   -webkit-animation: dockLaunch 0.3s cubic-bezier(0.32, 0.72, 0, 1) forwards;
   animation: dockLaunch 0.3s cubic-bezier(0.32, 0.72, 0, 1) forwards;
 }
@@ -755,7 +1034,6 @@ export default {
   border: 2px solid var(--dock-bg);
 }
 
-/* 纯红点角标（新版本提示） */
 .dock-badge-dot {
   min-width: 10px;
   width: 10px;
@@ -768,14 +1046,45 @@ export default {
   right: -3px;
 }
 
-/* 小屏适配 - 保持 iPad 比例 */
+/* ===== 拖拽 ghost ===== */
+.desktop-drag-ghost {
+  width: 60px;
+  height: 60px;
+  pointer-events: none;
+}
+
+.desktop-drag-ghost-img {
+  width: 60px;
+  height: 60px;
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  -webkit-box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  opacity: 0.9;
+}
+
+.desktop-drag-ghost-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* ===== 小屏适配 ===== */
 @media (max-height: 400px), (max-width: 520px) {
+  .desktop-pages {
+    top: 50px;
+    bottom: 110px;
+  }
+  .desktop-grid {
+    grid-gap: 8px;
+    max-height: 360px;
+  }
   .dock-bar {
     bottom: 8px;
     padding: 8px 16px;
     border-radius: var(--radius-lg);
   }
-  .dock-item {
+  .dock-slot {
     margin: 0 6px;
   }
   .dock-icon {
@@ -795,7 +1104,7 @@ export default {
   }
 }
 
-/* Announcement Float */
+/* ===== Announcement Float ===== */
 .announcement-float {
   position: fixed;
   top: 24px;
@@ -969,5 +1278,18 @@ export default {
   opacity: 0;
   -webkit-transform: translateX(60px);
   transform: translateX(60px);
+}
+
+/* 文件夹展开过渡 */
+.folder-expand-enter-active {
+  -webkit-transition: opacity 0.25s var(--ease-standard);
+  transition: opacity 0.25s var(--ease-standard);
+}
+.folder-expand-leave-active {
+  -webkit-transition: opacity 0.2s var(--ease-accelerate);
+  transition: opacity 0.2s var(--ease-accelerate);
+}
+.folder-expand-enter, .folder-expand-leave-to {
+  opacity: 0;
 }
 </style>
