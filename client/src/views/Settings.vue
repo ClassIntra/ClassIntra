@@ -389,6 +389,14 @@
               </div>
               <div class="form-row">
                 <label class="form-label">
+                  <i class="fa-solid fa-rotate-left form-row-icon"></i>重置桌面布局
+                </label>
+                <button class="reset-desktop-btn" @click="resetDesktopLayout">
+                  <i class="fa-solid fa-arrow-rotate-left"></i> 恢复默认
+                </button>
+              </div>
+              <div class="form-row">
+                <label class="form-label">
                   <i class="fa-solid fa-id-card form-row-icon"></i>在社区显示真实姓名
                 </label>
                 <label class="switch">
@@ -489,6 +497,7 @@ import helpers from '@/utils/helpers';
 import updateChecker from '@/utils/update-checker';
 import AppNavBar from '@/components/AppNavBar.vue';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
+import { APP_REGISTRY } from '@/store/modules/desktop.js';
 
 export default {
   name: 'Settings',
@@ -766,6 +775,37 @@ export default {
     setDesktopLayout: function(layout) {
       this.$store.commit('settings/SET_DESKTOP_LAYOUT', layout);
       this.$store.commit('toast/SHOW_TOAST', { message: '桌面布局已切换', type: 'success' });
+    },
+    // 重置桌面布局：通过 $modal 二次确认后调用 desktop store 重置
+    resetDesktopLayout: function() {
+      var self = this;
+      if (self.$modal && self.$modal.confirm) {
+        self.$modal.confirm(
+          '重置桌面布局',
+          '将清除所有图标位置、文件夹和分页，恢复默认布局。确定继续吗？',
+          { confirmText: '重置', cancelText: '取消', danger: true }
+        ).then(function() {
+          self._performResetDesktop();
+        }).catch(function() {});
+      } else {
+        // 降级：无 $modal 时直接重置
+        self._performResetDesktop();
+      }
+    },
+    _performResetDesktop: function() {
+      var self = this;
+      // 获取已启用应用列表（与 Desktop.vue loadEnabledApps 逻辑一致）
+      api.get('/system/app-control').then(function(response) {
+        var data = response.data.data || {};
+        var enabledApps = data.enabled_apps || [];
+        self.$store.dispatch('desktop/resetLayout', enabledApps);
+        self.$store.commit('toast/SHOW_TOAST', { message: '桌面布局已重置', type: 'success' });
+      }).catch(function() {
+        // 降级：用 APP_REGISTRY 全部应用名
+        var allApps = APP_REGISTRY.map(function(app) { return app.name; });
+        self.$store.dispatch('desktop/resetLayout', allApps);
+        self.$store.commit('toast/SHOW_TOAST', { message: '桌面布局已重置', type: 'success' });
+      });
     },
     loadAllWallpapers: function() {
       var self = this;
@@ -1351,6 +1391,24 @@ export default {
   color: var(--text-primary);
   font-weight: var(--font-weight-medium);
   box-shadow: var(--shadow-sm);
+}
+
+/* 重置桌面布局按钮（iOS 风格，与 toggle-btn 视觉一致） */
+.reset-desktop-btn {
+  padding: 6px 16px;
+  border-radius: var(--radius-xs);
+  background: var(--fill-color);
+  border: none;
+  color: var(--text-primary);
+  font-size: var(--font-size-footnote);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard);
+  -webkit-tap-highlight-color: transparent;
+}
+.reset-desktop-btn:active {
+  transform: scale(0.92);
+  opacity: 0.7;
 }
 
 /* Wallpaper Picker */
