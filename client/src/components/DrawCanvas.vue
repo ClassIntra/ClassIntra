@@ -5,7 +5,7 @@
     <!-- ================================================================== -->
     <div v-if="mode === 'full'" class="dc-full-layout">
       <!-- 左侧工具条 -->
-      <div class="dc-sidebar">
+      <div class="dc-sidebar" v-if="!readonly">
         <button v-for="tool in visibleTools" :key="tool.id" class="dc-side-btn" :class="{ active: activeTool === tool.id }" @click="setTool(tool.id)" :title="tool.name">
           <i class="fa-solid" :class="tool.icon"></i>
         </button>
@@ -25,7 +25,7 @@
 
       <!-- 右侧主体 -->
       <div class="dc-main">
-        <div class="dc-options-bar">
+        <div class="dc-options-bar" v-if="!readonly">
           <label class="dc-color-wrap"><input type="color" v-model="color" class="dc-color-input" /><span class="dc-color-preview" :style="{ background: color }"></span></label>
           <div class="dc-preset-colors"><span v-for="c in presetColors" :key="c" class="dc-preset-color" :style="{ background: c }" :class="{ active: color === c }" @click="color = c"></span></div>
           <div class="dc-opt-sep"></div>
@@ -34,9 +34,6 @@
           <template v-if="isShapeTool"><div class="dc-opt-sep"></div><button class="dc-opt-btn" :class="{ active: fillShape }" @click="fillShape = !fillShape"><i class="fa-solid" :class="fillShape ? 'fa-fill-drip' : 'fa-fill'"></i><span>{{ fillShape ? '填充' : '描边' }}</span></button></template>
           <div class="dc-opt-spacer"></div>
           <button class="dc-opt-btn" @click="clearLayer"><i class="fa-solid fa-trash-can"></i><span>清空画布</span></button>
-          <button v-if="showCloudUpload" class="dc-opt-btn dc-upload-btn" @click="$emit('upload-to-cloud')" :disabled="cloudSyncing" title="上传到云端">
-            <i class="fa-solid fa-cloud-arrow-up" :class="{ 'fa-spin': cloudSyncing }"></i><span>上传云端</span>
-          </button>
           <button class="btn-secondary btn-sm" @click="$emit('close')">退出</button>
           <button class="btn-primary btn-sm" @click="saveAndClose">保存</button>
         </div>
@@ -54,7 +51,7 @@
         </div>
 
         <!-- 导入图片变换 -->
-        <div v-if="importedImage" class="dc-image-transform"><div class="dc-image-transform-btns"><button class="btn-sm btn-primary" @click="commitImportedImage">放置</button><button class="btn-sm btn-secondary" @click="cancelImportedImage">取消</button></div></div>
+        <div v-if="importedImage && !readonly" class="dc-image-transform"><div class="dc-image-transform-btns"><button class="btn-sm btn-primary" @click="commitImportedImage">放置</button><button class="btn-sm btn-secondary" @click="cancelImportedImage">取消</button></div></div>
       </div>
     </div>
 
@@ -140,6 +137,7 @@ export default {
   },
   props: {
     mode: { type: String, default: 'full' },
+    readonly: { type: Boolean, default: false },
     initialLayers: { type: Array, default: function() { return []; } },
     canvasWidth: { type: Number, default: 0 },
     canvasHeight: { type: Number, default: 0 },
@@ -196,6 +194,9 @@ export default {
       importedImage: null,
       imageTransform: { x: 0, y: 0, scale: 1, rotation: 0 },
       showCloudPicker: false,
+      // 图片拖动状态
+      draggingImage: false,
+      imageDragOffset: { x: 0, y: 0 },
 
       // 批注模式
       annotating: false,
@@ -391,7 +392,7 @@ export default {
       var vh = ws.offsetHeight;
       var cw = self.canvasW || self.canvasWidth || 800;
       var ch = self.canvasH || self.canvasHeight || 600;
-      var fitScale = Math.min(vw / cw, vh / ch, 1) * 0.9;
+      var fitScale = Math.min(vw / cw, vh / ch, 1);
       self.scale = fitScale;
       self.offsetX = (vw - cw * fitScale) / 2 / fitScale;
       self.offsetY = (vh - ch * fitScale) / 2 / fitScale;
@@ -401,7 +402,25 @@ export default {
     // ============ 鼠标事件 ============
     onMouseDown: function(e) {
       var self = this;
+      if (self.readonly) return;
       if (self.mode === 'annotation' && !self.annotating) return;
+      // 优先处理导入图片的拖动（命中图片区域则开始拖动）
+      if (self.importedImage) {
+        var imgPos = self.getCanvasPos(e);
+        var img = self.importedImage;
+        var t = self.imageTransform;
+        var imgW = img.width * t.scale;
+        var imgH = img.height * t.scale;
+        // imageTransform.x/y 是图片左上角坐标（drawImportedImagePreview 中 translate 到中心后从 -halfW,-halfH 绘制）
+        if (imgPos.x >= t.x && imgPos.x <= t.x + imgW &&
+            imgPos.y >= t.y && imgPos.y <= t.y + imgH) {
+          self.draggingImage = true;
+          self.imageDragOffset.x = imgPos.x - t.x;
+          self.imageDragOffset.y = imgPos.y - t.y;
+          if (e.preventDefault) e.preventDefault();
+          return;
+        }
+      }
       if (self.activeTool === 'select') return;
       if (self.activeTool === 'eyedropper') {
         self.doEyedropper(e);
@@ -448,6 +467,14 @@ export default {
 
     onMouseMove: function(e) {
       var self = this;
+      // 图片拖动中：更新位置并重画预览
+      if (self.draggingImage) {
+        var dragPos = self.getCanvasPos(e);
+        self.imageTransform.x = dragPos.x - self.imageDragOffset.x;
+        self.imageTransform.y = dragPos.y - self.imageDragOffset.y;
+        self.drawImportedImagePreview();
+        return;
+      }
       if (!self.drawing) return;
       var pos = self.getCanvasPos(e);
       var canvas = self.getActiveCanvas();
@@ -465,6 +492,11 @@ export default {
 
     onMouseUp: function(e) {
       var self = this;
+      // 结束图片拖动
+      if (self.draggingImage) {
+        self.draggingImage = false;
+        return;
+      }
       if (!self.drawing) return;
       self.drawing = false;
       var canvas = self.getActiveCanvas();
@@ -504,7 +536,7 @@ export default {
 
     onTouchMove: function(e) {
       var self = this;
-      if (e.touches.length === 1 && self.drawing) {
+      if (e.touches.length === 1 && (self.drawing || self.draggingImage)) {
         var touch = e.touches[0];
         self.onMouseMove(touch);
       } else if (e.touches.length === 2 && self.mode === 'full') {
@@ -1001,6 +1033,33 @@ export default {
     self.$nextTick(function() {
       self.init(self.initialLayers);
     });
+    // 监听工作区尺寸变化，自动重新适配画布
+    if (typeof ResizeObserver !== 'undefined') {
+      self._resizeObserver = new ResizeObserver(function() {
+        if (self.$refs.workspace && self.mode === 'full') {
+          self.fitToWindow();
+        }
+      });
+      if (self.$refs.workspace) {
+        self._resizeObserver.observe(self.$refs.workspace);
+      }
+    } else {
+      // Chrome 80 兜底：监听 window resize
+      self._onWindowResize = function() {
+        if (self.mode === 'full') self.fitToWindow();
+      };
+      window.addEventListener('resize', self._onWindowResize);
+    }
+  },
+  beforeDestroy: function() {
+    var self = this;
+    if (self._resizeObserver) {
+      self._resizeObserver.disconnect();
+      self._resizeObserver = null;
+    }
+    if (self._onWindowResize) {
+      window.removeEventListener('resize', self._onWindowResize);
+    }
   }
 };
 </script>
@@ -1129,7 +1188,9 @@ export default {
   background: var(--card-bg);
   border-bottom: 0.5px solid var(--separator-color);
   flex-shrink: 0;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  white-space: nowrap;
 }
 
 .dc-opt-btn {

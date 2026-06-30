@@ -12,7 +12,7 @@
         <span class="w-time" v-if="w.effectiveTime">{{ formatTime(w.effectiveTime) }}</span>
       </div>
       <div class="w-headline" v-if="w.headline">{{ w.headline }}</div>
-      <div class="w-desc" v-if="w.description">{{ truncate(w.description, 80) }}</div>
+      <div class="w-desc" v-if="w.description">{{ w.description }}</div>
     </div>
   </div>
 </template>
@@ -144,5 +144,7 @@ export default {
   font-size: 10px;
   opacity: 0.4;
   line-height: 1.4;
+  word-break: break-word;
+  white-space: normal;
 }
 </style>

@@ -17,20 +17,16 @@
         <div class="preview-hint" v-if="scale === 1">双指缩放 · 双击放大 · 点击关闭</div>
       </div>
 
-      <!-- 视频模式：Video.js 全屏播放 -->
+      <!-- 视频模式：原生 video 全屏播放（Chrome 80 兼容，移除 video.js v8 依赖） -->
       <div v-else-if="mediaType === 'video'" class="media-preview-content video-preview-wrap" @click.stop>
-        <video ref="videoPlayer" class="video-js vjs-big-play-centered preview-video-player" controls autoplay muted playsinline>
-          <source :src="imageUrl" :type="videoSourceType">
-        </video>
+        <video ref="videoPlayer" class="preview-video-player" controls autoplay muted playsinline webkit-playsinline :src="imageUrl" @error="onVideoError"></video>
       </div>
 
-      <!-- 音频模式：Video.js 音频播放 -->
+      <!-- 音频模式：原生 audio 播放 -->
       <div v-else-if="mediaType === 'audio'" class="media-preview-content audio-preview-wrap" @click.stop>
         <div class="audio-preview-card">
           <div class="audio-preview-icon"><i class="fa-solid fa-music"></i></div>
-          <audio ref="audioPlayer" class="video-js vjs-big-play-centered preview-audio-player" controls autoplay>
-            <source :src="imageUrl" :type="audioSourceType">
-          </audio>
+          <audio ref="audioPlayer" class="preview-audio-player" controls autoplay :src="imageUrl"></audio>
         </div>
       </div>
 
@@ -47,11 +43,9 @@
 
 <script>
 import api from '@/utils/api';
-import videojs from 'video.js';
-import 'video.js/dist/video-js.css';
 
 var VIDEO_EXT_MAP = {
-  '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm',
+  '.mp4': 'video/mp4', '.mov': 'video/mp4', '.webm': 'video/webm',
   '.mkv': 'video/x-matroska', '.avi': 'video/x-msvideo', '.3gp': 'video/3gpp'
 };
 var AUDIO_EXT_MAP = {
