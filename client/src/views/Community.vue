@@ -1899,8 +1899,13 @@ export default {
         ? (file.mime_type.indexOf('image/') === 0 ? 'image' : file.mime_type.indexOf('video/') === 0 ? 'video' : file.mime_type.indexOf('audio/') === 0 ? 'audio' : 'other')
         : getMediaTypeByName(file.name);
       if (type === 'other') type = getMediaTypeByName(file.name);
-      var url = file.url || ('/api/cloud/files/' + encodeURIComponent(file.hash || file.name));
+      // URL 附加扩展名，便于渲染器识别媒体类型
+      var baseUrl = file.url || ('/api/cloud/files/' + encodeURIComponent(file.hash || file.name));
       var displayName = file.display_name || file.name;
+      var ext = '';
+      var dotIdx = displayName.lastIndexOf('.');
+      if (dotIdx > -1) ext = displayName.substring(dotIdx);
+      var url = baseUrl.indexOf('.') === -1 ? baseUrl + ext : baseUrl;
       var md = type === 'image' ? '![' + displayName + '](' + url + ')' : '[' + displayName + '](' + url + ')';
       if (this.commentCloudTarget === 'comment') {
         this.commentText += md;

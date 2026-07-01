@@ -559,8 +559,14 @@ router.get('/files/:param', auth.requireAuth, function(req, res) {
 
   var fileHash = param;
 
-  // 判断是否为 64 位十六进制哈希
-  if (!/^[a-f0-9]{64}$/.test(param)) {
+  // 支持 hash.ext 格式：提取纯哈希（URL 含扩展名便于前端识别媒体类型）
+  var hashExtMatch = param.match(/^([a-f0-9]{64})\.\w+$/);
+  if (hashExtMatch) {
+    fileHash = hashExtMatch[1];
+  }
+
+  // 判断是否为 64 位十六进制哈希（纯哈希或已提取）
+  if (!/^[a-f0-9]{64}$/.test(fileHash)) {
     // 不是哈希 → 查旧 URL 映射表
     var mapping = db.prepare('SELECT file_hash FROM cloud_old_url_map WHERE old_filename = ?').get(param);
     if (mapping) {
