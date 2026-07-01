@@ -3,7 +3,7 @@
     <div class="register-card">
       <div class="register-header">
         <div class="logo-icon">C</div>
-        <h1 class="register-title">注册 ClassNet</h1>
+        <h1 class="register-title">注册 ClassIntra</h1>
         <p class="register-subtitle">创建你的校园账号</p>
       </div>
       <form class="register-form" @submit.prevent="handleRegister">

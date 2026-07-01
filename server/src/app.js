@@ -154,7 +154,7 @@ app.get('*', function(req, res) {
     res.setHeader('Set-Cookie', '_cv=' + currentHash + '; Path=/; Max-Age=31536000; SameSite=Lax');
     if (req.query._v !== currentHash) {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.end('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>ClassNet</title></head><body style="margin:0;background:#0a0a1a;color:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:-apple-system,sans-serif"><div style="text-align:center"><div style="font-size:18px;margin-bottom:12px">正在更新资源...</div><div style="font-size:13px;opacity:.6">请稍候</div></div><script>try{if(\'caches\' in window)caches.keys().then(function(n){for(var i=0;i<n.length;i++)caches.delete(n[i]);});}catch(e){}location.replace(location.pathname+\'?_v=' + currentHash + '&_t=\' + Date.now());</' + 'script></body></html>');
+      res.end('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>ClassIntra</title></head><body style="margin:0;background:#0a0a1a;color:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:-apple-system,sans-serif"><div style="text-align:center"><div style="font-size:18px;margin-bottom:12px">正在更新资源...</div><div style="font-size:13px;opacity:.6">请稍候</div></div><script>try{if(\'caches\' in window)caches.keys().then(function(n){for(var i=0;i<n.length;i++)caches.delete(n[i]);});}catch(e){}location.replace(location.pathname+\'?_v=' + currentHash + '&_t=\' + Date.now());</' + 'script></body></html>');
       return;
     }
   }
@@ -194,7 +194,7 @@ var MAX_PORT_RETRIES = 10;
 
 var server = app.listen(PORT, function() {
   portRetries = 0;
-  console.log('ClassNet Server running on port ' + PORT);
+  console.log('ClassIntra Server running on port ' + PORT);
   try {
     var jwtUtil = require('./utils/qweather-jwt');
     jwtUtil.warmUp().then(function(ok) {

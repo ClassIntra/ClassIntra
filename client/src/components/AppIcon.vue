@@ -77,7 +77,7 @@ export default {
 
 .app-icon:active {
   transform: scale(0.92);
-  opacity: 0.85;
+  opacity: 0.7;
 }
 
 /* 图标容器 */
@@ -87,11 +87,10 @@ export default {
   height: 60px;
   border-radius: var(--radius-xl);
   overflow: visible;  /* 允许删除按钮/角标溢出 */
-  box-shadow: var(--shadow-sm);
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform 0.2s var(--ease-standard), box-shadow 0.2s var(--ease-standard);
+  transition: transform 0.2s var(--ease-standard);
 }
 
 .app-icon-img-wrap img {
@@ -106,8 +105,8 @@ export default {
 /* 标签 */
 .app-icon-label {
   font-size: 12px;
-  color: #fff;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  color: var(--text-on-wallpaper, #fff);
+  text-shadow: var(--text-shadow-wallpaper, 0 1px 3px rgba(0, 0, 0, 0.6));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -133,7 +132,6 @@ export default {
   align-items: center;
   justify-content: center;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-  border: 1.5px solid rgba(0, 0, 0, 0.15);
   z-index: 2;
 }
 
@@ -149,6 +147,7 @@ export default {
 .app-icon--editing {
   animation: appIconWiggle 0.25s var(--ease-standard) infinite alternate;
   cursor: grab;
+  will-change: transform;
 }
 
 .app-icon--editing:active {
@@ -168,10 +167,10 @@ export default {
 /* 编辑态删除按钮 */
 .app-icon-remove {
   position: absolute;
-  top: -6px;
-  left: -6px;
-  width: 20px;
-  height: 20px;
+  top: -8px;
+  left: -8px;
+  width: 24px;
+  height: 24px;
   border-radius: 9999px;
   background: var(--danger-color);
   color: #fff;
@@ -179,7 +178,7 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
+  font-size: 11px;
   cursor: pointer;
   padding: 0;
   z-index: 3;

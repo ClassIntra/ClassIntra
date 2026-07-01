@@ -318,6 +318,43 @@ var mutations = {
     state.layout = layout;
   },
 
+  // 从桌面移除应用（直接置空槽位，不移动到其他位置）
+  // payload: { type: 'page'|'dock'|'folder', pageIndex?, index?, folderId?, appName? }
+  REMOVE_APP: function(state, payload) {
+    if (!state.layout) return;
+    var layout = cloneLayout(state.layout);
+    var from = payload;
+    if (from.type === 'page') {
+      var srcPage = layout.pages[from.pageIndex];
+      if (srcPage && srcPage.slots[from.index]) {
+        srcPage.slots[from.index] = null;
+      }
+    } else if (from.type === 'dock') {
+      if (from.index < layout.dock.length) {
+        layout.dock.splice(from.index, 1);
+      }
+    } else if (from.type === 'folder') {
+      var f = layout.folders[from.folderId];
+      if (f && from.appName) {
+        var idx = f.apps.indexOf(from.appName);
+        if (idx !== -1) f.apps.splice(idx, 1);
+        // 文件夹空了自动解散
+        if (f.apps.length === 0) {
+          delete layout.folders[from.folderId];
+          layout.pages.forEach(function(p) {
+            p.slots.forEach(function(s, si) {
+              if (s && s.type === 'folder' && s.id === from.folderId) {
+                p.slots[si] = null;
+              }
+            });
+          });
+          if (state.openFolderId === from.folderId) state.openFolderId = null;
+        }
+      }
+    }
+    state.layout = layout;
+  },
+
   // 创建文件夹：在指定页/槽位，将 targetAppName 与 newAppName 合并为文件夹
   // payload: { pageIndex, index, targetAppName, newAppName, folderId, folderName }
   CREATE_FOLDER: function(state, payload) {
@@ -344,7 +381,7 @@ var mutations = {
     }
   },
 
-  // 从文件夹移除应用（返回到当前页空槽位）
+  // 从文件夹移除应用（返回到当前页空槽位；当前页满则尝试其他页或新增页）
   REMOVE_FROM_FOLDER: function(state, payload) {
     if (!state.layout) return;
     var layout = cloneLayout(state.layout);
@@ -353,7 +390,7 @@ var mutations = {
       var idx = f.apps.indexOf(payload.appName);
       if (idx !== -1) {
         f.apps.splice(idx, 1);
-        pushToFirstEmptySlot(layout.pages[state.currentPage], payload.appName);
+        placeAppAnywhere(layout, payload.appName, state.currentPage);
         // 文件夹空了自动解散
         if (f.apps.length === 0) {
           delete layout.folders[payload.folderId];
@@ -381,15 +418,15 @@ var mutations = {
     }
   },
 
-  // 解散文件夹（应用放回当前页）
+  // 解散文件夹（应用放回当前页；当前页满则尝试其他页或新增页）
   DELETE_FOLDER: function(state, payload) {
     if (!state.layout) return;
     var layout = cloneLayout(state.layout);
     var f = layout.folders[payload.folderId];
     if (f) {
-      // 应用放回当前页
+      // 应用放回任意空槽位（优先当前页）
       for (var i = 0; i < f.apps.length; i++) {
-        pushToFirstEmptySlot(layout.pages[state.currentPage], f.apps[i]);
+        placeAppAnywhere(layout, f.apps[i], state.currentPage);
       }
       delete layout.folders[payload.folderId];
       // 清理 pages 中对该文件夹的引用
@@ -429,19 +466,26 @@ var mutations = {
     state.currentPage = layout.pages.length - 1;
   },
 
-  // 删除页面（应用迁移到前一页）
+  // 删除页面（应用迁移到其他页空槽位；页满则自动新增页，受 MAX_PAGES 限制）
   REMOVE_PAGE: function(state, pageIndex) {
     if (!state.layout) return;
-    if (state.layout.pages.length <= 1) return;
+    if (state.layout.pages.length <= 1) return;  // 只有一页不允许删除
     var layout = cloneLayout(state.layout);
     var removingPage = layout.pages[pageIndex];
-    var targetPage = layout.pages[Math.max(0, pageIndex - 1)];
-    // 迁移应用/文件夹引用到前一页空槽位
+    // 先从 pages 中移除被删页，剩余页面用于接收迁移应用
+    layout.pages.splice(pageIndex, 1);
+    var preferPage = Math.max(0, pageIndex - 1);
+    if (preferPage >= layout.pages.length) preferPage = layout.pages.length - 1;
+    // 迁移被删页所有非空槽位到其他页（优先 preferPage，满则其他页，再满则新增页）
     for (var i = 0; i < removingPage.slots.length; i++) {
       var slot = removingPage.slots[i];
-      if (slot) pushToFirstEmptySlot(targetPage, slot);
+      if (!slot) continue;
+      placeAppAnywhere(layout, slot, preferPage);
     }
-    layout.pages.splice(pageIndex, 1);
+    // 限制最大页数（placeAppAnywhere 可能新增页面）
+    if (layout.pages.length > MAX_PAGES) {
+      layout.pages = layout.pages.slice(0, MAX_PAGES);
+    }
     if (state.currentPage >= layout.pages.length) {
       state.currentPage = layout.pages.length - 1;
     }
@@ -468,6 +512,8 @@ var mutations = {
     state.openFolderId = null;
     state.isEditMode = false;
     state.settingsPanelOpen = false;
+    state.isDragging = false;
+    state.draggingApp = null;
   },
 
   // 整理桌面：压缩当前页空缺
@@ -504,6 +550,33 @@ function pushToFirstEmptySlot(page, item) {
     }
   }
   return false;  // 无空槽位
+}
+
+// 辅助：把应用/文件夹引用放到布局任意空槽位
+// 优先尝试指定页 → 其他页 → 不够则新增页面（受 MAX_PAGES 限制）
+// 返回 true 表示成功放置
+function placeAppAnywhere(layout, item, preferPageIndex) {
+  if (!layout || !item) return false;
+  // 1. 优先放指定页
+  if (preferPageIndex !== undefined && layout.pages[preferPageIndex]) {
+    if (pushToFirstEmptySlot(layout.pages[preferPageIndex], item)) return true;
+  }
+  // 2. 尝试其他已有页面
+  for (var i = 0; i < layout.pages.length; i++) {
+    if (i === preferPageIndex) continue;
+    if (pushToFirstEmptySlot(layout.pages[i], item)) return true;
+  }
+  // 3. 所有页面都满，新增页面
+  if (layout.pages.length < MAX_PAGES) {
+    var newPage = {
+      id: 'page-' + Date.now() + '-' + layout.pages.length,
+      slots: new Array(SLOTS_PER_PAGE).fill(null)
+    };
+    pushToFirstEmptySlot(newPage, item);
+    layout.pages.push(newPage);
+    return true;
+  }
+  return false;  // 已达最大页数且无空槽
 }
 
 // 模块级 debounce 定时器
@@ -561,6 +634,11 @@ var actions = {
   // 重置布局并保存
   resetLayout: function(context, enabledAppNames) {
     context.commit('RESET_LAYOUT', enabledAppNames);
+    context.dispatch('saveDesktopLayout');
+  },
+  // 删除页面并保存
+  removePage: function(context, pageIndex) {
+    context.commit('REMOVE_PAGE', pageIndex);
     context.dispatch('saveDesktopLayout');
   }
 };
