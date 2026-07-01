@@ -45,11 +45,12 @@ function buildDefaultLayout(enabledAppNames) {
   }
 
   return {
-    version: 1,
+    version: 2,
     pages: [{ id: 'page-0', slots: slots }],
     dock: dock,
     pinnedApps: ['settings'],
-    folders: {}
+    folders: {},
+    widgets: {}  // 预留小组件系统：{ 'page-0': [{ id, type, slot, w, h }] }
   };
 }
 
@@ -111,11 +112,12 @@ function normalizeLayout(serverLayout, enabledAppNames) {
   }
 
   return {
-    version: typeof serverLayout.version === 'number' ? serverLayout.version : 1,
+    version: 2,
     pages: pages,
     dock: dock,
     pinnedApps: pinnedApps,
-    folders: folders
+    folders: folders,
+    widgets: (serverLayout.widgets && typeof serverLayout.widgets === 'object') ? serverLayout.widgets : {}
   };
 }
 
@@ -360,7 +362,8 @@ var mutations = {
   },
 
   // 创建文件夹：在指定页/槽位，将 targetAppName 与 newAppName 合并为文件夹
-  // payload: { pageIndex, index, targetAppName, newAppName, folderId, folderName }
+  // payload: { pageIndex, index, targetAppName, newAppName, folderId, folderName, from }
+  // from: { type: 'page'|'dock', pageIndex?, index? } —— newAppName 的原位置（清源避免图标双重显示）
   CREATE_FOLDER: function(state, payload) {
     if (!state.layout) return;
     var layout = cloneLayout(state.layout);
@@ -368,6 +371,15 @@ var mutations = {
     var fname = payload.folderName || '文件夹';
     layout.folders[fid] = { id: fid, name: fname, apps: [payload.targetAppName, payload.newAppName] };
     layout.pages[payload.pageIndex].slots[payload.index] = { type: 'folder', id: fid };
+    // 清除拖拽源原位置（避免图标在文件夹+桌面双重显示）
+    if (payload.from) {
+      if (payload.from.type === 'page' && layout.pages[payload.from.pageIndex]) {
+        layout.pages[payload.from.pageIndex].slots[payload.from.index] = null;
+      } else if (payload.from.type === 'dock') {
+        layout.dock[payload.from.index] = null;
+        layout.dock = layout.dock.filter(function(n) { return n !== null && n; });
+      }
+    }
     state.layout = layout;
     state.openFolderId = fid;  // 自动打开供重命名
   },
