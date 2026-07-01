@@ -20,7 +20,7 @@
         <div v-for="n in emptySlots" :key="'empty-' + n" class="folder-tile-app folder-tile-app--empty"></div>
       </div>
     </div>
-    <span class="folder-tile-name">{{ folder.name }}</span>
+    <!-- 文件夹名标签已移除：仅保留纯图标展示，展开态头部仍可重命名 -->
     <!-- 编辑态删除按钮（解散文件夹） -->
     <button
       v-if="editing"
@@ -67,7 +67,7 @@
           <AppIcon
             :app="appMeta(name)"
             :editing="editing"
-            :show-label="true"
+            :show-label="false"
             @launch="onLaunchApp(name)"
             @remove="onRemoveApp(name)"
           />
@@ -245,18 +245,7 @@ export default {
   background: transparent;
 }
 
-/* 文件夹名 */
-.folder-tile-name {
-  font-size: 12px;
-  color: var(--text-on-wallpaper, #fff);
-  text-shadow: var(--text-shadow-wallpaper, 0 1px 3px rgba(0, 0, 0, 0.6));
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 76px;
-  line-height: 1.2;
-  pointer-events: none;
-}
+/* 文件夹名标签已移除（.folder-tile-name CSS 同步删除） */
 
 /* 编辑态删除按钮 */
 .folder-tile-remove {
