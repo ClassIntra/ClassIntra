@@ -14,6 +14,112 @@
 
 var bus = require('./relay-bus');
 
+// ========== 跨班云盘文件预取 ==========
+
+var config = require('../config');
+var fs = require('fs');
+var path = require('path');
+var http = require('http');
+
+// 根据 relay WS URL 推导 HTTP URL：ws://host:10011 → http://host:9001
+function getPeerHttpUrl(serverId) {
+  // 从 RELAY_SERVERS 查 peer 的 WS URL
+  var servers = config.relay.servers || [];
+  for (var i = 0; i < servers.length; i++) {
+    var wsUrl = servers[i];
+    try {
+      var parsed = new URL(wsUrl);
+      var httpUrl = 'http://' + parsed.hostname + ':' + (config.port || 9001);
+      return httpUrl;
+    } catch (e) {}
+  }
+  return null;
+}
+
+// 扫描消息内容中的云盘文件 URL，对本地缺失的文件从源服务器拉取
+function preFetchCloudFiles(content, sourceServerId) {
+  if (!content || typeof content !== 'string') return;
+  var hashes = [];
+  var matches = content.match(/\/api\/cloud\/files\/([a-f0-9]{64})(?:\.\w+)?/g);
+  if (!matches) return;
+
+  for (var i = 0; i < matches.length; i++) {
+    var hashMatch = matches[i].match(/([a-f0-9]{64})/);
+    if (hashMatch && hashes.indexOf(hashMatch[1]) === -1) {
+      hashes.push(hashMatch[1]);
+    }
+  }
+  if (hashes.length === 0) return;
+
+  var db = require('./db');
+  var cloudDir = path.resolve(config.resourcesDir, 'cloud');
+  var sharedDir = path.join(cloudDir, 'shared');
+  var relaySecret = config.relay.secret || '';
+
+  // 异步拉取，不阻塞消息处理
+  hashes.forEach(function(hash) {
+    // 检查本地是否已有
+    var existing = db.prepare('SELECT hash FROM cloud_files WHERE hash = ? AND deleted = 0').get(hash);
+    if (existing) return;
+
+    var peerUrl = getPeerHttpUrl(sourceServerId);
+    if (!peerUrl) return;
+
+    var fetchUrl = peerUrl + '/api/cloud/peer-fetch/' + hash;
+    console.log('[CloudSync] 预取文件:', hash, 'from', peerUrl);
+
+    var req = http.get(fetchUrl, { headers: { 'X-Relay-Secret': relaySecret } }, function(response) {
+      if (response.statusCode !== 200) {
+        console.warn('[CloudSync] 预取失败:', hash, 'HTTP', response.statusCode);
+        return;
+      }
+
+      var fileHash = response.headers['x-file-hash'] || hash;
+      var fileName = decodeURIComponent(response.headers['x-file-name'] || '');
+      var mimeType = response.headers['x-file-mime'] || 'application/octet-stream';
+
+      var chunks = [];
+      response.on('data', function(chunk) { chunks.push(chunk); });
+      response.on('end', function() {
+        var buffer = Buffer.concat(chunks);
+        try {
+          // 验证哈希
+          var crypto = require('crypto');
+          var actualHash = crypto.createHash('sha256').update(buffer).digest('hex');
+          if (actualHash !== fileHash) {
+            console.warn('[CloudSync] 哈希不匹配:', fileHash, '实际:', actualHash);
+            return;
+          }
+
+          // 保存到 shared/
+          var ext = path.extname(fileName) || '.bin';
+          var prefix = fileHash.substring(0, 2);
+          var prefixDir = path.join(sharedDir, prefix);
+          if (!fs.existsSync(prefixDir)) fs.mkdirSync(prefixDir, { recursive: true });
+          var destPath = path.join(prefixDir, fileHash + ext);
+          var storagePath = prefix + '/' + fileHash + ext;
+
+          fs.writeFileSync(destPath, buffer);
+
+          // 创建数据库记录（owner 标记为跨班来源）
+          db.prepare('INSERT OR IGNORE INTO cloud_files (hash, owner_user_id, original_name, size, mime_type, storage_path) VALUES (?, ?, ?, ?, ?, ?)').run(fileHash, '__relay__', fileName, buffer.length, mimeType, storagePath);
+          console.log('[CloudSync] 预取完成:', fileHash, '(' + (buffer.length / 1024).toFixed(1) + ' KB) from', sourceServerId);
+        } catch (e) {
+          console.error('[CloudSync] 保存失败:', fileHash, e.message);
+        }
+      });
+    });
+
+    req.on('error', function(e) {
+      console.warn('[CloudSync] 请求失败:', hash, e.message);
+    });
+    req.setTimeout(30000, function() {
+      req.destroy();
+      console.warn('[CloudSync] 请求超时:', hash);
+    });
+  });
+}
+
 // ===================================================================
 // 聊天消息
 // ===================================================================
@@ -21,6 +127,7 @@ var bus = require('./relay-bus');
 bus.register('new_message', function(payload, ctx) {
   if (!payload.message) return;
   var msg = payload.message;
+  preFetchCloudFiles(msg.content, ctx.sourceServer);
   try {
     var existingMsg = ctx.db.prepare(
       'SELECT id FROM chat_messages WHERE sender_id = ? AND content = ? AND (created_at = ? OR (created_at IS NULL AND ? IS NULL)) LIMIT 1'
@@ -62,6 +169,7 @@ bus.register('new_message', function(payload, ctx) {
 bus.register('private_message', function(payload, ctx) {
   if (!payload.message) return;
   var pm = payload.message;
+  preFetchCloudFiles(pm.content, ctx.sourceServer);
   try {
     var existingPm = ctx.db.prepare(
       'SELECT id FROM private_messages WHERE sender_id = ? AND receiver_id = ? AND content = ? AND (created_at = ? OR (created_at IS NULL AND ? IS NULL)) LIMIT 1'
@@ -109,6 +217,7 @@ bus.register('private_message', function(payload, ctx) {
 bus.register('group_message', function(payload, ctx) {
   if (!payload.message) return;
   var gm = payload.message;
+  preFetchCloudFiles(gm.content, ctx.sourceServer);
   var gmGroupId = payload.group_id;
   var gmGroup = ctx.stmts.getGroup.get(gmGroupId);
   if (gmGroup) {
