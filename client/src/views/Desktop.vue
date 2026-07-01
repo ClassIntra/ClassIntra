@@ -1111,28 +1111,7 @@ export default {
   right: -3px;
 }
 
-/* ===== 拖拽 ghost ===== */
-.desktop-drag-ghost {
-  width: 60px;
-  height: 60px;
-  pointer-events: none;
-}
-
-.desktop-drag-ghost-img {
-  width: 60px;
-  height: 60px;
-  border-radius: var(--radius-xl);
-  overflow: hidden;
-  -webkit-box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-  opacity: 0.9;
-}
-
-.desktop-drag-ghost-img img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
+/* 注：拖拽 ghost 样式已迁移到 global.scss（ghost 被 append 到 document.body，scoped 样式不生效） */
 
 /* ===== 小屏适配 ===== */
 @media (max-height: 400px), (max-width: 520px) {

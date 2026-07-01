@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿:root {
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿:root {
   /* 主交互色 - iOS System Blue */
   --primary-color: #007AFF;
   --primary-hover: #0066CC;
@@ -883,4 +883,29 @@ input[type="radio"]:checked::after {
   border: none;
   border-top: 1px dashed var(--border-color, #ddd);
   margin: 16px 0;
+}
+
+// ========== 桌面拖拽 ghost 全局样式 ==========
+// ghost 被 append 到 document.body，不在任何 Vue 组件 DOM 树内，
+// 因此必须放在全局（非 scoped）样式，否则尺寸/圆角不生效导致图标按自然尺寸（512px）放大。
+.desktop-drag-ghost {
+  width: 60px;
+  height: 60px;
+  pointer-events: none;
+}
+
+.desktop-drag-ghost-img {
+  width: 60px;
+  height: 60px;
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  -webkit-box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  opacity: 0.9;
+}
+
+.desktop-drag-ghost-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
