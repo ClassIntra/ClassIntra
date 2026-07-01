@@ -1,4 +1,4 @@
-# ClassNet UI/UX 复刻对比分析文档
+# ClassIntra UI/UX 复刻对比分析文档
 
 > **复刻目标**：iPad iOS（HIG 人机交互指南）
 > **复刻原则**：除锁屏外，所有页面遵循 iOS iPad 设计、动画、交互、反馈规范

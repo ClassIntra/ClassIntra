@@ -1648,7 +1648,7 @@ export default {
     },
     loadFriendRemarks: function() {
       try {
-        var stored = localStorage.getItem('classnet_friend_remarks');
+        var stored = localStorage.getItem('classintra_friend_remarks');
         if (stored) {
           this.friendRemarks = JSON.parse(stored);
         }
@@ -1661,7 +1661,7 @@ export default {
         this.$delete(this.friendRemarks, userId);
       }
       try {
-        localStorage.setItem('classnet_friend_remarks', JSON.stringify(this.friendRemarks));
+        localStorage.setItem('classintra_friend_remarks', JSON.stringify(this.friendRemarks));
       } catch (e) {}
     },
     isTabActive: function(tabKey) {
@@ -2251,7 +2251,7 @@ export default {
       if (!group.announcement_at) return;
 
       // 先检查 localStorage 本地缓存，避免频繁请求后端
-      var storageKey = 'classnet_announcement_ack_' + groupId;
+      var storageKey = 'classintra_announcement_ack_' + groupId;
       var lastAck = localStorage.getItem(storageKey);
       var announcementAt = String(group.announcement_at);
       var annTime = new Date(announcementAt).getTime();
@@ -2306,7 +2306,7 @@ export default {
       // 调用后端 API 保存确认状态
       api.post('/chat/groups/' + groupId + '/acknowledge-announcement').then(function(response) {
         // 同步更新 localStorage 本地缓存
-        var storageKey = 'classnet_announcement_ack_' + groupId;
+        var storageKey = 'classintra_announcement_ack_' + groupId;
         var data = response.data && response.data.data;
         if (data && data.acknowledged_at) {
           var ackTime = new Date(data.acknowledged_at).getTime();
@@ -2323,7 +2323,7 @@ export default {
         }
       }).catch(function() {
         // API 调用失败时，回退到 localStorage
-        var storageKey = 'classnet_announcement_ack_' + groupId;
+        var storageKey = 'classintra_announcement_ack_' + groupId;
         if (group && group.announcement_at) {
           var annTime = new Date(group.announcement_at).getTime();
           if (!isNaN(annTime)) {

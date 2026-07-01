@@ -75,7 +75,7 @@ export default {
       self._guarded = false;
       self.$router.push({ name: 'Desktop' });
     };
-    window.addEventListener('classnet-unban', this._unbanHandler);
+    window.addEventListener('classintra-unban', this._unbanHandler);
     // 自动轮询解封状态（5秒间隔）
     this._banCheckTimer = setInterval(function() {
       self.loadBanInfo();
@@ -92,7 +92,7 @@ export default {
       window.removeEventListener('keydown', this._keydownHandler);
     }
     if (this._unbanHandler) {
-      window.removeEventListener('classnet-unban', this._unbanHandler);
+      window.removeEventListener('classintra-unban', this._unbanHandler);
     }
     this._guarded = false;
     if (this._originalPush) {

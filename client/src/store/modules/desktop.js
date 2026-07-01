@@ -19,7 +19,7 @@ var MAX_DOCK = 4;
 var SLOTS_PER_PAGE = 24;
 
 // localStorage 缓存键
-var LS_CACHE_KEY = 'classnet_desktop_layout';
+var LS_CACHE_KEY = 'classintra_desktop_layout';
 
 // 深拷贝布局（避免直接修改 state）
 function cloneLayout(layout) {

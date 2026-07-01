@@ -2,15 +2,15 @@
   <img width="12%" align="center" src="https://img.icons8.com/fluency/240/classroom.png" alt="logo">
 </p>
 
-<h1 align="center">📱 ClassNet</h1>
+<h1 align="center">📱 ClassIntra</h1>
 <p align="center"><strong>校园内网 WebOS 平台</strong> · 类 iOS 设计 · 横屏平板优化</p>
 
 <div align="center">
 
-[![星标](https://img.shields.io/github/stars/Nevino2333/ClassNet?style=for-the-badge&color=orange&label=%E6%98%9F%E6%A0%87)](https://github.com/Nevino2333/ClassNet)
+[![星标](https://img.shields.io/github/stars/Nevino2333/ClassIntra?style=for-the-badge&color=orange&label=%E6%98%9F%E6%A0%87)](https://github.com/Nevino2333/ClassIntra)
 [![开源许可](https://img.shields.io/badge/license-MIT-blue.svg?label=%E5%BC%80%E6%BA%90%E8%AE%B8%E5%8F%AF%E8%AF%81&style=for-the-badge)](LICENSE)
-[![Vibe Coding](https://img.shields.io/badge/Vibe_Coding-AI_%2B_%E4%BA%BA%E5%B7%A5-ff6b6b?style=for-the-badge)](https://github.com/Nevino2333/ClassNet)
-[![平台](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-blue?style=for-the-badge)](https://github.com/Nevino2333/ClassNet)
+[![Vibe Coding](https://img.shields.io/badge/Vibe_Coding-AI_%2B_%E4%BA%BA%E5%B7%A5-ff6b6b?style=for-the-badge)](https://github.com/Nevino2333/ClassIntra)
+[![平台](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-blue?style=for-the-badge)](https://github.com/Nevino2333/ClassIntra)
 [![Node](https://img.shields.io/badge/node-18%2B-brightgreen?style=for-the-badge&logo=nodedotjs)](https://nodejs.org/)
 
 </div>
@@ -21,9 +21,9 @@
 
 ---
 
-## ✨ 为什么选择 ClassNet？
+## ✨ 为什么选择 ClassIntra？
 
-ClassNet 为班级教室场景而生 —— 一台服务器 + 一台平板 = 完整的班级数字平台。无需外网，局域网即可运行。
+ClassIntra 为班级教室场景而生 —— 一台服务器 + 一台平板 = 完整的班级数字平台。无需外网，局域网即可运行。
 
 |   | 功能 | 说明 |
 |---|------|------|
@@ -58,7 +58,7 @@ ClassNet 为班级教室场景而生 —— 一台服务器 + 一台平板 = 完
 ### 一分钟启动
 
 ```bash
-git clone <repo-url> && cd ClassNet
+git clone <repo-url> && cd ClassIntra
 pnpm install
 cp server/.env.example server/.env
 # 编辑 server/.env → 设置 JWT_SECRET（必填，否则拒绝启动）
@@ -143,7 +143,7 @@ Windows 用户也可用 `start.bat`（开发）或 `start-prod.bat`（生产）�
 ## 📂 项目结构
 
 ```
-ClassNet/
+ClassIntra/
 ├── client/src/
 │   ├── views/                # 15 个页面
 │   │   ├── Desktop.vue       # 桌面主页（应用启动台）
@@ -278,9 +278,9 @@ pnpm build         # 生产构建
 ## 📈 星标历史
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Nevino2333/ClassNet&type=Date&theme=dark" />
-  <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Nevino2333/ClassNet&type=Date" />
-  <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Nevino2333/ClassNet&type=Date" />
+  <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Nevino2333/ClassIntra&type=Date&theme=dark" />
+  <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Nevino2333/ClassIntra&type=Date" />
+  <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Nevino2333/ClassIntra&type=Date" />
 </picture>
 
 ---

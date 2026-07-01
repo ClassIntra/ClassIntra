@@ -1,6 +1,6 @@
 #!/bin/bash
 echo "========================================"
-echo "  ClassNet System Starting..."
+echo "  ClassIntra System Starting..."
 echo "========================================"
 echo ""
 
@@ -24,7 +24,7 @@ echo "   Frontend dev server started on port 5001 (PID: $CLIENT_PID)"
 echo ""
 
 echo "========================================"
-echo "  ClassNet System is running!"
+echo "  ClassIntra System is running!"
 echo "========================================"
 echo ""
 echo "  Frontend: http://localhost:5001"

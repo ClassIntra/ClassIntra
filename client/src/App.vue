@@ -204,7 +204,7 @@ export default {
           self.$store.commit('auth/SET_USER', activeUser);
           // 如果当前在小黑屋页面，通过自定义事件通知Banned组件解封
           if (self.$route.name === 'Banned') {
-            window.dispatchEvent(new CustomEvent('classnet-unban'));
+            window.dispatchEvent(new CustomEvent('classintra-unban'));
           }
         }
       }

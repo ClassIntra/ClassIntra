@@ -1,4 +1,4 @@
-# ClassNet 版本管理制度
+# ClassIntra 版本管理制度
 
 ## 版本号格式（SemVer）
 
@@ -53,7 +53,7 @@ MAJOR.MINOR.PATCH
 ## 关键文件
 
 ```
-ClassNet/
+ClassIntra/
 ├── server/version.json          ← 版本号权威数据源
 ├── client/scripts/prebuild.js   ← 构建前自动处理脚本
 ├── client/vite.config.js        ← 读取 version.json 注入全局变量

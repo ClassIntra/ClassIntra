@@ -1,6 +1,6 @@
 @echo off
 echo ========================================
-echo   Building ClassNet for production...
+echo   Building ClassIntra for production...
 echo ========================================
 echo.
 

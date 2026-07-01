@@ -40,7 +40,7 @@ var envVars = parseEnv(envFile);
 module.exports = {
   apps: [
     {
-      name: 'classnet-server',
+      name: 'classintra-server',
       script: 'src/app.js',
       cwd: serverDir,                       // 绝对路径
       exec_mode: 'fork',
@@ -69,7 +69,7 @@ module.exports = {
         JWT_EXPIRES_IN: envVars.JWT_EXPIRES_IN || '7d',
         ADMIN_USER_IDS: envVars.ADMIN_USER_IDS || '',
         CORS_ORIGINS: envVars.CORS_ORIGINS || '',
-        DB_PATH: envVars.DB_PATH || './database/classnet.db',
+        DB_PATH: envVars.DB_PATH || './database/classintra.db',
         QWEATHER_KEY: envVars.QWEATHER_KEY || '',
         QWEATHER_LOCATION: envVars.QWEATHER_LOCATION || '101010100',
         AI_API_KEY: envVars.AI_API_KEY || '',
