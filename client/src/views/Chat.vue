@@ -1893,8 +1893,13 @@ export default {
           tag = 'cloud-audio';
         }
       }
-      // 使用 hash 作为标识符（新去重存储系统），兼容旧格式 name
-      var identifier = file.hash || file.name;
+      // 使用 hash+扩展名作为标识符（扩展名用于渲染时识别媒体类型）
+      var hash = file.hash || file.name;
+      var ext = '';
+      var displayName = file.display_name || file.name || '';
+      var dotIdx = displayName.lastIndexOf('.');
+      if (dotIdx > -1) ext = displayName.substring(dotIdx);
+      var identifier = hash + ext;
       this.inputText += '[' + tag + ':' + identifier + ']';
       this.showCloudPicker = false;
     },

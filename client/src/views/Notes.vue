@@ -1971,9 +1971,13 @@ export default {
       var self = this;
       self.showCloudPicker = false;
       if (!file || !(file.hash || file.name)) return;
-      // 使用 API 返回的 url（新系统基于哈希）或 fallback 构造
-      var url = file.url || ('/api/cloud/files/' + encodeURIComponent(file.hash || file.name));
+      // URL 附加扩展名，便于渲染器识别媒体类型
+      var baseUrl = file.url || ('/api/cloud/files/' + encodeURIComponent(file.hash || file.name));
       var displayName = file.display_name || file.name;
+      var ext = '';
+      var dotIdx = displayName.lastIndexOf('.');
+      if (dotIdx > -1) ext = displayName.substring(dotIdx);
+      var url = baseUrl.indexOf('.') === -1 ? baseUrl + ext : baseUrl;
       // 按文件类型分支：图片用 ![]()，音视频用 []()（customRenderer.link 渲染播放器）
       var type = self.getCloudFileType(file);
       var md = type === 'image' ? '![' + displayName + '](' + url + ')' : '[' + displayName + '](' + url + ')';
