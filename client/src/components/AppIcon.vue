@@ -9,15 +9,6 @@
       <span v-if="badge" class="app-icon-badge" :class="{ 'app-icon-badge--dot': badge === '●' }">
         {{ badge === '●' ? '' : badge }}
       </span>
-      <!-- 编辑态 + 非固定：删除按钮 -->
-      <button
-        v-if="editing && !pinned"
-        class="app-icon-remove"
-        @click.stop="onRemove"
-        aria-label="移除"
-      >
-        <i class="fa-solid fa-xmark"></i>
-      </button>
       <!-- 固定图标：右下角小锁 -->
       <span v-if="pinned" class="app-icon-pin-lock" aria-label="已固定">
         <i class="fa-solid fa-lock"></i>
@@ -49,9 +40,6 @@ export default {
       // 编辑态下点击图标不启动应用（仅 wiggle），符合 iPad 行为
       if (this.editing) return;
       this.$emit('launch', this.app);
-    },
-    onRemove: function() {
-      this.$emit('remove', this.app);
     }
   }
 };
@@ -162,33 +150,6 @@ export default {
 @keyframes appIconWiggle {
   0% { transform: rotate(-2deg); }
   100% { transform: rotate(2deg); }
-}
-
-/* 编辑态删除按钮 */
-.app-icon-remove {
-  position: absolute;
-  top: -8px;
-  left: -8px;
-  width: 24px;
-  height: 24px;
-  border-radius: 9999px;
-  background: var(--danger-color);
-  color: #fff;
-  border: 2px solid #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  cursor: pointer;
-  padding: 0;
-  z-index: 3;
-  box-shadow: var(--shadow-sm);
-  -webkit-tap-highlight-color: transparent;
-  transition: transform 0.15s var(--ease-standard);
-}
-
-.app-icon-remove:active {
-  transform: scale(0.85);
 }
 
 /* 固定图标锁标记 */
