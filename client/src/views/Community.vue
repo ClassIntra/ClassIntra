@@ -1090,6 +1090,7 @@ import ImagePreview from '@/components/ImagePreview.vue';
 import api from '@/utils/api';
 import helpers from '@/utils/helpers';
 import wsManager from '@/utils/websocket';
+import cloudPickerReceiver from '@/mixins/cloud-picker-receiver';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import hljs from 'highlight.js';
@@ -1190,6 +1191,7 @@ marked.setOptions({
 
 export default {
   name: 'Community',
+  mixins: [cloudPickerReceiver],
   components: { AppNavBar: AppNavBar, UserAvatar: UserAvatar, ConfirmDialog: ConfirmDialog, LoadingSkeleton: LoadingSkeleton, CloudImagePicker: CloudImagePicker, ImagePreview: ImagePreview },
   data: function() {
     return {
