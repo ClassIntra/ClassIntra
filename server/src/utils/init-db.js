@@ -501,6 +501,7 @@ function initDatabase() {
   ].join('\n'));
 
   // ========== 云盘旧文件自动迁移 ==========
+  // 若手动迁移已完成（cloud_migration_done=1），自动跳过
   runCloudMigration();
 
   // 跨班帖子ID映射表（relay post ID remapping）
