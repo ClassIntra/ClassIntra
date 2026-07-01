@@ -268,9 +268,9 @@ export default {
       return null;
     },
 
-    // 更新落点高亮 + 文件夹悬停计时
+    // 更新落点高亮 + 文件夹悬停计时 + 让位动画
     _updateDropHighlight: function(targetInfo) {
-      // 清除旧高亮
+      // 清除旧高亮和旧让位
       this._clearDropHighlight();
 
       var newKey = targetInfo ? (targetInfo.type + ':' + (targetInfo.pageIndex !== undefined ? targetInfo.pageIndex : '') + ':' + (targetInfo.index !== undefined ? targetInfo.index : '') + ':' + (targetInfo.folderId || '')) : '';
@@ -297,6 +297,8 @@ export default {
         }
       }
 
+      // 目标变化时触觉反馈（手机桌面标准行为）
+      var targetChanged = newKey && newKey !== this.dragState.lastTargetKey;
       this.dragState.targetInfo = targetInfo;
       this.dragState.lastTargetKey = newKey;
 
@@ -304,14 +306,79 @@ export default {
       if (targetInfo && targetInfo.element) {
         targetInfo.element.classList.add('slot--drop-target');
         this._lastHighlightEl = targetInfo.element;
+        if (targetChanged && navigator.vibrate) navigator.vibrate(8);
       }
+
+      // 应用让位动画（目标图标向被拖图标原位置方向位移，给出"让位"视觉提示）
+      this._applyShoveAnimation(targetInfo);
     },
 
-    // 清除所有落点高亮（跟踪当前高亮元素，避免全局 querySelectorAll）
+    // 清除所有落点高亮 + 让位动画
     _clearDropHighlight: function() {
       if (this._lastHighlightEl) {
         this._lastHighlightEl.classList.remove('slot--drop-target');
         this._lastHighlightEl = null;
+      }
+      this._clearShoveAnimation();
+    },
+
+    // 让位动画：目标槽位图标向被拖图标原位置方向位移（模拟交换预览）
+    // 纯视觉效果，不移动数据；拖拽结束时由 MOVE_APP + FLIP 完成实际移动
+    _applyShoveAnimation: function(targetInfo) {
+      this._clearShoveAnimation();
+      if (!targetInfo || !targetInfo.element) return;
+      // 空槽位/append 落点没有图标可推
+      if (!targetInfo.slotContent) return;
+      // 文件夹创建悬停场景不施让位（交给文件夹创建逻辑）
+      if (targetInfo.type === 'folder') return;
+
+      var src = this.dragState.source;
+      // 不能对自己让位
+      if (src.type === 'page' && targetInfo.type === 'page' &&
+          src.pageIndex === targetInfo.pageIndex && src.index === targetInfo.index) return;
+      if (src.type === 'dock' && targetInfo.type === 'dock' && src.index === targetInfo.index) return;
+
+      // 找到目标槽位内的图标元素
+      var slotEl = targetInfo.element;
+      var iconEl = slotEl.querySelector('.app-icon') ||
+                   slotEl.querySelector('.desktop-folder-tile') ||
+                   slotEl.querySelector('.dock-icon');
+      if (!iconEl) return;
+
+      // 获取被拖图标原位置
+      var srcEl = this._findSourceElement(src);
+      if (!srcEl) return;
+      var srcRect = srcEl.getBoundingClientRect();
+      var tgtRect = slotEl.getBoundingClientRect();
+
+      // 方向：从目标指向源（目标图标向源位置位移，模拟"去交换"）
+      var dx = srcRect.left - tgtRect.left;
+      var dy = srcRect.top - tgtRect.top;
+      var dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 2) return;
+
+      // 位移量：最大 22px，距离近时按比例缩小
+      var shove = Math.min(dist * 0.35, 22);
+      var tx = (dx / dist) * shove;
+      var ty = (dy / dist) * shove;
+
+      iconEl.style.transition = 'transform 0.22s cubic-bezier(0.32, 0.72, 0, 1)';
+      iconEl.style.transform = 'translate(' + tx.toFixed(1) + 'px,' + ty.toFixed(1) + 'px) scale(0.92)';
+      iconEl.style.zIndex = '5';
+      this._lastShoveEl = iconEl;
+    },
+
+    // 清除让位动画
+    _clearShoveAnimation: function() {
+      if (this._lastShoveEl) {
+        var el = this._lastShoveEl;
+        el.style.transform = '';
+        el.style.zIndex = '';
+        // 延迟清除 transition，让恢复有平滑动画
+        setTimeout(function() {
+          if (el) el.style.transition = '';
+        }, 240);
+        this._lastShoveEl = null;
       }
     },
 
