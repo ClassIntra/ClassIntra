@@ -123,6 +123,15 @@ export default {
       return 'other';
     },
     openFullscreen: function() {
+      // 保存父组件 UI 状态，返回时恢复（避免重新挂载后弹窗消失）
+      var context = {};
+      var parent = this.$parent;
+      while (parent) {
+        if (typeof parent.showPostModal !== 'undefined') context.showPostModal = parent.showPostModal;
+        if (typeof parent.commentCloudTarget !== 'undefined') context.commentCloudTarget = parent.commentCloudTarget;
+        parent = parent.$parent;
+      }
+      sessionStorage.setItem('__cloudPickerContext', JSON.stringify(context));
       this.$emit('close');
       this.$router.push('/cloud-picker');
     },
