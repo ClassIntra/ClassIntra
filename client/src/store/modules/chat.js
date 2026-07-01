@@ -4,7 +4,7 @@ import api from '@/utils/api';
 
 var savedPinned = [];
 try {
-  var stored = localStorage.getItem('classnet_pinned_chats');
+  var stored = localStorage.getItem('classintra_pinned_chats');
   if (stored) {
     savedPinned = JSON.parse(stored);
   }
@@ -14,7 +14,7 @@ try {
 
 var savedDnd = {};
 try {
-  var storedDnd = localStorage.getItem('classnet_dnd_settings');
+  var storedDnd = localStorage.getItem('classintra_dnd_settings');
   if (storedDnd) {
     savedDnd = JSON.parse(storedDnd);
   }
@@ -427,7 +427,7 @@ var mutations = {
   TOGGLE_DND: function(state, payload) {
     Vue.set(state.dndSettings, payload.chatId, payload.enabled);
     try {
-      localStorage.setItem('classnet_dnd_settings', JSON.stringify(state.dndSettings));
+      localStorage.setItem('classintra_dnd_settings', JSON.stringify(state.dndSettings));
     } catch (e) {}
   },
   REPLACE_TEMP_MESSAGE: function(state, payload) {
@@ -465,7 +465,7 @@ var mutations = {
       state.pinnedChats.push(chatId);
     }
     try {
-      localStorage.setItem('classnet_pinned_chats', JSON.stringify(state.pinnedChats));
+      localStorage.setItem('classintra_pinned_chats', JSON.stringify(state.pinnedChats));
     } catch (e) {
       // ignore storage errors
     }

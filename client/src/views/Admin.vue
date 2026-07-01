@@ -1431,7 +1431,7 @@ export default {
       if (!this.pm2Status || !this.pm2Status.processes) return null;
       var list = this.pm2Status.processes;
       for (var i = 0; i < list.length; i++) {
-        if (list[i].name === 'classnet-server') return list[i];
+        if (list[i].name === 'classintra-server') return list[i];
       }
       return list.length > 0 ? list[0] : null;
     },

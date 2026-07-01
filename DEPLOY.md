@@ -5,7 +5,7 @@
   <img src="https://img.shields.io/badge/Vibe_Coding-AI_%2B_%E4%BA%BA%E5%B7%A5-ff6b6b" alt="Vibe Coding">
 </p>
 
-# 📡 ClassNet 部署文档
+# 📡 ClassIntra 部署文档
 
 > 从零搭建到多机中继的完整指南
 
@@ -33,14 +33,14 @@
 ### 2.1 获取项目
 
 ```bash
-git clone <repository-url> ClassNet
-cd ClassNet
+git clone <repository-url> ClassIntra
+cd ClassIntra
 ```
 
 项目目录结构：
 
 ```
-ClassNet/
+ClassIntra/
 ├── server/                # 后端服务（Express + SQLite + WebSocket）
 │   ├── src/
 │   │   ├── app.js         # Express 入口
@@ -84,7 +84,7 @@ ClassNet/
 npm install -g pnpm
 
 # 安装所有依赖（monorepo）
-cd ClassNet
+cd ClassIntra
 pnpm install
 ```
 
@@ -140,7 +140,7 @@ cd server
 node src/utils/init-db.js
 ```
 
-数据库将自动创建 `database/classnet.db`，包含：
+数据库将自动创建 `database/classintra.db`，包含：
 
 - 数据表结构
 - 预注册记录（如已配置 pre-records.json）
@@ -216,7 +216,7 @@ NODE_ENV=production node src/app.js
 | TAVILY_API_KEY | Tavily 搜索 API Key | 空 | 否 |
 | TAVILY_API_URL | Tavily 搜索 API 地址 | https://api.tavily.com/search | 否 |
 | RESOURCES_DIR | 资源目录路径 | ../Resources | 否 |
-| DB_PATH | 数据库文件路径 | ./database/classnet.db | 否 |
+| DB_PATH | 数据库文件路径 | ./database/classintra.db | 否 |
 | RELAY_SERVERS | 中继服务器地址（逗号分隔） | 空 | 否 |
 | RELAY_SECRET | 中继认证密钥 | 空 | 否 |
 | RELAY_SERVER_ID | 本服务器标识 | 空 | 否 |
@@ -266,9 +266,9 @@ NODE_ENV=production node src/app.js
 
 ```bash
 # SQLite 数据库文件位于
-server/database/classnet.db
+server/database/classintra.db
 # 直接复制该文件即可完成备份
-cp server/database/classnet.db backup/classnet_$(date +%Y%m%d).db
+cp server/database/classintra.db backup/classintra_$(date +%Y%m%d).db
 ```
 
 ***
@@ -364,7 +364,7 @@ lsof -i :10001
 
 ### 8.1 功能说明
 
-通过 WebSocket 中继（Relay）机制，可以让部署在不同网络的多个 ClassNet 实例的公共聊天室消息实时同步。
+通过 WebSocket 中继（Relay）机制，可以让部署在不同网络的多个 ClassIntra 实例的公共聊天室消息实时同步。
 
 ### 8.2 中继环境变量
 

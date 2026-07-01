@@ -1,5 +1,5 @@
 [center]
-[size=24][b][color=#007AFF]ClassNet[/color][/b][/size]
+[size=24][b][color=#007AFF]ClassIntra[/color][/b][/size]
 [size=14]—— 一款班级局域网Web交互系统 ——[/size]
 [/center]
 
@@ -11,7 +11,7 @@
 
 我就想：能不能把这些平板真正利用起来？搭一个 [b][color=#007AFF]班级专属的一体化平台[/color][/b]，聊天、AI、论坛、云盘、笔记、天气、音乐全在同一个网页里，平板打开浏览器就能用。
 
-于是从零开始写了 [b]ClassNet[/b]。前后两个多月，AI 辅助 coding，一个人全栈。
+于是从零开始写了 [b]ClassIntra[/b]。前后两个多月，AI 辅助 coding，一个人全栈。
 
 [size=18][b]能干什么？[/b][/size]
 
@@ -114,7 +114,7 @@ SemVer 的 PATCH 号构建时自动 +1，日常完全不碰版本号。新功能
 
 [size=18][b]仓库地址[/b][/size]
 
-[cloud type=github title=ClassNet url=https://github.com/Nevino2333/ClassNet]GitHub 仓库[/cloud]
+[cloud type=github title=ClassIntra url=https://github.com/Nevino2333/ClassIntra]GitHub 仓库[/cloud]
 
 [size=18][b]后续计划[/b][/size]
 

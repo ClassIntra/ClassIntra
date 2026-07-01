@@ -1,4 +1,4 @@
-# ClassNet 项目 AI 协作规则
+# ClassIntra 项目 AI 协作规则
 
 > **语言要求**: 始终使用 zh-CN 回复。代码注释使用中文。
 
@@ -19,7 +19,7 @@
 ## 目录结构
 
 ```
-ClassNet/
+ClassIntra/
 ├── client/src/           # Vue 2 前端源码
 │   ├── views/            # 页面组件（AIChat, Notes, Chat, Community...）
 │   ├── components/       # 可复用组件（ios/, island/, Weather*...）
@@ -135,7 +135,7 @@ git health
 
 ## 🏷️ 版本号管理
 
-ClassNet 使用 **SemVer（语义化版本）**：`主版本.次版本.修订号`（如 `1.3.2`）。
+ClassIntra 使用 **SemVer（语义化版本）**：`主版本.次版本.修订号`（如 `1.3.2`）。
 
 ### 版本号规则
 

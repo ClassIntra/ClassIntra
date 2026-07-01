@@ -84,7 +84,7 @@ chore(deps): bump the npm_and_yarn group across 2 directories with 6 updates
 
 ## [1.1.0] - 2026-06-25
 【修复/优化】
-修正 GitHub 仓库链接为 Nevino2333/ClassNet
+修正 GitHub 仓库链接为 Nevino2333/ClassIntra
 
 
 

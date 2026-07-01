@@ -720,7 +720,7 @@ export default {
         var announcements = response.data.data || [];
         var readIds = [];
         try {
-          var stored = localStorage.getItem('classnet_read_announcements');
+          var stored = localStorage.getItem('classintra_read_announcements');
           if (stored) {
             readIds = JSON.parse(stored);
           }
@@ -757,7 +757,7 @@ export default {
       if (updateChecker.isUpdateAvailable()) {
         var info = updateChecker.getCurrentVersionInfo();
         if (info) {
-          var storedVersion = localStorage.getItem('classnet_seen_version') || '0.0.0';
+          var storedVersion = localStorage.getItem('classintra_seen_version') || '0.0.0';
           if (updateChecker.compareVersions(info.version, storedVersion) > 0) {
             self.newVersionAvailable = true;
             self.latestVersion = info.version;
@@ -766,7 +766,7 @@ export default {
       }
       self._updateUnsubscribe = updateChecker.onUpdateAvailable(function(event, info) {
         if (info && info.serverVersion) {
-          var storedVer = localStorage.getItem('classnet_seen_version') || '0.0.0';
+          var storedVer = localStorage.getItem('classintra_seen_version') || '0.0.0';
           if (updateChecker.compareVersions(info.serverVersion, storedVer) > 0) {
             self.newVersionAvailable = true;
             self.latestVersion = info.serverVersion;
@@ -776,7 +776,7 @@ export default {
     },
     markVersionSeen: function() {
       if (this.newVersionAvailable && this.latestVersion) {
-        localStorage.setItem('classnet_seen_version', this.latestVersion);
+        localStorage.setItem('classintra_seen_version', this.latestVersion);
         this.newVersionAvailable = false;
         this.latestVersion = '';
       }
@@ -787,7 +787,7 @@ export default {
       if (!current) return;
       var readIds = [];
       try {
-        var stored = localStorage.getItem('classnet_read_announcements');
+        var stored = localStorage.getItem('classintra_read_announcements');
         if (stored) {
           readIds = JSON.parse(stored);
         }
@@ -797,7 +797,7 @@ export default {
       if (readIds.indexOf(current.id) === -1) {
         readIds.push(current.id);
       }
-      localStorage.setItem('classnet_read_announcements', JSON.stringify(readIds));
+      localStorage.setItem('classintra_read_announcements', JSON.stringify(readIds));
       self.unreadAnnouncements.splice(self.currentAnnouncementIndex, 1);
       if (self.unreadAnnouncements.length === 0) {
         self.showAnnouncementFloat = false;
@@ -810,7 +810,7 @@ export default {
       var self = this;
       var readIds = [];
       try {
-        var stored = localStorage.getItem('classnet_read_announcements');
+        var stored = localStorage.getItem('classintra_read_announcements');
         if (stored) {
           readIds = JSON.parse(stored);
         }
@@ -823,7 +823,7 @@ export default {
           readIds.push(id);
         }
       }
-      localStorage.setItem('classnet_read_announcements', JSON.stringify(readIds));
+      localStorage.setItem('classintra_read_announcements', JSON.stringify(readIds));
       self.unreadAnnouncements = [];
       self.showAnnouncementFloat = false;
       self.currentAnnouncementIndex = 0;

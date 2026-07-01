@@ -1,17 +1,17 @@
 @echo off
 chcp 65001 >nul 2>&1
-title ClassNet Production Server
+title ClassIntra Production Server
 
 echo ========================================
-echo   ClassNet Production Server (Foreground)
+echo   ClassIntra Production Server (Foreground)
 echo ========================================
 echo.
 
 cd /d "%~dp0"
 
 echo [1/5] Stopping PM2 process if running...
-call pm2 stop classnet-server >nul 2>&1
-call pm2 delete classnet-server >nul 2>&1
+call pm2 stop classintra-server >nul 2>&1
+call pm2 delete classintra-server >nul 2>&1
 
 echo [2/5] Checking port conflicts...
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":9001 " ^| findstr "LISTENING"') do (
@@ -30,7 +30,7 @@ timeout /t 2 /nobreak >nul
 
 echo [3/5] Checking database...
 if not exist server\database mkdir server\database
-if not exist server\database\classnet.db (
+if not exist server\database\classintra.db (
     echo Initializing database...
     cd server
     node src/utils/init-db.js

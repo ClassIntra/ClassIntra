@@ -36,7 +36,7 @@ module.exports = {
     searchDepth: 'basic'
   },
   resourcesDir: path.resolve(process.env.RESOURCES_DIR || path.join(__dirname, '../../../Resources')),
-  dbPath: path.resolve(process.env.DB_PATH || path.join(__dirname, '../../database/classnet.db')),
+  dbPath: path.resolve(process.env.DB_PATH || path.join(__dirname, '../../database/classintra.db')),
   relay: {
     servers: (process.env.RELAY_SERVERS || '').split(',').filter(function(s) { return s.trim() !== ''; }),
     secret: process.env.RELAY_SECRET || '',

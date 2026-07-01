@@ -1337,11 +1337,11 @@ router.post('/pm2/restart', function(req, res) {
   if (!isClassAdminUser(req)) return res.status(403).json({ code: 403, message: '仅班管可操作' });
   pm2Connect(function(err, pm2) {
     if (err) return res.status(500).json({ code: 500, message: err.message });
-    pm2.restart('classnet-server', function(err2, proc) {
+    pm2.restart('classintra-server', function(err2, proc) {
       pm2.disconnect();
       if (err2) return res.status(500).json({ code: 500, message: err2.message });
-      logAction(req.user.user_id, 'pm2_restart', 'classnet-server', 'Restarted via admin panel');
-      res.json({ code: 200, message: 'Restarted', data: { name: 'classnet-server' } });
+      logAction(req.user.user_id, 'pm2_restart', 'classintra-server', 'Restarted via admin panel');
+      res.json({ code: 200, message: 'Restarted', data: { name: 'classintra-server' } });
     });
   });
 });
@@ -1350,11 +1350,11 @@ router.post('/pm2/stop', function(req, res) {
   if (!isClassAdminUser(req)) return res.status(403).json({ code: 403, message: '仅班管可操作' });
   pm2Connect(function(err, pm2) {
     if (err) return res.status(500).json({ code: 500, message: err.message });
-    pm2.stop('classnet-server', function(err2, proc) {
+    pm2.stop('classintra-server', function(err2, proc) {
       pm2.disconnect();
       if (err2) return res.status(500).json({ code: 500, message: err2.message });
-      logAction(req.user.user_id, 'pm2_stop', 'classnet-server', 'Stopped via admin panel');
-      res.json({ code: 200, message: 'Stopped', data: { name: 'classnet-server' } });
+      logAction(req.user.user_id, 'pm2_stop', 'classintra-server', 'Stopped via admin panel');
+      res.json({ code: 200, message: 'Stopped', data: { name: 'classintra-server' } });
     });
   });
 });
@@ -1363,11 +1363,11 @@ router.post('/pm2/start', function(req, res) {
   if (!isClassAdminUser(req)) return res.status(403).json({ code: 403, message: '仅班管可操作' });
   pm2Connect(function(err, pm2) {
     if (err) return res.status(500).json({ code: 500, message: err.message });
-    pm2.start('classnet-server', function(err2, proc) {
+    pm2.start('classintra-server', function(err2, proc) {
       pm2.disconnect();
       if (err2) return res.status(500).json({ code: 500, message: err2.message });
-      logAction(req.user.user_id, 'pm2_start', 'classnet-server', 'Started via admin panel');
-      res.json({ code: 200, message: 'Started', data: { name: 'classnet-server' } });
+      logAction(req.user.user_id, 'pm2_start', 'classintra-server', 'Started via admin panel');
+      res.json({ code: 200, message: 'Started', data: { name: 'classintra-server' } });
     });
   });
 });
@@ -1376,10 +1376,10 @@ router.post('/pm2/flush-logs', function(req, res) {
   if (!isClassAdminUser(req)) return res.status(403).json({ code: 403, message: '仅班管可操作' });
   pm2Connect(function(err, pm2) {
     if (err) return res.status(500).json({ code: 500, message: err.message });
-    pm2.flush('classnet-server', function(err2) {
+    pm2.flush('classintra-server', function(err2) {
       pm2.disconnect();
       if (err2) return res.status(500).json({ code: 500, message: err2.message });
-      logAction(req.user.user_id, 'pm2_flush', 'classnet-server', 'Flushed logs via admin panel');
+      logAction(req.user.user_id, 'pm2_flush', 'classintra-server', 'Flushed logs via admin panel');
       res.json({ code: 200, message: 'Logs flushed' });
     });
   });
@@ -1409,7 +1409,7 @@ router.get('/pm2/describe', function(req, res) {
   if (!isClassAdminUser(req)) return res.status(403).json({ code: 403, message: '仅班管可操作' });
   pm2Connect(function(err, pm2) {
     if (err) return res.status(500).json({ code: 500, message: err.message });
-    pm2.describe('classnet-server', function(err2, desc) {
+    pm2.describe('classintra-server', function(err2, desc) {
       pm2.disconnect();
       if (err2) return res.status(500).json({ code: 500, message: err2.message });
       var d = desc && desc[0] ? desc[0] : null;

@@ -1907,13 +1907,13 @@ export default {
           self.$store.commit('toast/SHOW_TOAST', { message: '两次密码不一致', type: 'error' });
           return;
         }
-        self.privacyPassword = encrypt(self.privacyPasswordInput, 'classnet_notes_key');
+        self.privacyPassword = encrypt(self.privacyPasswordInput, 'classintra_notes_key');
         self.privacyUnlocked = true;
         self.saveData();
         self.$store.commit('toast/SHOW_TOAST', { message: '密码设置成功', type: 'success' });
         return;
       }
-      var decrypted = decrypt(self.privacyPassword, 'classnet_notes_key');
+      var decrypted = decrypt(self.privacyPassword, 'classintra_notes_key');
       if (decrypted === self.privacyPasswordInput) {
         self.privacyUnlocked = true;
         self.$store.commit('toast/SHOW_TOAST', { message: '解锁成功', type: 'success' });
