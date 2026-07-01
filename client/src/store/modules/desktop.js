@@ -26,6 +26,25 @@ function cloneLayout(layout) {
   return JSON.parse(JSON.stringify(layout));
 }
 
+// 恢复源位置：当拖拽目标不兼容时（如 folder 拖到 dock），把 movedItem 放回原处
+// 避免文件夹等容器在非法落点被丢弃
+function _restoreSource(layout, from, movedItem, srcAppName) {
+  if (from.type === 'page') {
+    if (layout.pages[from.pageIndex]) {
+      layout.pages[from.pageIndex].slots[from.index] = movedItem;
+    }
+  } else if (from.type === 'dock') {
+    layout.dock[from.index] = movedItem.name;
+  } else if (from.type === 'folder') {
+    if (layout.folders[from.folderId]) {
+      layout.folders[from.folderId].apps.push(srcAppName);
+    } else {
+      // 文件夹已解散，放回第一页空槽
+      if (layout.pages[0]) pushToFirstEmptySlot(layout.pages[0], srcAppName);
+    }
+  }
+}
+
 // 根据 enabledAppNames 生成默认布局
 // 默认 Dock: chat/community/notes/settings（若启用）；非 Dock 应用按顺序填 page-0
 function buildDefaultLayout(enabledAppNames) {
@@ -128,7 +147,8 @@ var state = {
   isDragging: false,        // 拖拽中
   draggingApp: null,        // 拖拽源信息 { type, pageIndex, index, folderId, appName }
   openFolderId: null,       // 当前打开的文件夹 id
-  settingsPanelOpen: false   // 捏合调出的桌面设置面板
+  settingsPanelOpen: false,  // 捏合调出的桌面设置面板
+  enabledApps: null          // 应用管控：null=未加载（全部启用），数组=已启用的应用名列表
 };
 
 var getters = {
@@ -183,7 +203,21 @@ var getters = {
   isDragging: function(state) { return state.isDragging; },
   draggingApp: function(state) { return state.draggingApp; },
   openFolderId: function(state) { return state.openFolderId; },
-  settingsPanelOpen: function(state) { return state.settingsPanelOpen; }
+  settingsPanelOpen: function(state) { return state.settingsPanelOpen; },
+  // 判断应用是否启用（对接应用管控：null=未加载时全部启用）
+  isAppEnabled: function(state) {
+    return function(name) {
+      if (!state.enabledApps) return true;
+      return state.enabledApps.indexOf(name) !== -1;
+    };
+  },
+  // 指定页的小组件列表（预留小组件系统）
+  widgetsByPage: function(state) {
+    return function(pageId) {
+      if (!state.layout || !state.layout.widgets) return [];
+      return state.layout.widgets[pageId] || [];
+    };
+  }
 };
 
 var mutations = {
@@ -212,32 +246,46 @@ var mutations = {
   SET_SETTINGS_PANEL: function(state, val) {
     state.settingsPanelOpen = !!val;
   },
+  // 设置应用管控启用的应用列表（由 Desktop.vue 加载后注入）
+  SET_ENABLED_APPS: function(state, apps) {
+    state.enabledApps = Array.isArray(apps) ? apps : null;
+  },
 
-  // 移动应用：from → to
-  // from/to: { type: 'page'|'dock'|'folder', pageIndex?, index?, folderId? }
+  // 移动应用/文件夹：from → to
+  // from/to: { type: 'page'|'dock'|'folder', pageIndex?, index?, folderId?, appName? }
+  // movedItem 概念：保存完整 slot 对象，支持 app 和 folder 两种可移动项
+  //   - app slot: { type: 'app', name }
+  //   - folder slot: { type: 'folder', id }
+  // 文件夹只能落在 page 空槽位或与 page app 交换，不能进 dock/folder（不兼容时恢复源位置）
   MOVE_APP: function(state, payload) {
     if (!state.layout) return;
     var layout = cloneLayout(state.layout);
     var from = payload.from;
     var to = payload.to;
 
-    // 1. 从 from 取出应用名，并清空 source
-    var appName = null;
+    // 1. 从 from 取出 movedItem（完整 slot 对象），并清空 source
+    var movedItem = null;
+    var srcAppName = null;  // 仅 folder 类型 source 用（从文件夹拖出 app 时记录原名）
+
     if (from.type === 'page') {
       var srcPage = layout.pages[from.pageIndex];
       if (srcPage && srcPage.slots[from.index]) {
-        appName = srcPage.slots[from.index].name;
+        movedItem = srcPage.slots[from.index];  // 完整 slot（app 或 folder）
         srcPage.slots[from.index] = null;
       }
     } else if (from.type === 'dock') {
-      appName = layout.dock[from.index];
-      layout.dock[from.index] = null;  // 置空，后续清理
+      var dockName = layout.dock[from.index];
+      if (dockName) {
+        movedItem = { type: 'app', name: dockName };
+        layout.dock[from.index] = null;
+      }
     } else if (from.type === 'folder') {
       var f = layout.folders[from.folderId];
       if (f) {
         var idx = f.apps.indexOf(from.appName);
         if (idx !== -1) {
-          appName = from.appName;
+          srcAppName = from.appName;
+          movedItem = { type: 'app', name: from.appName };
           f.apps.splice(idx, 1);
           // 文件夹空了自动解散
           if (f.apps.length === 0) {
@@ -254,23 +302,26 @@ var mutations = {
         }
       }
     }
-    if (!appName) {
+
+    if (!movedItem) {
       state.layout = layout;
       return;
     }
 
-    // 2. 放入 to
+    // 2. 放入 to（根据 movedItem.type 和 to.type 组合处理）
+    var isFolderItem = movedItem.type === 'folder';
+
     if (to.type === 'page') {
       var dstPage = layout.pages[to.pageIndex];
       if (dstPage) {
         var target = dstPage.slots[to.index];
         if (!target) {
-          // 空槽位直接放
-          dstPage.slots[to.index] = { type: 'app', name: appName };
-        } else if (target.type === 'app') {
-          // 目标有应用：交换（把目标的 app 放回 from 原位置）
+          // 空槽位直接放（app 或 folder 均可）
+          dstPage.slots[to.index] = movedItem;
+        } else if (target.type === 'app' && !isFolderItem) {
+          // app→app 交换（把目标的 app 放回 from 原位置）
           var swappedName = target.name;
-          dstPage.slots[to.index] = { type: 'app', name: appName };
+          dstPage.slots[to.index] = movedItem;
           if (from.type === 'page') {
             layout.pages[from.pageIndex].slots[from.index] = { type: 'app', name: swappedName };
           } else if (from.type === 'dock') {
@@ -284,37 +335,57 @@ var mutations = {
               pushToFirstEmptySlot(layout.pages[state.currentPage], swappedName);
             }
           }
-        } else if (target.type === 'folder') {
-          // 目标是文件夹：并入（去重，避免拖入产生重复图标）
-          if (layout.folders[target.id] && layout.folders[target.id].apps.indexOf(appName) === -1) {
-            layout.folders[target.id].apps.push(appName);
+        } else if (target.type === 'folder' && !isFolderItem) {
+          // 目标是文件夹：app 并入（去重，避免拖入产生重复图标）
+          if (layout.folders[target.id] && layout.folders[target.id].apps.indexOf(movedItem.name) === -1) {
+            layout.folders[target.id].apps.push(movedItem.name);
+          }
+        } else if (target.type === 'folder' && isFolderItem) {
+          // folder→folder 不允许（嵌套文件夹复杂度高）：恢复源位置
+          _restoreSource(layout, from, movedItem, srcAppName);
+        } else if (target.type === 'app' && isFolderItem) {
+          // folder→app 交换：目标 app 放回 folder 原位置（page slot）
+          var swappedApp = target.name;
+          dstPage.slots[to.index] = movedItem;
+          if (from.type === 'page') {
+            layout.pages[from.pageIndex].slots[from.index] = { type: 'app', name: swappedApp };
           }
         }
       }
     } else if (to.type === 'dock') {
       // Dock 满载拦截已由 desktop-drag._onDragUp 处理（mutation 保持纯函数）
-      layout.dock = layout.dock.filter(function(n) { return n !== null && n; });
-      if (to.isAppend || to.index >= layout.dock.length) {
-        // 追加到末尾（落点为 dock-bar 空白处 / append 标记）
-        layout.dock.push(appName);
+      // Dock 仅接受 app；folder 拖到 dock 恢复源位置
+      if (isFolderItem) {
+        _restoreSource(layout, from, movedItem, srcAppName);
       } else {
-        // 替换指定位置
-        var oldDockApp = layout.dock[to.index];
-        layout.dock[to.index] = appName;
-        if (oldDockApp) {
-          if (from.type === 'dock') {
-            // Dock 内重排：旧应用回到拖拽来源位置（交换语义，避免被挤出到桌面）
-            layout.dock[from.index] = oldDockApp;
-          } else {
-            // 跨区域：旧应用放回当前页空槽
-            pushToFirstEmptySlot(layout.pages[state.currentPage], oldDockApp);
+        layout.dock = layout.dock.filter(function(n) { return n !== null && n; });
+        if (to.isAppend || to.index >= layout.dock.length) {
+          // 追加到末尾（落点为 dock-bar 空白处 / append 标记）
+          layout.dock.push(movedItem.name);
+        } else {
+          // 替换指定位置
+          var oldDockApp = layout.dock[to.index];
+          layout.dock[to.index] = movedItem.name;
+          if (oldDockApp) {
+            if (from.type === 'dock') {
+              // Dock 内重排：旧应用回到拖拽来源位置（交换语义，避免被挤出到桌面）
+              layout.dock[from.index] = oldDockApp;
+            } else {
+              // 跨区域：旧应用放回当前页空槽
+              pushToFirstEmptySlot(layout.pages[state.currentPage], oldDockApp);
+            }
           }
         }
       }
     } else if (to.type === 'folder') {
-      // 并入文件夹（去重，避免拖入产生重复图标）
-      if (layout.folders[to.folderId] && layout.folders[to.folderId].apps.indexOf(appName) === -1) {
-        layout.folders[to.folderId].apps.push(appName);
+      // folder 内仅接受 app；folder 拖到 folder 恢复源位置
+      if (isFolderItem) {
+        _restoreSource(layout, from, movedItem, srcAppName);
+      } else {
+        // 并入文件夹（去重，避免拖入产生重复图标）
+        if (layout.folders[to.folderId] && layout.folders[to.folderId].apps.indexOf(movedItem.name) === -1) {
+          layout.folders[to.folderId].apps.push(movedItem.name);
+        }
       }
     }
 
@@ -469,6 +540,47 @@ var mutations = {
       page.slots[payload.indexB] = tmp;
       state.layout = layout;
     }
+  },
+
+  // ===== 小组件系统（预留，供后续实现调用）=====
+  // 添加小组件到指定页
+  // payload: { pageId, widget: { id, type, slot, w, h, config } }
+  ADD_WIDGET: function(state, payload) {
+    if (!state.layout) return;
+    var layout = cloneLayout(state.layout);
+    if (!layout.widgets) layout.widgets = {};
+    if (!layout.widgets[payload.pageId]) layout.widgets[payload.pageId] = [];
+    layout.widgets[payload.pageId].push(payload.widget);
+    state.layout = layout;
+  },
+  // 移除小组件
+  // payload: { pageId, widgetId }
+  REMOVE_WIDGET: function(state, payload) {
+    if (!state.layout || !state.layout.widgets) return;
+    var layout = cloneLayout(state.layout);
+    var list = layout.widgets[payload.pageId];
+    if (list) {
+      layout.widgets[payload.pageId] = list.filter(function(w) {
+        return w.id !== payload.widgetId;
+      });
+    }
+    state.layout = layout;
+  },
+  // 更新小组件配置
+  // payload: { pageId, widgetId, config }
+  UPDATE_WIDGET: function(state, payload) {
+    if (!state.layout || !state.layout.widgets) return;
+    var layout = cloneLayout(state.layout);
+    var list = layout.widgets[payload.pageId];
+    if (list) {
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].id === payload.widgetId) {
+          list[i].config = Object.assign({}, list[i].config, payload.config);
+          break;
+        }
+      }
+    }
+    state.layout = layout;
   },
 
   // 添加新页面

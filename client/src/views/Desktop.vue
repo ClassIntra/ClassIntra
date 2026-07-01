@@ -71,6 +71,10 @@
         :key="page.id"
         class="desktop-page"
       >
+        <!-- 小组件区域（预留，后续实现具体小组件） -->
+        <div v-if="widgetsByPage(page.id).length > 0" class="desktop-widgets">
+          <!-- 小组件将在此渲染 -->
+        </div>
         <div class="desktop-grid">
           <div
             v-for="(slot, index) in page.slots"
@@ -86,7 +90,7 @@
           >
             <template v-if="slot">
               <AppIcon
-                v-if="slot.type === 'app'"
+                v-if="slot.type === 'app' && isAppEnabled(slot.name)"
                 :app="appMeta(slot.name) || placeholderApp(slot.name)"
                 :badge="appBadges[slot.name] || ''"
                 :launching="launchingApp === slot.name"
@@ -410,6 +414,10 @@ export default {
     currentAnnouncement: function() {
       if (this.unreadAnnouncements.length === 0) return null;
       return this.unreadAnnouncements[this.currentAnnouncementIndex] || null;
+    },
+    // 小组件列表 getter（预留小组件系统）
+    widgetsByPage: function() {
+      return this.$store.getters['desktop/widgetsByPage'];
     }
   },
   mounted: function() {
@@ -422,11 +430,27 @@ export default {
     self.loadUnreadAnnouncements();
     self.loadEnabledApps();
     self.checkVersionUpdate();
+    // 应用管控实时同步：页面重新可见 / 窗口聚焦时刷新（管理员切换后自动生效）
+    self._visibilityHandler = function() {
+      if (!document.hidden) self.loadEnabledApps();
+    };
+    document.addEventListener('visibilitychange', self._visibilityHandler);
+    self._focusHandler = function() { self.loadEnabledApps(); };
+    window.addEventListener('focus', self._focusHandler);
   },
   beforeDestroy: function() {
     if (this._updateUnsubscribe) {
       this._updateUnsubscribe();
       this._updateUnsubscribe = null;
+    }
+    // 移除应用管控刷新监听
+    if (this._visibilityHandler) {
+      document.removeEventListener('visibilitychange', this._visibilityHandler);
+      this._visibilityHandler = null;
+    }
+    if (this._focusHandler) {
+      window.removeEventListener('focus', this._focusHandler);
+      this._focusHandler = null;
     }
     if (this.performanceCheckTimer) {
       clearInterval(this.performanceCheckTimer);
@@ -784,18 +808,29 @@ export default {
         self.unreadAnnouncements = [];
       });
     },
+    // 判断应用是否启用（对接应用管控，用于 page 渲染过滤）
+    // enabledApps 未加载时（null）默认全部启用，加载后按数组过滤
+    isAppEnabled: function(name) {
+      if (this.enabledApps === null) return true;
+      return this.enabledApps.indexOf(name) !== -1;
+    },
     // 加载后端应用管控状态，过滤桌面禁用的应用
     loadEnabledApps: function() {
       var self = this;
       api.get('/system/app-control').then(function(response) {
         var data = response.data.data || {};
-        self.enabledApps = data.enabled_apps || [];
+        var apps = data.enabled_apps || [];
+        self.enabledApps = apps;
+        // 同步到 store（供 DesktopFolder 等组件通过 getter 读取）
+        self.$store.commit('desktop/SET_ENABLED_APPS', apps);
         // 加载桌面布局（传入启用的应用列表用于默认布局生成）
-        self.$store.dispatch('desktop/loadDesktopLayout', self.enabledApps);
+        self.$store.dispatch('desktop/loadDesktopLayout', apps);
       }).catch(function() {
         // 降级：全部启用
-        self.enabledApps = self.dockApps.map(function(app) { return app.name; });
-        self.$store.dispatch('desktop/loadDesktopLayout', self.enabledApps);
+        var fallback = self.dockApps.map(function(app) { return app.name; });
+        self.enabledApps = fallback;
+        self.$store.commit('desktop/SET_ENABLED_APPS', fallback);
+        self.$store.dispatch('desktop/loadDesktopLayout', fallback);
       });
     },
     checkVersionUpdate: function() {

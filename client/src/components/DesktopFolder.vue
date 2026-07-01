@@ -50,13 +50,16 @@
           @blur="commitRename"
           @keyup.enter="commitRename"
         />
+        <button v-if="editing && !renaming" class="folder-rename-btn" @click.stop="startRename" aria-label="重命名">
+          <i class="fa-solid fa-pen"></i>
+        </button>
         <button class="folder-close-btn" @click="onClose" aria-label="关闭">
           <i class="fa-solid fa-xmark"></i>
         </button>
       </div>
       <div class="folder-expanded-body">
         <div
-          v-for="name in folder.apps"
+          v-for="name in visibleApps"
           :key="name"
           class="folder-item"
           :data-src-type="'folder'"
@@ -72,7 +75,7 @@
             @remove="onRemoveApp(name)"
           />
         </div>
-        <div v-if="folder.apps.length === 0" class="folder-empty-hint">
+        <div v-if="visibleApps.length === 0" class="folder-empty-hint">
           文件夹为空
         </div>
       </div>
@@ -113,6 +116,14 @@ export default {
     emptySlots: function() {
       var count = 9 - this.displayApps.length;
       return count > 0 ? count : 0;
+    },
+    // 过滤禁用应用后的可见列表（对接应用管控）
+    visibleApps: function() {
+      var self = this;
+      var isAppEnabled = this.$store.getters['desktop/isAppEnabled'];
+      return (this.folder.apps || []).filter(function(name) {
+        return isAppEnabled(name);
+      });
     }
   },
   methods: {
@@ -332,6 +343,27 @@ export default {
 
 .folder-name-input[readonly] {
   cursor: pointer;
+}
+
+/* 重命名按钮（编辑态显示，移动端可发现） */
+.folder-rename-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  background: var(--primary-light);
+  color: var(--primary-color);
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  margin-left: 4px;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.15s var(--ease-standard);
+}
+.folder-rename-btn:active {
+  transform: scale(0.92);
 }
 
 .folder-close-btn {
