@@ -173,11 +173,21 @@ function renderRichText(content, options) {
   var highlightTerm = options.highlightTerm || '';
   var enableMedia = options.enableMedia !== false;
 
+  // Step 0: 处理云盘媒体标签 [cloud-img:hash.ext] / [cloud-video:hash.ext] / [cloud-audio:hash.ext]
+  var cloudTagItems = [];
+  var text = content;
+  text = text.replace(/\[cloud-(img|video|audio):([a-f0-9]{64}(?:\.\w+)?)\]/g, function(match, tag, identifier) {
+    var url = '/api/cloud/files/' + identifier;
+    var type = tag === 'img' ? 'image' : tag === 'video' ? 'video' : 'audio';
+    var idx = cloudTagItems.length;
+    cloudTagItems.push({ url: url, type: type });
+    return '%%CLOUDTAG' + idx + '%%';
+  });
+
   // Step 1: 提取媒体 URL 并替换为占位符
   var mediaItems = []; // { url, type, placeholder }
-  var text = content;
   if (enableMedia) {
-    text = content.replace(/(\/api\/cloud\/files\/[^\s<>"]+|\/resources\/[^\s<>"]+)/g, function(url) {
+    text = text.replace(/(\/api\/cloud\/files\/[^\s<>"]+|\/resources\/[^\s<>"]+)/g, function(url) {
       var type = detectMediaType(url);
       if (type === 'image' || type === 'video' || type === 'audio') {
         var idx = mediaItems.length;
@@ -201,6 +211,15 @@ function renderRichText(content, options) {
   // Step 4: 应用搜索高亮
   if (highlightTerm) {
     html = applyHighlight(html, highlightTerm);
+  }
+
+  // Step 4.5: 还原云盘标签占位符为媒体元素
+  for (var ci = 0; ci < cloudTagItems.length; ci++) {
+    var ctPlaceholder = '%%CLOUDTAG' + ci + '%%';
+    var ctItem = cloudTagItems[ci];
+    var ctEscapedUrl = escapeHtml(ctItem.url);
+    var ctMediaHtml = generateMediaHtml(ctEscapedUrl, ctItem.type);
+    html = html.replace(ctPlaceholder, ctMediaHtml);
   }
 
   // Step 5: 还原媒体占位符为 HTML 元素
