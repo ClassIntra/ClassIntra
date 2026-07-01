@@ -130,6 +130,12 @@ var routes = [
     meta: { requiresAuth: true }
   },
   {
+    path: '/cloud-picker',
+    name: 'CloudFilePicker',
+    component: function() { return import('@/views/CloudFilePicker.vue'); },
+    meta: { requiresAuth: true }
+  },
+  {
     path: '/cloud-upload',
     name: 'CloudUpload',
     component: function() { return import('@/views/CloudUpload.vue'); },
