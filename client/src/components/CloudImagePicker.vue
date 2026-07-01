@@ -71,14 +71,15 @@ export default {
       // 类型筛选
       if (self.mediaFilter !== 'all') {
         result = result.filter(function(file) {
-          return self.getFileType(file.name) === self.mediaFilter;
+          return self.getFileType(file) === self.mediaFilter;
         });
       }
       // 搜索筛选
       if (self.searchQuery) {
         var query = self.searchQuery.toLowerCase();
         result = result.filter(function(file) {
-          return file.name.toLowerCase().indexOf(query) > -1;
+          var searchName = (file.display_name || file.name || '').toLowerCase();
+          return searchName.indexOf(query) > -1;
         });
       }
       return result;
