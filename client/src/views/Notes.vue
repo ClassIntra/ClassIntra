@@ -1978,6 +1978,8 @@ export default {
       var dotIdx = displayName.lastIndexOf('.');
       if (dotIdx > -1) ext = displayName.substring(dotIdx);
       var url = baseUrl.indexOf('.') === -1 ? baseUrl + ext : baseUrl;
+      // 图片附加缩放参数，加快加载
+      if (url.indexOf('/api/cloud/files/') > -1 && url.indexOf('?w=') === -1) url += '?w=800';
       // 按文件类型分支：图片用 ![]()，音视频用 []()（customRenderer.link 渲染播放器）
       var type = self.getCloudFileType(file);
       var md = type === 'image' ? '![' + displayName + '](' + url + ')' : '[' + displayName + '](' + url + ')';
