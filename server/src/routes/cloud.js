@@ -729,10 +729,12 @@ router.post('/save-from-url', auth.requireAuth, function(req, res) {
       return res.status(400).json({ code: 400, message: '无效的文件 URL' });
     }
 
-    if (/^[a-f0-9]{64}$/.test(urlParam)) {
-      // 新格式：直接是哈希
-      fileHash = urlParam;
-    } else {
+    // 支持 hash.ext 格式和裸哈希
+    var extMatch = urlParam.match(/^([a-f0-9]{64})(?:\.\w+)?$/);
+    if (extMatch) {
+      fileHash = extMatch[1];
+    }
+    if (!fileHash) {
       // 旧格式：查映射表
       var mapping = db.prepare('SELECT file_hash FROM cloud_old_url_map WHERE old_filename = ?').get(urlParam);
       if (mapping) {
