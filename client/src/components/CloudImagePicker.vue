@@ -3,7 +3,12 @@
     <div class="cloud-picker-sheet">
       <div class="picker-header">
         <span>选择云盘文件</span>
-        <button class="picker-close" @click="$emit('close')"><i class="fa-solid fa-xmark"></i></button>
+        <div class="picker-header-actions">
+          <button class="picker-fullscreen-btn" @click="openFullscreen" title="全屏浏览">
+            <i class="fa-solid fa-expand"></i>
+          </button>
+          <button class="picker-close" @click="$emit('close')"><i class="fa-solid fa-xmark"></i></button>
+        </div>
       </div>
       <div class="picker-search">
         <i class="fa-solid fa-magnifying-glass picker-search-icon"></i>
@@ -116,6 +121,10 @@ export default {
       for (var i = 0; i < IMG_EXTS.length; i++) { if (lower.indexOf(IMG_EXTS[i]) > -1) return 'image'; }
       return 'other';
     },
+    openFullscreen: function() {
+      this.$emit('close');
+      this.$router.push('/cloud-picker');
+    },
     selectFile: function(file) {
       this.$emit('select', file);
       this.$emit('close');
@@ -141,8 +150,7 @@ export default {
 .cloud-picker-sheet {
   background: var(--card-bg);
   width: 100%;
-  max-width: 500px;
-  max-height: 70vh;
+  max-height: 85vh;
   border-radius: 16px 16px 0 0;
   display: flex;
   flex-direction: column;
@@ -171,6 +179,21 @@ export default {
   color: var(--text-primary);
 }
 
+.picker-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.picker-fullscreen-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 18px;
+  padding: 4px;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.picker-fullscreen-btn:hover { color: var(--primary-color); }
 .picker-close {
   background: none;
   border: none;
@@ -180,7 +203,6 @@ export default {
   cursor: pointer;
   transition: color 0.15s;
 }
-
 .picker-close:hover {
   color: var(--text-primary);
 }
@@ -265,8 +287,15 @@ export default {
 
 .picker-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+
+@media (min-width: 600px) {
+  .picker-grid { grid-template-columns: repeat(5, 1fr); }
+}
+@media (min-width: 900px) {
+  .picker-grid { grid-template-columns: repeat(6, 1fr); }
 }
 
 .picker-item {

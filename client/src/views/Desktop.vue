@@ -622,6 +622,11 @@ export default {
     placeholderApp: function(name) {
       return { name: name, label: name, icon: '', color: '#8E8E93', route: '' };
     },
+    // Dock 图标元数据：安全查找，未注册应用降级为占位（避免模板访问 .icon/.label 崩溃）
+    // dock-only 模式下 effectiveDockApps 聚合了文件夹内应用，可能有未注册名称
+    dockAppMeta: function(name) {
+      return this.appMeta(name) || this.placeholderApp(name);
+    },
     // 根据 id 查文件夹对象（委托 store getter，修复模板调用 folderById is not a function）
     folderById: function(fid) {
       return this.$store.getters['desktop/folderById'](fid);
@@ -992,20 +997,24 @@ export default {
 }
 
 /* ===== Dock 栏 ===== */
+/* 可滚动容器：图标少时 max-content + margin auto 居中；多时 max-width 限制 + overflow-x 滚动 */
 .dock-bar {
   position: fixed;
   bottom: 24px;
-  left: 50%;
-  -webkit-transform: translateX(-50%);
-  transform: translateX(-50%);
+  left: 16px;
+  right: 16px;
+  width: -webkit-max-content;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  margin: 0 auto;
   z-index: 999;
   display: -webkit-flex;
   display: flex;
   -webkit-align-items: center;
   align-items: center;
-  -webkit-justify-content: center;
-  justify-content: center;
-  padding: 12px 24px;
+  -webkit-justify-content: flex-start;
+  justify-content: flex-start;
+  padding: 14px 28px;
   background: var(--dock-bg);
   -webkit-backdrop-filter: var(--glass-blur-container);
   backdrop-filter: var(--glass-blur-container);
@@ -1013,21 +1022,47 @@ export default {
   border: none;
   -webkit-box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.06);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.06);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
   transition: background 0.3s var(--ease-standard), box-shadow 0.3s var(--ease-standard);
+}
+/* Chrome/Safari/Edge 隐藏滚动条 */
+.dock-bar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Dock 空状态提示 */
+.dock-empty-hint {
+  color: var(--text-secondary, rgba(60, 60, 67, 0.6));
+  font-size: var(--font-size-sm);
+  padding: 8px 16px;
+  white-space: nowrap;
 }
 
 .dock-bar--editing {
-  -webkit-animation: dockWiggle 0.25s var(--ease-standard) infinite alternate;
-  animation: dockWiggle 0.25s var(--ease-standard) infinite alternate;
+  /* 编辑态视觉区分：阴影微调（wiggle 已移到 dock-slot，避免容器 overflow+rotate 冲突） */
+  -webkit-box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18), 0 1px 2px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18), 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
-@-webkit-keyframes dockWiggle {
-  0% { -webkit-transform: translateX(-50%) rotate(-1deg); }
-  100% { -webkit-transform: translateX(-50%) rotate(1deg); }
+/* 编辑态：Dock 图标单独 wiggle（与 AppIcon 统一），禁用 hover 缩放避免与 wiggle 冲突 */
+.desktop--editing .dock-slot {
+  -webkit-animation: dockSlotWiggle 0.25s var(--ease-standard) infinite alternate;
+  animation: dockSlotWiggle 0.25s var(--ease-standard) infinite alternate;
+  will-change: transform;
 }
-@keyframes dockWiggle {
-  0% { transform: translateX(-50%) rotate(-1deg); }
-  100% { transform: translateX(-50%) rotate(1deg); }
+.desktop--editing .dock-slot:hover {
+  -webkit-transform: none;
+  transform: none;
+}
+@-webkit-keyframes dockSlotWiggle {
+  0% { -webkit-transform: rotate(-2deg); }
+  100% { -webkit-transform: rotate(2deg); }
+}
+@keyframes dockSlotWiggle {
+  0% { transform: rotate(-2deg); }
+  100% { transform: rotate(2deg); }
 }
 
 .dock-slot {
@@ -1166,6 +1201,9 @@ export default {
   }
   .dock-bar {
     bottom: 8px;
+    left: 8px;
+    right: 8px;
+    max-width: calc(100vw - 16px);
     padding: 8px 16px;
     border-radius: var(--radius-lg);
   }
