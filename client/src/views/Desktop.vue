@@ -103,7 +103,6 @@
                 :data-src-app="slot.name"
                 :data-flip-key="'page-app-' + slot.name"
                 @launch="launchApp"
-                @remove="onRemoveApp(pageIndex, index)"
               />
               <DesktopFolder
                 v-else
@@ -177,7 +176,6 @@
         @rename="onRenameFolder"
         @remove="onDeleteFolder(openFolderId)"
         @launch-app="launchAppByName"
-        @remove-app="onRemoveAppFromFolder"
       />
     </transition>
 
