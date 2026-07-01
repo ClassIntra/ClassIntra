@@ -457,6 +457,52 @@ function initDatabase() {
   try { db.exec("ALTER TABLE cloud_notes ADD COLUMN canvas_data TEXT"); } catch(e) {}
   try { db.exec("ALTER TABLE cloud_notes ADD COLUMN type TEXT DEFAULT 'note'"); } catch(e) {}
 
+  // ========== 云盘去重存储 ==========
+  // 物理文件表：每个唯一内容文件一条记录
+  db.exec([
+    'CREATE TABLE IF NOT EXISTS cloud_files (',
+    '  hash TEXT PRIMARY KEY,',
+    '  owner_user_id TEXT NOT NULL,',
+    '  original_name TEXT NOT NULL,',
+    '  size INTEGER NOT NULL,',
+    '  mime_type TEXT NOT NULL,',
+    '  storage_path TEXT NOT NULL,',
+    '  deleted INTEGER NOT NULL DEFAULT 0,',
+    '  created_at TEXT NOT NULL DEFAULT (datetime(\'now\'))',
+    ')'
+  ].join('\n'));
+  db.exec('CREATE INDEX IF NOT EXISTS idx_cf_owner ON cloud_files(owner_user_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_cf_deleted ON cloud_files(deleted)');
+
+  // 用户文件关联表：用户→文件的引用关系（"收藏/转存"）
+  db.exec([
+    'CREATE TABLE IF NOT EXISTS cloud_user_files (',
+    '  id INTEGER PRIMARY KEY AUTOINCREMENT,',
+    '  user_id TEXT NOT NULL,',
+    '  file_hash TEXT NOT NULL,',
+    '  display_name TEXT NOT NULL,',
+    '  folder TEXT NOT NULL DEFAULT \'\',',
+    '  uploaded_at TEXT NOT NULL DEFAULT (datetime(\'now\')),',
+    '  FOREIGN KEY (file_hash) REFERENCES cloud_files(hash),',
+    '  UNIQUE(user_id, file_hash, folder)',
+    ')'
+  ].join('\n'));
+  db.exec('CREATE INDEX IF NOT EXISTS idx_cuf_user ON cloud_user_files(user_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_cuf_user_folder ON cloud_user_files(user_id, folder)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_cuf_hash ON cloud_user_files(file_hash)');
+
+  // 旧文件 URL 映射表：迁移后旧格式文件名→哈希，确保旧消息中的 URL 兼容
+  db.exec([
+    'CREATE TABLE IF NOT EXISTS cloud_old_url_map (',
+    '  old_filename TEXT PRIMARY KEY,',
+    '  file_hash TEXT NOT NULL,',
+    '  created_at TEXT NOT NULL DEFAULT (datetime(\'now\'))',
+    ')'
+  ].join('\n'));
+
+  // ========== 云盘旧文件自动迁移 ==========
+  runCloudMigration();
+
   // 跨班帖子ID映射表（relay post ID remapping）
   db.exec("CREATE TABLE IF NOT EXISTS post_id_mappings (original_id TEXT PRIMARY KEY, local_id INTEGER NOT NULL, source_server TEXT DEFAULT '', created_at TEXT DEFAULT (datetime('now')))");
 
@@ -722,6 +768,148 @@ function initDatabase() {
       initWatermarkStmt.run(watermarkTypes[wi].type, maxId);
     } catch (e) {}
   }
+}
+
+// ========== 云盘旧文件自动迁移 ==========
+function runCloudMigration() {
+  var fs = require('fs');
+  var path = require('path');
+  var crypto = require('crypto');
+
+  // 检查是否已迁移
+  var migrated = db.prepare("SELECT value FROM system_settings WHERE key = 'cloud_migration_done'").get();
+  if (migrated && migrated.value === '1') {
+    return;
+  }
+
+  var resourcesDir = process.env.RESOURCES_DIR || path.join(__dirname, '../../../Resources');
+  var cloudDir = path.resolve(resourcesDir, 'cloud');
+  var sharedDir = path.join(cloudDir, 'shared');
+
+  if (!fs.existsSync(cloudDir)) {
+    // 没有云盘目录，标记完成
+    db.prepare("INSERT OR REPLACE INTO system_settings (key, value) VALUES ('cloud_migration_done', '1')").run();
+    return;
+  }
+
+  console.log('[CloudMigration] 开始云盘文件迁移...');
+
+  // 确保共享目录存在
+  if (!fs.existsSync(sharedDir)) {
+    fs.mkdirSync(sharedDir, { recursive: true });
+  }
+
+  var totalMigrated = 0;
+  var totalDuplicates = 0;
+  var totalErrors = 0;
+
+  try {
+    var entries = fs.readdirSync(cloudDir);
+    for (var i = 0; i < entries.length; i++) {
+      var entry = entries[i];
+      // 跳过非用户目录（shared, .tmp, .trash, .gitkeep 等）
+      if (entry === 'shared' || entry === '.tmp' || entry === '.trash' || entry.startsWith('.')) continue;
+      // 只处理纯数字命名的用户目录
+      if (!/^\d+$/.test(entry)) continue;
+
+      var userDir = path.join(cloudDir, entry);
+      var photoDir = path.join(userDir, 'photos');
+      if (!fs.existsSync(photoDir)) continue;
+
+      var userId = entry;
+      var photoFiles;
+      try {
+        photoFiles = fs.readdirSync(photoDir);
+      } catch (e) {
+        continue;
+      }
+
+      for (var j = 0; j < photoFiles.length; j++) {
+        var filename = photoFiles[j];
+        var filePath = path.join(photoDir, filename);
+        var stat;
+        try { stat = fs.statSync(filePath); } catch (e) { continue; }
+        if (!stat.isFile()) continue;
+
+        try {
+          // 计算 SHA-256
+          var hash = computeFileHashSync(filePath);
+          var ext = path.extname(filename).toLowerCase();
+          var mimeType = guessMimeType(ext, filename);
+
+          // 检查是否已存在
+          var existing = db.prepare('SELECT hash, owner_user_id FROM cloud_files WHERE hash = ?').get(hash);
+
+          if (existing) {
+            // 重复文件：只建引用
+            db.prepare('INSERT OR IGNORE INTO cloud_user_files (user_id, file_hash, display_name) VALUES (?, ?, ?)').run(userId, hash, filename);
+            // 记录旧 URL 映射
+            db.prepare('INSERT OR IGNORE INTO cloud_old_url_map (old_filename, file_hash) VALUES (?, ?)').run(filename, hash);
+            // 删除原文件
+            try { fs.unlinkSync(filePath); } catch (e) {}
+            totalDuplicates++;
+          } else {
+            // 新文件：移动到 shared/
+            var prefix = hash.substring(0, 2);
+            var prefixDir = path.join(sharedDir, prefix);
+            if (!fs.existsSync(prefixDir)) fs.mkdirSync(prefixDir, { recursive: true });
+            var newFilename = hash + ext;
+            var destPath = path.join(prefixDir, newFilename);
+            var storagePath = prefix + '/' + newFilename;
+
+            fs.renameSync(filePath, destPath);
+
+            // 创建数据库记录
+            db.prepare('INSERT INTO cloud_files (hash, owner_user_id, original_name, size, mime_type, storage_path) VALUES (?, ?, ?, ?, ?, ?)').run(hash, userId, filename, stat.size, mimeType, storagePath);
+            db.prepare('INSERT OR IGNORE INTO cloud_user_files (user_id, file_hash, display_name) VALUES (?, ?, ?)').run(userId, hash, filename);
+            // 记录旧 URL 映射
+            db.prepare('INSERT OR IGNORE INTO cloud_old_url_map (old_filename, file_hash) VALUES (?, ?)').run(filename, hash);
+
+            totalMigrated++;
+          }
+        } catch (e) {
+          console.error('[CloudMigration] 迁移文件失败:', filePath, e.message);
+          totalErrors++;
+        }
+      }
+    }
+  } catch (e) {
+    console.error('[CloudMigration] 遍历云盘目录失败:', e.message);
+  }
+
+  console.log('[CloudMigration] 迁移完成: 新文件=' + totalMigrated + ', 去重=' + totalDuplicates + ', 失败=' + totalErrors);
+
+  // 标记迁移完成
+  db.prepare("INSERT OR REPLACE INTO system_settings (key, value) VALUES ('cloud_migration_done', '1')").run();
+}
+
+// 同步计算文件 SHA-256（迁移时使用，比流式简单）
+function computeFileHashSync(filePath) {
+  var crypto = require('crypto');
+  var fs = require('fs');
+  var hash = crypto.createHash('sha256');
+  var buffer = fs.readFileSync(filePath);
+  hash.update(buffer);
+  return hash.digest('hex');
+}
+
+// 根据扩展名和文件名猜测 MIME 类型
+function guessMimeType(ext, filename) {
+  var lower = (filename || '').toLowerCase();
+  // 优先文件名中的类型标记
+  if (lower.indexOf('__audio') > -1) return 'audio/webm';
+  if (lower.indexOf('__video') > -1) return 'video/webm';
+  if (lower.indexOf('__image') > -1) return 'image/' + (ext.replace('.', '') || 'png');
+  // 回退到扩展名
+  var MIME_MAP = {
+    '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
+    '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp',
+    '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac',
+    '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.opus': 'audio/opus',
+    '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm',
+    '.mkv': 'video/x-matroska', '.avi': 'video/x-msvideo', '.3gp': 'video/3gpp'
+  };
+  return MIME_MAP[ext] || 'application/octet-stream';
 }
 
 module.exports = { initDatabase: initDatabase };
