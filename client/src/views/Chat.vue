@@ -1873,16 +1873,27 @@ export default {
       this.showEmoji = false;
     },
     onCloudImageSelect: function(file) {
-      var lower = (file.name || '').toLowerCase();
+      // 优先使用 mime_type 判断类型
+      var mime = file.mime_type || '';
       var tag = 'cloud-img';
-      if (lower.indexOf('__video') > -1 || lower.indexOf('.mp4') > -1 || lower.indexOf('.mov') > -1 ||
-          lower.indexOf('.webm') > -1 || lower.indexOf('.mkv') > -1 || lower.indexOf('.avi') > -1 || lower.indexOf('.3gp') > -1) {
+      if (mime.indexOf('video/') === 0) {
         tag = 'cloud-video';
-      } else if (lower.indexOf('__audio') > -1 || lower.indexOf('.mp3') > -1 || lower.indexOf('.m4a') > -1 ||
-                 lower.indexOf('.aac') > -1 || lower.indexOf('.wav') > -1 || lower.indexOf('.ogg') > -1 || lower.indexOf('.opus') > -1) {
+      } else if (mime.indexOf('audio/') === 0) {
         tag = 'cloud-audio';
+      } else {
+        // 回退到文件名解析
+        var lower = (file.name || '').toLowerCase();
+        if (lower.indexOf('__video') > -1 || lower.indexOf('.mp4') > -1 || lower.indexOf('.mov') > -1 ||
+            lower.indexOf('.webm') > -1 || lower.indexOf('.mkv') > -1 || lower.indexOf('.avi') > -1 || lower.indexOf('.3gp') > -1) {
+          tag = 'cloud-video';
+        } else if (lower.indexOf('__audio') > -1 || lower.indexOf('.mp3') > -1 || lower.indexOf('.m4a') > -1 ||
+                   lower.indexOf('.aac') > -1 || lower.indexOf('.wav') > -1 || lower.indexOf('.ogg') > -1 || lower.indexOf('.opus') > -1) {
+          tag = 'cloud-audio';
+        }
       }
-      this.inputText += '[' + tag + ':' + file.name + ']';
+      // 使用 hash 作为标识符（新去重存储系统），兼容旧格式 name
+      var identifier = file.hash || file.name;
+      this.inputText += '[' + tag + ':' + identifier + ']';
       this.showCloudPicker = false;
     },
     scrollToBottom: function() {

@@ -1893,9 +1893,13 @@ export default {
     },
     onCloudImageSelect: function(file) {
       // 按类型分支插入：图片用 ![]()，音视频用 []()（customRenderer.link 渲染播放器）
-      var type = getMediaTypeByName(file.name);
-      var url = '/api/cloud/files/' + encodeURIComponent(file.name);
-      var md = type === 'image' ? '![' + file.name + '](' + url + ')' : '[' + file.name + '](' + url + ')';
+      var type = file.mime_type
+        ? (file.mime_type.indexOf('image/') === 0 ? 'image' : file.mime_type.indexOf('video/') === 0 ? 'video' : file.mime_type.indexOf('audio/') === 0 ? 'audio' : 'other')
+        : getMediaTypeByName(file.name);
+      if (type === 'other') type = getMediaTypeByName(file.name);
+      var url = file.url || ('/api/cloud/files/' + encodeURIComponent(file.hash || file.name));
+      var displayName = file.display_name || file.name;
+      var md = type === 'image' ? '![' + displayName + '](' + url + ')' : '[' + displayName + '](' + url + ')';
       if (this.commentCloudTarget === 'comment') {
         this.commentText += md;
       } else {
