@@ -159,16 +159,39 @@ export default {
     // 创建 ghost 元素（克隆图标视觉）
     // ghost 被 append 到 document.body，尺寸/圆角由 global.scss 的 .desktop-drag-ghost* 全局样式控制
     // （scoped 样式不作用于 body 上的元素，否则 img 会按自然尺寸 512px 放大）
+    // 支持 app 和 folder 两种源：folder tile 的 data-src-type 是 'page'，需读实际 slot 判断类型
     _createGhost: function(source) {
-      var appMeta = this.$store.getters['desktop/appByName'](source.appName);
       var ghost = document.createElement('div');
       ghost.className = 'desktop-drag-ghost';
-      var imgSrc = appMeta ? appMeta.icon : '';
-      // 移除彩色背景（app.color），图标自带不透明底，与桌面/Dock 视觉统一
-      ghost.innerHTML =
-        '<div class="desktop-drag-ghost-img">' +
-        '<img src="' + imgSrc + '" draggable="false" />' +
-        '</div>';
+      var innerHtml = '';
+
+      // 判断拖拽源是 app 还是 folder（folder tile 的 source.type 也是 'page'）
+      var slotContent = null;
+      if (source.type === 'page') {
+        var layout = this.$store.state.desktop.layout;
+        if (layout && layout.pages[source.pageIndex]) {
+          slotContent = layout.pages[source.pageIndex].slots[source.index];
+        }
+      }
+
+      if (slotContent && slotContent.type === 'folder') {
+        // folder 拖拽 ghost：显示文件夹缩略图（3×3 网格）
+        var folder = this.$store.getters['desktop/folderById'](slotContent.id);
+        var apps = folder ? folder.apps.slice(0, 9) : [];
+        var gridHtml = '';
+        for (var i = 0; i < apps.length; i++) {
+          var meta = this.$store.getters['desktop/appByName'](apps[i]);
+          gridHtml += '<div class="ghost-folder-cell"><img src="' + (meta ? meta.icon : '') + '" draggable="false"/></div>';
+        }
+        innerHtml = '<div class="desktop-drag-ghost-folder">' + gridHtml + '</div>';
+      } else {
+        // app 拖拽 ghost：显示应用图标（移除彩色背景，图标自带不透明底）
+        var appMeta = this.$store.getters['desktop/appByName'](source.appName);
+        var imgSrc = appMeta ? appMeta.icon : '';
+        innerHtml = '<div class="desktop-drag-ghost-img"><img src="' + imgSrc + '" draggable="false"/></div>';
+      }
+
+      ghost.innerHTML = innerHtml;
       // 样式
       ghost.style.position = 'fixed';
       ghost.style.left = '0';
@@ -300,13 +323,24 @@ export default {
 
       // 记录 FLIP 前位置
       var oldRects = this._captureIconRects();
+      var src = this.dragState.source;
+
+      // 构造 from：newAppName 的原位置（用于清源，避免图标在文件夹+桌面双重显示）
+      // 注意：folder 内拖出创建文件夹的场景不存在（folder 内 app 拖到 page 是 MOVE_APP，不触发 CREATE_FOLDER）
+      var fromPayload = null;
+      if (src.type === 'page') {
+        fromPayload = { type: 'page', pageIndex: src.pageIndex, index: src.index };
+      } else if (src.type === 'dock') {
+        fromPayload = { type: 'dock', index: src.index };
+      }
 
       this.$store.commit('desktop/CREATE_FOLDER', {
         pageIndex: targetInfo.pageIndex,
         index: targetInfo.index,
         targetAppName: targetApp,
         newAppName: draggedApp,
-        folderName: '文件夹'
+        folderName: '文件夹',
+        from: fromPayload
       });
 
       // 拖拽结束（图标已并入文件夹）
