@@ -130,27 +130,33 @@
     />
 
     <!-- Dock 栏（transition-group 实现图标进出动画 + 自动扩展/缩减） -->
+    <!-- dock-bar 本身作为 "append" 追加落点（拖到 Dock 空白处即追加到末尾） -->
     <transition-group
       name="dock-slot"
       tag="div"
       class="dock-bar"
-      :class="{ 'dock-bar--editing': isEditMode }"
+      :class="{ 'dock-bar--editing': isEditMode, 'dock-bar--empty': effectiveDockApps.length === 0 }"
+      :data-dst-type="isGridLayout ? 'dock' : null"
+      :data-dst-dock="isGridLayout ? 'append' : null"
     >
+      <div v-if="effectiveDockApps.length === 0" key="dock-empty" class="dock-empty-hint">
+        暂无可用应用
+      </div>
       <div
-        v-for="(name, i) in dockAppNames"
+        v-for="(name, i) in effectiveDockApps"
         :key="'dock-' + name"
         class="dock-slot"
         :class="{ 'dock-slot--launching': launchingApp === name, 'slot--drop-target': isDropTarget('dock', null, i) }"
-        :data-dst-type="'dock'"
-        :data-dst-dock="i"
-        :data-src-type="'dock'"
-        :data-src-dock="i"
-        :data-src-app="name"
+        :data-dst-type="isGridLayout ? 'dock' : null"
+        :data-dst-dock="isGridLayout ? i : null"
+        :data-src-type="isGridLayout ? 'dock' : null"
+        :data-src-dock="isGridLayout ? i : null"
+        :data-src-app="isGridLayout ? name : null"
         :data-flip-key="'dock-' + name"
-        @click="launchApp(appMeta(name))"
+        @click="launchApp(dockAppMeta(name))"
       >
         <div class="dock-icon">
-          <img :src="appMeta(name).icon" :alt="appMeta(name).label" loading="eager">
+          <img :src="dockAppMeta(name).icon" :alt="dockAppMeta(name).label" loading="eager">
         </div>
         <span v-if="appBadges[name]" class="dock-badge" :class="{ 'dock-badge-dot': appBadges[name] === '●' }">{{ appBadges[name] === '●' ? '' : appBadges[name] }}</span>
       </div>
@@ -350,6 +356,41 @@ export default {
       return dockNames.filter(function(name) {
         return this.enabledApps.indexOf(name) !== -1;
       }.bind(this));
+    },
+    // Dock 实际渲染应用列表：
+    //   grid 模式 → 仅 layout.dock（过滤禁用应用）
+    //   dock-only 模式 → 聚合 pinned + dock + 所有 page app + 所有 folder app，去重，按启用列表过滤
+    // dock-only 模式下布局数据不动，切回 grid 自然还原页面/文件夹
+    effectiveDockApps: function() {
+      if (this.isGridLayout) return this.dockAppNames;
+      var layout = this.$store.state.desktop.layout;
+      if (!layout) return [];
+      var enabled = this.enabledApps;
+      var ready = enabled !== null;
+      var seen = {};
+      var result = [];
+      function push(name) {
+        if (!name) return;
+        if (ready && enabled.indexOf(name) === -1) return;
+        if (seen[name]) return;
+        seen[name] = true;
+        result.push(name);
+      }
+      // 1. pinned 优先（固定应用恒定首位）
+      (layout.pinnedApps || []).forEach(push);
+      // 2. Dock 原有顺序
+      layout.dock.forEach(push);
+      // 3. 所有页面 app（按页序、slot 序）
+      layout.pages.forEach(function(p) {
+        p.slots.forEach(function(s) {
+          if (s && s.type === 'app') push(s.name);
+        });
+      });
+      // 4. 所有文件夹内 app（按 folder id 序）
+      Object.keys(layout.folders).sort().forEach(function(fid) {
+        (layout.folders[fid].apps || []).forEach(push);
+      });
+      return result;
     },
     // 固定应用名列表
     pinnedAppNames: function() {

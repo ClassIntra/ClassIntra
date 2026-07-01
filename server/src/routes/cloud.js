@@ -435,19 +435,50 @@ router.use('/guest-upload', function(err, req, res, next) {
   next();
 });
 
-// 列出用户云盘文件（从数据库查询，自动过滤已删除文件）
+// 列出用户云盘文件（从数据库查询，自动过滤已删除文件，支持 ?folder= 筛选）
 router.get('/files', auth.requireAuth, function(req, res) {
   var userId = req.user.user_id;
+  var folderFilter = req.query.folder || '';
 
   try {
-    var files = db.prepare([
-      'SELECT cuf.file_hash, cuf.display_name, cuf.folder, cuf.uploaded_at,',
-      '       cf.size, cf.mime_type, cf.owner_user_id',
-      'FROM cloud_user_files cuf',
-      'JOIN cloud_files cf ON cuf.file_hash = cf.hash',
-      'WHERE cuf.user_id = ? AND cf.deleted = 0',
-      'ORDER BY cuf.uploaded_at DESC'
-    ].join('\n')).all(userId);
+    var sql, params;
+    if (folderFilter === '__root__') {
+      // 仅根目录（folder = ''）
+      sql = [
+        'SELECT cuf.file_hash, cuf.display_name, cuf.folder, cuf.uploaded_at,',
+        '       cf.size, cf.mime_type, cf.owner_user_id',
+        'FROM cloud_user_files cuf',
+        'JOIN cloud_files cf ON cuf.file_hash = cf.hash',
+        'WHERE cuf.user_id = ? AND cf.deleted = 0 AND cuf.folder = \'\'',
+        'ORDER BY cuf.uploaded_at DESC'
+      ].join('\n');
+      params = [userId];
+    } else if (folderFilter) {
+      // 指定分组
+      sql = [
+        'SELECT cuf.file_hash, cuf.display_name, cuf.folder, cuf.uploaded_at,',
+        '       cf.size, cf.mime_type, cf.owner_user_id',
+        'FROM cloud_user_files cuf',
+        'JOIN cloud_files cf ON cuf.file_hash = cf.hash',
+        'WHERE cuf.user_id = ? AND cf.deleted = 0 AND cuf.folder = ?',
+        'ORDER BY cuf.uploaded_at DESC'
+      ].join('\n');
+      params = [userId, folderFilter];
+    } else {
+      // 全部文件
+      sql = [
+        'SELECT cuf.file_hash, cuf.display_name, cuf.folder, cuf.uploaded_at,',
+        '       cf.size, cf.mime_type, cf.owner_user_id',
+        'FROM cloud_user_files cuf',
+        'JOIN cloud_files cf ON cuf.file_hash = cf.hash',
+        'WHERE cuf.user_id = ? AND cf.deleted = 0',
+        'ORDER BY cuf.uploaded_at DESC'
+      ].join('\n');
+      params = [userId];
+    }
+
+    var stmt = db.prepare(sql);
+    var files = stmt.all.apply(stmt, params);
 
     var result = files.map(function(f) {
       return {
@@ -841,6 +872,318 @@ router.post('/save-from-url', auth.requireAuth, function(req, res) {
       url: '/api/cloud/files/' + fileHash,
       existed: refResult.changes === 0
     }
+  });
+});
+
+// ============ 分组（文件夹）管理 ============
+
+// 创建分组
+router.post('/folders', auth.requireAuth, function(req, res) {
+  var userId = req.user.user_id;
+  var name = (req.body.name || '').trim();
+
+  if (!name) {
+    return res.status(400).json({ code: 400, message: '分组名称不能为空' });
+  }
+  if (name.length > 50) {
+    return res.status(400).json({ code: 400, message: '分组名称不能超过50个字符' });
+  }
+
+  try {
+    var result = db.prepare('INSERT INTO cloud_folders (user_id, name) VALUES (?, ?)').run(userId, name);
+    res.json({ code: 200, data: { id: result.lastInsertRowid, name: name } });
+  } catch (e) {
+    if (e.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+      return res.status(400).json({ code: 400, message: '分组名称已存在' });
+    }
+    console.error('[Cloud] 创建分组失败:', e);
+    res.status(500).json({ code: 500, message: '创建分组失败' });
+  }
+});
+
+// 列出我的分组（含文件计数）
+router.get('/folders', auth.requireAuth, function(req, res) {
+  var userId = req.user.user_id;
+
+  try {
+    var folders = db.prepare([
+      'SELECT cf.id, cf.name, cf.share_code, cf.created_at,',
+      '  (SELECT COUNT(*) FROM cloud_user_files cuf2 JOIN cloud_files cfl ON cuf2.file_hash = cfl.hash WHERE cuf2.user_id = ? AND cuf2.folder = cf.name AND cfl.deleted = 0) as file_count',
+      'FROM cloud_folders cf',
+      'WHERE cf.user_id = ?',
+      'ORDER BY cf.created_at ASC'
+    ].join('\n')).all(userId, userId);
+
+    res.json({ code: 200, data: { folders: folders } });
+  } catch (e) {
+    console.error('[Cloud] 列出分组失败:', e);
+    res.json({ code: 200, data: { folders: [] } });
+  }
+});
+
+// 重命名分组
+router.put('/folders/:id', auth.requireAuth, function(req, res) {
+  var userId = req.user.user_id;
+  var folderId = parseInt(req.params.id, 10);
+  var newName = (req.body.name || '').trim();
+
+  if (!newName) {
+    return res.status(400).json({ code: 400, message: '分组名称不能为空' });
+  }
+  if (newName.length > 50) {
+    return res.status(400).json({ code: 400, message: '分组名称不能超过50个字符' });
+  }
+
+  var folder = db.prepare('SELECT * FROM cloud_folders WHERE id = ? AND user_id = ?').get(folderId, userId);
+  if (!folder) {
+    return res.status(404).json({ code: 404, message: '分组不存在' });
+  }
+
+  var oldName = folder.name;
+
+  try {
+    // 更新文件夹名称 + 迁移文件中的 folder 字段
+    db.prepare('UPDATE cloud_folders SET name = ? WHERE id = ? AND user_id = ?').run(newName, folderId, userId);
+    db.prepare('UPDATE cloud_user_files SET folder = ? WHERE user_id = ? AND folder = ?').run(newName, userId, oldName);
+    res.json({ code: 200, data: { id: folderId, name: newName } });
+  } catch (e) {
+    if (e.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+      return res.status(400).json({ code: 400, message: '分组名称已存在' });
+    }
+    console.error('[Cloud] 重命名分组失败:', e);
+    res.status(500).json({ code: 500, message: '重命名失败' });
+  }
+});
+
+// 删除分组（文件回到根目录）
+router.delete('/folders/:id', auth.requireAuth, function(req, res) {
+  var userId = req.user.user_id;
+  var folderId = parseInt(req.params.id, 10);
+
+  var folder = db.prepare('SELECT * FROM cloud_folders WHERE id = ? AND user_id = ?').get(folderId, userId);
+  if (!folder) {
+    return res.status(404).json({ code: 404, message: '分组不存在' });
+  }
+
+  // 文件移回根目录
+  db.prepare('UPDATE cloud_user_files SET folder = \'\' WHERE user_id = ? AND folder = ?').run(userId, folder.name);
+  // 删除分组
+  db.prepare('DELETE FROM cloud_folders WHERE id = ? AND user_id = ?').run(folderId, userId);
+
+  res.json({ code: 200, message: '分组已删除，文件已移回根目录' });
+});
+
+// ============ 批量操作 ============
+
+// 批量移动文件到分组
+router.post('/files/batch-move', auth.requireAuth, function(req, res) {
+  var userId = req.user.user_id;
+  var hashes = req.body.hashes || [];
+  var targetFolder = (req.body.folder || '').trim();
+
+  if (!Array.isArray(hashes) || hashes.length === 0) {
+    return res.status(400).json({ code: 400, message: '请选择至少一个文件' });
+  }
+
+  // 如果移动到非根目录，检查目标分组是否存在
+  if (targetFolder !== '') {
+    var folderExists = db.prepare('SELECT id FROM cloud_folders WHERE user_id = ? AND name = ?').get(userId, targetFolder);
+    if (!folderExists) {
+      return res.status(404).json({ code: 404, message: '目标分组不存在' });
+    }
+  }
+
+  var moved = 0;
+  var updateStmt = db.prepare('UPDATE cloud_user_files SET folder = ? WHERE user_id = ? AND file_hash = ? AND folder != ?');
+  for (var i = 0; i < hashes.length; i++) {
+    var result = updateStmt.run(targetFolder, userId, hashes[i], targetFolder);
+    if (result.changes > 0) moved++;
+  }
+
+  res.json({ code: 200, data: { moved: moved, folder: targetFolder } });
+});
+
+// 批量删除文件（仅移除当前用户引用）
+router.post('/files/batch-delete', auth.requireAuth, function(req, res) {
+  var userId = req.user.user_id;
+  var items = req.body.items || []; // [{hash, is_owner}] 或简单 ['hash1','hash2']
+
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ code: 400, message: '请选择至少一个文件' });
+  }
+
+  var deleted = 0;
+  var ownerDeletes = 0;
+
+  for (var i = 0; i < items.length; i++) {
+    var hash = typeof items[i] === 'string' ? items[i] : items[i].hash;
+    var isOwner = typeof items[i] === 'object' ? items[i].is_owner : false;
+
+    if (!/^[a-f0-9]{64}$/.test(hash)) continue;
+
+    // 删除用户引用
+    var refResult = db.prepare('DELETE FROM cloud_user_files WHERE user_id = ? AND file_hash = ?').run(userId, hash);
+    if (refResult.changes === 0) continue;
+
+    // 如果用户是 owner，执行物理删除
+    if (isOwner) {
+      var file = db.prepare('SELECT owner_user_id, storage_path FROM cloud_files WHERE hash = ? AND deleted = 0').get(hash);
+      if (file && file.owner_user_id === userId) {
+        // 移入 trash
+        ensureDir(path.join(cloudDir, '.trash'));
+        var srcPath = path.join(sharedDir, file.storage_path);
+        var trashPath = path.join(cloudDir, '.trash', hash + path.extname(file.storage_path));
+        try { if (fs.existsSync(srcPath)) fs.renameSync(srcPath, trashPath); } catch (e) {}
+        db.prepare('UPDATE cloud_files SET deleted = 1 WHERE hash = ?').run(hash);
+        db.prepare('DELETE FROM cloud_user_files WHERE file_hash = ?').run(hash);
+        ownerDeletes++;
+      }
+    }
+    deleted++;
+  }
+
+  res.json({
+    code: 200,
+    data: { deleted: deleted, owner_deletes: ownerDeletes },
+    message: '已删除 ' + deleted + ' 个文件' + (ownerDeletes > 0 ? '（含 ' + ownerDeletes + ' 个物理删除）' : '')
+  });
+});
+
+// ============ 分组分享 ============
+
+var SHARE_CODE_CHARS = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
+
+function generateShareCode() {
+  var code = '';
+  for (var i = 0; i < 8; i++) {
+    code += SHARE_CODE_CHARS.charAt(crypto.randomInt(0, SHARE_CODE_CHARS.length));
+  }
+  return code;
+}
+
+function generateUniqueShareCode() {
+  for (var attempt = 0; attempt < 10; attempt++) {
+    var code = generateShareCode();
+    var existing = db.prepare('SELECT id FROM cloud_folders WHERE share_code = ?').get(code);
+    if (!existing) return code;
+  }
+  return generateShareCode();
+}
+
+// 生成/刷新分享码
+router.post('/folders/:id/share', auth.requireAuth, function(req, res) {
+  var userId = req.user.user_id;
+  var folderId = parseInt(req.params.id, 10);
+
+  var folder = db.prepare('SELECT * FROM cloud_folders WHERE id = ? AND user_id = ?').get(folderId, userId);
+  if (!folder) {
+    return res.status(404).json({ code: 404, message: '分组不存在' });
+  }
+
+  var shareCode = generateUniqueShareCode();
+  db.prepare('UPDATE cloud_folders SET share_code = ? WHERE id = ?').run(shareCode, folderId);
+
+  res.json({ code: 200, data: { share_code: shareCode, folder_name: folder.name } });
+});
+
+// 查看分享的分组信息
+router.get('/folders/shared/:code', auth.requireAuth, function(req, res) {
+  var code = (req.params.code || '').toUpperCase();
+
+  var folder = db.prepare('SELECT cf.*, u.net_name as owner_name FROM cloud_folders cf LEFT JOIN users u ON cf.user_id = u.user_id WHERE cf.share_code = ?').get(code);
+  if (!folder) {
+    return res.status(404).json({ code: 404, message: '分享码无效或已失效' });
+  }
+
+  // 获取分组内的文件列表（预览前20个）
+  var files = db.prepare([
+    'SELECT cuf.file_hash, cuf.display_name, cfl.size, cfl.mime_type',
+    'FROM cloud_user_files cuf',
+    'JOIN cloud_files cfl ON cuf.file_hash = cfl.hash',
+    'WHERE cuf.user_id = ? AND cuf.folder = ? AND cfl.deleted = 0',
+    'LIMIT 20'
+  ].join('\n')).all(folder.user_id, folder.name);
+
+  var totalCount = db.prepare([
+    'SELECT COUNT(*) as cnt FROM cloud_user_files cuf',
+    'JOIN cloud_files cfl ON cuf.file_hash = cfl.hash',
+    'WHERE cuf.user_id = ? AND cuf.folder = ? AND cfl.deleted = 0'
+  ].join('\n')).get(folder.user_id, folder.name).cnt;
+
+  res.json({
+    code: 200,
+    data: {
+      folder_name: folder.name,
+      owner_name: folder.owner_name || folder.user_id,
+      total_files: totalCount,
+      preview_files: files.map(function(f) {
+        return {
+          hash: f.file_hash,
+          name: f.display_name,
+          size: f.size,
+          mime_type: f.mime_type
+        };
+      })
+    }
+  });
+});
+
+// 导入分享的分组
+router.post('/folders/import/:code', auth.requireAuth, function(req, res) {
+  var userId = req.user.user_id;
+  var code = (req.params.code || '').toUpperCase();
+
+  var folder = db.prepare('SELECT * FROM cloud_folders WHERE share_code = ?').get(code);
+  if (!folder) {
+    return res.status(404).json({ code: 404, message: '分享码无效或已失效' });
+  }
+
+  if (folder.user_id === userId) {
+    return res.status(400).json({ code: 400, message: '不能导入自己的分组' });
+  }
+
+  // 确保目标分组存在（不存在则创建）
+  var targetFolder = db.prepare('SELECT id FROM cloud_folders WHERE user_id = ? AND name = ?').get(userId, folder.name);
+  if (!targetFolder) {
+    try {
+      var createResult = db.prepare('INSERT INTO cloud_folders (user_id, name) VALUES (?, ?)').run(userId, folder.name);
+      targetFolder = { id: createResult.lastInsertRowid };
+    } catch (e) {
+      // 同名分组可能被并发创建
+      targetFolder = db.prepare('SELECT id FROM cloud_folders WHERE user_id = ? AND name = ?').get(userId, folder.name);
+      if (!targetFolder) {
+        return res.status(500).json({ code: 500, message: '创建目标分组失败' });
+      }
+    }
+  }
+
+  // 批量导入文件引用
+  var sourceFiles = db.prepare([
+    'SELECT cuf.file_hash, cuf.display_name',
+    'FROM cloud_user_files cuf',
+    'JOIN cloud_files cfl ON cuf.file_hash = cfl.hash',
+    'WHERE cuf.user_id = ? AND cuf.folder = ? AND cfl.deleted = 0'
+  ].join('\n')).all(folder.user_id, folder.name);
+
+  var imported = 0;
+  var skipped = 0;
+  var insertStmt = db.prepare('INSERT OR IGNORE INTO cloud_user_files (user_id, file_hash, display_name, folder) VALUES (?, ?, ?, ?)');
+
+  for (var i = 0; i < sourceFiles.length; i++) {
+    var result = insertStmt.run(userId, sourceFiles[i].file_hash, sourceFiles[i].display_name, folder.name);
+    if (result.changes > 0) imported++;
+    else skipped++;
+  }
+
+  res.json({
+    code: 200,
+    data: {
+      folder_name: folder.name,
+      imported: imported,
+      skipped: skipped,
+      total: sourceFiles.length
+    },
+    message: '成功导入 ' + imported + ' 个文件' + (skipped > 0 ? '，' + skipped + ' 个已存在跳过' : '')
   });
 });
 

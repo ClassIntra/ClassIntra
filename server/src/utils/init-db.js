@@ -500,6 +500,20 @@ function initDatabase() {
     ')'
   ].join('\n'));
 
+  // 用户自定义文件分组表
+  db.exec([
+    'CREATE TABLE IF NOT EXISTS cloud_folders (',
+    '  id INTEGER PRIMARY KEY AUTOINCREMENT,',
+    '  user_id TEXT NOT NULL,',
+    '  name TEXT NOT NULL,',
+    '  share_code TEXT DEFAULT NULL,',
+    '  created_at TEXT NOT NULL DEFAULT (datetime(\'now\')),',
+    '  UNIQUE(user_id, name)',
+    ')'
+  ].join('\n'));
+  db.exec('CREATE INDEX IF NOT EXISTS idx_cfolders_user ON cloud_folders(user_id)');
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_cfolders_share ON cloud_folders(share_code) WHERE share_code IS NOT NULL');
+
   // ========== 云盘旧文件自动迁移 ==========
   // 若手动迁移已完成（cloud_migration_done=1），自动跳过
   runCloudMigration();
