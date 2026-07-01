@@ -4,7 +4,7 @@
     :class="{ 'app-icon--editing': editing, 'app-icon--pinned': pinned, 'app-icon--launching': launching }"
     @click="onClick"
   >
-    <div class="app-icon-img-wrap" :style="{ background: app.color }">
+    <div class="app-icon-img-wrap">
       <img :src="app.icon" :alt="app.label" loading="eager" draggable="false" />
       <span v-if="badge" class="app-icon-badge" :class="{ 'app-icon-badge--dot': badge === '●' }">
         {{ badge === '●' ? '' : badge }}
