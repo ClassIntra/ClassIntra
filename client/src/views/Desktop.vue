@@ -619,10 +619,29 @@ export default {
       }
     },
     // ===== 桌面手势入口（转发到 mixin）=====
+    // 判断点击是否落在"空白区域"（非图标/文件夹/Dock/面板）
+    // 编辑态下点击空白 → 退出编辑态（符合手机桌面行为）
+    _isClickOnBlank: function(e) {
+      var target = e.target;
+      if (!target || !target.closest) return true;
+      // 这些元素上的点击不算空白
+      if (target.closest('.app-icon')) return false;
+      if (target.closest('.desktop-folder')) return false;
+      if (target.closest('.dock-slot')) return false;
+      if (target.closest('.desktop-settings-overlay')) return false;
+      if (target.closest('.folder-expand')) return false;
+      if (target.closest('.announcement-float')) return false;
+      // 桌面背景、desktop-pages、desktop-grid、空槽位 → 空白
+      return true;
+    },
     onDesktopTouchStart: function(e) {
       this.onDesktopGestureTouchStart(e);
-      // 编辑态下转发到拖拽引擎
+      // 编辑态下：点击空白退出编辑态，点击图标转发到拖拽引擎
       if (this.isEditMode) {
+        if (this._isClickOnBlank(e)) {
+          this.$store.dispatch('desktop/exitEditMode');
+          return;
+        }
         this.onPointerDown(e);
       }
     },
@@ -634,6 +653,11 @@ export default {
     },
     onDesktopMouseDown: function(e) {
       if (this.isEditMode) {
+        // 点击空白退出编辑态，点击图标转发到拖拽引擎
+        if (this._isClickOnBlank(e)) {
+          this.$store.dispatch('desktop/exitEditMode');
+          return;
+        }
         this.onPointerDown(e);
       }
     },
