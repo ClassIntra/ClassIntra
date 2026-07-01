@@ -83,10 +83,10 @@ export default {
 /* 图标容器 */
 .app-icon-img-wrap {
   position: relative;
-  width: 60px;
-  height: 60px;
+  width: 72px;
+  height: 72px;
   border-radius: var(--radius-xl);
-  overflow: visible;  /* 允许删除按钮/角标溢出 */
+  overflow: visible;  /* 允许角标溢出 */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -223,12 +223,12 @@ export default {
 /* 小屏适配 */
 @media (max-width: 520px), (max-height: 400px) {
   .app-icon-img-wrap {
-    width: 52px;
-    height: 52px;
+    width: 60px;
+    height: 60px;
   }
   .app-icon-label {
     font-size: 11px;
-    max-width: 64px;
+    max-width: 72px;
   }
 }
 </style>
