@@ -205,7 +205,6 @@ export default {
   background: rgba(255, 255, 255, 0.45);
   backdrop-filter: var(--glass-blur-thin);
   -webkit-backdrop-filter: var(--glass-blur-thin);
-  box-shadow: var(--shadow-sm);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -249,8 +248,8 @@ export default {
 /* 文件夹名 */
 .folder-tile-name {
   font-size: 12px;
-  color: #fff;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  color: var(--text-on-wallpaper, #fff);
+  text-shadow: var(--text-shadow-wallpaper, 0 1px 3px rgba(0, 0, 0, 0.6));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -303,7 +302,7 @@ export default {
 .folder-expanded-card {
   width: 80%;
   max-width: 480px;
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--glass-bg, rgba(255, 255, 255, 0.85));
   backdrop-filter: var(--glass-blur-container);
   -webkit-backdrop-filter: var(--glass-blur-container);
   border-radius: var(--radius-2xl);
@@ -313,8 +312,8 @@ export default {
 }
 
 @keyframes folderExpand {
-  0% { opacity: 0; transform: scale(0.5); }
-  100% { opacity: 1; transform: scale(1); }
+  0% { opacity: 0; transform: scale(0.92) translateY(8px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
 }
 
 .folder-expanded-header {

@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿:root {
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿:root {
   /* 主交互色 - iOS System Blue */
   --primary-color: #007AFF;
   --primary-hover: #0066CC;
@@ -53,6 +53,12 @@
   --sidebar-bg: rgba(242, 242, 247, 0.60);
   --glass-bg: rgba(255, 255, 255, 0.55);
   --glass-border: rgba(255, 255, 255, 0.18);
+
+  /* 桌面壁纸上的文字/指示器 token（亮色壁纸场景） */
+  --text-on-wallpaper: #FFFFFF;
+  --text-shadow-wallpaper: 0 1px 3px rgba(0, 0, 0, 0.6);
+  --indicator-dot: rgba(255, 255, 255, 0.4);
+  --indicator-dot-active: #FFFFFF;
 
   /* 毛玻璃参数 - iOS HIG 标准 */
   --glass-blur-container: blur(30px) saturate(180%);

@@ -47,25 +47,45 @@ export default {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 8px;
+  gap: 2px;
   z-index: 50;
   -webkit-tap-highlight-color: transparent;
 }
 
 .page-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.4);
+  width: 20px;
+  height: 20px;
   border: none;
   padding: 0;
   cursor: pointer;
-  transition: all 0.25s var(--ease-standard);
+  background: transparent;
+  position: relative;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.15s var(--ease-standard);
 }
 
-.page-dot--active {
+.page-dot:active {
+  transform: scale(0.85);
+}
+
+/* 视觉圆点（伪元素，保持 6px 视觉 + 24px 触摸目标） */
+.page-dot::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  -webkit-transform: translate(-50%, -50%);
+  transform: translate(-50%, -50%);
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--indicator-dot, rgba(255, 255, 255, 0.4));
+  transition: width 0.25s var(--ease-standard), background-color 0.25s var(--ease-standard);
+}
+
+.page-dot--active::before {
   width: 18px;
-  background: #fff;
+  background: var(--indicator-dot-active, #fff);
 }
 
 .page-add-btn {

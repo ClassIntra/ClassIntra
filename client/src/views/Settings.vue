@@ -437,11 +437,11 @@
                 <div class="about-logo-icon">
                   <i class="fa-solid fa-graduation-cap"></i>
                 </div>
-                <div class="about-logo-text">ClassNet</div>
+                <div class="about-logo-text">ClassIntra</div>
               </div>
               <div class="about-item">
                 <span class="about-label">系统名称</span>
-                <span class="about-value">ClassNet 智慧校园平台</span>
+                <span class="about-value">ClassIntra 智慧校园平台</span>
               </div>
               <div class="about-item">
                 <span class="about-label">版本</span>
@@ -780,11 +780,12 @@ export default {
     resetDesktopLayout: function() {
       var self = this;
       if (self.$modal && self.$modal.confirm) {
-        self.$modal.confirm(
-          '重置桌面布局',
-          '将清除所有图标位置、文件夹和分页，恢复默认布局。确定继续吗？',
-          { confirmText: '重置', cancelText: '取消', danger: true }
-        ).then(function() {
+        self.$modal.confirm({
+          title: '重置桌面布局',
+          message: '将清除所有图标位置、文件夹和分页，恢复默认布局。确定继续吗？',
+          confirmText: '重置',
+          cancelText: '取消'
+        }).then(function() {
           self._performResetDesktop();
         }).catch(function() {});
       } else {

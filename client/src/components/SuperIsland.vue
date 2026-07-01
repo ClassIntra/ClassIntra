@@ -205,7 +205,7 @@ export default {
       if (this.hasMusicPlaying && this.islandMode === 'compact' && !this.musicIslandDismissed) return this.musicCurrentSong ? this.musicCurrentSong.title : '';
       if (this.isOnDesktop && this.broadcastText && this.activeActivities.length === 0) return this.broadcastText;
       if (this.activeActivities.length > 0) return this.activeActivities[0].compactText;
-      if (this.isOnDesktop) return 'ClassNet';
+      if (this.isOnDesktop) return 'ClassIntra';
       return '';
     },
     islandClasses: function() {

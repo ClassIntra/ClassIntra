@@ -3,7 +3,7 @@
     <div class="login-card">
       <div class="login-header">
         <div class="logo-icon">C</div>
-        <h1 class="login-title">ClassNet</h1>
+        <h1 class="login-title">ClassIntra</h1>
         <p class="login-subtitle">智慧校园平台</p>
       </div>
       <form class="login-form" @submit.prevent="handleLogin">

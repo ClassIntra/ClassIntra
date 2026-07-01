@@ -98,7 +98,7 @@ export default {
       this.dragState.currentX = point.x;
       this.dragState.currentY = point.y;
 
-      // 未正式开始：检查阈值
+      // 未正式开始：检查阈值（立即响应，不节流）
       if (!this.dragState.started) {
         var dx = point.x - this.dragState.startX;
         var dy = point.y - this.dragState.startY;
@@ -107,15 +107,20 @@ export default {
         this._beginDrag(e);
       }
 
-      // 阻止默认行为（防止滚动）
+      // 阻止默认行为（防止滚动，立即执行）
       if (e.cancelable) e.preventDefault();
 
-      // 更新 ghost 位置
-      this._updateGhost(point.x, point.y);
-
-      // 落点检测
-      var targetInfo = this._findDropTarget(point.x, point.y);
-      this._updateDropHighlight(targetInfo);
+      // rAF 节流：ghost 位置更新 + 落点检测（这两步较重，每帧执行一次即可）
+      if (this.dragState._rafScheduled) return;
+      this.dragState._rafScheduled = true;
+      var self = this;
+      this._rafId = requestAnimationFrame(function() {
+        if (!self.dragState) return;
+        self.dragState._rafScheduled = false;
+        self._updateGhost(self.dragState.currentX, self.dragState.currentY);
+        var targetInfo = self._findDropTarget(self.dragState.currentX, self.dragState.currentY);
+        self._updateDropHighlight(targetInfo);
+      });
     },
 
     // 正式开始拖拽：创建 ghost、提交 SET_DRAGGING
@@ -166,15 +171,14 @@ export default {
       ghost.style.pointerEvents = 'none';
       ghost.style.zIndex = '9999';
       ghost.style.transform = 'translate(' + this.dragState.startX + 'px,' + this.dragState.startY + 'px)';
-      ghost.style.transition = 'transform 0.05s linear';
       return ghost;
     },
 
     // 更新 ghost 位置（中心对齐指针）
     _updateGhost: function(x, y) {
       if (!this.dragState.ghostEl) return;
-      // ghost 60px，偏移 -30 使中心对齐指针
-      this.dragState.ghostEl.style.transform = 'translate(' + (x - 30) + 'px,' + (y - 30) + 'px) scale(1.1)';
+      // ghost 60px，偏移 -30 使中心对齐指针；scale(1.0) 保持原始尺寸
+      this.dragState.ghostEl.style.transform = 'translate(' + (x - 30) + 'px,' + (y - 30) + 'px) scale(1.0)';
     },
 
     // 落点检测：用 elementFromPoint 找目标槽位
@@ -262,14 +266,15 @@ export default {
       // 应用新高亮
       if (targetInfo && targetInfo.element) {
         targetInfo.element.classList.add('slot--drop-target');
+        this._lastHighlightEl = targetInfo.element;
       }
     },
 
-    // 清除所有落点高亮
+    // 清除所有落点高亮（跟踪当前高亮元素，避免全局 querySelectorAll）
     _clearDropHighlight: function() {
-      var highlighted = document.querySelectorAll('.slot--drop-target');
-      for (var i = 0; i < highlighted.length; i++) {
-        highlighted[i].classList.remove('slot--drop-target');
+      if (this._lastHighlightEl) {
+        this._lastHighlightEl.classList.remove('slot--drop-target');
+        this._lastHighlightEl = null;
       }
     },
 
@@ -334,6 +339,11 @@ export default {
 
     // 清理拖拽状态
     _cleanupDrag: function() {
+      // 取消 rAF 避免悬挂回调
+      if (this._rafId) {
+        cancelAnimationFrame(this._rafId);
+        this._rafId = null;
+      }
       // 清除高亮
       this._clearDropHighlight();
       // 恢复原元素可见性

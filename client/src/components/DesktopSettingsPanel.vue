@@ -33,6 +33,11 @@
               <span class="action-text">添加桌面页</span>
               <span class="action-hint">{{ totalPages }} / {{ maxPages }}</span>
             </button>
+            <button class="settings-action-btn" @click="onRemovePage" :disabled="totalPages <= 1">
+              <i class="fa-solid fa-minus action-icon"></i>
+              <span class="action-text">删除当前页</span>
+              <span class="action-hint">第 {{ currentPage + 1 }} 页</span>
+            </button>
             <button class="settings-action-btn" @click="onTidy">
               <i class="fa-solid fa-broom action-icon"></i>
               <span class="action-text">整理当前页</span>
@@ -69,6 +74,7 @@ export default {
   props: {
     visible: { type: Boolean, default: false },
     totalPages: { type: Number, default: 1 },
+    currentPage: { type: Number, default: 0 },
     maxPages: { type: Number, default: 9 }
   },
   computed: {
@@ -95,23 +101,23 @@ export default {
       if (this.totalPages >= this.maxPages) return;
       this.$emit('add-page');
     },
+    onRemovePage: function() {
+      if (this.totalPages <= 1) return;
+      this.$emit('remove-page');
+    },
     onTidy: function() {
       this.$emit('tidy');
     },
     onReset: function() {
       var self = this;
-      if (this.$modal && this.$modal.confirm) {
-        this.$modal.confirm('重置桌面布局', '将清除所有图标位置和文件夹，恢复默认布局。确定继续吗？', {
-          confirmText: '重置',
-          cancelText: '取消',
-          danger: true
-        }).then(function() {
-          self.$emit('reset');
-        }).catch(function() {});
-      } else {
-        // 降级：直接重置
+      this.$modal.confirm({
+        title: '重置桌面布局',
+        message: '将清除所有图标位置和文件夹，恢复默认布局。确定继续吗？',
+        confirmText: '重置',
+        cancelText: '取消'
+      }).then(function() {
         self.$emit('reset');
-      }
+      }).catch(function() {});
     }
   }
 };
@@ -199,6 +205,7 @@ export default {
 
 .settings-panel-body {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;

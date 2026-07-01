@@ -258,7 +258,7 @@ function initDatabase() {
   var insertBroadcast = db.prepare(
     'INSERT OR IGNORE INTO broadcasts (content, priority) VALUES (?, ?)'
   );
-  insertBroadcast.run('欢迎使用 ClassNet 系统！', 'normal');
+  insertBroadcast.run('欢迎使用 ClassIntra 系统！', 'normal');
 
   // 按班级分组预注册成员（动态提取 6 位 YYCCNN 格式中的 CC 班级号）
   var classMembers = {};

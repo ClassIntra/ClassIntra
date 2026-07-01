@@ -129,8 +129,13 @@
       @add-page="addPage"
     />
 
-    <!-- Dock 栏 -->
-    <div class="dock-bar" :class="{ 'dock-bar--editing': isEditMode }">
+    <!-- Dock 栏（transition-group 实现图标进出动画 + 自动扩展/缩减） -->
+    <transition-group
+      name="dock-slot"
+      tag="div"
+      class="dock-bar"
+      :class="{ 'dock-bar--editing': isEditMode }"
+    >
       <div
         v-for="(name, i) in dockAppNames"
         :key="'dock-' + name"
@@ -149,7 +154,7 @@
         </div>
         <span v-if="appBadges[name]" class="dock-badge" :class="{ 'dock-badge-dot': appBadges[name] === '●' }">{{ appBadges[name] === '●' ? '' : appBadges[name] }}</span>
       </div>
-    </div>
+    </transition-group>
 
     <!-- 文件夹展开层 -->
     <transition name="folder-expand">
@@ -170,10 +175,12 @@
     <DesktopSettingsPanel
       :visible="settingsPanelOpen"
       :total-pages="totalPages"
+      :current-page="currentPage"
       :max-pages="9"
       @close="closeSettingsPanel"
       @done="onSettingsDone"
       @add-page="addPage"
+      @remove-page="removePage"
       @tidy="tidyCurrentPage"
       @reset="resetLayout"
     />
@@ -574,6 +581,10 @@ export default {
     placeholderApp: function(name) {
       return { name: name, label: name, icon: '', color: '#8E8E93', route: '' };
     },
+    // 根据 id 查文件夹对象（委托 store getter，修复模板调用 folderById is not a function）
+    folderById: function(fid) {
+      return this.$store.getters['desktop/folderById'](fid);
+    },
     // ===== 文件夹操作 =====
     openFolder: function(folderId) {
       this.$store.commit('desktop/SET_OPEN_FOLDER', folderId);
@@ -599,23 +610,32 @@ export default {
       var slot = this.pages[pageIndex].slots[index];
       if (!slot || slot.type !== 'app') return;
       var appName = slot.name;
-      if (this.$modal && this.$modal.confirm) {
-        this.$modal.confirm('移除应用', '将"' + (this.appMeta(appName) || {}).label + '"从桌面移除？可在设置中重置布局恢复。', {
-          confirmText: '移除',
-          cancelText: '取消',
-          danger: true
-        }).then(function() {
-          self.$store.commit('desktop/MOVE_APP', {
-            from: { type: 'page', pageIndex: pageIndex, index: index, appName: appName },
-            to: { type: 'page', pageIndex: pageIndex, index: -1 }  // 特殊标记：移除
-          });
-          // 简化：直接置空该槽位
-          var layout = JSON.parse(JSON.stringify(self.$store.state.desktop.layout));
-          layout.pages[pageIndex].slots[index] = null;
-          self.$store.commit('desktop/SET_LAYOUT', layout);
-          self.$store.dispatch('desktop/saveDesktopLayout');
-        }).catch(function() {});
-      }
+      var label = (this.appMeta(appName) || {}).label || appName;
+      this.$modal.confirm({
+        title: '移除应用',
+        message: '将"' + label + '"从桌面移除？可在设置中重置布局恢复。',
+        confirmText: '移除',
+        cancelText: '取消'
+      }).then(function() {
+        self.$store.commit('desktop/REMOVE_APP', { type: 'page', pageIndex: pageIndex, index: index });
+        self.$store.dispatch('desktop/saveDesktopLayout');
+      }).catch(function() {});
+    },
+    // 从 Dock 移除应用（拖到 Dock 删除区或编辑态删除）
+    onRemoveDockApp: function(index) {
+      var self = this;
+      var name = this.dockAppNames[index];
+      if (!name) return;
+      var label = (this.appMeta(name) || {}).label || name;
+      this.$modal.confirm({
+        title: '移除应用',
+        message: '将"' + label + '"从 Dock 移除？可在设置中重置布局恢复。',
+        confirmText: '移除',
+        cancelText: '取消'
+      }).then(function() {
+        self.$store.commit('desktop/REMOVE_APP', { type: 'dock', index: index });
+        self.$store.dispatch('desktop/saveDesktopLayout');
+      }).catch(function() {});
     },
     // ===== 页面管理 =====
     setCurrentPage: function(pageIndex) {
@@ -624,6 +644,24 @@ export default {
     addPage: function() {
       this.$store.commit('desktop/ADD_PAGE');
       this.$store.dispatch('desktop/saveDesktopLayout');
+    },
+    // 删除当前桌面页（仅允许 > 1 页时删除）
+    removePage: function() {
+      var self = this;
+      if (this.totalPages <= 1) {
+        if (this.$store.state.toast) {
+          this.$store.commit('toast/SHOW_TOAST', { message: '至少保留一个桌面', type: 'info' });
+        }
+        return;
+      }
+      this.$modal.confirm({
+        title: '删除桌面页',
+        message: '将删除第 ' + (this.currentPage + 1) + ' 页，页内图标会迁移到其他页面。确定继续吗？',
+        confirmText: '删除',
+        cancelText: '取消'
+      }).then(function() {
+        self.$store.dispatch('desktop/removePage', self.currentPage);
+      }).catch(function() {});
     },
     tidyCurrentPage: function() {
       this.$store.commit('desktop/TIDY_PAGE', this.currentPage);
@@ -977,6 +1015,35 @@ export default {
   transition-duration: 0.12s;
 }
 
+/* transition-group：Dock 图标进出动画（自动扩展/缩减） */
+.dock-slot-move {
+  -webkit-transition: -webkit-transform 0.35s var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
+  transition: transform 0.35s var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
+}
+
+.dock-slot-enter-active {
+  -webkit-transition: opacity 0.3s var(--ease-standard), -webkit-transform 0.3s var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
+  transition: opacity 0.3s var(--ease-standard), transform 0.3s var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
+}
+
+.dock-slot-leave-active {
+  -webkit-transition: opacity 0.25s var(--ease-accelerate), -webkit-transform 0.25s var(--ease-accelerate);
+  transition: opacity 0.25s var(--ease-accelerate), transform 0.25s var(--ease-accelerate);
+  position: absolute;
+}
+
+.dock-slot-enter {
+  opacity: 0;
+  -webkit-transform: scale(0.4);
+  transform: scale(0.4);
+}
+
+.dock-slot-leave-to {
+  opacity: 0;
+  -webkit-transform: scale(0.4);
+  transform: scale(0.4);
+}
+
 .dock-slot.dock-slot--launching {
   -webkit-animation: dockLaunch 0.3s cubic-bezier(0.32, 0.72, 0, 1) forwards;
   animation: dockLaunch 0.3s cubic-bezier(0.32, 0.72, 0, 1) forwards;
@@ -1004,8 +1071,6 @@ export default {
   -webkit-justify-content: center;
   justify-content: center;
   overflow: hidden;
-  -webkit-box-shadow: var(--shadow-sm);
-  box-shadow: var(--shadow-sm);
 }
 
 .dock-icon img {
