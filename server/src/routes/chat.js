@@ -185,16 +185,18 @@ router.get('/groups', function(req, res) {
     function canUserSeeGroup(userId, groupId) {
       var cls = getUserClassId(userId);
       if (cls === 'all') return true;
-      if (typeof cls === 'string' && cls.indexOf('cohort_') === 0) {
-        return groupId.indexOf('class_') === 0;
-      }
-      if (typeof cls === 'string' && cls.indexOf('class_') === 0) {
-        return cls === groupId;
-      }
+      // 仅对班级群（class_ 前缀）做班级归属限制
       if (groupId.indexOf('class_') === 0) {
+        if (typeof cls === 'string' && cls.indexOf('class_') === 0) {
+          return cls === groupId;        // 班管只能看自己班
+        }
+        if (typeof cls === 'string' && cls.indexOf('cohort_') === 0) {
+          return true;                   // 年级长可看所有班级群
+        }
         var groupClass = groupId.substring('class_'.length);
-        return cls === groupClass;
+        return cls === groupClass;       // 学生只能看自己班
       }
+      // 非班级群（用户创建的群聊）：所有人可见
       return true;
     }
     var userGroups = [];

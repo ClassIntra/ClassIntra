@@ -156,15 +156,17 @@ function getUserClassId(userId) {
 
 function canUserSeeGroup(userId, groupId) {
   var cls = getUserClassId(userId);
-  // 班管可见对应班级群
-  if (typeof cls === 'string' && cls.indexOf('class_') === 0) {
-    return cls === groupId;
-  }
-  // 普通学生：从 groupId 提取班级号比较（如 class_08 → 08）
+  // 仅对班级群（class_ 前缀）做班级归属限制
   if (groupId.indexOf('class_') === 0) {
+    // 班管只能看自己班
+    if (typeof cls === 'string' && cls.indexOf('class_') === 0) {
+      return cls === groupId;
+    }
+    // 普通学生：从 groupId 提取班级号比较
     var groupClass = groupId.substring('class_'.length);
     return cls === groupClass;
   }
+  // 非班级群（用户创建的群聊）：所有人可见
   return true;
 }
 
