@@ -8,11 +8,37 @@ var auth = require('../middleware/auth');
 var db = require('../utils/db');
 var transcoder = require('../services/stream-transcoder');
 
+// 图片实时缩放（可选依赖，未安装时回退到原图）
+var sharp = null;
+try { sharp = require('sharp'); } catch (e) { /* sharp 未安装 */ }
+
 // 云盘根目录
 var cloudDir = path.resolve(process.env.RESOURCES_DIR || path.join(__dirname, '../../../Resources'), 'cloud');
 var sharedDir = path.join(cloudDir, 'shared');
 var tmpDir = path.join(cloudDir, '.tmp');
 var trashDir = path.join(cloudDir, '.trash');
+
+// 图片缩放内存缓存（LRU 简单实现，最多 200 条，自动清理）
+var resizeCache = new Map();
+var RESIZE_CACHE_MAX = 200;
+
+function getCachedResize(cacheKey) {
+  var entry = resizeCache.get(cacheKey);
+  if (!entry) return null;
+  // 更新访问时间（LRU）
+  resizeCache.delete(cacheKey);
+  resizeCache.set(cacheKey, entry);
+  return entry.data;
+}
+
+function setCachedResize(cacheKey, data) {
+  if (resizeCache.size >= RESIZE_CACHE_MAX) {
+    // 删除最旧的条目
+    var oldestKey = resizeCache.keys().next().value;
+    resizeCache.delete(oldestKey);
+  }
+  resizeCache.set(cacheKey, { data: data, time: Date.now() });
+}
 
 // 需要转码为 mp4 的视频扩展名（mp4 本身跳过）
 var TRANSCODE_EXTS = ['.mov', '.mkv', '.avi', '.webm', '.3gp'];
@@ -613,6 +639,37 @@ router.get('/files/:param', auth.requireAuth, function(req, res) {
     // 物理文件丢失，标记为已删除
     db.prepare('UPDATE cloud_files SET deleted = 1 WHERE hash = ?').run(fileHash);
     return sendDeletedPlaceholder(res, file.mime_type);
+  }
+
+  // 图片实时缩放（?w= 参数，sharp 可用时生效）
+  var targetWidth = parseInt(req.query.w, 10);
+  if (targetWidth > 0 && sharp && file.mime_type && file.mime_type.indexOf('image/') === 0) {
+    var cacheKey = fileHash + '_w' + targetWidth;
+    var cached = getCachedResize(cacheKey);
+    if (cached) {
+      res.set('Content-Type', file.mime_type);
+      res.set('Cache-Control', 'public, max-age=86400');
+      res.set('X-Resized', '1');
+      return res.send(cached);
+    }
+
+    sharp(filePath).metadata().then(function(metadata) {
+      if (metadata.width <= targetWidth) {
+        // 原图比目标还小，直接发送原图
+        return sendMediaFile(req, res, filePath);
+      }
+      return sharp(filePath).resize({ width: targetWidth, withoutEnlargement: true }).toBuffer().then(function(resized) {
+        setCachedResize(cacheKey, resized);
+        res.set('Content-Type', file.mime_type);
+        res.set('Cache-Control', 'public, max-age=86400');
+        res.set('X-Resized', '1');
+        res.send(resized);
+      });
+    }).catch(function(e) {
+      console.error('[Cloud] 图片缩放失败, 回退原图:', e.message);
+      return sendMediaFile(req, res, filePath);
+    });
+    return; // 异步处理中，不继续执行
   }
 
   return sendMediaFile(req, res, filePath);

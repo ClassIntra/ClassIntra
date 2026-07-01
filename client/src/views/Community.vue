@@ -1906,6 +1906,8 @@ export default {
       var dotIdx = displayName.lastIndexOf('.');
       if (dotIdx > -1) ext = displayName.substring(dotIdx);
       var url = baseUrl.indexOf('.') === -1 ? baseUrl + ext : baseUrl;
+      // 图片附加缩放参数，加快加载
+      if (type === 'image' && url.indexOf('?w=') === -1) url += '?w=800';
       var md = type === 'image' ? '![' + displayName + '](' + url + ')' : '[' + displayName + '](' + url + ')';
       if (this.commentCloudTarget === 'comment') {
         this.commentText += md;

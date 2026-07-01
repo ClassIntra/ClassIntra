@@ -101,7 +101,7 @@
             <i :class="isSelected(file) ? 'fa-solid fa-circle-check' : 'fa-regular fa-circle'"></i>
           </div>
           <div class="file-preview">
-            <img v-if="getMediaType(file) === 'image'" :src="file.url" :alt="file.name" loading="lazy" />
+            <img v-if="getMediaType(file) === 'image'" :src="file.url + '?w=300'" :alt="file.name" loading="lazy" />
             <div v-else-if="getMediaType(file) === 'video'" class="media-thumb video-thumb">
               <i class="fa-solid fa-play"></i>
               <span class="media-thumb-label">视频</span>
@@ -230,7 +230,7 @@
 
     <!-- 媒体预览 -->
     <div v-if="previewFile_data" class="preview-overlay" @click.self="closePreview">
-      <img v-if="previewFile_data.type === 'image'" :src="previewFile_data.url" class="preview-img" />
+      <img v-if="previewFile_data.type === 'image'" :src="previewFile_data.url + '?w=1200'" class="preview-img" />
       <video v-else-if="previewFile_data.type === 'video'" :src="previewFile_data.url" class="preview-video" controls autoplay></video>
       <div v-else-if="previewFile_data.type === 'audio'" class="preview-audio-wrap">
         <div class="audio-icon"><i class="fa-solid fa-music"></i></div>

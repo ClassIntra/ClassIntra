@@ -36,7 +36,7 @@
             class="picker-item"
             @click="selectFile(file)"
           >
-            <img v-if="getFileType(file) === 'image'" :src="file.url" :alt="file.name" loading="lazy" class="picker-img" />
+            <img v-if="getFileType(file) === 'image'" :src="file.url + '?w=300'" :alt="file.name" loading="lazy" class="picker-img" />
             <div v-else-if="getFileType(file) === 'video'" class="picker-icon-card">
               <i class="fa-solid fa-video"></i>
             </div>

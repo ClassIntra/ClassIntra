@@ -66,7 +66,7 @@
             <i :class="isSelected(file) ? 'fa-solid fa-circle-check checked' : 'fa-regular fa-circle'"></i>
           </div>
           <div class="card-preview">
-            <img v-if="getFileType(file) === 'image'" :src="file.url" :alt="file.name" loading="lazy" />
+            <img v-if="getFileType(file) === 'image'" :src="file.url + '?w=400'" :alt="file.name" loading="lazy" />
             <div v-else-if="getFileType(file) === 'video'" class="card-icon video-icon">
               <i class="fa-solid fa-play"></i>
             </div>

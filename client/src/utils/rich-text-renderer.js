@@ -122,7 +122,12 @@ function getVideoMime(url) {
  */
 function generateMediaHtml(url, type) {
   if (type === 'image') {
-    return '<img class="msg-image msg-media" data-media-url="' + url + '" data-media-type="image" src="' + url + '" alt="图片" loading="lazy" decoding="async" width="200" height="200" />';
+    // 云盘图片附加缩放参数，加快加载
+    var src = url;
+    if (url.indexOf('/api/cloud/files/') > -1 && url.indexOf('?w=') === -1) {
+      src = url + '?w=800';
+    }
+    return '<img class="msg-image msg-media" data-media-url="' + url + '" data-media-type="image" src="' + src + '" alt="图片" loading="lazy" decoding="async" width="200" height="200" />';
   }
   if (type === 'video') {
     return '<div class="msg-media-wrapper msg-video-wrapper msg-media" data-media-url="' + url + '" data-media-type="video">' +
