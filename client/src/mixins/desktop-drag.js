@@ -22,6 +22,9 @@ export default {
     onPointerDown: function(e, forcedSource) {
       // 仅编辑态下响应拖拽
       if (!this.$store.state.desktop.isEditMode) return;
+      // dock-only 模式下禁用拖拽：effectiveDockApps 是聚合视图，与 layout.dock 索引不对应，
+      // 拖拽会导致数据错乱；切回 grid 模式可正常重排（layout 未被修改，自然还原）
+      if (this.$store.getters['settings/desktopLayout'] === 'dock') return;
       if (this.$store.state.desktop.isDragging) return;
 
       var source = forcedSource;
@@ -207,7 +210,13 @@ export default {
       var folder = slotEl.getAttribute('data-dst-folder');
       if (page !== null) target.pageIndex = parseInt(page, 10);
       if (idx !== null) target.index = parseInt(idx, 10);
-      if (dock !== null) target.index = parseInt(dock, 10);
+      // dock="append" 表示落点为 dock-bar 空白处（追加到末尾），用 isAppend 标志显式处理
+      if (dock === 'append') {
+        target.isAppend = true;
+        target.index = null;
+      } else if (dock !== null) {
+        target.index = parseInt(dock, 10);
+      }
       if (folder !== null) target.folderId = folder;
 
       // 读取目标槽位当前内容（用于判断空/交换/并入文件夹）
@@ -226,6 +235,8 @@ export default {
         return page.slots[target.index] || null;
       }
       if (target.type === 'dock') {
+        // append 落点视为空（用于追加），不读取现有内容
+        if (target.isAppend) return null;
         return layout.dock[target.index] ? { type: 'app', name: layout.dock[target.index] } : null;
       }
       if (target.type === 'folder') {
@@ -319,14 +330,30 @@ export default {
         return;
       }
 
+      var target = this.dragState.targetInfo;
+      var source = this.dragState.source;
+
+      // Dock 满载拦截：追加到 Dock 且已满 12 且来源非 Dock → 提示并取消
+      // （mutation 保持纯函数，拦截逻辑放在此处；Dock 内重排不受限）
+      if (target && target.type === 'dock' && target.isAppend) {
+        var layout = this.$store.state.desktop.layout;
+        var dockLen = layout && layout.dock ? layout.dock.length : 0;
+        if (dockLen >= 12 && source.type !== 'dock') {
+          if (this.$store.state.toast) {
+            this.$store.commit('toast/SHOW_TOAST', { message: 'Dock 已满（12/12）', type: 'info' });
+          }
+          this._cleanupDrag();
+          return;
+        }
+      }
+
       // 记录 FLIP 前位置
       var oldRects = this._captureIconRects();
 
-      var target = this.dragState.targetInfo;
       if (target) {
         // 提交 MOVE_APP
         this.$store.commit('desktop/MOVE_APP', {
-          from: this.dragState.source,
+          from: source,
           to: target
         });
       }

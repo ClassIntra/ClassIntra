@@ -15,7 +15,7 @@ var APP_REGISTRY = [
 
 // 网格规格
 var MAX_PAGES = 9;
-var MAX_DOCK = 4;
+var MAX_DOCK = 12;  // Dock 可滚动扩展，上限 12
 var SLOTS_PER_PAGE = 24;
 
 // localStorage 缓存键
@@ -290,21 +290,24 @@ var mutations = {
         }
       }
     } else if (to.type === 'dock') {
-      // Dock 满则末尾弹出回当前页
-      layout.dock = layout.dock.filter(function(n) { return n !== null; });
-      if (layout.dock.length >= MAX_DOCK) {
-        var popped = layout.dock.pop();
-        if (popped) pushToFirstEmptySlot(layout.pages[state.currentPage], popped);
-      }
-      // 替换或追加到指定位置
-      if (to.index < layout.dock.length) {
+      // Dock 满载拦截已由 desktop-drag._onDragUp 处理（mutation 保持纯函数）
+      layout.dock = layout.dock.filter(function(n) { return n !== null && n; });
+      if (to.isAppend || to.index >= layout.dock.length) {
+        // 追加到末尾（落点为 dock-bar 空白处 / append 标记）
+        layout.dock.push(appName);
+      } else {
+        // 替换指定位置
         var oldDockApp = layout.dock[to.index];
         layout.dock[to.index] = appName;
         if (oldDockApp) {
-          pushToFirstEmptySlot(layout.pages[state.currentPage], oldDockApp);
+          if (from.type === 'dock') {
+            // Dock 内重排：旧应用回到拖拽来源位置（交换语义，避免被挤出到桌面）
+            layout.dock[from.index] = oldDockApp;
+          } else {
+            // 跨区域：旧应用放回当前页空槽
+            pushToFirstEmptySlot(layout.pages[state.currentPage], oldDockApp);
+          }
         }
-      } else {
-        layout.dock.push(appName);
       }
     } else if (to.type === 'folder') {
       // 并入文件夹（去重，避免拖入产生重复图标）
