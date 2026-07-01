@@ -675,6 +675,41 @@ router.get('/files/:param', auth.requireAuth, function(req, res) {
   return sendMediaFile(req, res, filePath);
 });
 
+// ============ 跨班文件同步 ============
+
+// 供 peer 服务器拉取文件（relay secret 认证）
+router.get('/peer-fetch/:hash', function(req, res) {
+  var relaySecret = (require('../config').relay || {}).secret || '';
+  var authHeader = req.get('X-Relay-Secret') || '';
+
+  if (!relaySecret || authHeader !== relaySecret) {
+    return res.status(403).json({ code: 403, message: '禁止访问' });
+  }
+
+  var hash = req.params.hash;
+  if (!/^[a-f0-9]{64}$/.test(hash)) {
+    return res.status(400).json({ code: 400, message: '无效的哈希' });
+  }
+
+  var file = db.prepare('SELECT storage_path, size, mime_type, original_name, deleted FROM cloud_files WHERE hash = ?').get(hash);
+  if (!file || file.deleted === 1) {
+    return res.status(404).json({ code: 404, message: '文件不存在' });
+  }
+
+  var filePath = path.join(sharedDir, file.storage_path);
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ code: 404, message: '物理文件丢失' });
+  }
+
+  // 流式传输原始文件 + 元信息响应头
+  res.set('Content-Type', file.mime_type || 'application/octet-stream');
+  res.set('Content-Length', file.size);
+  res.set('X-File-Hash', hash);
+  res.set('X-File-Name', encodeURIComponent(file.original_name));
+  res.set('X-File-Mime', file.mime_type || '');
+  fs.createReadStream(filePath).pipe(res);
+});
+
 // 删除文件（区分 owner 删除和取消收藏）
 router.delete('/files/:param', auth.requireAuth, function(req, res) {
   var userId = req.user.user_id;
