@@ -1809,11 +1809,7 @@ export default {
     sendMessage: function(options) {
       var self = this;
       var isForward = !!(options && options.forwardData);
-      var rawContent = isForward ? JSON.stringify(options.forwardData) : self.inputText.trim();
-      // 将云盘媒体标记转换为实际 URL
-      var content = rawContent.replace(/\[cloud-(img|video|audio):([^\]]+)\]/g, function(match, tag, filename) {
-        return '/api/cloud/files/' + encodeURIComponent(filename);
-      });
+      var content = isForward ? JSON.stringify(options.forwardData) : self.inputText.trim();
       var msgType = isForward ? 'community_forward' : 'text';
       if (!content || self.sending) return;
       var user = self.currentUser;
