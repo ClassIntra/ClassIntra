@@ -283,8 +283,8 @@ var mutations = {
             }
           }
         } else if (target.type === 'folder') {
-          // 目标是文件夹：并入
-          if (layout.folders[target.id]) {
+          // 目标是文件夹：并入（去重，避免拖入产生重复图标）
+          if (layout.folders[target.id] && layout.folders[target.id].apps.indexOf(appName) === -1) {
             layout.folders[target.id].apps.push(appName);
           }
         }
@@ -307,7 +307,8 @@ var mutations = {
         layout.dock.push(appName);
       }
     } else if (to.type === 'folder') {
-      if (layout.folders[to.folderId]) {
+      // 并入文件夹（去重，避免拖入产生重复图标）
+      if (layout.folders[to.folderId] && layout.folders[to.folderId].apps.indexOf(appName) === -1) {
         layout.folders[to.folderId].apps.push(appName);
       }
     }
