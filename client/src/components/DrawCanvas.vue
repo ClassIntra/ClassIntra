@@ -90,6 +90,7 @@
 
 <script>
 import CloudImagePicker from '@/components/CloudImagePicker.vue';
+import cloudPickerReceiver from '@/mixins/cloud-picker-receiver';
 
 // ============ 工具函数 ============
 function generateId() {
@@ -132,6 +133,7 @@ var SHAPE_TOOLS = ['rect', 'circle', 'line', 'triangle', 'arrow', 'diamond'];
 
 export default {
   name: 'DrawCanvas',
+  mixins: [cloudPickerReceiver],
   components: {
     CloudImagePicker: CloudImagePicker
   },

@@ -645,10 +645,12 @@ import wsManager from '@/utils/websocket';
 import { autoConnect } from '@/utils/websocket';
 import api from '@/utils/api';
 import richTextRenderer from '@/utils/rich-text-renderer';
+import cloudPickerReceiver from '@/mixins/cloud-picker-receiver';
 var detectMediaType = richTextRenderer.detectMediaType;
 
 export default {
   name: 'Chat',
+  mixins: [cloudPickerReceiver],
   components: {
     ChatBubble: ChatBubble,
     EmojiPicker: EmojiPicker,

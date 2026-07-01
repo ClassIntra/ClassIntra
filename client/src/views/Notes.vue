@@ -1013,6 +1013,7 @@ import AppNavBar from '@/components/AppNavBar.vue';
 import DrawCanvas from '@/components/DrawCanvas.vue';
 import CloudImagePicker from '@/components/CloudImagePicker.vue';
 import api from '@/utils/api';
+import cloudPickerReceiver from '@/mixins/cloud-picker-receiver';
 import LatexRenderer from '@/utils/latex-renderer';
 
 var NOTES_STORAGE_KEY = 'notes_data';
@@ -1166,6 +1167,7 @@ var NOTE_TEMPLATES = [
 
 export default {
   name: 'Notes',
+  mixins: [cloudPickerReceiver],
   components: { AppNavBar: AppNavBar, DrawCanvas: DrawCanvas, CloudImagePicker: CloudImagePicker },
   data: function() {
     return {
