@@ -154,14 +154,16 @@ export default {
     },
 
     // 创建 ghost 元素（克隆图标视觉）
+    // ghost 被 append 到 document.body，尺寸/圆角由 global.scss 的 .desktop-drag-ghost* 全局样式控制
+    // （scoped 样式不作用于 body 上的元素，否则 img 会按自然尺寸 512px 放大）
     _createGhost: function(source) {
       var appMeta = this.$store.getters['desktop/appByName'](source.appName);
       var ghost = document.createElement('div');
       ghost.className = 'desktop-drag-ghost';
       var imgSrc = appMeta ? appMeta.icon : '';
-      var bgColor = appMeta ? appMeta.color : '#8E8E93';
+      // 移除彩色背景（app.color），图标自带不透明底，与桌面/Dock 视觉统一
       ghost.innerHTML =
-        '<div class="desktop-drag-ghost-img" style="background:' + bgColor + '">' +
+        '<div class="desktop-drag-ghost-img">' +
         '<img src="' + imgSrc + '" draggable="false" />' +
         '</div>';
       // 样式
@@ -170,7 +172,8 @@ export default {
       ghost.style.top = '0';
       ghost.style.pointerEvents = 'none';
       ghost.style.zIndex = '9999';
-      ghost.style.transform = 'translate(' + this.dragState.startX + 'px,' + this.dragState.startY + 'px)';
+      // 中心对齐指针（ghost 60px，偏移 -30）；scale(1.0) 保持预设尺寸
+      ghost.style.transform = 'translate(' + (this.dragState.startX - 30) + 'px,' + (this.dragState.startY - 30) + 'px) scale(1.0)';
       return ghost;
     },
 
