@@ -964,7 +964,7 @@ export default {
   -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
   opacity: 0;
-  transition: opacity 0.8s var(--ease-standard);
+  transition: opacity 0.8s var(--ease-standard), -webkit-filter 0.3s var(--ease-standard), filter 0.3s var(--ease-standard);
 }
 
 .desktop-video-wallpaper.video-active {
@@ -978,6 +978,7 @@ export default {
   width: 100%;
   height: 100%;
   z-index: 0;
+  transition: -webkit-filter 0.3s var(--ease-standard), filter 0.3s var(--ease-standard);
 }
 
 /* ===== 多页面容器 ===== */
@@ -1035,6 +1036,13 @@ export default {
 .slot--drop-target {
   background: rgba(255, 255, 255, 0.22);
   box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.55);
+}
+
+/* 编辑态：壁纸轻微变暗+模糊，突出图标层（类似 iOS 编辑态） */
+.desktop--editing .desktop-video-wallpaper,
+.desktop--editing .desktop-static-wallpaper {
+  -webkit-filter: brightness(0.6) blur(4px);
+  filter: brightness(0.6) blur(4px);
 }
 
 /* 编辑态空槽位虚线提示 */
