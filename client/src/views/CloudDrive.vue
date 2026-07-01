@@ -48,17 +48,17 @@
       </div>
 
       <div v-else class="file-grid">
-        <div v-for="file in files" :key="file.name" class="file-card">
+        <div v-for="file in files" :key="file.hash || file.name" class="file-card">
           <div class="file-preview" @click="previewFile(file)">
             <!-- 图片 -->
-            <img v-if="getMediaType(file.name) === 'image'" :src="file.url" :alt="file.name" loading="lazy" />
+            <img v-if="getMediaType(file) === 'image'" :src="file.url" :alt="file.name" loading="lazy" />
             <!-- 视频 -->
-            <div v-else-if="getMediaType(file.name) === 'video'" class="media-thumb video-thumb">
+            <div v-else-if="getMediaType(file) === 'video'" class="media-thumb video-thumb">
               <i class="fa-solid fa-play"></i>
               <span class="media-thumb-label">视频</span>
             </div>
             <!-- 音频 -->
-            <div v-else-if="getMediaType(file.name) === 'audio'" class="media-thumb audio-thumb">
+            <div v-else-if="getMediaType(file) === 'audio'" class="media-thumb audio-thumb">
               <i class="fa-solid fa-music"></i>
               <span class="media-thumb-label">音频</span>
             </div>
@@ -69,7 +69,7 @@
             </div>
           </div>
           <div class="file-info">
-            <span class="file-name">{{ file.name }}</span>
+            <span class="file-name">{{ file.display_name || file.name }}</span>
             <span class="file-size">{{ formatSize(file.size) }}</span>
           </div>
           <button class="file-delete" @click="deleteFile(file)">
@@ -100,15 +100,20 @@ var IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
 var VIDEO_EXTS = ['.mp4', '.mov', '.webm', '.mkv', '.avi', '.3gp'];
 var AUDIO_EXTS = ['.mp3', '.m4a', '.aac', '.wav', '.ogg', '.opus'];
 
-function getMediaType(name) {
-  if (!name) return 'other';
+function getMediaType(file) {
+  if (!file) return 'other';
+  // 优先使用服务端返回的 mime_type（去重存储后文件名不可靠）
+  if (file.mime_type) {
+    if (file.mime_type.indexOf('image/') === 0) return 'image';
+    if (file.mime_type.indexOf('video/') === 0) return 'video';
+    if (file.mime_type.indexOf('audio/') === 0) return 'audio';
+  }
+  // 回退到文件名解析（兼容旧文件）
+  var name = file.name || file.display_name || '';
   var lower = name.toLowerCase();
-  // 优先解析文件名中的类型标记（新格式：<userId>_<ts>_<rand>__audio.webm）
-  // 解决 .webm/.mp4 扩展名歧义：录音产出 audio/webm 也带 .webm 后缀
   if (lower.indexOf('__audio') > -1) return 'audio';
   if (lower.indexOf('__video') > -1) return 'video';
   if (lower.indexOf('__image') > -1) return 'image';
-  // 回退到扩展名（旧文件兼容）
   var ext = '';
   var idx = name.lastIndexOf('.');
   if (idx > -1) ext = name.substring(idx).toLowerCase();
@@ -196,25 +201,30 @@ export default {
     },
     deleteFile: function(file) {
       var self = this;
-      self.$modal.confirm({ message: '确认删除此文件？' }).then(function(result) {
+      // 根据是否为 owner 显示不同的确认文案
+      var confirmMsg = file.is_owner
+        ? '作为文件上传者，删除后所有转存此文件的用户也会失去访问权。确认删除？'
+        : '确认从云盘移除此文件？（仅取消你的收藏，不影响其他人）';
+      self.$modal.confirm({ message: confirmMsg }).then(function(result) {
         if (!result) return;
-        api.delete('/cloud/files/' + encodeURIComponent(file.name)).then(function(res) {
+        var deleteParam = file.hash || file.name;
+        api.delete('/cloud/files/' + encodeURIComponent(deleteParam)).then(function(res) {
           if (res.data.code === 200) {
-            self.files = self.files.filter(function(f) { return f.name !== file.name; });
-            self.$store.commit('toast/SHOW_TOAST', { message: '删除成功', type: 'success' });
+            self.files = self.files.filter(function(f) { return (f.hash || f.name) !== (file.hash || file.name); });
+            self.$store.commit('toast/SHOW_TOAST', { message: res.data.data && res.data.data.owner_delete ? '文件已删除' : '已从云盘移除', type: 'success' });
           }
         }).catch(function() {
-          self.$store.commit('toast/SHOW_TOAST', { message: '删除失败', type: 'error' });
+          self.$store.commit('toast/SHOW_TOAST', { message: '操作失败', type: 'error' });
         });
       });
     },
     previewFile: function(file) {
-      var type = getMediaType(file.name);
+      var type = getMediaType(file);
       if (type === 'other') {
         this.$store.commit('toast/SHOW_TOAST', { message: '暂不支持预览此文件类型', type: 'info' });
         return;
       }
-      this.previewFile_data = { url: file.url, type: type, name: file.name };
+      this.previewFile_data = { url: file.url, type: type, name: file.display_name || file.name };
     },
     closePreview: function() {
       this.previewFile_data = null;

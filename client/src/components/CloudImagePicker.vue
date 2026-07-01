@@ -27,18 +27,18 @@
         <div v-else class="picker-grid">
           <div
             v-for="file in filteredFiles"
-            :key="file.name"
+            :key="file.hash || file.name"
             class="picker-item"
             @click="selectFile(file)"
           >
-            <img v-if="getFileType(file.name) === 'image'" :src="file.url" :alt="file.name" loading="lazy" class="picker-img" />
-            <div v-else-if="getFileType(file.name) === 'video'" class="picker-icon-card">
+            <img v-if="getFileType(file) === 'image'" :src="file.url" :alt="file.name" loading="lazy" class="picker-img" />
+            <div v-else-if="getFileType(file) === 'video'" class="picker-icon-card">
               <i class="fa-solid fa-video"></i>
             </div>
-            <div v-else-if="getFileType(file.name) === 'audio'" class="picker-icon-card picker-audio-card">
+            <div v-else-if="getFileType(file) === 'audio'" class="picker-icon-card picker-audio-card">
               <i class="fa-solid fa-music"></i>
             </div>
-            <div class="picker-name">{{ file.name }}</div>
+            <div class="picker-name">{{ file.display_name || file.name }}</div>
           </div>
         </div>
       </div>
@@ -95,8 +95,16 @@ export default {
         self.$store.commit('toast/SHOW_TOAST', { message: '加载云盘文件失败', type: 'error' });
       });
     },
-    getFileType: function(name) {
-      var lower = (name || '').toLowerCase();
+    getFileType: function(file) {
+      // 优先使用服务端返回的 mime_type
+      if (file && file.mime_type) {
+        if (file.mime_type.indexOf('image/') === 0) return 'image';
+        if (file.mime_type.indexOf('video/') === 0) return 'video';
+        if (file.mime_type.indexOf('audio/') === 0) return 'audio';
+      }
+      // 回退到文件名解析
+      var name = (file && (file.name || file.display_name)) || '';
+      var lower = name.toLowerCase();
       var VID_EXTS = ['.mp4', '.mov', '.webm', '.mkv', '.avi', '.3gp'];
       var AUD_EXTS = ['.mp3', '.m4a', '.aac', '.wav', '.ogg', '.opus'];
       var IMG_EXTS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];

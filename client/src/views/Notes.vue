@@ -1968,12 +1968,13 @@ export default {
     onCloudImageSelect: function(file) {
       var self = this;
       self.showCloudPicker = false;
-      if (!file || !file.name) return;
-      // 构造云盘文件访问 URL
-      var url = '/api/cloud/files/' + encodeURIComponent(file.name);
+      if (!file || !(file.hash || file.name)) return;
+      // 使用 API 返回的 url（新系统基于哈希）或 fallback 构造
+      var url = file.url || ('/api/cloud/files/' + encodeURIComponent(file.hash || file.name));
+      var displayName = file.display_name || file.name;
       // 按文件类型分支：图片用 ![]()，音视频用 []()（customRenderer.link 渲染播放器）
-      var type = self.getCloudFileType(file.name);
-      var md = type === 'image' ? '![' + file.name + '](' + url + ')' : '[' + file.name + '](' + url + ')';
+      var type = self.getCloudFileType(file);
+      var md = type === 'image' ? '![' + displayName + '](' + url + ')' : '[' + displayName + '](' + url + ')';
       var editor = self.$refs.editor;
       if (!editor) {
         // 兜底：追加到末尾
@@ -1997,9 +1998,15 @@ export default {
       });
       self.onFileChange();
     },
-    getCloudFileType: function(name) {
-      // 与 CloudImagePicker.getFileType 保持一致的简化版
-      var lower = (name || '').toLowerCase();
+    getCloudFileType: function(file) {
+      // 优先使用 mime_type，回退到文件名解析
+      if (file && file.mime_type) {
+        if (file.mime_type.indexOf('image/') === 0) return 'image';
+        if (file.mime_type.indexOf('video/') === 0) return 'video';
+        if (file.mime_type.indexOf('audio/') === 0) return 'audio';
+      }
+      var name = (file && (file.name || file.display_name)) || '';
+      var lower = name.toLowerCase();
       if (lower.indexOf('__audio') > -1) return 'audio';
       if (lower.indexOf('__video') > -1) return 'video';
       if (lower.indexOf('__image') > -1) return 'image';
