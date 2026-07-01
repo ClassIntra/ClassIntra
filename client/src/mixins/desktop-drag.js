@@ -198,16 +198,16 @@ export default {
       ghost.style.top = '0';
       ghost.style.pointerEvents = 'none';
       ghost.style.zIndex = '9999';
-      // 中心对齐指针（ghost 60px，偏移 -30）；scale(1.0) 保持预设尺寸
-      ghost.style.transform = 'translate(' + (this.dragState.startX - 30) + 'px,' + (this.dragState.startY - 30) + 'px) scale(1.0)';
+      // 中心对齐指针（ghost 72px，偏移 -36）；scale(1.0) 保持预设尺寸
+      ghost.style.transform = 'translate(' + (this.dragState.startX - 36) + 'px,' + (this.dragState.startY - 36) + 'px) scale(1.0)';
       return ghost;
     },
 
     // 更新 ghost 位置（中心对齐指针）
     _updateGhost: function(x, y) {
       if (!this.dragState.ghostEl) return;
-      // ghost 60px，偏移 -30 使中心对齐指针；scale(1.0) 保持原始尺寸
-      this.dragState.ghostEl.style.transform = 'translate(' + (x - 30) + 'px,' + (y - 30) + 'px) scale(1.0)';
+      // ghost 72px，偏移 -36 使中心对齐指针；scale(1.0) 保持原始尺寸
+      this.dragState.ghostEl.style.transform = 'translate(' + (x - 36) + 'px,' + (y - 36) + 'px) scale(1.0)';
     },
 
     // 落点检测：用 elementFromPoint 找目标槽位

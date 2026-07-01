@@ -1018,8 +1018,8 @@ export default {
 /* 编辑态空槽位虚线提示 */
 .desktop--editing .slot--empty::after {
   content: '';
-  width: 48px;
-  height: 48px;
+  width: 56px;
+  height: 56px;
   border-radius: var(--radius-md);
   border: 1px dashed rgba(255, 255, 255, 0.25);
 }
@@ -1172,8 +1172,8 @@ export default {
 }
 
 .dock-icon {
-  width: 60px;
-  height: 60px;
+  width: 72px;
+  height: 72px;
   border-radius: var(--radius-xl);
   display: -webkit-flex;
   display: flex;
@@ -1246,8 +1246,8 @@ export default {
     margin: 0 6px;
   }
   .dock-icon {
-    width: 52px;
-    height: 52px;
+    width: 60px;
+    height: 60px;
     border-radius: var(--radius-md);
   }
   .dock-badge {
