@@ -9,22 +9,6 @@
           </button>
         </div>
         <div class="settings-panel-body">
-          <!-- 壁纸选择 -->
-          <div class="settings-section">
-            <div class="settings-section-title">壁纸</div>
-            <div class="wallpaper-grid">
-              <button
-                v-for="wp in wallpapers"
-                :key="wp.key"
-                class="wallpaper-thumb"
-                :class="{ 'wallpaper-thumb--active': currentWallpaper === wp.key }"
-                :style="{ background: wp.value }"
-                @click="onSelectWallpaper(wp.key)"
-                :aria-label="wp.label"
-              ></button>
-            </div>
-          </div>
-
           <!-- 桌面操作 -->
           <div class="settings-section">
             <div class="settings-section-title">桌面</div>
@@ -59,16 +43,6 @@
 </template>
 
 <script>
-// 壁纸映射（与 Desktop.vue 保持一致）
-var WALLPAPER_MAP = {
-  'default': { label: '默认', value: 'linear-gradient(135deg, #007AFF 0%, #5AC8FA 50%, #BFEEFF 100%)' },
-  'ocean': { label: '海洋', value: 'linear-gradient(135deg, #003D7A 0%, #007AFF 50%, #5AC8FA 100%)' },
-  'sky': { label: '天空', value: 'linear-gradient(135deg, #0A84FF 0%, #5AC8FA 40%, #BFEEFF 100%)' },
-  'night': { label: '夜晚', value: 'linear-gradient(135deg, #000000 0%, #1C1C1E 50%, #2C2C2E 100%)' },
-  'dawn': { label: '黎明', value: 'linear-gradient(135deg, #FF9500 0%, #FF2D55 30%, #FFCC00 100%)' },
-  'arctic': { label: '极地', value: 'linear-gradient(135deg, #E3F2FD 0%, #BBDEFB 50%, #90CAF9 100%)' }
-};
-
 export default {
   name: 'DesktopSettingsPanel',
   props: {
@@ -77,25 +51,12 @@ export default {
     currentPage: { type: Number, default: 0 },
     maxPages: { type: Number, default: 9 }
   },
-  computed: {
-    wallpapers: function() {
-      return Object.keys(WALLPAPER_MAP).map(function(key) {
-        return { key: key, label: WALLPAPER_MAP[key].label, value: WALLPAPER_MAP[key].value };
-      });
-    },
-    currentWallpaper: function() {
-      return this.$store.state.settings.wallpaper;
-    }
-  },
   methods: {
     onClose: function() {
       this.$emit('close');
     },
     onDone: function() {
       this.$emit('done');
-    },
-    onSelectWallpaper: function(key) {
-      this.$store.commit('settings/SET_WALLPAPER', key);
     },
     onAddPage: function() {
       if (this.totalPages >= this.maxPages) return;
@@ -227,33 +188,6 @@ export default {
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 12px;
-}
-
-/* 壁纸网格 */
-.wallpaper-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  grid-gap: 12px;
-}
-
-.wallpaper-thumb {
-  width: 100%;
-  height: 84px;
-  border-radius: var(--radius-md);
-  border: 2px solid transparent;
-  cursor: pointer;
-  padding: 0;
-  -webkit-tap-highlight-color: transparent;
-  transition: transform 0.15s var(--ease-standard), border-color 0.15s var(--ease-standard);
-}
-
-.wallpaper-thumb:active {
-  transform: scale(0.95);
-}
-
-.wallpaper-thumb--active {
-  border-color: var(--primary-color);
-  box-shadow: 0 0 0 2px var(--primary-light);
 }
 
 /* 操作按钮 */
