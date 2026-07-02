@@ -1,18 +1,49 @@
 <template>
   <div class="island-body">
     <div class="weather-compact-content">
-      <!-- 圆框感叹号（根据预警颜色） -->
-      <i class="fa-solid fa-circle-exclamation iw-exclaim" :style="{ color: alertColor }"></i>
+      <!-- 前方图标：天气图标 或 圆框感叹号 -->
+      <i v-if="weatherIcon" class="fa-solid iw-icon" :class="weatherIcon" :style="{ color: alertColor }"></i>
+      <i v-else class="fa-solid fa-circle-exclamation iw-icon" :style="{ color: alertColor }"></i>
 
       <!-- 单行滚动文字 -->
       <div class="iw-scroll-wrap">
         <span class="iw-scroll-text" ref="scrollText" :style="{ '--scroll-duration': scrollDuration + 'ms' }">{{ scrollContent }}</span>
       </div>
+
+      <!-- 后方感叹号：仅当前方是天气图标时 -->
+      <i v-if="weatherIcon" class="fa-solid fa-circle-exclamation iw-end" :style="{ color: alertColor }"></i>
     </div>
   </div>
 </template>
 
 <script>
+// 事件类型关键词 → FontAwesome 天气图标
+var WEATHER_ICONS = {
+  rain: 'fa-cloud-rain',
+  snow: 'fa-snowflake',
+  thunder: 'fa-bolt',
+  heat: 'fa-temperature-high',
+  cold: 'fa-temperature-low',
+  wind: 'fa-wind',
+  sand: 'fa-tornado',
+  fog: 'fa-smog',
+  ice: 'fa-icicles'
+};
+
+function detectWeather(eventName) {
+  var name = (eventName || '').toLowerCase();
+  if (name.indexOf('雨') > -1 || name.indexOf('rain') > -1) return 'rain';
+  if (name.indexOf('雪') > -1 || name.indexOf('snow') > -1) return 'snow';
+  if (name.indexOf('雷') > -1 || name.indexOf('thunder') > -1) return 'thunder';
+  if (name.indexOf('高温') > -1 || name.indexOf('热') > -1 || name.indexOf('heat') > -1) return 'heat';
+  if (name.indexOf('寒') > -1 || name.indexOf('冷') > -1 || name.indexOf('霜冻') > -1 || name.indexOf('cold') > -1) return 'cold';
+  if (name.indexOf('风') > -1 || name.indexOf('wind') > -1 || name.indexOf('台风') > -1 || name.indexOf('飓风') > -1) return 'wind';
+  if (name.indexOf('沙') > -1 || name.indexOf('尘') > -1 || name.indexOf('dust') > -1 || name.indexOf('sand') > -1) return 'sand';
+  if (name.indexOf('雾') > -1 || name.indexOf('霾') > -1 || name.indexOf('fog') > -1 || name.indexOf('haze') > -1) return 'fog';
+  if (name.indexOf('冰') > -1 || name.indexOf('ice') > -1) return 'ice';
+  return null;
+}
+
 export default {
   name: 'IslandWeatherPanel',
   props: {
@@ -36,6 +67,14 @@ export default {
       // minor=蓝色  moderate=黄色  severe=橙色  extreme=红色
       var sevMap = { minor: '#3B82F6', moderate: '#F59E0B', severe: '#F97316', extreme: '#EF4444' };
       return sevMap[w.severity] || '#F59E0B';
+    },
+
+    // 天气图标：根据事件类型匹配（雨/雪/雷/风/雾/沙/冰/高低温），无匹配返回 null → 用感叹号
+    weatherIcon: function() {
+      var w = this.alert;
+      var eventName = (w && w.eventType && w.eventType.name) || '';
+      var key = detectWeather(eventName);
+      return key ? WEATHER_ICONS[key] : null;
     },
 
     // 滚动内容：headline（预报台+发布时间+预警信号）+ description（详细内容）
@@ -87,10 +126,16 @@ export default {
   height: 100%;
 }
 
-/* 圆框感叹号 */
-.iw-exclaim {
+/* 前方图标（天气图标 或 感叹号） */
+.iw-icon {
   flex-shrink: 0;
   font-size: 18px;
+}
+
+/* 后方感叹号 */
+.iw-end {
+  flex-shrink: 0;
+  font-size: 14px;
 }
 
 /* 单行滚动 */
