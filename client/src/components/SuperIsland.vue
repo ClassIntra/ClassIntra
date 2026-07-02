@@ -90,6 +90,7 @@
           v-else-if="islandMode === 'weather-compact'"
           key="weather-compact"
           :alert="currentWeatherAlert"
+          :startTime="weatherAlertStartTime"
           @dismiss="dismissWeather"
           @request-close="dismissWeather"
         />
@@ -165,7 +166,8 @@ export default {
       // 音乐岛关闭标记
       musicIslandDismissed: false,
       // 天气预警
-      currentWeatherAlert: null
+      currentWeatherAlert: null,
+      weatherAlertStartTime: 0
     };
   },
   computed: {
@@ -339,21 +341,15 @@ export default {
       // 已在显示天气预警中，不重复触发
       if (this.islandMode === 'weather-compact') return;
       this.currentWeatherAlert = alert;
+      this.weatherAlertStartTime = Date.now();
       this.prevMode = this.islandMode;
       this.islandMode = 'weather-compact';
     },
 
     dismissWeather: function() {
       this.currentWeatherAlert = null;
+      this.weatherAlertStartTime = 0;
       this.goCompact();
-      // 天气预警消失后，处理排队中的通知
-      var self = this;
-      self.$nextTick(function() {
-        if (self.notificationQueue && self.notificationQueue.length > 0) {
-          var next = self.notificationQueue.shift();
-          if (next) self.showNotification(next);
-        }
-      });
     },
 
     handleClick: function() {
