@@ -216,6 +216,8 @@ export default {
       if (sourceEl) {
         sourceEl.style.visibility = 'hidden';
         this._dragSourceEl = sourceEl;
+        // 缓存源元素位置（拖拽期间源位置不变，避免让位动画每帧 getBoundingClientRect 强制布局）
+        this.dragState.srcRect = sourceEl.getBoundingClientRect();
       }
       // 从文件夹内拖出图标时，立即收起文件夹展开态
       // 否则全屏 overlay（z-index:1000）会拦截 elementFromPoint，导致落点检测永远返回 null
@@ -358,10 +360,17 @@ export default {
 
     // 更新落点高亮 + 文件夹悬停计时 + 让位动画
     _updateDropHighlight: function(targetInfo) {
-      // 清除旧高亮和旧让位
-      this._clearDropHighlight();
-
       var newKey = targetInfo ? (targetInfo.type + ':' + (targetInfo.pageIndex !== undefined ? targetInfo.pageIndex : '') + ':' + (targetInfo.index !== undefined ? targetInfo.index : '') + ':' + (targetInfo.folderId || '')) : '';
+
+      // 性能优化：目标未变化时跳过 DOM 操作（避免每帧 classList.add/remove + transform 重算）
+      // folderHoverTimer 已在首次命中时启动，无需重复设置
+      if (newKey === this.dragState.lastTargetKey) {
+        this.dragState.targetInfo = targetInfo;
+        return;
+      }
+
+      // 目标变化：清除旧高亮和旧让位
+      this._clearDropHighlight();
 
       // 文件夹创建检测：目标是 app 类型槽位时启动悬停计时
       if (targetInfo && targetInfo.type === 'page' && targetInfo.slotContent && targetInfo.slotContent.type === 'app') {
@@ -369,14 +378,12 @@ export default {
         var src = this.dragState.source;
         var isSameSlot = src.type === 'page' && src.pageIndex === targetInfo.pageIndex && src.index === targetInfo.index;
         if (!isSameSlot) {
-          if (this.dragState.lastTargetKey !== newKey) {
-            // 重置计时
-            if (this.dragState.folderHoverTimer) clearTimeout(this.dragState.folderHoverTimer);
-            var self = this;
-            this.dragState.folderHoverTimer = setTimeout(function() {
-              self._createFolderFromHover(targetInfo);
-            }, FOLDER_HOVER_MS);
-          }
+          // 重置计时
+          if (this.dragState.folderHoverTimer) clearTimeout(this.dragState.folderHoverTimer);
+          var self = this;
+          this.dragState.folderHoverTimer = setTimeout(function() {
+            self._createFolderFromHover(targetInfo);
+          }, FOLDER_HOVER_MS);
         }
       } else {
         if (this.dragState.folderHoverTimer) {
@@ -386,7 +393,7 @@ export default {
       }
 
       // 目标变化时触觉反馈（手机桌面标准行为）
-      var targetChanged = newKey && newKey !== this.dragState.lastTargetKey;
+      var targetChanged = !!newKey;
       this.dragState.targetInfo = targetInfo;
       this.dragState.lastTargetKey = newKey;
 
@@ -426,6 +433,13 @@ export default {
           src.pageIndex === targetInfo.pageIndex && src.index === targetInfo.index) return;
       if (src.type === 'dock' && targetInfo.type === 'dock' && src.index === targetInfo.index) return;
 
+      // 跨页拖拽场景跳过让位动画：源图标不在当前可视页面，srcRect 已失效
+      // （切页时 _doPageSwitch 已清高亮和让位；这里再保险一道，避免错误位移）
+      if (src.type === 'page' && targetInfo.type === 'page' &&
+          src.pageIndex !== targetInfo.pageIndex) return;
+      // 从文件夹内拖出的图标没有"原位置"概念（文件夹已收起），跳过让位
+      if (src.type === 'folder') return;
+
       // 找到目标槽位内的图标元素
       var slotEl = targetInfo.element;
       var iconEl = slotEl.querySelector('.app-icon') ||
@@ -433,10 +447,10 @@ export default {
                    slotEl.querySelector('.dock-icon');
       if (!iconEl) return;
 
-      // 获取被拖图标原位置
-      var srcEl = this._findSourceElement(src);
-      if (!srcEl) return;
-      var srcRect = srcEl.getBoundingClientRect();
+      // 使用拖拽开始时缓存的源位置（避免每帧 getBoundingClientRect 强制布局）
+      // srcRect 在 _beginDrag 中一次性缓存，拖拽期间源位置不变
+      var srcRect = this.dragState.srcRect;
+      if (!srcRect) return;
       var tgtRect = slotEl.getBoundingClientRect();
 
       // 方向：从目标指向源（目标图标向源位置位移，模拟"去交换"）
