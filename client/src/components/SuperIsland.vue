@@ -571,32 +571,33 @@ export default {
 }
 
 .island-mode-music-compact {
-  min-width: 140px;
-  max-width: 220px;
-  border-radius: var(--radius-pill);
-  padding: 4px 12px 4px 4px;
+  min-width: 120px;
+  max-width: 260px;
+  border-radius: 40px;
+  padding: 0 16px 0 4px;
   display: inline-flex;
   align-items: center;
   box-shadow: var(--shadow-lg), 0 0 0 0.5px var(--separator-color) inset;
 }
 
 .island-mode-music-compact:hover {
-  transform: scale(1.04);
+  transform: scale(1.03);
 }
 
 /* ===== Weather Compact ===== */
 .island-mode-weather-compact {
-  min-width: 180px;
+  min-width: 120px;
   max-width: 320px;
-  border-radius: var(--radius-pill);
-  padding: 4px 8px 4px 6px;
+  height: 40px;
+  border-radius: 40px;
+  padding: 0 16px 0 8px;
   display: inline-flex;
   align-items: center;
   box-shadow: var(--shadow-lg), 0 0 0 0.5px var(--separator-color) inset;
 }
 
 .island-mode-weather-compact:hover {
-  transform: scale(1.04);
+  transform: scale(1.03);
 }
 
 .island-mode-music-expanded {

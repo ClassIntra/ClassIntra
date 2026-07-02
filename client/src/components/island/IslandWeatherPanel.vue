@@ -125,6 +125,7 @@ export default {
   gap: 6px;
   overflow: hidden;
   width: 100%;
+  height: 100%;
 }
 
 /* 天气 SVG 图标（无边框） */
@@ -158,6 +159,7 @@ export default {
   font-weight: 500;
   color: rgba(255, 255, 255, 0.85);
   white-space: nowrap;
+  line-height: 40px;
   animation: iw-marquee var(--scroll-duration, 12s) linear forwards;
 }
 
