@@ -1013,7 +1013,7 @@ router.get('/profile', function(req, res) {
     return res.status(404).json({ code: 404, message: '用户不存在' });
   }
   try { user.privacy_settings = JSON.parse(user.privacy_settings || '{}'); } catch (e) { user.privacy_settings = {}; }
-  try { var info = JSON.parse(user.info_json || '{}'); user.birthday = info.birthday || ''; } catch (e) { user.birthday = ''; }
+  try { var info = JSON.parse(user.info_json || '{}'); user.birthday = info.birthday || ''; user.last_birthday_change = info._last_birthday_change || ''; } catch (e) { user.birthday = ''; user.last_birthday_change = ''; }
   delete user.info_json;
   res.json({ code: 200, message: 'ok', data: user });
 });
@@ -1037,7 +1037,26 @@ router.put('/profile', function(req, res) {
     var currentInfo = db.prepare('SELECT info_json FROM users WHERE user_id = ?').get(userId);
     var infoObj = {};
     try { infoObj = JSON.parse(currentInfo.info_json || '{}'); } catch (e) { console.error('[Community] Operation failed:', e.message); }
-    infoObj.birthday = req.body.birthday;
+
+    // 生日每月只能修改一次
+    var oldBirthday = infoObj.birthday || '';
+    var newBirthday = String(req.body.birthday).trim();
+    if (newBirthday !== oldBirthday) {
+      var lastChange = infoObj._last_birthday_change || '';
+      if (lastChange) {
+        var now = new Date();
+        var lastChangeDate = new Date(lastChange);
+        var currentMonth = now.getFullYear() + '-' + (now.getMonth() + 1);
+        var lastChangeMonth = lastChangeDate.getFullYear() + '-' + (lastChangeDate.getMonth() + 1);
+        if (currentMonth === lastChangeMonth) {
+          return res.status(400).json({ code: 400, message: '本月已修改过生日，请下个月再试', data: null });
+        }
+      }
+      // 记录本次修改时间
+      infoObj._last_birthday_change = new Date().toISOString();
+    }
+
+    infoObj.birthday = newBirthday;
     fields.push('info_json = ?');
     values.push(JSON.stringify(infoObj));
   }
