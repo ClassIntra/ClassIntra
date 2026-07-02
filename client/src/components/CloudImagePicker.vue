@@ -20,6 +20,17 @@
         <button class="picker-tab" :class="{ active: mediaFilter === 'video' }" @click="mediaFilter = 'video'"><i class="fa-solid fa-video"></i> 视频</button>
         <button class="picker-tab" :class="{ active: mediaFilter === 'audio' }" @click="mediaFilter = 'audio'"><i class="fa-solid fa-music"></i> 音频</button>
       </div>
+      <div v-if="folders.length > 0" class="picker-folder-tabs">
+        <button class="picker-folder-tab" :class="{ active: folderFilter === 'all' }" @click="folderFilter = 'all'">全部分组</button>
+        <button class="picker-folder-tab" :class="{ active: folderFilter === '__root__' }" @click="folderFilter = '__root__'">未分组</button>
+        <button
+          v-for="f in folders"
+          :key="f.id"
+          class="picker-folder-tab"
+          :class="{ active: folderFilter === f.name }"
+          @click="folderFilter = f.name"
+        >{{ f.name }}</button>
+      </div>
       <div class="picker-content">
         <div v-if="loading" class="picker-loading">
           <i class="fa-solid fa-spinner fa-spin"></i>
@@ -59,15 +70,23 @@ export default {
   data: function() {
     return {
       files: [],
+      folders: [],
       loading: true,
       searchQuery: '',
-      mediaFilter: 'all'
+      mediaFilter: 'all',
+      folderFilter: 'all'
     };
   },
   computed: {
     filteredFiles: function() {
       var self = this;
       var result = self.files;
+      // 分组筛选
+      if (self.folderFilter === '__root__') {
+        result = result.filter(function(f) { return !f.folder; });
+      } else if (self.folderFilter !== 'all') {
+        result = result.filter(function(f) { return f.folder === self.folderFilter; });
+      }
       // 类型筛选
       if (self.mediaFilter !== 'all') {
         result = result.filter(function(file) {
@@ -86,9 +105,17 @@ export default {
     }
   },
   mounted: function() {
+    this.loadFolders();
     this.loadFiles();
   },
   methods: {
+    loadFolders: function() {
+      var self = this;
+      api.get('/cloud/folders').then(function(res) {
+        var data = res.data && res.data.data;
+        self.folders = (data && data.folders) || [];
+      }).catch(function() {});
+    },
     loadFiles: function() {
       var self = this;
       self.loading = true;
@@ -262,6 +289,24 @@ export default {
   background: var(--primary-color); color: #fff;
 }
 .picker-tab i { margin-right: 3px; }
+
+/* 分组标签 */
+.picker-folder-tabs {
+  display: flex; gap: 4px; padding: 6px 20px;
+  overflow-x: auto; white-space: nowrap;
+  -webkit-overflow-scrolling: touch;
+}
+.picker-folder-tab {
+  padding: 4px 10px; border-radius: var(--radius-pill);
+  font-size: 11px; color: var(--text-tertiary);
+  background: transparent; border: 1px solid var(--border-color);
+  cursor: pointer; flex-shrink: 0;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.picker-folder-tab.active {
+  background: var(--primary-color); color: #fff;
+  border-color: var(--primary-color);
+}
 
 /* 视频/音频图标卡片 */
 .picker-icon-card {
