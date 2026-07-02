@@ -64,19 +64,11 @@
               <div class="form-row">
                 <label class="form-label">生日</label>
                 <div class="form-input-group">
-                  <input v-model="profileForm.birthday" type="date" class="form-input" :disabled="birthdayChangedThisMonth" :title="birthdayChangedThisMonth ? '本月已修改过生日（' + lastBirthdayChangeText + '），请下个月再试' : ''" />
+                  <input v-model="profileForm.birthday" type="date" class="form-input" :disabled="birthdayChangedThisMonth" :title="birthdayChangedThisMonth ? '本月已修改过生日，请下个月再试' : ''" />
                   <button class="privacy-toggle" :class="{ private: profileForm.birthday_private }" @click="togglePrivacy('birthday')" :title="profileForm.birthday_private ? '当前仅自己可见，点击公开' : '当前公开可见，点击设为私密'">
                     <i :class="profileForm.birthday_private ? 'fa-solid fa-lock' : 'fa-solid fa-lock-open'"></i>
                   </button>
                 </div>
-                <p v-if="birthdayChangedThisMonth" class="form-hint form-hint--warn">
-                  <i class="fa-solid fa-circle-info"></i>
-                  本月（{{ lastBirthdayChangeText }}）已修改过生日，每月仅可修改一次
-                </p>
-                <p v-else class="form-hint">
-                  <i class="fa-solid fa-circle-info"></i>
-                  生日每月仅可修改一次，修改后将在生日当天触发桌面庆祝动画
-                </p>
               </div>
               <div class="form-row">
                 <label class="form-label">微信号</label>
@@ -497,6 +489,14 @@
       </div>
     </div>
 
+    <!-- 生日限制底部警告栏 -->
+    <transition name="warnbar-slide">
+      <div v-if="birthdayChangedThisMonth" class="birthday-warn-bar">
+        <i class="fa-solid fa-circle-info"></i>
+        <span>本月（{{ lastBirthdayChangeText }}）已修改过生日，每月仅可修改一次，请下个月再试</span>
+      </div>
+    </transition>
+
     <!-- 生日修改确认弹窗 -->
     <transition name="modal-fade">
       <div v-if="showBirthdayConfirm" class="modal-overlay" @click.self="cancelBirthdayConfirm">
@@ -781,6 +781,8 @@ export default {
         })
         .then(function() {
           self.$store.commit('toast/SHOW_TOAST', { message: '个人信息保存成功', type: 'success' });
+          // 重新加载 profile 以刷新生日限制状态
+          self.loadProfile();
         })
         .catch(function(err) {
           // 回滚：如果网名已更新但后续失败，恢复原网名
@@ -2406,22 +2408,41 @@ export default {
   margin-top: 1px;
 }
 
-/* ========== 表单提示文字 ========== */
-.form-hint {
-  font-size: 12px;
-  color: var(--text-tertiary);
-  margin-top: 4px;
+/* ========== 生日限制底部警告栏 ========== */
+.birthday-warn-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 500;
   display: flex;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 20px;
+  background: rgba(255, 152, 0, 0.95);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: 0 -2px 12px rgba(255, 152, 0, 0.3);
+  letter-spacing: 0.3px;
 }
 
-.form-hint--warn {
-  color: #e67e22;
+.birthday-warn-bar i {
+  font-size: 16px;
 }
 
-.form-hint i {
-  font-size: 11px;
+/* 底部栏滑入动画 */
+.warnbar-slide-enter-active {
+  transition: all 0.35s cubic-bezier(0.25, 0.8, 0.25, 1.2);
+}
+.warnbar-slide-leave-active {
+  transition: all 0.25s ease-in;
+}
+.warnbar-slide-enter-from,
+.warnbar-slide-leave-to {
+  transform: translateY(100%);
+  opacity: 0;
 }
 
 /* ========== 模态框通用样式（与 Notes.vue 一致） ========== */
