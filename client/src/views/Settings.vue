@@ -69,14 +69,6 @@
                     <i :class="profileForm.birthday_private ? 'fa-solid fa-lock' : 'fa-solid fa-lock-open'"></i>
                   </button>
                 </div>
-                <p v-if="birthdayChangedThisMonth" class="form-hint form-hint--warn">
-                  <i class="fa-solid fa-circle-info"></i>
-                  本月（{{ lastBirthdayChangeText }}）已修改过生日，每月仅可修改一次
-                </p>
-                <p v-else class="form-hint">
-                  <i class="fa-solid fa-circle-info"></i>
-                  生日每月仅可修改一次，修改后将在生日当天触发桌面庆祝动画
-                </p>
               </div>
               <div class="form-row">
                 <label class="form-label">微信号</label>
