@@ -1,7 +1,7 @@
 <template>
-  <div class="browser-page">
+  <div class="browser-page" :class="{ 'browser-fullscreen': isFullscreen }">
     <!-- 顶部工具栏：返回 + 地址栏 + 转到 + 收藏 + 全屏 -->
-    <div class="browser-toolbar">
+    <div v-if="!isFullscreen" class="browser-toolbar">
       <button class="browser-btn" @click="goBack" title="返回">
         <i class="fa-solid fa-chevron-left"></i>
       </button>
@@ -200,24 +200,11 @@ export default {
     self.history = loadFromStorage(HISTORY_KEY);
     self.bookmarks = loadFromStorage(BOOKMARKS_KEY);
     self.homepage = localStorage.getItem(HOMEPAGE_KEY) || '';
-    // 监听全屏变化（用户按 Esc 退出全屏时同步状态）
-    var fullscreenHandler = function() {
-      self.isFullscreen = !!(document.fullscreenElement || document.webkitFullscreenElement);
-    };
-    document.addEventListener('fullscreenchange', fullscreenHandler);
-    document.addEventListener('webkitfullscreenchange', fullscreenHandler);
-    self._fullscreenHandler = fullscreenHandler;
     var url = self.$route.query.url || '';
     if (url) {
       self.navigateTo(url);
     } else if (self.homepage) {
       self.navigateTo(self.homepage);
-    }
-  },
-  beforeDestroy: function() {
-    if (this._fullscreenHandler) {
-      document.removeEventListener('fullscreenchange', this._fullscreenHandler);
-      document.removeEventListener('webkitfullscreenchange', this._fullscreenHandler);
     }
   },
   methods: {
@@ -301,21 +288,7 @@ export default {
       this.showHomepageInput = false;
     },
     toggleFullscreen: function() {
-      var self = this;
-      if (self.isFullscreen) {
-        if (document.exitFullscreen) {
-          document.exitFullscreen();
-        } else if (document.webkitExitFullscreen) {
-          document.webkitExitFullscreen();
-        }
-      } else {
-        var el = self.$el;
-        if (el.requestFullscreen) {
-          el.requestFullscreen();
-        } else if (el.webkitRequestFullscreen) {
-          el.webkitRequestFullscreen();
-        }
-      }
+      this.isFullscreen = !this.isFullscreen;
     }
   }
 };
@@ -652,7 +625,19 @@ export default {
 }
 .homepage-save-btn:hover { background: var(--primary-hover); }
 
-/* ========== 全屏浮动退出按钮 ========== */
+/* ========== CSS 全屏模式 ========== */
+.browser-fullscreen .browser-content {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  z-index: 10000;
+  background: #000;
+}
+.browser-fullscreen .browser-iframe {
+  width: 100%;
+  height: 100%;
+}
+
+/* 全屏浮动退出按钮 */
 .browser-float-exit {
   position: fixed;
   top: 12px;
