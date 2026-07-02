@@ -1,8 +1,8 @@
 <template>
   <div class="island-body">
     <div class="weather-compact-content">
-      <!-- 前方图标：天气图标 或 圆框感叹号 -->
-      <i v-if="weatherIcon" class="fa-solid iw-icon" :class="weatherIcon" :style="{ color: alertColor }"></i>
+      <!-- 前方图标：天气 SVG 图标（无边框） 或 圆框感叹号 -->
+      <WeatherIcon v-if="weatherCode" :code="weatherCode" :size="20" class="iw-weather-svg" />
       <i v-else class="fa-solid fa-circle-exclamation iw-icon" :style="{ color: alertColor }"></i>
 
       <!-- 单行滚动文字 -->
@@ -10,24 +10,26 @@
         <span class="iw-scroll-text" ref="scrollText" :style="{ '--scroll-duration': scrollDuration + 'ms' }">{{ scrollContent }}</span>
       </div>
 
-      <!-- 后方感叹号：仅当前方是天气图标时 -->
-      <i v-if="weatherIcon" class="fa-solid fa-circle-exclamation iw-end" :style="{ color: alertColor }"></i>
+      <!-- 后方感叹号：仅当前方是天气 SVG 图标时 -->
+      <i v-if="weatherCode" class="fa-solid fa-circle-exclamation iw-end" :style="{ color: alertColor }"></i>
     </div>
   </div>
 </template>
 
 <script>
-// 事件类型关键词 → FontAwesome 天气图标
-var WEATHER_ICONS = {
-  rain: 'fa-cloud-rain',
-  snow: 'fa-snowflake',
-  thunder: 'fa-bolt',
-  heat: 'fa-temperature-high',
-  cold: 'fa-temperature-low',
-  wind: 'fa-wind',
-  sand: 'fa-tornado',
-  fog: 'fa-smog',
-  ice: 'fa-icicles'
+import WeatherIcon from '@/components/WeatherIcon.vue';
+
+// 事件类型关键词 → 和风天气图标代码
+var EVENT_CODE_MAP = {
+  rain: '306',     // 雨
+  snow: '400',     // 雪
+  thunder: '302',  // 雷雨
+  heat: '900',     // 高温
+  cold: '901',     // 寒潮
+  wind: '300',     // 大风
+  sand: '503',     // 沙尘
+  fog: '500',      // 雾
+  ice: '404'       // 冻雨/冰
 };
 
 function detectWeather(eventName) {
@@ -46,6 +48,9 @@ function detectWeather(eventName) {
 
 export default {
   name: 'IslandWeatherPanel',
+  components: {
+    WeatherIcon: WeatherIcon
+  },
   props: {
     alert: { type: Object, default: null },
     startTime: { type: Number, default: 0 }
@@ -69,12 +74,12 @@ export default {
       return sevMap[w.severity] || '#F59E0B';
     },
 
-    // 天气图标：根据事件类型匹配（雨/雪/雷/风/雾/沙/冰/高低温），无匹配返回 null → 用感叹号
-    weatherIcon: function() {
+    // 天气图标代码：根据事件类型匹配，无匹配返回 null → 用感叹号
+    weatherCode: function() {
       var w = this.alert;
       var eventName = (w && w.eventType && w.eventType.name) || '';
       var key = detectWeather(eventName);
-      return key ? WEATHER_ICONS[key] : null;
+      return key ? EVENT_CODE_MAP[key] : null;
     },
 
     // 滚动内容：headline（预报台+发布时间+预警信号）+ description（详细内容）
@@ -126,7 +131,12 @@ export default {
   height: 100%;
 }
 
-/* 前方图标（天气图标 或 感叹号） */
+/* 天气 SVG 图标 */
+.iw-weather-svg {
+  flex-shrink: 0;
+}
+
+/* 前方感叹号 */
 .iw-icon {
   flex-shrink: 0;
   font-size: 18px;
