@@ -70,7 +70,8 @@ export default {
         var c = w.color;
         return 'rgba(' + c.red + ',' + c.green + ',' + c.blue + ',' + (c.alpha != null ? c.alpha : 1) + ')';
       }
-      var sevMap = { minor: '#3B82F6', moderate: '#F59E0B', severe: '#EF4444', extreme: '#9333EA' };
+      var sevMap = { minor: '#3B82F6', moderate: '#F59E0B', severe: '#F97316', extreme: '#EF4444' };
+      // minor=蓝色预警  moderate=黄色预警  severe=橙色预警  extreme=红色预警
       return sevMap[w.severity] || '#F59E0B';
     },
 
