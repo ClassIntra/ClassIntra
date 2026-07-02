@@ -62,6 +62,7 @@
             @click="switchFolder(folder.name)"
             @contextmenu.prevent="showFolderMenu($event, folder)"
           >
+            <i v-if="folder.hide_from_all" class="fa-solid fa-eye-slash folder-hidden-icon" title="不在全部中显示"></i>
             {{ folder.name }}
             <span class="folder-count">{{ folder.file_count }}</span>
           </button>
@@ -74,6 +75,10 @@
       <!-- 分组操作菜单 -->
       <div v-if="folderMenu.target" class="folder-context-menu" :style="folderMenu.style" @click.stop>
         <button @click="renameFolder(folderMenu.target)"><i class="fa-solid fa-pen"></i> 重命名</button>
+        <button @click="toggleFolderHide(folderMenu.target)">
+          <i :class="folderMenu.target.hide_from_all ? 'fa-solid fa-eye' : 'fa-solid fa-eye-slash'"></i>
+          {{ folderMenu.target.hide_from_all ? '在全部中显示' : '不在全部里显示' }}
+        </button>
         <button @click="shareFolder(folderMenu.target)"><i class="fa-solid fa-share-nodes"></i> 分享</button>
         <button class="danger" @click="deleteFolder(folderMenu.target)"><i class="fa-solid fa-trash"></i> 删除分组</button>
       </div>
@@ -420,6 +425,20 @@ export default {
     },
     closeFolderMenu: function() {
       this.folderMenu = { target: null, style: {} };
+    },
+
+    toggleFolderHide: function(folder) {
+      var self = this;
+      api.patch('/cloud/folders/' + folder.id + '/toggle-hide').then(function(res) {
+        var data = res.data && res.data.data;
+        folder.hide_from_all = data ? data.hide_from_all : !folder.hide_from_all;
+        self.closeFolderMenu();
+        self.showToast(folder.hide_from_all ? '已不在全部中显示' : '已在全部中显示');
+        // 刷新文件列表以应用过滤
+        self.loadFiles();
+      }).catch(function() {
+        self.showToast('操作失败');
+      });
     },
 
     // ====== 多选 ======
@@ -817,6 +836,11 @@ export default {
   color: #fff;
 }
 .folder-tab:active { transform: scale(0.95); }
+.folder-hidden-icon {
+  margin-right: 2px;
+  font-size: 9px;
+  opacity: 0.5;
+}
 .folder-count {
   margin-left: 4px;
   font-size: var(--font-size-caption2);

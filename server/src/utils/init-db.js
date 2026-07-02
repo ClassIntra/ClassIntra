@@ -513,6 +513,8 @@ function initDatabase() {
   ].join('\n'));
   db.exec('CREATE INDEX IF NOT EXISTS idx_cfolders_user ON cloud_folders(user_id)');
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_cfolders_share ON cloud_folders(share_code) WHERE share_code IS NOT NULL');
+  // 迁移：添加 hide_from_all 列（0=在全部中显示，1=隐藏）
+  try { db.exec('ALTER TABLE cloud_folders ADD COLUMN hide_from_all INTEGER NOT NULL DEFAULT 0'); } catch (e) {}
 
   // ========== 云盘旧文件自动迁移 ==========
   // 若手动迁移已完成（cloud_migration_done=1），自动跳过

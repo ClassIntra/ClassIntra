@@ -491,13 +491,15 @@ router.get('/files', auth.requireAuth, function(req, res) {
       ].join('\n');
       params = [userId, folderFilter];
     } else {
-      // 全部文件
+      // 全部文件（排除隐藏分组中的文件）
       sql = [
         'SELECT cuf.file_hash, cuf.display_name, cuf.folder, cuf.uploaded_at,',
         '       cf.size, cf.mime_type, cf.owner_user_id',
         'FROM cloud_user_files cuf',
         'JOIN cloud_files cf ON cuf.file_hash = cf.hash',
+        'LEFT JOIN cloud_folders cfolder ON cfolder.user_id = cuf.user_id AND cfolder.name = cuf.folder',
         'WHERE cuf.user_id = ? AND cf.deleted = 0',
+        '  AND (cuf.folder = \'\' OR cfolder.id IS NULL OR cfolder.hide_from_all = 0)',
         'ORDER BY cuf.uploaded_at DESC'
       ].join('\n');
       params = [userId];
@@ -1009,17 +1011,36 @@ router.get('/folders', auth.requireAuth, function(req, res) {
 
   try {
     var folders = db.prepare([
-      'SELECT cf.id, cf.name, cf.share_code, cf.created_at,',
+      'SELECT cf.id, cf.name, cf.share_code, cf.hide_from_all, cf.created_at,',
       '  (SELECT COUNT(*) FROM cloud_user_files cuf2 JOIN cloud_files cfl ON cuf2.file_hash = cfl.hash WHERE cuf2.user_id = ? AND cuf2.folder = cf.name AND cfl.deleted = 0) as file_count',
       'FROM cloud_folders cf',
       'WHERE cf.user_id = ?',
       'ORDER BY cf.created_at ASC'
     ].join('\n')).all(userId, userId);
 
-    res.json({ code: 200, data: { folders: folders } });
+    var mapped = folders.map(function(f) {
+      return { id: f.id, name: f.name, file_count: f.file_count, hide_from_all: !!f.hide_from_all, share_code: f.share_code, created_at: f.created_at };
+    });
+    res.json({ code: 200, data: { folders: mapped } });
   } catch (e) {
     console.error('[Cloud] 列出分组失败:', e);
     res.json({ code: 200, data: { folders: [] } });
+  }
+});
+
+// 切换分组"在全部中显示"
+router.patch('/folders/:id/toggle-hide', auth.requireAuth, function(req, res) {
+  var userId = req.user.user_id;
+  var folderId = parseInt(req.params.id, 10);
+  try {
+    var folder = db.prepare('SELECT * FROM cloud_folders WHERE id = ? AND user_id = ?').get(folderId, userId);
+    if (!folder) return res.status(404).json({ code: 404, message: '分组不存在' });
+    var newVal = folder.hide_from_all ? 0 : 1;
+    db.prepare('UPDATE cloud_folders SET hide_from_all = ? WHERE id = ?').run(newVal, folderId);
+    res.json({ code: 200, data: { hide_from_all: !!newVal } });
+  } catch (e) {
+    console.error('[Cloud] 切换分组显示失败:', e);
+    res.status(500).json({ code: 500, message: '操作失败' });
   }
 });
 
