@@ -10,7 +10,8 @@ var APP_REGISTRY = [
   { name: 'resource', label: '资源', icon: '/resources/public/icons/Files.png', color: '#5856D6', route: '/resource' },
   { name: 'weather', label: '天气', icon: '/resources/public/icons/Weather.png', color: '#5AC8FA', route: '/weather' },
   { name: 'music', label: '音乐', icon: '/resources/public/icons/Music.png', color: '#FF2D55', route: '/music' },
-  { name: 'settings', label: '设置', icon: '/resources/public/icons/Settings.png', color: '#8E8E93', route: '/settings' }
+  { name: 'settings', label: '设置', icon: '/resources/public/icons/Settings.png', color: '#8E8E93', route: '/settings' },
+  { name: 'timetable', label: '课程表', icon: '/resources/public/icons/Timetable.svg', color: '#FF3B30', route: '/timetable' }
 ];
 
 // 网格规格

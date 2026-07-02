@@ -748,7 +748,7 @@ function initDatabase() {
     ')'
   ].join('\n'));
   // 初始化 8 个桌面应用的默认启用记录
-  var defaultApps = ['chat', 'community', 'ai-chat', 'notes', 'resource', 'weather', 'music', 'settings'];
+  var defaultApps = ['chat', 'community', 'ai-chat', 'notes', 'resource', 'weather', 'music', 'settings', 'timetable'];
   var initAppStmt = db.prepare("INSERT OR IGNORE INTO app_control (app_name, enabled) VALUES (?, 1)");
   for (var di = 0; di < defaultApps.length; di++) {
     initAppStmt.run(defaultApps[di]);
