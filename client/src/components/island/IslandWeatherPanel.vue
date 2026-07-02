@@ -16,7 +16,8 @@
 export default {
   name: 'IslandWeatherPanel',
   props: {
-    alert: { type: Object, default: null }
+    alert: { type: Object, default: null },
+    startTime: { type: Number, default: 0 }
   },
   data: function() {
     return {
@@ -55,7 +56,14 @@ export default {
     var self = this;
     var charWidth = 8;
     var singleLineLen = (self.scrollContent.length / 2) * charWidth;
-    self.scrollDuration = Math.max(6000, singleLineLen / 30 * 1000);
+    var totalDuration = Math.max(6000, singleLineLen / 30 * 1000);
+    // 若有 startTime，计算剩余时长（通知打断后恢复时不会从头开始）
+    if (self.startTime) {
+      var elapsed = Date.now() - self.startTime;
+      self.scrollDuration = Math.max(1000, totalDuration - elapsed);
+    } else {
+      self.scrollDuration = totalDuration;
+    }
     self._autoCloseTimer = setTimeout(function() {
       self.$emit('request-close');
     }, self.scrollDuration + 500);
