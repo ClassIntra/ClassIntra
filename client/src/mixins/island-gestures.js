@@ -122,13 +122,8 @@ export default {
         }
       } else if (this.islandMode === 'compact' || this.islandMode === 'split') {
         if (this.isOnDesktop && this.browserEnabled) {
-          this.islandMode = 'browser';
-          this.browserUrl = '';
-          var self = this;
-          this.$nextTick(function() {
-            var input = self.$el.querySelector('.browser-input');
-            if (input) input.focus();
-          });
+          this.islandMode = 'compact';
+          this.$router.push({ name: 'Browser' }).catch(function() {});
         } else if (this.isOnDesktop) {
           this.$router.push('/announcements').catch(function() {});
         } else {

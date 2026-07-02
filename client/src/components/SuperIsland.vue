@@ -390,12 +390,8 @@ export default {
     },
 
     openBrowserMode: function() {
-      this.islandMode = 'browser';
-      this.browserUrl = '';
-      var self = this;
-      this.$nextTick(function() {
-        if (self.$refs.browserPanel) self.$refs.browserPanel.focus();
-      });
+      this.islandMode = 'compact';
+      this.$router.push({ name: 'Browser' }).catch(function() {});
     },
 
     openBrowser: function() {
