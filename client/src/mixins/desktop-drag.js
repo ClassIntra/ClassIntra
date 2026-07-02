@@ -280,8 +280,9 @@ export default {
       ghost.style.top = '0';
       ghost.style.pointerEvents = 'none';
       ghost.style.zIndex = '9999';
-      // 中心对齐指针（ghost 72px，偏移 -36）；scale(1.0) 保持预设尺寸
-      ghost.style.transform = 'translate(' + (this.dragState.startX - 36) + 'px,' + (this.dragState.startY - 36) + 'px) scale(1.0)';
+      // 中心对齐指针（ghost 72px，偏移 -36）；scale(1.08) 模拟 iPadOS 拖起放大反馈
+      // transform-origin 默认 center，scale 不改变视觉中心，仍对齐指针
+      ghost.style.transform = 'translate(' + (this.dragState.startX - 36) + 'px,' + (this.dragState.startY - 36) + 'px) scale(1.08)';
       return ghost;
     },
 

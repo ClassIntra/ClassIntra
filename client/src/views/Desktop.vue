@@ -64,6 +64,13 @@
       </div>
     </transition>
 
+    <!-- 编辑态顶部"完成"按钮（iPadOS 标配：右上角退出编辑态） -->
+    <transition name="edit-done-fade">
+      <button v-if="isEditMode" class="desktop-edit-done" @click="exitEditMode">
+        <span>完成</span>
+      </button>
+    </transition>
+
     <!-- iPad 桌面模式：多页面容器 + 4×6 网格 -->
     <div v-if="isGridLayout && isLoaded" class="desktop-pages" :style="pagesTransformStyle">
       <div
@@ -157,7 +164,7 @@
         :data-src-dock="isGridLayout ? i : null"
         :data-src-app="isGridLayout ? name : null"
         :data-flip-key="'dock-' + name"
-        @click="launchApp(dockAppMeta(name))"
+        @click="onDockClick($event, name)"
       >
         <div class="dock-icon">
           <img :src="dockAppMeta(name).icon" :alt="dockAppMeta(name).label" loading="eager">
@@ -800,6 +807,15 @@ export default {
         self.$router.push(app.route).catch(function() {});
       }, 250);
     },
+    // Dock 图标点击：编辑态下不启动应用（与 AppIcon 一致），仅非编辑态启动
+    onDockClick: function(e, name) {
+      if (this.isEditMode) return;
+      this.launchApp(this.dockAppMeta(name));
+    },
+    // 退出编辑态
+    exitEditMode: function() {
+      this.$store.dispatch('desktop/exitEditMode');
+    },
     launchAppByName: function(name) {
       var meta = this.appMeta(name);
       if (meta) {
@@ -1073,6 +1089,39 @@ export default {
 }
 .desktop--dragging {
   cursor: grabbing;
+}
+
+/* ===== 编辑态"完成"按钮（iPadOS 标配，右上角退出编辑态） ===== */
+.desktop-edit-done {
+  position: fixed;
+  top: 12px;
+  right: 16px;
+  z-index: 1001;
+  padding: 8px 18px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--primary-color);
+  color: #fff;
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  transition: transform 0.15s var(--ease-standard), opacity 0.2s var(--ease-standard);
+}
+.desktop-edit-done:active {
+  transform: scale(0.94);
+  opacity: 0.85;
+}
+/* 进出淡入淡出 */
+.edit-done-fade-enter-active,
+.edit-done-fade-leave-active {
+  transition: opacity 0.25s var(--ease-standard), transform 0.25s var(--ease-spring);
+}
+.edit-done-fade-enter,
+.edit-done-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
 }
 
 /* ===== Dock 栏 ===== */
