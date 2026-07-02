@@ -1,6 +1,6 @@
 <template>
   <div id="app" :data-theme="theme" @click="handleGlobalTap">
-    <SuperIsland ref="superIsland" v-show="!isLocked" />
+    <SuperIsland ref="superIsland" v-show="!isLocked && !desktopSettingsPanelOpen" />
     <transition name="page-fade" mode="out-in">
       <ErrorBoundary><router-view></router-view></ErrorBoundary>
     </transition>
@@ -51,6 +51,10 @@ export default {
     },
     isBannedPage: function() {
       return this.$route.name === 'Banned';
+    },
+    // 桌面设置面板打开时隐藏超能岛（面板全屏覆盖，避免顶部叠层冲突）
+    desktopSettingsPanelOpen: function() {
+      return this.$store.state.desktop && this.$store.state.desktop.settingsPanelOpen;
     }
   },
   methods: {

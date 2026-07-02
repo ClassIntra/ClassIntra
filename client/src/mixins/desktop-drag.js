@@ -217,6 +217,11 @@ export default {
         sourceEl.style.visibility = 'hidden';
         this._dragSourceEl = sourceEl;
       }
+      // 从文件夹内拖出图标时，立即收起文件夹展开态
+      // 否则全屏 overlay（z-index:1000）会拦截 elementFromPoint，导致落点检测永远返回 null
+      if (this.dragState.source.type === 'folder') {
+        this.$store.commit('desktop/SET_OPEN_FOLDER', null);
+      }
       // 创建 ghost
       var ghost = this._createGhost(this.dragState.source);
       document.body.appendChild(ghost);

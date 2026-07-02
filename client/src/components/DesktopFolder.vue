@@ -2,7 +2,7 @@
   <!-- 槽位形态：在网格中显示为文件夹图标 -->
   <button
     v-if="!expanded"
-    class="desktop-folder-tile"
+    class="desktop-folder-tile desktop-folder"
     :class="{ 'desktop-folder-tile--editing': editing }"
     @click="onTileClick"
   >
@@ -35,7 +35,7 @@
   <!-- 展开形态：全屏遮罩 + 卡片 -->
   <div
     v-else
-    class="folder-expanded-overlay"
+    class="folder-expanded-overlay desktop-folder"
     @click.self="onClose"
   >
     <div class="folder-expanded-card">

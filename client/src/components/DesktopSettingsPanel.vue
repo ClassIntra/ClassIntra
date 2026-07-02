@@ -2,15 +2,12 @@
   <transition name="settings-panel">
     <div v-if="visible" class="desktop-settings-overlay">
       <div class="desktop-settings-panel">
-        <!-- 顶部导航栏（iPadOS 风格：左完成 + 居中标题） -->
-        <div class="settings-panel-header">
-          <button class="settings-panel-done" @click="onDone">
-            <i class="fa-solid fa-chevron-left done-chevron"></i>
-            <span>完成</span>
-          </button>
-          <h3 class="settings-panel-title">桌面设置</h3>
-          <div class="settings-panel-placeholder"></div>
-        </div>
+        <!-- 顶部导航栏：复用 AppNavBar，标题位置与其他应用一致 -->
+        <AppNavBar title="桌面设置" :show-back="false">
+          <template #actions>
+            <button class="settings-done-link" @click="onDone">完成</button>
+          </template>
+        </AppNavBar>
         <div class="settings-panel-body">
           <div class="settings-content">
             <!-- 桌面操作分组 -->
@@ -55,8 +52,11 @@
 </template>
 
 <script>
+import AppNavBar from './AppNavBar.vue';
+
 export default {
   name: 'DesktopSettingsPanel',
+  components: { AppNavBar: AppNavBar },
   props: {
     visible: { type: Boolean, default: false },
     totalPages: { type: Number, default: 1 },
@@ -133,55 +133,21 @@ export default {
   background: var(--bg-color);
 }
 
-/* 顶部导航栏 */
-.settings-panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  border-bottom: 0.5px solid var(--separator-color);
-  background: var(--bg-color);
-  flex-shrink: 0;
-  min-height: 48px;
-}
-
-.settings-panel-done {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+/* 顶部"完成"按钮（AppNavBar 右侧 slot） */
+.settings-done-link {
   border: none;
   background: transparent;
   color: var(--primary-color);
   font-size: var(--font-size-body);
   font-weight: var(--font-weight-medium);
-  padding: 6px 8px;
+  padding: 6px 10px;
   border-radius: var(--radius-sm);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   transition: opacity 0.15s var(--ease-standard);
 }
-
-.settings-panel-done:active {
+.settings-done-link:active {
   opacity: 0.5;
-}
-
-.done-chevron {
-  font-size: 12px;
-}
-
-.settings-panel-title {
-  margin: 0;
-  font-size: var(--font-size-md);
-  font-weight: var(--font-weight-semibold);
-  color: var(--text-primary);
-  text-align: center;
-  flex: 1;
-}
-
-/* 右侧占位，保持标题居中 */
-.settings-panel-placeholder {
-  width: 56px;
-  flex-shrink: 0;
 }
 
 /* 内容滚动区 */
