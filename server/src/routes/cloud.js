@@ -94,6 +94,31 @@ function sendMediaFile(req, res, filePath) {
   return true;
 }
 
+// 扫描磁盘查找通过 Syncthing 同步来的文件（数据库中无记录）
+function findSyncedFile(fileHash) {
+  var prefix = fileHash.substring(0, 2);
+  var dirPath = path.join(sharedDir, prefix);
+  if (!fs.existsSync(dirPath)) return null;
+  try {
+    var files = fs.readdirSync(dirPath);
+    for (var i = 0; i < files.length; i++) {
+      if (files[i].indexOf(fileHash) === 0) {
+        var ext = path.extname(files[i]).toLowerCase();
+        var storagePath = prefix + '/' + files[i];
+        var fullPath = path.join(sharedDir, storagePath);
+        var stat = fs.statSync(fullPath);
+        var mimeType = guessMimeType(ext, files[i]);
+        // 自动注册到数据库，owner 标记为 __sync__（INSERT OR IGNORE 防并发冲突）
+        db.prepare(
+          'INSERT OR IGNORE INTO cloud_files (hash, owner_user_id, original_name, size, mime_type, storage_path) VALUES (?, ?, ?, ?, ?, ?)'
+        ).run(fileHash, '__sync__', files[i], stat.size, mimeType, storagePath);
+        return { storage_path: storagePath, deleted: 0, mime_type: mimeType, size: stat.size, original_name: files[i] };
+      }
+    }
+  } catch (e) { /* ignore */ }
+  return null;
+}
+
 // 发送"文件已删除"占位图
 function sendDeletedPlaceholder(res, mimeType) {
   if (mimeType && mimeType.indexOf('image/') === 0) {
@@ -631,6 +656,10 @@ router.get('/files/:param', auth.requireAuth, function(req, res) {
   // 哈希查找
   var file = db.prepare('SELECT storage_path, deleted, mime_type FROM cloud_files WHERE hash = ?').get(fileHash);
   if (!file) {
+    // 跨班同步：数据库中无记录，尝试扫描磁盘（Syncthing 同步的文件）
+    file = findSyncedFile(fileHash);
+  }
+  if (!file) {
     return res.status(404).json({ code: 404, message: '文件不存在' });
   }
 
@@ -696,6 +725,10 @@ router.get('/peer-fetch/:hash', function(req, res) {
   }
 
   var file = db.prepare('SELECT storage_path, size, mime_type, original_name, deleted FROM cloud_files WHERE hash = ?').get(hash);
+  if (!file || file.deleted === 1) {
+    // 跨班同步：尝试扫描磁盘
+    file = findSyncedFile(hash);
+  }
   if (!file || file.deleted === 1) {
     return res.status(404).json({ code: 404, message: '文件不存在' });
   }
