@@ -304,7 +304,7 @@ export default {
       }
       if (!notification.category) notification.category = 'system';
       if (!notification.priority) notification.priority = 'normal';
-      if (this.islandMode === 'notification' && this.notification) {
+      if ((this.islandMode === 'notification' && this.notification) || this.islandMode === 'weather-compact') {
         this.notificationQueue.push(notification);
       } else {
         this.showNotification(notification);
