@@ -3346,11 +3346,20 @@ export default {
 
     exitDrawFile: function() {
       var self = this;
+      // 退出前保存当前画板数据
+      if (self.$refs.drawCanvas && self.activeFile) {
+        try {
+          var currentData = self.$refs.drawCanvas.getData();
+          self.activeFile.canvasData = currentData;
+          self.activeFile.updatedAt = new Date().toISOString();
+        } catch(e) {}
+      }
       // 切到最近的非画板文件
       var noteFile = self.allFiles.find(function(f) { return f.type !== 'draw'; });
       if (noteFile) {
         self.activeFileId = noteFile.id;
       }
+      self.saveData();
     },
 
     onDrawSave: function(canvasData) {

@@ -283,8 +283,8 @@ export default {
       } else {
         var maxW = workspace.offsetWidth - 40;
         var maxH = workspace.offsetHeight - 40;
-        w = self.canvasWidth || Math.min(maxW, 1200);
-        h = self.canvasHeight || Math.min(maxH, 800);
+        w = self.canvasWidth || Math.min(maxW, 2400);
+        h = self.canvasHeight || Math.min(maxH, 1600);
       }
       if (w < 400) w = 400;
       if (h < 300) h = 300;
