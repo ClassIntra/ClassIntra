@@ -493,6 +493,21 @@ export default {
       self.$nextTick(function() {
         self.playVideoWallpaper();
       });
+    },
+    // 编辑态暂停视频壁纸：编辑态已对壁纸施加 brightness(0.6)+blur(4px)，
+    // 视频动态细节几乎不可见，暂停可显著降低 CPU/GPU 占用，提升拖拽流畅度
+    isEditMode: function(val) {
+      var video = this.$refs.videoA;
+      if (!video) return;
+      if (val) {
+        // 进入编辑态：暂停视频（保留 currentTime，退出时无缝恢复）
+        if (!video.paused) video.pause();
+      } else {
+        // 退出编辑态：恢复播放（仅当视频壁纸仍生效时）
+        if (this.videoWallpaperSrc && !this.videoWallpaperFailed && video.paused) {
+          video.play().catch(function() {});
+        }
+      }
     }
   },
   methods: {
