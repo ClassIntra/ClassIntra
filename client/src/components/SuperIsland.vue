@@ -586,10 +586,10 @@ export default {
 
 /* ===== Weather Compact ===== */
 .island-mode-weather-compact {
-  min-width: 160px;
-  max-width: 280px;
+  min-width: 180px;
+  max-width: 320px;
   border-radius: var(--radius-pill);
-  padding: 4px 12px 4px 6px;
+  padding: 4px 8px 4px 6px;
   display: inline-flex;
   align-items: center;
   box-shadow: var(--shadow-lg), 0 0 0 0.5px var(--separator-color) inset;

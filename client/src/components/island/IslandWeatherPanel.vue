@@ -183,13 +183,13 @@ export default {
 /* ===== 关闭按钮 ===== */
 .iw-close {
   flex-shrink: 0;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   border: none;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.1);
   border-radius: 50%;
-  color: rgba(255, 255, 255, 0.5);
-  font-size: 9px;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 10px;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -197,6 +197,7 @@ export default {
   transition: background 0.15s, color 0.15s, transform 0.1s;
   -webkit-tap-highlight-color: transparent;
   padding: 0;
+  margin-left: auto;
 }
 
 .iw-close:hover {
