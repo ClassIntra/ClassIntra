@@ -1,10 +1,11 @@
 <template>
   <div class="island-body">
     <div class="weather-compact-content">
-      <!-- 前方图标：天气图标 或 圆框感叹号 -->
-      <div class="iw-icon-circle" :style="{ color: alertColor, borderColor: alertColor }">
-        <i class="fa-solid" :class="startIcon"></i>
+      <!-- 前方图标：天气图标（带圆框） 或 圆框感叹号（FontAwesome） -->
+      <div v-if="weatherIconKey" class="iw-icon-circle" :style="{ color: alertColor, borderColor: alertColor }">
+        <i class="fa-solid" :class="weatherIconClass"></i>
       </div>
+      <i v-else class="fa-solid fa-circle-exclamation iw-start-exclaim" :style="{ color: alertColor }"></i>
 
       <!-- 单行滚动文字：事件类型·预警内容 -->
       <div class="iw-scroll-wrap">
@@ -12,9 +13,7 @@
       </div>
 
       <!-- 后方圆框感叹号：仅当前方是天气图标时显示 -->
-      <div v-if="showEndExclamation" class="iw-icon-circle iw-icon-circle--end" :style="{ color: alertColor, borderColor: alertColor }">
-        <i class="fa-solid fa-exclamation"></i>
-      </div>
+      <i v-if="showEndExclamation" class="fa-solid fa-circle-exclamation iw-end-exclaim" :style="{ color: alertColor }"></i>
 
       <!-- 关闭按钮 -->
       <button class="iw-close" @click.stop="$emit('dismiss')">
@@ -75,18 +74,15 @@ export default {
       return sevMap[w.severity] || '#F59E0B';
     },
 
-    // 前方图标：有天气类型匹配 → 天气图标；否则 → 感叹号
+    // 前方图标：有天气类型匹配 → 天气图标；否则 → 圆框感叹号
     weatherIconKey: function() {
       var w = this.alert;
       var eventName = (w && w.eventType && w.eventType.name) || '';
       return detectWeatherIcon(eventName);
     },
 
-    startIcon: function() {
-      if (this.weatherIconKey) {
-        return WEATHER_ICONS[this.weatherIconKey];
-      }
-      return 'fa-exclamation';
+    weatherIconClass: function() {
+      return WEATHER_ICONS[this.weatherIconKey] || '';
     },
 
     // 是否需要显示后方感叹号：仅当前方是天气图标时
@@ -152,10 +148,16 @@ export default {
   box-shadow: 0 0 6px rgba(255, 255, 255, 0.06) inset;
 }
 
-.iw-icon-circle--end {
-  width: 22px;
-  height: 22px;
-  font-size: 10px;
+/* 前方圆框感叹号（无天气图标时）：FontAwesome 自带圆形，无需额外圆框 */
+.iw-start-exclaim {
+  flex-shrink: 0;
+  font-size: 20px;
+}
+
+/* 后方圆框感叹号 */
+.iw-end-exclaim {
+  flex-shrink: 0;
+  font-size: 16px;
 }
 
 /* ===== 单行滚动区域 ===== */
