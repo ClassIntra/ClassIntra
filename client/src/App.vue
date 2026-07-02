@@ -228,31 +228,27 @@ export default {
           var w = data;
           var hasRain = !!(w.rain || w.has_rain || w.alert_type === 'rain' || w.alert_type === 'both');
           var hasWarning = !!(w.warning || w.has_warning || w.alert_type === 'warning' || w.alert_type === 'both');
-          // 构造预警事件名
-          var eventName = '天气预警';
-          if (hasWarning) {
-            eventName = (w.warning && w.warning.title) || (w.warnings && w.warnings[0] && (w.warnings[0].title || w.warnings[0].typeName)) || '天气预警';
+          var warningsArr = w.warnings || [];
+          // 优先使用预警数组中的第一条真实数据
+          if (hasWarning && warningsArr.length > 0) {
+            var firstWarning = warningsArr[0];
+            self.$refs.superIsland.showWeatherAlert({
+              eventType: firstWarning.eventType || { name: '天气预警' },
+              severity: firstWarning.severity || 'moderate',
+              color: firstWarning.color || null,
+              headline: firstWarning.headline || '',
+              description: firstWarning.description || ''
+            });
           } else if (hasRain) {
-            eventName = '降雨提醒';
+            // 降雨提醒：无预警数据时使用雨况文字
+            self.$refs.superIsland.showWeatherAlert({
+              eventType: { name: '降雨提醒' },
+              severity: 'moderate',
+              color: null,
+              headline: '降雨提醒',
+              description: w.rain_text || '预计将有降雨，请注意出行安全'
+            });
           }
-          // 构造预警描述
-          var description = '';
-          if (hasRain) {
-            description = (w.rain && w.rain.description) || w.rain_text || '';
-          }
-          if (hasWarning && !description) {
-            description = eventName;
-          }
-          if (!description) description = '请注意防范';
-          // 构造 alert 对象（与 Weather.vue 的 warningData.alerts 结构一致）
-          var weatherAlert = {
-            eventType: { name: eventName },
-            severity: hasWarning ? 'severe' : 'moderate',
-            color: null,
-            headline: eventName,
-            description: description
-          };
-          self.$refs.superIsland.showWeatherAlert(weatherAlert);
         }
       }
     };

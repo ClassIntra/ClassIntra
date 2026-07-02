@@ -86,14 +86,17 @@ export default {
       return key ? EVENT_CODE_MAP[key] : null;
     },
 
-    // 滚动内容
+    // 滚动内容：headline（预报台+发布时间+预警信号）+ description（详细内容）
     scrollContent: function() {
       var w = this.alert;
       if (!w) return '';
-      var eventName = (w && w.eventType && w.eventType.name) || '天气预警';
-      var desc = w.headline || w.description || '';
-      if (desc === eventName) desc = '';
-      var line = desc ? (eventName + '·' + desc) : eventName;
+      var parts = [];
+      if (w.headline) parts.push(w.headline);
+      if (w.description && w.description !== w.headline) parts.push(w.description);
+      if (parts.length === 0) {
+        parts.push((w.eventType && w.eventType.name) || '天气预警');
+      }
+      var line = parts.join('  ');
       return line + '          ' + line;
     }
   },
