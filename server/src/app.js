@@ -132,6 +132,7 @@ app.use('/api/level', require('./routes/level'));
 app.use('/api/cdn', require('./routes/cdn-proxy'));
 app.use('/api/music', require('./routes/music'));
 app.use('/api/system', require('./routes/system'));
+app.use('/api/timetable', require('./routes/timetable'));
 
 // Setup 页面路由
 app.get('/setup', function(req, res) {
