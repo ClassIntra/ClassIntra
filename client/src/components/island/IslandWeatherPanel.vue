@@ -1,19 +1,17 @@
 <template>
   <div class="island-body">
     <div class="weather-compact-content">
-      <!-- 前方图标：天气图标（带圆框） 或 圆框感叹号（FontAwesome） -->
-      <div v-if="weatherIconKey" class="iw-icon-circle" :style="{ color: alertColor, borderColor: alertColor }">
-        <i class="fa-solid" :class="weatherIconClass"></i>
-      </div>
+      <!-- 前方图标：天气 SVG 图标（无边框） 或 圆框感叹号 -->
+      <WeatherIcon v-if="weatherCode" :code="weatherCode" :size="24" class="iw-weather-svg" />
       <i v-else class="fa-solid fa-circle-exclamation iw-start-exclaim" :style="{ color: alertColor }"></i>
 
-      <!-- 单行滚动文字：事件类型·预警内容 -->
+      <!-- 单行滚动文字 -->
       <div class="iw-scroll-wrap">
         <span class="iw-scroll-text" ref="scrollText" :style="{ '--scroll-duration': scrollDuration + 'ms' }">{{ scrollContent }}</span>
       </div>
 
-      <!-- 后方圆框感叹号：仅当前方是天气图标时显示 -->
-      <i v-if="showEndExclamation" class="fa-solid fa-circle-exclamation iw-end-exclaim" :style="{ color: alertColor }"></i>
+      <!-- 后方圆框感叹号：仅当前方有天气图标时 -->
+      <i v-if="weatherCode" class="fa-solid fa-circle-exclamation iw-end-exclaim" :style="{ color: alertColor }"></i>
 
       <!-- 关闭按钮 -->
       <button class="iw-close" @click.stop="$emit('dismiss')">
@@ -24,20 +22,22 @@
 </template>
 
 <script>
-// 事件类型关键词 → 天气图标（有对应图标 = 前方用天气图标，后方加感叹号）
-var WEATHER_ICONS = {
-  rain: 'fa-cloud-rain',
-  snow: 'fa-snowflake',
-  thunder: 'fa-bolt',
-  heat: 'fa-temperature-high',
-  cold: 'fa-temperature-low',
-  wind: 'fa-wind',
-  sand: 'fa-tornado',
-  fog: 'fa-smog',
-  ice: 'fa-icicles'
+import WeatherIcon from '@/components/WeatherIcon.vue';
+
+// 事件类型关键词 → 和风天气 icon 代码
+var EVENT_CODE_MAP = {
+  rain: '306',     // 雨
+  snow: '400',     // 雪
+  thunder: '302',  // 雷雨
+  heat: '900',     // 高温
+  cold: '901',     // 寒潮
+  wind: '300',     // 大风/台风
+  sand: '503',     // 沙尘
+  fog: '500',      // 雾
+  ice: '404'       // 冻雨/冰雪
 };
 
-function detectWeatherIcon(eventName) {
+function detectWeatherCode(eventName) {
   var name = (eventName || '').toLowerCase();
   if (name.indexOf('雨') > -1 || name.indexOf('rain') > -1) return 'rain';
   if (name.indexOf('雪') > -1 || name.indexOf('snow') > -1) return 'snow';
@@ -53,6 +53,9 @@ function detectWeatherIcon(eventName) {
 
 export default {
   name: 'IslandWeatherPanel',
+  components: {
+    WeatherIcon: WeatherIcon
+  },
   props: {
     alert: { type: Object, default: null }
   },
@@ -70,48 +73,35 @@ export default {
         var c = w.color;
         return 'rgba(' + c.red + ',' + c.green + ',' + c.blue + ',' + (c.alpha != null ? c.alpha : 1) + ')';
       }
+      // minor=蓝色  moderate=黄色  severe=橙色  extreme=红色
       var sevMap = { minor: '#3B82F6', moderate: '#F59E0B', severe: '#F97316', extreme: '#EF4444' };
-      // minor=蓝色预警  moderate=黄色预警  severe=橙色预警  extreme=红色预警
       return sevMap[w.severity] || '#F59E0B';
     },
 
-    // 前方图标：有天气类型匹配 → 天气图标；否则 → 圆框感叹号
-    weatherIconKey: function() {
+    // 天气图标代码（null = 无匹配，用感叹号）
+    weatherCode: function() {
       var w = this.alert;
       var eventName = (w && w.eventType && w.eventType.name) || '';
-      return detectWeatherIcon(eventName);
+      var key = detectWeatherCode(eventName);
+      return key ? EVENT_CODE_MAP[key] : null;
     },
 
-    weatherIconClass: function() {
-      return WEATHER_ICONS[this.weatherIconKey] || '';
-    },
-
-    // 是否需要显示后方感叹号：仅当前方是天气图标时
-    showEndExclamation: function() {
-      return !!this.weatherIconKey;
-    },
-
-    // 滚动内容：事件类型·预警描述
+    // 滚动内容
     scrollContent: function() {
       var w = this.alert;
       if (!w) return '';
       var eventName = (w && w.eventType && w.eventType.name) || '天气预警';
       var desc = w.headline || w.description || '';
-      // 如果描述和事件名相同则去重
       if (desc === eventName) desc = '';
       var line = desc ? (eventName + '·' + desc) : eventName;
-      // 重复两遍拼接，中间加空格间隔
       return line + '          ' + line;
     }
   },
   mounted: function() {
     var self = this;
-    // 计算滚动时长：根据文字长度动态
-    var charWidth = 8; // 每个中文字大约 10px（font-size 11px 时）
+    var charWidth = 8;
     var singleLineLen = (self.scrollContent.length / 2) * charWidth;
-    // 滚动速度：约 30px/s
     self.scrollDuration = Math.max(6000, singleLineLen / 30 * 1000);
-    // 滚动两遍（translateX -50%）后自动关闭
     self._autoCloseTimer = setTimeout(function() {
       self.$emit('request-close');
     }, self.scrollDuration + 500);
@@ -134,22 +124,12 @@ export default {
   width: 100%;
 }
 
-/* ===== 圆形图标容器（匹配音乐封面圆框样式） ===== */
-.iw-icon-circle {
+/* 天气 SVG 图标（无边框） */
+.iw-weather-svg {
   flex-shrink: 0;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1.5px solid;
-  box-shadow: 0 0 6px rgba(255, 255, 255, 0.06) inset;
 }
 
-/* 前方圆框感叹号（无天气图标时）：FontAwesome 自带圆形，无需额外圆框 */
+/* 前方圆框感叹号 */
 .iw-start-exclaim {
   flex-shrink: 0;
   font-size: 20px;
@@ -161,7 +141,7 @@ export default {
   font-size: 16px;
 }
 
-/* ===== 单行滚动区域 ===== */
+/* 单行滚动 */
 .iw-scroll-wrap {
   flex: 1;
   min-width: 0;
@@ -183,7 +163,7 @@ export default {
   100% { transform: translateX(-50%); }
 }
 
-/* ===== 关闭按钮 ===== */
+/* 关闭按钮 */
 .iw-close {
   flex-shrink: 0;
   width: 20px;
