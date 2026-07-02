@@ -1,14 +1,6 @@
 <template>
   <transition name="island-appear">
     <div v-if="shouldShow">
-    <transition name="island-backdrop-fade">
-      <div
-        v-if="isExpanded"
-        class="island-backdrop"
-        @click="goCompact"
-        @touchend.prevent="goCompact"
-      ></div>
-    </transition>
     <div class="island-wrapper">
     <div
       class="island"
@@ -193,9 +185,6 @@ export default {
       if (this.hasMusicPlaying && !this.musicIslandDismissed) return true;
       if (this.currentWeatherAlert) return true;
       return false;
-    },
-    isExpanded: function() {
-      return this.islandMode !== 'compact' && this.islandMode !== 'split' && this.islandMode !== 'music-compact' && this.islandMode !== 'weather-compact';
     },
     compactIcon: function() {
       if (this.hasMusicPlaying && this.islandMode === 'compact' && !this.musicIslandDismissed) return 'fa-solid fa-music';
@@ -466,28 +455,6 @@ export default {
 </script>
 
 <style scoped>
-/* ===== Backdrop ===== */
-.island-backdrop {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 9999;
-  background: rgba(0, 0, 0, 0.15);
-}
-
-.island-backdrop-fade-enter-active {
-  transition: opacity 0.3s var(--ease-standard, cubic-bezier(0.32, 0.72, 0, 1));
-}
-.island-backdrop-fade-leave-active {
-  transition: opacity 0.2s var(--ease-standard, cubic-bezier(0.32, 0.72, 0, 1));
-}
-.island-backdrop-fade-enter,
-.island-backdrop-fade-leave-to {
-  opacity: 0;
-}
-
 /* ===== Appear Transition ===== */
 .island-appear-enter-active {
   transition: opacity 0.3s var(--ease-standard, cubic-bezier(0.32, 0.72, 0, 1)), transform 0.3s var(--ease-standard, cubic-bezier(0.32, 0.72, 0, 1));
@@ -762,8 +729,6 @@ export default {
   .compact-icon-pulse { animation: none !important; }
   .island-content-enter-active,
   .island-content-leave-active { transition: none !important; }
-  .island-backdrop-fade-enter-active,
-  .island-backdrop-fade-leave-active { transition: none !important; }
 }
 
 /* ===== Responsive ===== */
