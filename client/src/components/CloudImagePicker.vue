@@ -278,6 +278,7 @@ export default {
 .picker-tabs {
   display: flex; gap: 6px; padding: 8px 20px;
   border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
 }
 .picker-tab {
   padding: 6px 12px; border-radius: var(--radius-pill);
