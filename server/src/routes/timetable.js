@@ -1,5 +1,5 @@
 // 课程表路由
-// 数据源：Resources/kb.yml（高中课表，含单双周）
+// 数据源：Resources/public/kb.yml（高中课表，含单双周）
 // 不缓存：每次请求都重新读取文件并解析，确保数据实时性
 // 解析方式：针对性 YAML 解析器（仅支持 kb.yml 使用的 YAML 语法子集）
 
@@ -13,7 +13,7 @@ var auth = require('../middleware/auth');
 router.use(auth.requireAuth);
 
 // kb.yml 文件路径
-var KB_PATH = path.join(config.resourcesDir, 'kb.yml');
+var KB_PATH = path.join(config.resourcesDir, 'public', 'kb.yml');
 
 // ===== 针对 kb.yml 的 YAML 解析器 =====
 // 支持的语法子集：
