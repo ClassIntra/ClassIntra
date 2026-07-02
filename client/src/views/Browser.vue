@@ -29,11 +29,6 @@
       </button>
     </div>
 
-    <!-- 全屏模式下的浮动退出按钮 -->
-    <div v-if="isFullscreen" class="browser-float-exit" @click="toggleFullscreen" title="退出全屏">
-      <i class="fa-solid fa-compress"></i>
-    </div>
-
     <!-- 主内容区 -->
     <div v-if="currentUrl" class="browser-content">
       <!-- 正在浏览：iframe -->
@@ -635,27 +630,4 @@ export default {
 .browser-fullscreen .browser-iframe {
   width: 100%;
   height: 100%;
-}
-
-/* 全屏浮动退出按钮 */
-.browser-float-exit {
-  position: fixed;
-  top: 12px;
-  right: 12px;
-  width: 40px; height: 40px;
-  border-radius: var(--radius-pill);
-  background: rgba(0,0,0,0.45);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 16px;
-  cursor: pointer;
-  z-index: 10001;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  transition: transform 0.15s, opacity 0.15s;
-}
-.browser-float-exit:hover { opacity: 0.85; }
-.browser-float-exit:active { transform: scale(0.9); }
-</style>
+}</style>
