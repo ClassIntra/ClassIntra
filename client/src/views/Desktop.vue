@@ -200,6 +200,13 @@
       @tidy="tidyCurrentPage"
       @reset="resetLayout"
     />
+
+    <!-- 生日庆祝动画 -->
+    <BirthdayCelebration
+      v-if="showBirthdayCelebration"
+      :userName="birthdayUserName"
+      @dismiss="dismissBirthdayCelebration"
+    />
   </div>
 </template>
 
@@ -210,6 +217,7 @@ import AppIcon from '@/components/AppIcon.vue';
 import DesktopFolder from '@/components/DesktopFolder.vue';
 import DesktopPageIndicator from '@/components/DesktopPageIndicator.vue';
 import DesktopSettingsPanel from '@/components/DesktopSettingsPanel.vue';
+import BirthdayCelebration from '@/components/BirthdayCelebration.vue';
 import desktopDrag from '@/mixins/desktop-drag.js';
 import desktopGestures from '@/mixins/desktop-gestures.js';
 import { APP_REGISTRY } from '@/store/modules/desktop.js';
@@ -248,7 +256,8 @@ export default {
     AppIcon: AppIcon,
     DesktopFolder: DesktopFolder,
     DesktopPageIndicator: DesktopPageIndicator,
-    DesktopSettingsPanel: DesktopSettingsPanel
+    DesktopSettingsPanel: DesktopSettingsPanel,
+    BirthdayCelebration: BirthdayCelebration
   },
   mixins: [desktopDrag, desktopGestures],
   data: function() {
@@ -272,7 +281,10 @@ export default {
       latestVersion: '',
       // 应用元数据（从 APP_REGISTRY 引用，作为降级备份）
       dockApps: APP_REGISTRY,
-      enabledApps: null  // null=未加载，数组=已加载的启用应用名列表
+      enabledApps: null,  // null=未加载，数组=已加载的启用应用名列表
+      // 生日庆祝
+      showBirthdayCelebration: false,
+      birthdayUserName: ''
     };
   },
   computed: {
@@ -442,6 +454,7 @@ export default {
     });
     self.loadUnreadAnnouncements();
     self.loadEnabledApps();
+    self.checkBirthday();
     self.checkVersionUpdate();
     // 应用管控实时同步：页面重新可见 / 窗口聚焦时刷新（管理员切换后自动生效）
     self._visibilityHandler = function() {
@@ -914,6 +927,45 @@ export default {
         this.latestVersion = '';
       }
     },
+
+    // ============ 生日庆祝 ============
+    checkBirthday: function() {
+      var self = this;
+      try {
+        var user = self.$store.state.auth.user;
+        if (!user || !user.info || !user.info.birthday) return;
+        var birthday = user.info.birthday; // 格式: YYYY-MM-DD
+        var today = new Date();
+        var todayStr = (today.getMonth() + 1) + '-' + today.getDate();
+        // 从生日中提取月-日
+        var parts = birthday.split('-');
+        if (parts.length < 3) return;
+        var birthMD = parts[1] + '-' + parts[2];
+        if (birthMD !== todayStr) return;
+        // 检查今天是否已庆祝过
+        var celebrated = localStorage.getItem('classintra_birthday_celebrated');
+        var todayFull = today.getFullYear() + '-' + (today.getMonth() + 1) + '-' + today.getDate();
+        if (celebrated === todayFull) return;
+        // 触发庆祝
+        self.birthdayUserName = user.net_name || user.real_name || '';
+        self.showBirthdayCelebration = true;
+      } catch (e) {}
+    },
+
+    dismissBirthdayCelebration: function() {
+      var self = this;
+      self.showBirthdayCelebration = false;
+      var today = new Date();
+      var todayFull = today.getFullYear() + '-' + (today.getMonth() + 1) + '-' + today.getDate();
+      localStorage.setItem('classintra_birthday_celebrated', todayFull);
+      // 显示生日祝福 Toast
+      self.$store.commit('toast/SHOW_TOAST', {
+        message: '🎂 生日快乐！愿你今天充满惊喜与欢乐！',
+        type: 'success',
+        duration: 4000
+      });
+    },
+
     dismissAnnouncement: function() {
       var self = this;
       var current = self.currentAnnouncement;
