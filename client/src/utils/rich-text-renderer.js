@@ -127,7 +127,16 @@ function generateMediaHtml(url, type) {
     if (url.indexOf('/api/cloud/files/') > -1 && url.indexOf('?w=') === -1) {
       src = url + '?w=800';
     }
-    return '<img class="msg-image msg-media" data-media-url="' + url + '" data-media-type="image" src="' + src + '" alt="图片" loading="lazy" decoding="async" width="200" height="200" />';
+    // 内联 SVG 占位图：文件已删除
+    var deletedSvg = '<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22200%22>' +
+      '<rect fill=%22%23e8e8e8%22 width=%22200%22 height=%22200%22 rx=%228%22/>' +
+      '<rect fill=%22%23d0d0d0%22 x=%2270%22 y=%2260%22 width=%2260%22 height=%2250%22 rx=%226%22/>' +
+      '<polygon fill=%22%23d0d0d0%22 points=%2270,60 85,30 135,30 150,60%22/>' +
+      '<text x=%22100%22 y=%22140%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%2213%22 font-family=%22sans-serif%22>文件已删除</text>' +
+      '</svg>';
+    var deletedPlaceholder = 'data:image/svg+xml,' + deletedSvg;
+    return '<img class="msg-image msg-media" data-media-url="' + url + '" data-media-type="image" src="' + src + '" alt="图片" loading="lazy" decoding="async" width="200" height="200" ' +
+      'onerror="if(this.src.indexOf(\'data:image/svg+xml\')===-1){this.src=\'' + deletedPlaceholder + '\';this.classList.add(\'msg-image-deleted\');}" />';
   }
   if (type === 'video') {
     return '<div class="msg-media-wrapper msg-video-wrapper msg-media" data-media-url="' + url + '" data-media-type="video">' +

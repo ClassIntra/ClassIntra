@@ -296,7 +296,12 @@ export default {
   display: flex; gap: 4px; padding: 6px 20px;
   overflow-x: auto; white-space: nowrap;
   -webkit-overflow-scrolling: touch;
+  flex-shrink: 0; min-height: 32px; align-items: center;
 }
+/* 美化分组标签滚动条 */
+.picker-folder-tabs::-webkit-scrollbar { height: 3px; }
+.picker-folder-tabs::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 2px; }
+.picker-folder-tabs::-webkit-scrollbar-track { background: transparent; }
 .picker-folder-tab {
   padding: 4px 10px; border-radius: var(--radius-pill);
   font-size: 11px; color: var(--text-tertiary);
