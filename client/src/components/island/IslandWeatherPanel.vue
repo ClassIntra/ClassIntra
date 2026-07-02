@@ -1,17 +1,21 @@
 <template>
   <div class="island-body">
     <div class="weather-compact-content">
-      <!-- 天气预警图标 -->
-      <div class="iw-icon" :style="{ color: alertColor }">
-        <i class="fa-solid" :class="alertIcon"></i>
+      <!-- 前方图标：天气图标 或 圆框感叹号 -->
+      <div class="iw-icon-circle" :style="{ color: alertColor, borderColor: alertColor }">
+        <i class="fa-solid" :class="startIcon"></i>
       </div>
-      <!-- 标题 + 滚动文字 -->
-      <div class="iw-text-area">
-        <div class="iw-title">{{ alertTitle }}</div>
-        <div class="iw-scroll-wrap">
-          <div class="iw-scroll-text">{{ scrollText }}</div>
-        </div>
+
+      <!-- 单行滚动文字：事件类型·预警内容 -->
+      <div class="iw-scroll-wrap">
+        <span class="iw-scroll-text" ref="scrollText" :style="{ '--scroll-duration': scrollDuration + 'ms' }">{{ scrollContent }}</span>
       </div>
+
+      <!-- 后方圆框感叹号：仅当前方是天气图标时显示 -->
+      <div v-if="showEndExclamation" class="iw-icon-circle iw-icon-circle--end" :style="{ color: alertColor, borderColor: alertColor }">
+        <i class="fa-solid fa-exclamation"></i>
+      </div>
+
       <!-- 关闭按钮 -->
       <button class="iw-close" @click.stop="$emit('dismiss')">
         <i class="fa-solid fa-xmark"></i>
@@ -21,52 +25,45 @@
 </template>
 
 <script>
-// 严重程度 → 颜色映射
-var SEVERITY_COLORS = {
-  minor: '#3B82F6',
-  moderate: '#F59E0B',
-  severe: '#EF4444',
-  extreme: '#9333EA'
+// 事件类型关键词 → 天气图标（有对应图标 = 前方用天气图标，后方加感叹号）
+var WEATHER_ICONS = {
+  rain: 'fa-cloud-rain',
+  snow: 'fa-snowflake',
+  thunder: 'fa-bolt',
+  heat: 'fa-temperature-high',
+  cold: 'fa-temperature-low',
+  wind: 'fa-wind',
+  sand: 'fa-tornado',
+  fog: 'fa-smog',
+  ice: 'fa-icicles'
 };
 
-// 严重程度 → 中文标签
-var SEVERITY_LABELS = {
-  minor: '蓝色预警',
-  moderate: '黄色预警',
-  severe: '橙色预警',
-  extreme: '红色预警'
-};
-
-// 事件类型关键词 → 图标映射
-function getIconByEvent(eventName) {
+function detectWeatherIcon(eventName) {
   var name = (eventName || '').toLowerCase();
-  if (name.indexOf('雨') > -1 || name.indexOf('rain') > -1) return 'fa-cloud-rain';
-  if (name.indexOf('雪') > -1 || name.indexOf('snow') > -1) return 'fa-snowflake';
-  if (name.indexOf('雷') > -1 || name.indexOf('thunder') > -1) return 'fa-bolt';
-  if (name.indexOf('高温') > -1 || name.indexOf('热') > -1 || name.indexOf('heat') > -1) return 'fa-temperature-high';
-  if (name.indexOf('寒') > -1 || name.indexOf('冷') > -1 || name.indexOf('cold') > -1 || name.indexOf('霜冻') > -1) return 'fa-temperature-low';
-  if (name.indexOf('风') > -1 || name.indexOf('wind') > -1) return 'fa-wind';
-  if (name.indexOf('沙') > -1 || name.indexOf('尘') > -1 || name.indexOf('dust') > -1 || name.indexOf('sand') > -1) return 'fa-tornado';
-  if (name.indexOf('雾') > -1 || name.indexOf('霾') > -1 || name.indexOf('fog') > -1 || name.indexOf('haze') > -1) return 'fa-smog';
-  if (name.indexOf('冰') > -1 || name.indexOf('ice') > -1) return 'fa-icicles';
-  return 'fa-triangle-exclamation';
+  if (name.indexOf('雨') > -1 || name.indexOf('rain') > -1) return 'rain';
+  if (name.indexOf('雪') > -1 || name.indexOf('snow') > -1) return 'snow';
+  if (name.indexOf('雷') > -1 || name.indexOf('thunder') > -1) return 'thunder';
+  if (name.indexOf('高温') > -1 || name.indexOf('热') > -1 || name.indexOf('heat') > -1) return 'heat';
+  if (name.indexOf('寒') > -1 || name.indexOf('冷') > -1 || name.indexOf('霜冻') > -1 || name.indexOf('cold') > -1) return 'cold';
+  if (name.indexOf('风') > -1 || name.indexOf('wind') > -1 || name.indexOf('台风') > -1 || name.indexOf('飓风') > -1) return 'wind';
+  if (name.indexOf('沙') > -1 || name.indexOf('尘') > -1 || name.indexOf('dust') > -1 || name.indexOf('sand') > -1) return 'sand';
+  if (name.indexOf('雾') > -1 || name.indexOf('霾') > -1 || name.indexOf('fog') > -1 || name.indexOf('haze') > -1) return 'fog';
+  if (name.indexOf('冰') > -1 || name.indexOf('ice') > -1) return 'ice';
+  return null;
 }
 
 export default {
   name: 'IslandWeatherPanel',
   props: {
-    // 天气预警对象，结构同 WarningCard 的 w：{ eventType:{name}, severity, color:{red,green,blue,alpha,code}, headline, description }
     alert: { type: Object, default: null }
   },
   data: function() {
     return {
-      // 滚动动画时长（毫秒），两遍内容
-      scrollDuration: 30000,
+      scrollDuration: 0,
       _autoCloseTimer: null
     };
   },
   computed: {
-    // 预警颜色
     alertColor: function() {
       var w = this.alert;
       if (!w) return '#F59E0B';
@@ -74,47 +71,53 @@ export default {
         var c = w.color;
         return 'rgba(' + c.red + ',' + c.green + ',' + c.blue + ',' + (c.alpha != null ? c.alpha : 1) + ')';
       }
-      return SEVERITY_COLORS[w.severity] || '#F59E0B';
+      var sevMap = { minor: '#3B82F6', moderate: '#F59E0B', severe: '#EF4444', extreme: '#9333EA' };
+      return sevMap[w.severity] || '#F59E0B';
     },
-    // 预警图标
-    alertIcon: function() {
+
+    // 前方图标：有天气类型匹配 → 天气图标；否则 → 感叹号
+    weatherIconKey: function() {
       var w = this.alert;
       var eventName = (w && w.eventType && w.eventType.name) || '';
-      return getIconByEvent(eventName);
+      return detectWeatherIcon(eventName);
     },
-    // 预警标题：事件类型 + 等级
-    alertTitle: function() {
-      var w = this.alert;
-      if (!w) return '天气预警';
-      var eventName = (w.eventType && w.eventType.name) || '天气预警';
-      var label = '';
-      if (w.color && w.color.code) {
-        var codeMap = { blue: '蓝色预警', yellow: '黄色预警', orange: '橙色预警', red: '红色预警' };
-        label = codeMap[w.color.code] || SEVERITY_LABELS[w.severity] || '预警';
-      } else {
-        label = SEVERITY_LABELS[w.severity] || '预警';
+
+    startIcon: function() {
+      if (this.weatherIconKey) {
+        return WEATHER_ICONS[this.weatherIconKey];
       }
-      return eventName + ' ' + label;
+      return 'fa-exclamation';
     },
-    // 滚动文字：headline + description，重复两遍拼接（中间用空格分隔）
-    scrollText: function() {
+
+    // 是否需要显示后方感叹号：仅当前方是天气图标时
+    showEndExclamation: function() {
+      return !!this.weatherIconKey;
+    },
+
+    // 滚动内容：事件类型·预警描述
+    scrollContent: function() {
       var w = this.alert;
       if (!w) return '';
-      var parts = [];
-      if (w.headline) parts.push(w.headline);
-      if (w.description) parts.push(w.description);
-      if (parts.length === 0) return '天气预警';
-      var oneLine = parts.join('  ');
-      // 重复两遍，中间加足够空格作为视觉间隔
-      return oneLine + '          ' + oneLine;
+      var eventName = (w && w.eventType && w.eventType.name) || '天气预警';
+      var desc = w.headline || w.description || '';
+      // 如果描述和事件名相同则去重
+      if (desc === eventName) desc = '';
+      var line = desc ? (eventName + '·' + desc) : eventName;
+      // 重复两遍拼接，中间加空格间隔
+      return line + '          ' + line;
     }
   },
   mounted: function() {
     var self = this;
-    // 滚动两遍后自动关闭
+    // 计算滚动时长：根据文字长度动态
+    var charWidth = 8; // 每个中文字大约 10px（font-size 11px 时）
+    var singleLineLen = (self.scrollContent.length / 2) * charWidth;
+    // 滚动速度：约 30px/s
+    self.scrollDuration = Math.max(6000, singleLineLen / 30 * 1000);
+    // 滚动两遍（translateX -50%）后自动关闭
     self._autoCloseTimer = setTimeout(function() {
       self.$emit('request-close');
-    }, self.scrollDuration);
+    }, self.scrollDuration + 500);
   },
   beforeDestroy: function() {
     if (this._autoCloseTimer) {
@@ -134,62 +137,50 @@ export default {
   width: 100%;
 }
 
-/* 天气图标 */
-.iw-icon {
+/* ===== 圆形图标容器（匹配音乐封面圆框样式） ===== */
+.iw-icon-circle {
   flex-shrink: 0;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
-  border-radius: 50%;
+  font-size: 12px;
   background: rgba(255, 255, 255, 0.08);
+  border: 1.5px solid;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.06) inset;
 }
 
-/* 文本区域 */
-.iw-text-area {
+.iw-icon-circle--end {
+  width: 22px;
+  height: 22px;
+  font-size: 10px;
+}
+
+/* ===== 单行滚动区域 ===== */
+.iw-scroll-wrap {
   flex: 1;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  overflow: hidden;
-}
-
-.iw-title {
-  font-size: 11px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.9);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  line-height: 1.2;
-}
-
-/* 滚动文字容器 */
-.iw-scroll-wrap {
   overflow: hidden;
   white-space: nowrap;
-  line-height: 1.2;
 }
 
 .iw-scroll-text {
   display: inline-block;
-  font-size: 10px;
-  color: rgba(255, 255, 255, 0.55);
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.85);
   white-space: nowrap;
-  animation: iw-marquee 30s linear forwards;
-  padding-right: 40px;
+  animation: iw-marquee var(--scroll-duration, 12s) linear forwards;
 }
 
-/* 滚动动画：从 0 到 -50%，因为文字重复两遍，-50% 刚好滚完一遍 */
 @keyframes iw-marquee {
-  0% { transform: translateX(0); }
+  0%   { transform: translateX(0); }
   100% { transform: translateX(-50%); }
 }
 
-/* 关闭按钮 */
+/* ===== 关闭按钮 ===== */
 .iw-close {
   flex-shrink: 0;
   width: 18px;

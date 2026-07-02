@@ -584,6 +584,21 @@ export default {
   transform: scale(1.04);
 }
 
+/* ===== Weather Compact ===== */
+.island-mode-weather-compact {
+  min-width: 160px;
+  max-width: 280px;
+  border-radius: var(--radius-pill);
+  padding: 4px 12px 4px 6px;
+  display: inline-flex;
+  align-items: center;
+  box-shadow: var(--shadow-lg), 0 0 0 0.5px var(--separator-color) inset;
+}
+
+.island-mode-weather-compact:hover {
+  transform: scale(1.04);
+}
+
 .island-mode-music-expanded {
   width: 280px;
   border-radius: var(--radius-2xl);
