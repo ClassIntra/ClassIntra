@@ -785,7 +785,9 @@ export default {
           message: '将清除所有图标位置、文件夹和分页，恢复默认布局。确定继续吗？',
           confirmText: '重置',
           cancelText: '取消'
-        }).then(function() {
+        }).then(function(result) {
+          // 取消时不执行（confirm 的取消走 resolve(false)，不会进 catch）
+          if (!result) return;
           self._performResetDesktop();
         }).catch(function() {});
       } else {

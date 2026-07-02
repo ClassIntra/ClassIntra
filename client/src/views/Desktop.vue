@@ -134,16 +134,17 @@
 
     <!-- Dock 栏（transition-group 实现图标进出动画 + 自动扩展/缩减） -->
     <!-- dock-bar 本身作为 "append" 追加落点（拖到 Dock 空白处即追加到末尾） -->
+    <!-- 空 Dock 在非编辑态隐藏；编辑态显示占位便于拖入图标 -->
     <transition-group
       name="dock-slot"
       tag="div"
       class="dock-bar"
-      :class="{ 'dock-bar--editing': isEditMode, 'dock-bar--empty': effectiveDockApps.length === 0 }"
+      :class="{ 'dock-bar--editing': isEditMode, 'dock-bar--empty': effectiveDockApps.length === 0, 'dock-bar--hidden': !shouldShowDock }"
       :data-dst-type="isGridLayout ? 'dock' : null"
       :data-dst-dock="isGridLayout ? 'append' : null"
     >
       <div v-if="effectiveDockApps.length === 0" key="dock-empty" class="dock-empty-hint">
-        暂无可用应用
+        拖入应用添加到 Dock
       </div>
       <div
         v-for="(name, i) in effectiveDockApps"
@@ -393,6 +394,13 @@ export default {
         (layout.folders[fid].apps || []).forEach(push);
       });
       return result;
+    },
+    // Dock 是否应显示：有图标时始终显示；空 Dock 仅在编辑态显示占位（便于拖入）
+    // dock-only 模式下 effectiveDockApps 聚合所有应用，不会为空
+    shouldShowDock: function() {
+      if (this.effectiveDockApps.length > 0) return true;
+      // grid 模式空 Dock：仅编辑态显示占位
+      return this.isEditMode && this.isGridLayout;
     },
     // 固定应用名列表
     pinnedAppNames: function() {
@@ -708,7 +716,9 @@ export default {
         message: '将"' + label + '"从桌面移除？可在设置中重置布局恢复。',
         confirmText: '移除',
         cancelText: '取消'
-      }).then(function() {
+      }).then(function(result) {
+        // 取消时不执行（confirm 的取消走 resolve(false)，不会进 catch）
+        if (!result) return;
         self.$store.commit('desktop/REMOVE_APP', { type: 'page', pageIndex: pageIndex, index: index });
         self.$store.dispatch('desktop/saveDesktopLayout');
       }).catch(function() {});
@@ -724,7 +734,9 @@ export default {
         message: '将"' + label + '"从 Dock 移除？可在设置中重置布局恢复。',
         confirmText: '移除',
         cancelText: '取消'
-      }).then(function() {
+      }).then(function(result) {
+        // 取消时不执行（confirm 的取消走 resolve(false)，不会进 catch）
+        if (!result) return;
         self.$store.commit('desktop/REMOVE_APP', { type: 'dock', index: index });
         self.$store.dispatch('desktop/saveDesktopLayout');
       }).catch(function() {});
@@ -751,7 +763,9 @@ export default {
         message: '将删除第 ' + (this.currentPage + 1) + ' 页，页内图标会迁移到其他页面。确定继续吗？',
         confirmText: '删除',
         cancelText: '取消'
-      }).then(function() {
+      }).then(function(result) {
+        // 取消时不执行（confirm 的取消走 resolve(false)，不会进 catch）
+        if (!result) return;
         self.$store.dispatch('desktop/removePage', self.currentPage);
       }).catch(function() {});
     },
@@ -1109,6 +1123,21 @@ export default {
   /* 编辑态视觉区分：阴影微调（wiggle 已移到 dock-slot，避免容器 overflow+rotate 冲突） */
   -webkit-box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18), 0 1px 2px rgba(0, 0, 0, 0.08);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18), 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+/* 空 Dock 隐藏（非编辑态不显示；编辑态显示占位供拖入） */
+.dock-bar--hidden {
+  display: none !important;
+}
+
+/* 空 Dock 占位提示（编辑态显示，虚线框引导拖入） */
+.dock-bar--empty {
+  padding: 18px 32px;
+  border: 2px dashed rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.08);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  color: rgba(255, 255, 255, 0.85);
 }
 
 /* 编辑态：Dock 图标单独 wiggle（与 AppIcon 统一），禁用 hover 缩放避免与 wiggle 冲突 */
