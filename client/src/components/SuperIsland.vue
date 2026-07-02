@@ -336,6 +336,8 @@ export default {
 
     // ===== 天气预警 =====
     showWeatherAlert: function(alert) {
+      // 已在显示天气预警中，不重复触发
+      if (this.islandMode === 'weather-compact') return;
       this.currentWeatherAlert = alert;
       this.prevMode = this.islandMode;
       this.islandMode = 'weather-compact';
@@ -344,6 +346,14 @@ export default {
     dismissWeather: function() {
       this.currentWeatherAlert = null;
       this.goCompact();
+      // 天气预警消失后，处理排队中的通知
+      var self = this;
+      self.$nextTick(function() {
+        if (self.notificationQueue && self.notificationQueue.length > 0) {
+          var next = self.notificationQueue.shift();
+          if (next) self.showNotification(next);
+        }
+      });
     },
 
     handleClick: function() {
