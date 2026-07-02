@@ -171,7 +171,7 @@
               <div v-if="selectMode" class="msg-checkbox" :class="{ checked: selectedMessages.indexOf(msg._key) > -1 }">
                 <i v-if="selectedMessages.indexOf(msg._key) > -1" class="fa-solid fa-check"></i>
               </div>
-              <div class="msg-avatar"><i :class="msg.role === 'user' ? 'fa-solid fa-user' : 'fa-solid fa-rooot'"></i></div>
+              <div class="msg-avatar"><i :class="msg.role === 'user' ? 'fa-solid fa-user' : 'fa-solid fa-robot'"></i></div>
               <div class="msg-body">
                 <!-- AI searching indicator -->
                 <div v-if="msg.role === 'assistant' && !msg.content && !msg.error && isSearching && idx === currentMessages.length - 1" class="msg-content msg-searching">
