@@ -489,14 +489,6 @@
       </div>
     </div>
 
-    <!-- 生日限制底部警告栏 -->
-    <transition name="warnbar-slide">
-      <div v-if="birthdayChangedThisMonth" class="birthday-warn-bar">
-        <i class="fa-solid fa-circle-info"></i>
-        <span>本月（{{ lastBirthdayChangeText }}）已修改过生日，每月仅可修改一次，请下个月再试</span>
-      </div>
-    </transition>
-
     <!-- 生日修改确认弹窗 -->
     <transition name="modal-fade">
       <div v-if="showBirthdayConfirm" class="modal-overlay" @click.self="cancelBirthdayConfirm">
@@ -2406,43 +2398,6 @@ export default {
   font-size: 15px;
   flex-shrink: 0;
   margin-top: 1px;
-}
-
-/* ========== 生日限制底部警告栏 ========== */
-.birthday-warn-bar {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  z-index: 500;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 12px 20px;
-  background: rgba(255, 152, 0, 0.95);
-  color: #fff;
-  font-size: 14px;
-  font-weight: 500;
-  box-shadow: 0 -2px 12px rgba(255, 152, 0, 0.3);
-  letter-spacing: 0.3px;
-}
-
-.birthday-warn-bar i {
-  font-size: 16px;
-}
-
-/* 底部栏滑入动画 */
-.warnbar-slide-enter-active {
-  transition: all 0.35s cubic-bezier(0.25, 0.8, 0.25, 1.2);
-}
-.warnbar-slide-leave-active {
-  transition: all 0.25s ease-in;
-}
-.warnbar-slide-enter-from,
-.warnbar-slide-leave-to {
-  transform: translateY(100%);
-  opacity: 0;
 }
 
 /* ========== 模态框通用样式（与 Notes.vue 一致） ========== */
