@@ -99,18 +99,6 @@
         </div>
       </div>
     </div>
-
-    <!-- 浏览模式下的底部快捷栏 -->
-    <div v-if="currentUrl" class="browser-bottombar">
-      <button class="bottombar-btn" @click="stopBrowsing">
-        <i class="fa-solid fa-house"></i>
-        <span>首页</span>
-      </button>
-      <button class="bottombar-btn" @click="toggleBookmark">
-        <i :class="isBookmarked ? 'fa-solid fa-star' : 'fa-regular fa-star'"></i>
-        <span>{{ isBookmarked ? '已收藏' : '收藏' }}</span>
-      </button>
-    </div>
   </div>
 </template>
 
@@ -470,33 +458,4 @@ export default {
   transition: color 0.15s, border-color 0.15s;
 }
 .browser-clear-btn:hover { color: #ef4444; border-color: #ef4444; }
-
-/* ========== 底部快捷栏（浏览模式） ========== */
-.browser-bottombar {
-  display: flex;
-  align-items: center;
-  justify-content: space-around;
-  padding: 6px 16px;
-  padding-bottom: max(6px, env(safe-area-inset-bottom));
-  background: var(--nav-bg);
-  border-top: 0.5px solid var(--separator-color);
-  flex-shrink: 0;
-}
-.bottombar-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: 6px 20px;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 18px;
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-  transition: color 0.15s, background 0.15s;
-}
-.bottombar-btn span { font-size: 10px; }
-.bottombar-btn:hover { color: var(--primary-color); }
-.bottombar-btn:active { background: var(--bg-color); }
 </style>
