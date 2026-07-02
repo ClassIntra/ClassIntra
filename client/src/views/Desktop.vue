@@ -1598,16 +1598,20 @@ export default {
   transform: translateX(60px);
 }
 
-/* 文件夹展开过渡 */
+/* 文件夹展开过渡：打开淡入，关闭淡出+缩回（参考 iPadOS 关闭文件夹缩回动画） */
 .folder-expand-enter-active {
   -webkit-transition: opacity 0.25s var(--ease-standard);
   transition: opacity 0.25s var(--ease-standard);
 }
 .folder-expand-leave-active {
-  -webkit-transition: opacity 0.2s var(--ease-accelerate);
-  transition: opacity 0.2s var(--ease-accelerate);
+  -webkit-transition: opacity 0.2s var(--ease-accelerate), -webkit-transform 0.2s var(--ease-accelerate);
+  transition: opacity 0.2s var(--ease-accelerate), transform 0.2s var(--ease-accelerate);
 }
 .folder-expand-enter, .folder-expand-leave-to {
   opacity: 0;
+}
+.folder-expand-leave-to {
+  -webkit-transform: scale(0.92);
+  transform: scale(0.92);
 }
 </style>

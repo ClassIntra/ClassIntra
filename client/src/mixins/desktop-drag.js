@@ -289,8 +289,8 @@ export default {
     // 更新 ghost 位置（中心对齐指针）
     _updateGhost: function(x, y) {
       if (!this.dragState.ghostEl) return;
-      // ghost 72px，偏移 -36 使中心对齐指针；scale(1.0) 保持原始尺寸
-      this.dragState.ghostEl.style.transform = 'translate(' + (x - 36) + 'px,' + (y - 36) + 'px) scale(1.0)';
+      // ghost 72px，偏移 -36 使中心对齐指针；scale(1.08) 拖起放大
+      this.dragState.ghostEl.style.transform = 'translate(' + (x - 36) + 'px,' + (y - 36) + 'px) scale(1.08)';
     },
 
     // 落点检测：用 elementFromPoint 找目标槽位
