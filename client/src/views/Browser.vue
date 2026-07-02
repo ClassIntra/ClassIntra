@@ -1,6 +1,6 @@
 <template>
   <div class="browser-page">
-    <!-- 顶部工具栏：返回 + 地址栏 + 转到 + 收藏 -->
+    <!-- 顶部工具栏：返回 + 地址栏 + 转到 + 收藏 + 全屏 -->
     <div class="browser-toolbar">
       <button class="browser-btn" @click="goBack" title="返回">
         <i class="fa-solid fa-chevron-left"></i>
@@ -24,6 +24,14 @@
       <button class="browser-btn browser-bookmark-btn" :class="{ bookmarked: isBookmarked }" @click="toggleBookmark" title="收藏">
         <i :class="isBookmarked ? 'fa-solid fa-star' : 'fa-regular fa-star'"></i>
       </button>
+      <button class="browser-btn" @click="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏'">
+        <i :class="isFullscreen ? 'fa-solid fa-compress' : 'fa-solid fa-expand'"></i>
+      </button>
+    </div>
+
+    <!-- 全屏模式下的浮动退出按钮 -->
+    <div v-if="isFullscreen" class="browser-float-exit" @click="toggleFullscreen" title="退出全屏">
+      <i class="fa-solid fa-compress"></i>
     </div>
 
     <!-- 主内容区 -->
@@ -38,6 +46,37 @@
       ></iframe>
     </div>
     <div v-else class="browser-home">
+      <!-- 首页设置区 -->
+      <div class="browser-homepage-bar">
+        <div class="homepage-left">
+          <i class="fa-solid fa-house"></i>
+          <span v-if="homepage" class="homepage-url">{{ homepage }}</span>
+          <span v-else class="homepage-hint">未设置首页</span>
+        </div>
+        <div class="homepage-actions">
+          <button v-if="homepage" class="homepage-btn" @click="navigateTo(homepage)" title="打开首页">
+            <i class="fa-solid fa-play"></i>
+          </button>
+          <button class="homepage-btn" @click="showHomepageInput = !showHomepageInput" :title="homepage ? '修改首页' : '设置首页'">
+            <i class="fa-solid fa-pen"></i>
+          </button>
+          <button v-if="homepage" class="homepage-btn homepage-btn--del" @click="clearHomepage" title="清除首页">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+      </div>
+      <div v-if="showHomepageInput" class="homepage-input-row">
+        <input
+          ref="homepageInput"
+          v-model="homepageDraft"
+          class="homepage-input"
+          placeholder="输入首页网址，如 https://baidu.com"
+          @keydown.enter="saveHomepage"
+          @keydown.escape="showHomepageInput = false"
+        />
+        <button class="homepage-save-btn" @click="saveHomepage">保存</button>
+      </div>
+
       <!-- 首页：历史 + 书签 -->
       <div class="browser-tabs">
         <button class="browser-tab" :class="{ active: activeTab === 'history' }" @click="activeTab = 'history'">
@@ -105,6 +144,7 @@
 <script>
 var HISTORY_KEY = 'browser_history';
 var BOOKMARKS_KEY = 'browser_bookmarks';
+var HOMEPAGE_KEY = 'browser_homepage';
 var MAX_HISTORY = 100;
 
 function loadFromStorage(key) {
@@ -130,7 +170,11 @@ export default {
       urlText: '',
       activeTab: 'history',
       history: [],
-      bookmarks: []
+      bookmarks: [],
+      homepage: '',
+      homepageDraft: '',
+      showHomepageInput: false,
+      isFullscreen: false
     };
   },
   computed: {
@@ -140,13 +184,40 @@ export default {
       return self.bookmarks.some(function(b) { return b.url === self.currentUrl; });
     }
   },
+  watch: {
+    showHomepageInput: function(val) {
+      if (val) {
+        var self = this;
+        self.homepageDraft = self.homepage;
+        self.$nextTick(function() {
+          if (self.$refs.homepageInput) self.$refs.homepageInput.focus();
+        });
+      }
+    }
+  },
   created: function() {
     var self = this;
     self.history = loadFromStorage(HISTORY_KEY);
     self.bookmarks = loadFromStorage(BOOKMARKS_KEY);
+    self.homepage = localStorage.getItem(HOMEPAGE_KEY) || '';
+    // 监听全屏变化（用户按 Esc 退出全屏时同步状态）
+    var fullscreenHandler = function() {
+      self.isFullscreen = !!(document.fullscreenElement || document.webkitFullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', fullscreenHandler);
+    document.addEventListener('webkitfullscreenchange', fullscreenHandler);
+    self._fullscreenHandler = fullscreenHandler;
     var url = self.$route.query.url || '';
     if (url) {
       self.navigateTo(url);
+    } else if (self.homepage) {
+      self.navigateTo(self.homepage);
+    }
+  },
+  beforeDestroy: function() {
+    if (this._fullscreenHandler) {
+      document.removeEventListener('fullscreenchange', this._fullscreenHandler);
+      document.removeEventListener('webkitfullscreenchange', this._fullscreenHandler);
     }
   },
   methods: {
@@ -210,6 +281,40 @@ export default {
         this.stopBrowsing();
       } else {
         this.$router.push({ name: 'Desktop' }).catch(function() {});
+      }
+    },
+    saveHomepage: function() {
+      var self = this;
+      var url = (self.homepageDraft || '').trim();
+      if (!url) return;
+      if (!/^https?:\/\//i.test(url)) {
+        url = 'https://' + url;
+      }
+      self.homepage = url;
+      localStorage.setItem(HOMEPAGE_KEY, url);
+      self.showHomepageInput = false;
+    },
+    clearHomepage: function() {
+      this.homepage = '';
+      this.homepageDraft = '';
+      localStorage.removeItem(HOMEPAGE_KEY);
+      this.showHomepageInput = false;
+    },
+    toggleFullscreen: function() {
+      var self = this;
+      if (self.isFullscreen) {
+        if (document.exitFullscreen) {
+          document.exitFullscreen();
+        } else if (document.webkitExitFullscreen) {
+          document.webkitExitFullscreen();
+        }
+      } else {
+        var el = self.$el;
+        if (el.requestFullscreen) {
+          el.requestFullscreen();
+        } else if (el.webkitRequestFullscreen) {
+          el.webkitRequestFullscreen();
+        }
       }
     }
   }
@@ -458,4 +563,114 @@ export default {
   transition: color 0.15s, border-color 0.15s;
 }
 .browser-clear-btn:hover { color: #ef4444; border-color: #ef4444; }
+
+/* ========== 首页设置栏 ========== */
+.browser-homepage-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: var(--bg-color);
+  border-bottom: 0.5px solid var(--separator-color);
+  flex-shrink: 0;
+}
+.homepage-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+.homepage-left i {
+  color: var(--primary-color);
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.homepage-url {
+  font-size: 13px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.homepage-hint {
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+.homepage-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+.homepage-btn {
+  width: 30px; height: 30px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+.homepage-btn:hover { background: var(--border-color); color: var(--primary-color); }
+.homepage-btn--del:hover { color: #ef4444; }
+
+.homepage-input-row {
+  display: flex;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--bg-color);
+  border-bottom: 0.5px solid var(--separator-color);
+  flex-shrink: 0;
+}
+.homepage-input {
+  flex: 1;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-pill);
+  padding: 6px 12px;
+  font-size: 13px;
+  background: var(--card-bg);
+  color: var(--text-primary);
+  outline: none;
+  min-width: 0;
+}
+.homepage-input:focus { border-color: var(--primary-color); }
+.homepage-save-btn {
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  border: none;
+  background: var(--primary-color);
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+.homepage-save-btn:hover { background: var(--primary-hover); }
+
+/* ========== 全屏浮动退出按钮 ========== */
+.browser-float-exit {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  width: 40px; height: 40px;
+  border-radius: var(--radius-pill);
+  background: rgba(0,0,0,0.45);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  cursor: pointer;
+  z-index: 10001;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: transform 0.15s, opacity 0.15s;
+}
+.browser-float-exit:hover { opacity: 0.85; }
+.browser-float-exit:active { transform: scale(0.9); }
 </style>
