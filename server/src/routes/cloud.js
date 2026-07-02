@@ -210,7 +210,7 @@ function getUserDir(userId) {
 
 // 处理已保存到 .tmp/ 的文件：转码 → 哈希 → 去重 → 入库
 // 返回 { hash, displayName, size, url } 或抛错
-function processUploadedFile(tmpFilePath, originalName, userId) {
+function processUploadedFile(tmpFilePath, originalName, userId, folder) {
   return tryTranscodeVideoToMp4(tmpFilePath).then(function(newName) {
     // 转码成功后 tmp 文件已被替换为 mp4，路径变了
     var finalPath = newName ? path.join(path.dirname(tmpFilePath), newName) : tmpFilePath;
@@ -243,7 +243,7 @@ function processUploadedFile(tmpFilePath, originalName, userId) {
         }
 
         // 添加用户引用（INSERT OR IGNORE 处理重复收藏）
-        var refResult = db.prepare('INSERT OR IGNORE INTO cloud_user_files (user_id, file_hash, display_name) VALUES (?, ?, ?)').run(userId, hash, originalName);
+        var refResult = db.prepare('INSERT OR IGNORE INTO cloud_user_files (user_id, file_hash, display_name, folder) VALUES (?, ?, ?, ?)').run(userId, hash, originalName, folder || '');
 
         return {
           hash: hash,
@@ -260,7 +260,7 @@ function processUploadedFile(tmpFilePath, originalName, userId) {
       fs.renameSync(finalPath, destPath);
 
       db.prepare('INSERT INTO cloud_files (hash, owner_user_id, original_name, size, mime_type, storage_path) VALUES (?, ?, ?, ?, ?, ?)').run(hash, userId, originalName, stat.size, mimeType, storagePath);
-      db.prepare('INSERT INTO cloud_user_files (user_id, file_hash, display_name) VALUES (?, ?, ?)').run(userId, hash, originalName);
+      db.prepare('INSERT INTO cloud_user_files (user_id, file_hash, display_name, folder) VALUES (?, ?, ?, ?)').run(userId, hash, originalName, folder || '');
 
       return {
         hash: hash,
@@ -535,8 +535,9 @@ router.post('/upload', auth.requireAuth, upload.single('file'), function(req, re
   var userId = req.user.user_id;
   var filePath = req.file.path;
   var originalName = req.file.originalname;
+  var folder = (req.body.folder || '').trim();
 
-  processUploadedFile(filePath, originalName, userId).then(function(result) {
+  processUploadedFile(filePath, originalName, userId, folder).then(function(result) {
     res.json({ code: 200, data: result });
   }).catch(function(err) {
     console.error('[Cloud] 上传处理失败:', err);
@@ -551,6 +552,7 @@ router.post('/upload-batch', auth.requireAuth, upload.array('files', 10), functi
     return res.status(400).json({ code: 400, message: '未收到文件' });
   }
   var userId = req.user.user_id;
+  var folder = (req.body.folder || '').trim();
   var files = req.files;
   var results = [];
   var idx = 0;
@@ -561,7 +563,7 @@ router.post('/upload-batch', auth.requireAuth, upload.array('files', 10), functi
     }
     var f = files[idx];
     idx++;
-    processUploadedFile(f.path, f.originalname, userId).then(function(result) {
+    processUploadedFile(f.path, f.originalname, userId, folder).then(function(result) {
       results.push(result);
       processNext();
     }).catch(function(err) {
