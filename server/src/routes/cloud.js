@@ -106,7 +106,7 @@ function sendDeletedPlaceholder(res, mimeType) {
       '<text x="200" y="245" text-anchor="middle" fill="#bbb" font-size="12" font-family="sans-serif">File Deleted</text>' +
       '</svg>';
     res.set('Content-Type', 'image/svg+xml');
-    res.set('Cache-Control', 'public, max-age=86400');
+    res.set('Cache-Control', 'no-cache');
     res.send(Buffer.from(svg, 'utf8'));
   } else {
     // 音频/视频返回 410 Gone
@@ -652,7 +652,7 @@ router.get('/files/:param', auth.requireAuth, function(req, res) {
     var cached = getCachedResize(cacheKey);
     if (cached) {
       res.set('Content-Type', file.mime_type);
-      res.set('Cache-Control', 'public, max-age=86400');
+      res.set('Cache-Control', 'public, max-age=300, must-revalidate');
       res.set('X-Resized', '1');
       return res.send(cached);
     }
@@ -665,7 +665,7 @@ router.get('/files/:param', auth.requireAuth, function(req, res) {
       return sharp(filePath).resize({ width: targetWidth, withoutEnlargement: true }).toBuffer().then(function(resized) {
         setCachedResize(cacheKey, resized);
         res.set('Content-Type', file.mime_type);
-        res.set('Cache-Control', 'public, max-age=86400');
+        res.set('Cache-Control', 'public, max-age=300, must-revalidate');
         res.set('X-Resized', '1');
         res.send(resized);
       });
