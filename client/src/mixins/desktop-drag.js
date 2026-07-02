@@ -7,6 +7,9 @@ var DRAG_THRESHOLD = 5;        // 移动超过 5px 才正式开始拖拽
 var FOLDER_HOVER_MS = 500;     // 拖拽悬停 500ms 创建文件夹
 var FLIP_DURATION = 300;       // FLIP 动画时长
 var FLIP_EASING = 'cubic-bezier(0.32, 0.72, 0, 1)';  // iOS 弹性曲线
+var PAGE_EDGE_THRESHOLD = 36;  // 距屏幕左/右边缘多少像素触发跨页切换
+var PAGE_SWITCH_DELAY = 450;   // 边缘停留多久后切页（ms）
+var PAGE_SWITCH_COOLDOWN = 600; // 切页后冷却（ms），避免连续切页过快
 
 export default {
   data: function() {
@@ -52,7 +55,10 @@ export default {
         ghostEl: null,
         targetInfo: null,
         folderHoverTimer: null,
-        lastTargetKey: ''
+        lastTargetKey: '',
+        pageSwitchTimer: null,      // 跨页切页计时器
+        lastPageSwitchAt: 0,        // 上次切页时间戳（冷却用）
+        pageEdgeDir: 0              // 当前边缘方向：0 无 / -1 左 / 1 右
       };
 
       // 绑定文档级监听（确保离开元素仍能跟踪）
@@ -113,7 +119,7 @@ export default {
       // 阻止默认行为（防止滚动，立即执行）
       if (e.cancelable) e.preventDefault();
 
-      // rAF 节流：ghost 位置更新 + 落点检测（这两步较重，每帧执行一次即可）
+      // rAF 节流：ghost 位置更新 + 落点检测 + 跨页边缘检测（这三步较重，每帧执行一次即可）
       if (this.dragState._rafScheduled) return;
       this.dragState._rafScheduled = true;
       var self = this;
@@ -123,7 +129,83 @@ export default {
         self._updateGhost(self.dragState.currentX, self.dragState.currentY);
         var targetInfo = self._findDropTarget(self.dragState.currentX, self.dragState.currentY);
         self._updateDropHighlight(targetInfo);
+        // 跨页拖拽：检测指针是否接近屏幕左/右边缘，触发自动切页
+        self._checkPageEdgeSwitch(self.dragState.currentX, self.dragState.currentY);
       });
+    },
+
+    // 跨页拖拽：边缘检测 + 自动切页
+    // 当指针接近屏幕左/右边缘并停留 PAGE_SWITCH_DELAY 后，切换到上/下一页
+    // 切页后进入 PAGE_SWITCH_COOLDOWN 冷却，避免连续切页过快
+    // 仅 grid 布局生效（dock-only 模式单页视图无需切页）
+    _checkPageEdgeSwitch: function(x, y) {
+      if (!this.dragState || !this.dragState.started) return;
+      // dock-only 模式单页视图，不切页
+      var layoutMode = this.$store.getters['settings/desktopLayout'];
+      if (layoutMode === 'dock') return;
+
+      var winW = window.innerWidth;
+      var dir = 0;
+      if (x <= PAGE_EDGE_THRESHOLD) dir = -1;        // 左边缘 → 上一页
+      else if (x >= winW - PAGE_EDGE_THRESHOLD) dir = 1; // 右边缘 → 下一页
+
+      // 方向变化：清除旧计时器，记录新方向
+      if (dir !== this.dragState.pageEdgeDir) {
+        if (this.dragState.pageSwitchTimer) {
+          clearTimeout(this.dragState.pageSwitchTimer);
+          this.dragState.pageSwitchTimer = null;
+        }
+        this.dragState.pageEdgeDir = dir;
+        if (dir !== 0) {
+          // 启动切页计时
+          var self = this;
+          this.dragState.pageSwitchTimer = setTimeout(function() {
+            self._doPageSwitch(dir);
+          }, PAGE_SWITCH_DELAY);
+        }
+      }
+    },
+
+    // 执行切页（已通过边缘停留检测）
+    _doPageSwitch: function(dir) {
+      if (!this.dragState) return;
+      this.dragState.pageSwitchTimer = null;
+      // 冷却期检查
+      var now = Date.now();
+      if (now - this.dragState.lastPageSwitchAt < PAGE_SWITCH_COOLDOWN) {
+        // 冷却中：重新排队一次
+        var self = this;
+        this.dragState.pageSwitchTimer = setTimeout(function() {
+          self._doPageSwitch(dir);
+        }, PAGE_SWITCH_COOLDOWN - (now - this.dragState.lastPageSwitchAt));
+        return;
+      }
+
+      var totalPages = this.$store.getters['desktop/totalPages'];
+      var currentPage = this.$store.state.desktop.currentPage;
+      var newPage = currentPage + dir;
+      if (newPage < 0 || newPage >= totalPages) {
+        // 边界：无法继续切，重置方向让用户回到边缘时能再次触发
+        this.dragState.pageEdgeDir = 0;
+        return;
+      }
+
+      // 切页前清除当前落点高亮和让位动画（旧页面元素即将移出视口）
+      this._clearDropHighlight();
+      // 重置 lastTargetKey，让切页后落点检测重新生效
+      this.dragState.lastTargetKey = '';
+      // 清除文件夹悬停计时（切页不应触发文件夹创建）
+      if (this.dragState.folderHoverTimer) {
+        clearTimeout(this.dragState.folderHoverTimer);
+        this.dragState.folderHoverTimer = null;
+      }
+
+      // 提交切页
+      this.$store.commit('desktop/SET_CURRENT_PAGE', newPage);
+      this.dragState.lastPageSwitchAt = Date.now();
+      this.dragState.pageEdgeDir = 0;  // 重置方向，需要再次进入边缘才继续切
+      // 触觉反馈
+      if (navigator.vibrate) navigator.vibrate(8);
     },
 
     // 正式开始拖拽：创建 ghost、提交 SET_DRAGGING
@@ -492,6 +574,10 @@ export default {
       if (this.dragState && this.dragState.folderHoverTimer) {
         clearTimeout(this.dragState.folderHoverTimer);
       }
+      // 清除跨页切页计时
+      if (this.dragState && this.dragState.pageSwitchTimer) {
+        clearTimeout(this.dragState.pageSwitchTimer);
+      }
       // 移除文档监听
       if (this._dragMoveEvent) {
         document.removeEventListener(this._dragMoveEvent, this._onDragMoveBound);
@@ -565,6 +651,9 @@ export default {
     }
     if (this.dragState && this.dragState.folderHoverTimer) {
       clearTimeout(this.dragState.folderHoverTimer);
+    }
+    if (this.dragState && this.dragState.pageSwitchTimer) {
+      clearTimeout(this.dragState.pageSwitchTimer);
     }
   }
 };

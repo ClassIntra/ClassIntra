@@ -67,7 +67,7 @@ function buildDefaultLayout(enabledAppNames) {
     version: 2,
     pages: [{ id: 'page-0', slots: slots }],
     dock: dock,
-    pinnedApps: ['settings'],
+    pinnedApps: [],
     folders: {},
     widgets: {}  // 预留小组件系统：{ 'page-0': [{ id, type, slot, w, h }] }
   };
@@ -96,7 +96,11 @@ function normalizeLayout(serverLayout, enabledAppNames) {
   if (pages.length < 1) pages = [{ id: 'page-0', slots: new Array(SLOTS_PER_PAGE).fill(null) }];
 
   var dock = Array.isArray(serverLayout.dock) ? serverLayout.dock.slice(0, MAX_DOCK).filter(function(n) { return n !== null && n; }) : [];
-  var pinnedApps = Array.isArray(serverLayout.pinnedApps) ? serverLayout.pinnedApps : ['settings'];
+  // 旧版本默认 pinnedApps: ['settings']，现已取消该固定（让设置图标可拖动）
+  // 此处迁移：移除 'settings'，对老用户布局即时生效
+  var pinnedApps = Array.isArray(serverLayout.pinnedApps) ? serverLayout.pinnedApps.slice() : [];
+  var settingsIdx = pinnedApps.indexOf('settings');
+  if (settingsIdx !== -1) pinnedApps.splice(settingsIdx, 1);
   var folders = (serverLayout.folders && typeof serverLayout.folders === 'object') ? serverLayout.folders : {};
 
   // 补全 enabledAppNames 中缺失的应用（新启用应用自动出现在桌面）
