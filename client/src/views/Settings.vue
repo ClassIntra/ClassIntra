@@ -64,11 +64,19 @@
               <div class="form-row">
                 <label class="form-label">生日</label>
                 <div class="form-input-group">
-                  <input v-model="profileForm.birthday" type="date" class="form-input" />
+                  <input v-model="profileForm.birthday" type="date" class="form-input" :disabled="birthdayChangedThisMonth" :title="birthdayChangedThisMonth ? '本月已修改过生日（' + lastBirthdayChangeText + '），请下个月再试' : ''" />
                   <button class="privacy-toggle" :class="{ private: profileForm.birthday_private }" @click="togglePrivacy('birthday')" :title="profileForm.birthday_private ? '当前仅自己可见，点击公开' : '当前公开可见，点击设为私密'">
                     <i :class="profileForm.birthday_private ? 'fa-solid fa-lock' : 'fa-solid fa-lock-open'"></i>
                   </button>
                 </div>
+                <p v-if="birthdayChangedThisMonth" class="form-hint form-hint--warn">
+                  <i class="fa-solid fa-circle-info"></i>
+                  本月（{{ lastBirthdayChangeText }}）已修改过生日，每月仅可修改一次
+                </p>
+                <p v-else class="form-hint">
+                  <i class="fa-solid fa-circle-info"></i>
+                  生日每月仅可修改一次，修改后将在生日当天触发桌面庆祝动画
+                </p>
               </div>
               <div class="form-row">
                 <label class="form-label">微信号</label>
@@ -488,6 +496,47 @@
         </transition>
       </div>
     </div>
+
+    <!-- 生日修改确认弹窗 -->
+    <transition name="modal-fade">
+      <div v-if="showBirthdayConfirm" class="modal-overlay" @click.self="cancelBirthdayConfirm">
+        <div class="modal-panel birthday-confirm-modal">
+          <div class="modal-header">
+            <h3 class="modal-title">
+              <i class="fa-solid fa-cake-candles"></i> 确认修改生日
+            </h3>
+            <button class="modal-close" @click="cancelBirthdayConfirm">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+          <div class="modal-body">
+            <div class="birthday-confirm-info">
+              <div class="birthday-confirm-row">
+                <span class="birthday-confirm-label">原生日</span>
+                <span class="birthday-confirm-value">{{ originalBirthday || '未设置' }}</span>
+              </div>
+              <div class="birthday-confirm-arrow">
+                <i class="fa-solid fa-arrow-down"></i>
+              </div>
+              <div class="birthday-confirm-row birthday-confirm-row--new">
+                <span class="birthday-confirm-label">新生日</span>
+                <span class="birthday-confirm-value">{{ profileForm.birthday || '未设置' }}</span>
+              </div>
+            </div>
+            <div class="birthday-confirm-warn">
+              <i class="fa-solid fa-triangle-exclamation"></i>
+              <span>确认后本月将无法再次修改生日，且将以此日期触发年度生日庆祝。</span>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn-secondary" @click="cancelBirthdayConfirm">取消</button>
+            <button class="btn-primary" @click="confirmBirthdaySave">
+              <i class="fa-solid fa-check"></i> 确认修改
+            </button>
+          </div>
+        </div>
+      </div>
+    </transition>
   </div>
 </template>
 
@@ -525,6 +574,13 @@ export default {
       ],
       autoWallpaper: false,
       autoWallpaperTimer: null,
+      // 生日修改控制
+      originalBirthday: '',
+      birthdayChangedThisMonth: false,
+      lastBirthdayChangeText: '',
+      showBirthdayConfirm: false,
+      pendingProfileData: null,
+
       profileForm: {
         net_name: '',
         birthday: '',
@@ -648,8 +704,18 @@ export default {
         self.$store.commit('toast/SHOW_TOAST', { message: '网名不能为空', type: 'error' });
         return;
       }
-      self.saving = true;
-      var profileData = {
+      // 生日变更检测：若与原始值不同，先弹出确认弹窗
+      if (self.profileForm.birthday !== self.originalBirthday && !self.birthdayChangedThisMonth) {
+        self._buildPendingProfileData();
+        self.showBirthdayConfirm = true;
+        return;
+      }
+      self._doSaveProfile();
+    },
+
+    _buildPendingProfileData: function() {
+      var self = this;
+      self.pendingProfileData = {
         net_name: self.profileForm.net_name.trim(),
         birthday: self.profileForm.birthday,
         wechat: self.profileForm.wechat.trim(),
@@ -665,6 +731,45 @@ export default {
           address: self.profileForm.address_private
         }
       };
+    },
+
+    confirmBirthdaySave: function() {
+      var self = this;
+      self.showBirthdayConfirm = false;
+      self.originalBirthday = self.profileForm.birthday;
+      self.birthdayChangedThisMonth = true;
+      var now = new Date();
+      self.lastBirthdayChangeText = (now.getMonth() + 1) + '月' + now.getDate() + '日';
+      self._doSaveProfile();
+    },
+
+    cancelBirthdayConfirm: function() {
+      var self = this;
+      self.showBirthdayConfirm = false;
+      self.profileForm.birthday = self.originalBirthday;
+      self.pendingProfileData = null;
+    },
+
+    _doSaveProfile: function() {
+      var self = this;
+      var profileData = self.pendingProfileData || {
+        net_name: self.profileForm.net_name.trim(),
+        birthday: self.profileForm.birthday,
+        wechat: self.profileForm.wechat.trim(),
+        qq: self.profileForm.qq.trim(),
+        phone: self.profileForm.phone.trim(),
+        address: self.profileForm.address.trim(),
+        signature: self.profileForm.signature.trim(),
+        privacy_settings: {
+          birthday: self.profileForm.birthday_private,
+          wechat: self.profileForm.wechat_private,
+          qq: self.profileForm.qq_private,
+          phone: self.profileForm.phone_private,
+          address: self.profileForm.address_private
+        }
+      };
+      self.pendingProfileData = null;
+      self.saving = true;
       // 同时更新网名和完整资料，任一失败则回滚用户状态
       var netNameUpdated = false;
       api.patch('/user/profile', { net_name: profileData.net_name })
@@ -700,7 +805,19 @@ export default {
           if (data) {
             var privacy = data.privacy_settings || {};
             self.profileForm.birthday = data.birthday || '';
+            self.originalBirthday = data.birthday || '';
             self.profileForm.birthday_private = privacy.birthday !== false;
+            // 检查本月是否已修改过生日
+            self.birthdayChangedThisMonth = false;
+            self.lastBirthdayChangeText = '';
+            if (data.last_birthday_change) {
+              var lcDate = new Date(data.last_birthday_change);
+              var now = new Date();
+              if (lcDate.getFullYear() === now.getFullYear() && lcDate.getMonth() === now.getMonth()) {
+                self.birthdayChangedThisMonth = true;
+                self.lastBirthdayChangeText = lcDate.getMonth() + 1 + '月' + lcDate.getDate() + '日';
+              }
+            }
             self.profileForm.wechat = data.wechat || '';
             self.profileForm.qq = data.qq || '';
             self.profileForm.phone = data.phone || '';
@@ -2226,5 +2343,166 @@ export default {
   .settings-section {
     max-width: 720px;
   }
+}
+
+/* ========== 生日确认弹窗 ========== */
+.birthday-confirm-modal {
+  max-width: 420px;
+}
+
+.birthday-confirm-info {
+  background: var(--bg-color);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+
+.birthday-confirm-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+}
+
+.birthday-confirm-label {
+  font-size: 14px;
+  color: var(--text-tertiary);
+}
+
+.birthday-confirm-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.birthday-confirm-row--new .birthday-confirm-value {
+  color: var(--primary-color);
+}
+
+.birthday-confirm-arrow {
+  text-align: center;
+  padding: 4px 0;
+  color: var(--text-tertiary);
+  font-size: 14px;
+}
+
+.birthday-confirm-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: rgba(255, 193, 7, 0.1);
+  border: 1px solid rgba(255, 193, 7, 0.3);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.birthday-confirm-warn i {
+  color: #ff9800;
+  font-size: 15px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* ========== 表单提示文字 ========== */
+.form-hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.form-hint--warn {
+  color: #e67e22;
+}
+
+.form-hint i {
+  font-size: 11px;
+}
+
+/* ========== 模态框通用样式（与 Notes.vue 一致） ========== */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-panel {
+  background: var(--card-bg);
+  border-radius: 16px;
+  width: 90%;
+  max-width: 480px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 0.5px solid var(--separator-color);
+}
+
+.modal-title {
+  font-size: 17px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.modal-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: var(--bg-color);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.modal-body {
+  padding: 20px;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 0.5px solid var(--separator-color);
+}
+
+.modal-fade-enter-active,
+.modal-fade-leave-active {
+  transition: opacity 0.25s ease;
+}
+
+.modal-fade-enter-from,
+.modal-fade-leave-to {
+  opacity: 0;
+}
+
+/* ========== 生日输入禁用态 ========== */
+.form-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: var(--bg-color);
 }
 </style>
