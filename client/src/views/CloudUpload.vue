@@ -23,6 +23,15 @@
       </button>
     </div>
 
+    <!-- 分组选择 -->
+    <div class="folder-select-bar">
+      <i class="fa-solid fa-folder-tree"></i>
+      <select v-model="uploadFolder" class="folder-select">
+        <option value="">默认分组（根目录）</option>
+        <option v-for="f in folders" :key="f.id" :value="f.name">{{ f.name }}（{{ f.file_count }} 个文件）</option>
+      </select>
+    </div>
+
     <!-- 文件上传模式 -->
     <div v-if="mode === 'file'" class="mode-content">
       <input ref="fileInput" type="file" accept="image/*,audio/*,video/*" multiple style="display:none" @change="onFileSelect" />
@@ -232,13 +241,19 @@ export default {
       videoError: '',
       // 计时器
       recordSeconds: 0,
-      recordTimer: null
+      recordTimer: null,
+      // 分组
+      folders: [],
+      uploadFolder: ''
     };
   },
   computed: {
     mediaRecorderSupported: function() {
       return isMediaRecorderSupported();
     }
+  },
+  created: function() {
+    this.loadFolders();
   },
   beforeDestroy: function() {
     this.cleanupAudio();
@@ -253,6 +268,15 @@ export default {
     }
   },
   methods: {
+    // ===== 分组 =====
+    loadFolders: function() {
+      var self = this;
+      api.get('/cloud/folders').then(function(res) {
+        var data = res.data && res.data.data;
+        self.folders = (data && data.folders) || [];
+      }).catch(function() {});
+    },
+
     // ===== 通用 =====
     showToast: function(msg, type) {
       var self = this;
@@ -356,6 +380,7 @@ export default {
           // mediaType 必须在 file 之前，否则 multer 中 req.body 为空
           formData.append('mediaType', getMediaTypeByName(file.name));
           formData.append('file', file);
+          if (self.uploadFolder) formData.append('folder', self.uploadFolder);
           api.post('/cloud/upload', formData, {
             headers: { 'Content-Type': 'multipart/form-data' },
             timeout: 120000
@@ -542,6 +567,7 @@ export default {
       // mediaType 必须在 file 之前，否则 multer 中 req.body 为空
       formData.append('mediaType', 'audio');
       formData.append('file', file);
+      if (self.uploadFolder) formData.append('folder', self.uploadFolder);
       api.post('/cloud/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 120000,
@@ -705,6 +731,7 @@ export default {
       // mediaType 必须在 file 之前，否则 multer 中 req.body 为空
       formData.append('mediaType', 'video');
       formData.append('file', file);
+      if (self.uploadFolder) formData.append('folder', self.uploadFolder);
       api.post('/cloud/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 300000,
@@ -811,6 +838,37 @@ export default {
   border-bottom-color: var(--primary-color, #007aff);
 }
 .mode-tab:active { opacity: 0.7; }
+
+/* 分组选择 */
+.folder-select-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: var(--card-bg, #fff);
+  border-bottom: 0.5px solid var(--separator-color, #e5e5ea);
+}
+.folder-select-bar i {
+  font-size: 17px;
+  color: var(--primary-color, #007aff);
+  flex-shrink: 0;
+}
+.folder-select {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--separator-color, #e5e5ea);
+  background: var(--bg-color, #f2f2f7);
+  font-size: 14px;
+  color: var(--text-primary, #000);
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238e8e93' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+}
 
 /* 模式内容 */
 .mode-content {
