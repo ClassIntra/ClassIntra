@@ -34,15 +34,24 @@ var EVENT_CODE_MAP = {
 
 function detectWeather(eventName) {
   var name = (eventName || '').toLowerCase();
-  if (name.indexOf('雨') > -1 || name.indexOf('rain') > -1) return 'rain';
+  // 雷/电/对流 → 雷雨
+  if (name.indexOf('雷') > -1 || name.indexOf('电') > -1 || name.indexOf('对流') > -1 || name.indexOf('thunder') > -1) return 'thunder';
+  // 雨/降水/暴雨
+  if (name.indexOf('雨') > -1 || name.indexOf('降水') > -1 || name.indexOf('rain') > -1) return 'rain';
+  // 雪
   if (name.indexOf('雪') > -1 || name.indexOf('snow') > -1) return 'snow';
-  if (name.indexOf('雷') > -1 || name.indexOf('thunder') > -1) return 'thunder';
-  if (name.indexOf('高温') > -1 || name.indexOf('热') > -1 || name.indexOf('heat') > -1) return 'heat';
-  if (name.indexOf('寒') > -1 || name.indexOf('冷') > -1 || name.indexOf('霜冻') > -1 || name.indexOf('cold') > -1) return 'cold';
-  if (name.indexOf('风') > -1 || name.indexOf('wind') > -1 || name.indexOf('台风') > -1 || name.indexOf('飓风') > -1) return 'wind';
+  // 高温/热浪
+  if (name.indexOf('高温') > -1 || name.indexOf('热浪') > -1 || name.indexOf('heat') > -1) return 'heat';
+  // 寒潮/低温/霜冻/降温
+  if (name.indexOf('寒') > -1 || name.indexOf('低温') > -1 || name.indexOf('霜冻') > -1 || name.indexOf('降温') > -1 || name.indexOf('cold') > -1) return 'cold';
+  // 风/台风/飓风/大风
+  if (name.indexOf('风') > -1 || name.indexOf('台风') > -1 || name.indexOf('飓风') > -1 || name.indexOf('wind') > -1) return 'wind';
+  // 沙尘/扬沙/浮尘
   if (name.indexOf('沙') > -1 || name.indexOf('尘') > -1 || name.indexOf('dust') > -1 || name.indexOf('sand') > -1) return 'sand';
+  // 雾/霾
   if (name.indexOf('雾') > -1 || name.indexOf('霾') > -1 || name.indexOf('fog') > -1 || name.indexOf('haze') > -1) return 'fog';
-  if (name.indexOf('冰') > -1 || name.indexOf('ice') > -1) return 'ice';
+  // 冰雹/冻雨/道路结冰
+  if (name.indexOf('冰') > -1 || name.indexOf('冻') > -1 || name.indexOf('ice') > -1) return 'ice';
   return null;
 }
 
