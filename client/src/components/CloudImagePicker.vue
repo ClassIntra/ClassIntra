@@ -104,6 +104,11 @@ export default {
       return result;
     }
   },
+  watch: {
+    folderFilter: function() {
+      this.loadFiles();
+    }
+  },
   mounted: function() {
     this.loadFolders();
     this.loadFiles();
@@ -119,7 +124,12 @@ export default {
     loadFiles: function() {
       var self = this;
       self.loading = true;
-      api.get('/cloud/files').then(function(res) {
+      var params = {};
+      // 选择具体分组时，传 folder 参数让服务端绕过 hide_from_all 限制
+      if (self.folderFilter !== 'all') {
+        params.folder = self.folderFilter;
+      }
+      api.get('/cloud/files', { params: params }).then(function(res) {
         self.files = res.data.data.files || [];
         self.loading = false;
       }).catch(function(err) {
