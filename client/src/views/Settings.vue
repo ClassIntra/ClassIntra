@@ -64,11 +64,19 @@
               <div class="form-row">
                 <label class="form-label">生日</label>
                 <div class="form-input-group">
-                  <input v-model="profileForm.birthday" type="date" class="form-input" :disabled="birthdayChangedThisMonth" :title="birthdayChangedThisMonth ? '本月已修改过生日，请下个月再试' : ''" />
+                  <input v-model="profileForm.birthday" type="date" class="form-input" :disabled="birthdayChangedThisMonth" :title="birthdayChangedThisMonth ? '本月已修改过生日（' + lastBirthdayChangeText + '），请下个月再试' : ''" />
                   <button class="privacy-toggle" :class="{ private: profileForm.birthday_private }" @click="togglePrivacy('birthday')" :title="profileForm.birthday_private ? '当前仅自己可见，点击公开' : '当前公开可见，点击设为私密'">
                     <i :class="profileForm.birthday_private ? 'fa-solid fa-lock' : 'fa-solid fa-lock-open'"></i>
                   </button>
                 </div>
+                <p v-if="birthdayChangedThisMonth" class="form-hint form-hint--warn">
+                  <i class="fa-solid fa-circle-info"></i>
+                  本月（{{ lastBirthdayChangeText }}）已修改过生日，每月仅可修改一次
+                </p>
+                <p v-else class="form-hint">
+                  <i class="fa-solid fa-circle-info"></i>
+                  生日每月仅可修改一次，修改后将在生日当天触发桌面庆祝动画
+                </p>
               </div>
               <div class="form-row">
                 <label class="form-label">微信号</label>
@@ -773,8 +781,6 @@ export default {
         })
         .then(function() {
           self.$store.commit('toast/SHOW_TOAST', { message: '个人信息保存成功', type: 'success' });
-          // 重新加载 profile 以刷新生日限制状态
-          self.loadProfile();
         })
         .catch(function(err) {
           // 回滚：如果网名已更新但后续失败，恢复原网名
@@ -2398,6 +2404,24 @@ export default {
   font-size: 15px;
   flex-shrink: 0;
   margin-top: 1px;
+}
+
+/* ========== 表单提示文字 ========== */
+.form-hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.form-hint--warn {
+  color: #e67e22;
+}
+
+.form-hint i {
+  font-size: 11px;
 }
 
 /* ========== 模态框通用样式（与 Notes.vue 一致） ========== */
