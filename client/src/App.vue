@@ -226,25 +226,18 @@ export default {
         // 天气预警以超能岛专用样式显示（滚动文字，两遍后自动关闭）
         if (self.$refs.superIsland && self.$refs.superIsland.showWeatherAlert) {
           var w = data;
-          var hasRain = !!(w.rain || w.has_rain || w.alert_type === 'rain' || w.alert_type === 'both');
-          var hasWarning = !!(w.warning || w.has_warning || w.alert_type === 'warning' || w.alert_type === 'both');
+          var hasWarning = !!(w.has_warning || w.alert_type === 'warning' || w.alert_type === 'both');
+          var hasRain = !!(w.has_rain || w.alert_type === 'rain' || w.alert_type === 'both');
           var warningsArr = w.warnings || [];
-          // 优先使用预警数组中的第一条真实数据
+          // 优先使用预警数组中的第一条（后端已映射为统一格式）
           if (hasWarning && warningsArr.length > 0) {
-            var firstWarning = warningsArr[0];
-            self.$refs.superIsland.showWeatherAlert({
-              eventType: firstWarning.eventType || { name: '天气预警' },
-              severity: firstWarning.severity || 'moderate',
-              color: firstWarning.color || null,
-              headline: firstWarning.headline || '',
-              description: firstWarning.description || ''
-            });
+            self.$refs.superIsland.showWeatherAlert(warningsArr[0]);
           } else if (hasRain) {
-            // 降雨提醒：无预警数据时使用雨况文字
+            // 降雨提醒
             self.$refs.superIsland.showWeatherAlert({
               eventType: { name: '降雨提醒' },
-              severity: 'moderate',
-              color: null,
+              severity: 'minor',
+              color: { red: 59, green: 130, blue: 246, alpha: 1 },
               headline: '降雨提醒',
               description: w.rain_text || '预计将有降雨，请注意出行安全'
             });

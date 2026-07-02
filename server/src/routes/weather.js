@@ -134,10 +134,12 @@ router.get('/warning', function(req, res) {
       res.json({ code: 200, message: 'partial', data: { alerts: [] } });
       return;
     }
-    if (data && data.alerts) {
-      cache.set(cacheKey, data, CACHE_WARNING);
-      console.log('[Weather] Warning OK, alerts:', data.alerts.length);
-      res.json({ code: 200, message: 'ok', data: data });
+    if (data && data.warning) {
+      var alerts = data.warning.map(function(w) { return mapQWeatherWarning(w); });
+      var result = { alerts: alerts, metadata: data.metadata || {} };
+      cache.set(cacheKey, result, CACHE_WARNING);
+      console.log('[Weather] Warning OK, alerts:', alerts.length);
+      res.json({ code: 200, message: 'ok', data: result });
     } else if (data && data.metadata && data.metadata.zeroResult) {
       cache.set(cacheKey, { alerts: [], metadata: data.metadata }, CACHE_WARNING);
       res.json({ code: 200, message: 'ok', data: { alerts: [], metadata: data.metadata } });
@@ -177,6 +179,27 @@ router.post('/clear-cache', function(req, res) {
 });
 
 // 天气提醒检查辅助函数
+// 将 QWeather 预警原始字段映射为前端统一格式
+function mapQWeatherWarning(w) {
+  var sevMap = { '蓝色': 'minor', '黄色': 'moderate', '橙色': 'severe', '红色': 'extreme' };
+  var colorMap = {
+    'Blue':   { red: 59,  green: 130, blue: 246, alpha: 1 },
+    'Yellow': { red: 245, green: 158, blue: 11,  alpha: 1 },
+    'Orange': { red: 249, green: 115, blue: 22,  alpha: 1 },
+    'Red':    { red: 239, green: 68,  blue: 68,  alpha: 1 }
+  };
+  return {
+    eventType: { name: w.typeName || w.type || '天气预警' },
+    headline: w.title || '',
+    description: w.text || '',
+    severity: sevMap[w.severity] || 'moderate',
+    color: colorMap[w.severityColor] || null,
+    sender: w.sender || '',
+    pubTime: w.pubTime || '',
+    effectiveTime: w.effective || ''
+  };
+}
+
 function checkWeatherAlert() {
   var currentPromise = weatherService.getCurrentWeather();
   var warningPromise = weatherService.getWeatherAlert();
@@ -202,9 +225,9 @@ function checkWeatherAlert() {
     var hasWarning = false;
     var warnings = [];
 
-    if (warningData && warningData.alerts && warningData.alerts.length > 0) {
+    if (warningData && warningData.warning && warningData.warning.length > 0) {
       hasWarning = true;
-      warnings = warningData.alerts;
+      warnings = warningData.warning.map(function(w) { return mapQWeatherWarning(w); });
     }
 
     return {
