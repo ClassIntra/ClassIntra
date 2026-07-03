@@ -151,13 +151,10 @@ app.get('*', function(req, res) {
   var currentHash = versionInfo.buildHash || '';
   var clientHash = req.cookies && req.cookies._cv ? req.cookies._cv : '';
 
+  // 版本检查：仅更新 cookie，不修改 URL 以保护浏览器历史记录
+  // 缓存清理由 HTML 中的 cacheBuster 脚本处理（仅清缓存，不 replace URL）
   if (currentHash && clientHash !== currentHash) {
     res.setHeader('Set-Cookie', '_cv=' + currentHash + '; Path=/; Max-Age=31536000; SameSite=Lax');
-    if (req.query._v !== currentHash) {
-      res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.end('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>ClassIntra</title></head><body style="margin:0;background:#0a0a1a;color:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:-apple-system,sans-serif"><div style="text-align:center"><div style="font-size:18px;margin-bottom:12px">正在更新资源...</div><div style="font-size:13px;opacity:.6">请稍候</div></div><script>try{if(\'caches\' in window)caches.keys().then(function(n){for(var i=0;i<n.length;i++)caches.delete(n[i]);});}catch(e){}location.replace(location.pathname+\'?_v=' + currentHash + '&_t=\' + Date.now());</' + 'script></body></html>');
-      return;
-    }
   }
 
   var indexPath = path.join(__dirname, '../../client/dist/index.html');
