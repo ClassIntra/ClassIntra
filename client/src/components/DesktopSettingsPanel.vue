@@ -160,9 +160,9 @@ export default {
   computed: {
     // 当前页的 pageId（从 store 获取实际 id）
     currentPageId: function() {
-      var pages = this.$store.state.desktop.pages;
-      if (!pages || !pages[this.currentPage]) return 'page-0';
-      return pages[this.currentPage].id;
+      var layout = this.$store.state.desktop.layout;
+      if (!layout || !layout.pages || !layout.pages[this.currentPage]) return 'page-0';
+      return layout.pages[this.currentPage].id;
     },
     // 当前页的小组件列表
     currentWidgets: function() {

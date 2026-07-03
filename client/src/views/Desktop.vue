@@ -1123,6 +1123,8 @@ export default {
   flex: 0 0 100%;
   display: -webkit-flex;
   display: flex;
+  -webkit-flex-direction: column;
+  flex-direction: column;
   -webkit-align-items: center;
   align-items: center;
   -webkit-justify-content: center;
@@ -1188,7 +1190,9 @@ export default {
 .desktop-grid {
   width: 100%;
   max-width: 760px;
-  height: 100%;
+  -webkit-flex: 1;
+  flex: 1;
+  min-height: 0;
   max-height: 440px;
   display: grid;
   grid-template-columns: repeat(6, 1fr);
