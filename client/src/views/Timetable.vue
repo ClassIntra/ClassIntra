@@ -1088,12 +1088,12 @@ tr.period-start .period-cell {
   transition: transform 0.15s, box-shadow 0.15s;
 }
 .class-item.current {
-  box-shadow: 0 0 0 2px currentColor, 0 2px 8px rgba(0,0,0,0.15);
+  box-shadow: 0 0 0 2px currentColor, var(--shadow-sm);
   animation: currentPulse 2s ease-in-out infinite;
 }
 @keyframes currentPulse {
-  0%, 100% { box-shadow: 0 0 0 2px currentColor, 0 2px 8px rgba(0,0,0,0.15); }
-  50% { box-shadow: 0 0 0 3px currentColor, 0 2px 12px rgba(0,0,0,0.2); }
+  0%, 100% { box-shadow: 0 0 0 2px currentColor, var(--shadow-sm); }
+  50% { box-shadow: 0 0 0 3px currentColor, var(--shadow-md); }
 }
 .class-name {
   font-size: var(--font-size-body, 15px);
@@ -1175,7 +1175,7 @@ tr.period-start .period-cell {
   background: var(--card-bg, #fff);
   border-radius: 18px;
   padding: 18px 20px;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+  box-shadow: var(--shadow-sm);
   transition: all 0.3s;
 }
 .next-class-card.ongoing {
@@ -1254,7 +1254,7 @@ tr.period-start .period-cell {
   background: var(--card-bg, #fff);
   border-radius: 18px;
   padding: 16px;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+  box-shadow: var(--shadow-sm);
 }
 .today-list-header {
   display: flex;
