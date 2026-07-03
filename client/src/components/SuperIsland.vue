@@ -1,7 +1,7 @@
 <template>
   <transition name="island-appear">
     <div v-if="shouldShow">
-    <div class="island-wrapper">
+    <div class="island-wrapper" ref="islandEl">
     <div
       class="island"
       :class="islandClasses"
@@ -270,6 +270,15 @@ export default {
       if (newMode !== oldMode) {
         this.animateIslandHeight();
       }
+      // 音乐展开时监听 document 点击，点击外部则缩回
+      if (newMode === 'music-expanded' && oldMode !== 'music-expanded') {
+        var self = this;
+        self.$nextTick(function() {
+          document.addEventListener('click', self.onDocumentClick);
+        });
+      } else if (oldMode === 'music-expanded' && newMode !== 'music-expanded') {
+        document.removeEventListener('click', this.onDocumentClick);
+      }
     },
     hasMusicPlaying: function(val) {
       if (val && (this.islandMode === 'compact' || this.islandMode === 'split')) {
@@ -309,6 +318,7 @@ export default {
     this.cleanupNotificationTimers();
     this.cleanupGestureTimers();
     this.cleanupWSListeners();
+    document.removeEventListener('click', this.onDocumentClick);
   },
   methods: {
     goCompact: function() {
@@ -322,6 +332,14 @@ export default {
         this.islandMode = 'music-compact';
       } else {
         this.islandMode = 'compact';
+      }
+    },
+    onDocumentClick: function(e) {
+      // 点击 island 外部区域时缩回音乐展开态
+      if (this.islandMode !== 'music-expanded') return;
+      var el = this.$refs.islandEl;
+      if (el && !el.contains(e.target)) {
+        this.islandMode = 'music-compact';
       }
     },
 
@@ -542,6 +560,7 @@ export default {
 .island-mode-music-compact {
   min-width: 120px;
   max-width: 260px;
+  height: 40px;
   border-radius: 40px;
   padding: 0 16px 0 4px;
   display: inline-flex;
