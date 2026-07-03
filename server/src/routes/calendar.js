@@ -138,11 +138,12 @@ router.get('/birthdays', auth.requireAuth, function(req, res) {
   try {
     // privacy 反向语义：birthday = 0 (false) 表示公开
     var rows = db.prepare(
-      "SELECT user_id, net_name, real_name, avatar_color, " +
+      "SELECT user_id, net_name, real_name, " +
       "json_extract(info_json, '$.birthday') as birthday " +
       "FROM users " +
       "WHERE json_extract(privacy_settings, '$.birthday') = 0 " +
       "AND json_extract(info_json, '$.birthday') IS NOT NULL " +
+      "AND json_extract(info_json, '$.birthday') != '' " +
       "AND strftime('%m', json_extract(info_json, '$.birthday')) = ?"
     ).all(monthNum);
     res.json({ code: 200, message: 'ok', data: rows });

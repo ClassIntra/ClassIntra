@@ -1,15 +1,16 @@
 var Database = require('better-sqlite3');
 var db = new Database('./database/classintra.db', { readonly: true });
 
-// 测试1: 后端实际使用的 SQL
-var sql1 = "SELECT user_id, net_name, real_name, avatar_color, " +
+// 测试1: 修复后的后端 SQL
+var sql1 = "SELECT user_id, net_name, real_name, " +
   "json_extract(info_json, '$.birthday') as birthday " +
   "FROM users " +
   "WHERE json_extract(privacy_settings, '$.birthday') = 0 " +
   "AND json_extract(info_json, '$.birthday') IS NOT NULL " +
+  "AND json_extract(info_json, '$.birthday') != '' " +
   "AND strftime('%m', json_extract(info_json, '$.birthday')) = ?";
 
-console.log('=== 测试1: 7月公开生日（后端SQL） ===');
+console.log('=== 测试1: 7月公开生日（修复后SQL） ===');
 var rows1 = db.prepare(sql1).all('07');
 console.log('结果数:', rows1.length);
 rows1.forEach(function(r) { console.log(' ', r.user_id, r.net_name, r.birthday); });
