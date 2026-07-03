@@ -1,4 +1,5 @@
 import api from '@/utils/api';
+import { getWidget as getWidgetDef } from '@/widgets/index.js';
 
 // 应用元数据注册表：单一数据源，store 和组件均引用
 // 字段：name（唯一标识）、label、icon、color、route
@@ -772,6 +773,35 @@ var actions = {
   // 删除页面并保存
   removePage: function(context, pageIndex) {
     context.commit('REMOVE_PAGE', pageIndex);
+    context.dispatch('saveDesktopLayout');
+  },
+  // ===== 小组件系统 actions =====
+  // 添加小组件到指定页
+  // payload: { pageId, type, config, w, h }
+  addWidget: function(context, payload) {
+    var widgetDef = getWidgetDef(payload.type);
+    var defaultSize = (widgetDef && widgetDef.defaultSize) || { w: 2, h: 2 };
+    var widget = {
+      id: 'w_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+      type: payload.type,
+      slot: 0,
+      w: payload.w || defaultSize.w,
+      h: payload.h || defaultSize.h,
+      config: payload.config || {}
+    };
+    context.commit('ADD_WIDGET', { pageId: payload.pageId, widget: widget });
+    context.dispatch('saveDesktopLayout');
+  },
+  // 移除小组件
+  // payload: { pageId, widgetId }
+  removeWidget: function(context, payload) {
+    context.commit('REMOVE_WIDGET', { pageId: payload.pageId, widgetId: payload.widgetId });
+    context.dispatch('saveDesktopLayout');
+  },
+  // 更新小组件配置
+  // payload: { pageId, widgetId, config }
+  updateWidgetConfig: function(context, payload) {
+    context.commit('UPDATE_WIDGET', { pageId: payload.pageId, widgetId: payload.widgetId, config: payload.config });
     context.dispatch('saveDesktopLayout');
   }
 };
