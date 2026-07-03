@@ -18,6 +18,15 @@ var WIDGET_REGISTRY = {
     minSize: { w: 1, h: 1 },
     maxSize: { w: 4, h: 4 },
     description: '显示今日课程和下节课倒计时'
+  },
+  'countdown': {
+    id: 'countdown',
+    name: '倒数日',
+    component: function() { return import('@/widgets/CountdownWidget.vue'); },
+    defaultSize: { w: 2, h: 1 },
+    minSize: { w: 1, h: 1 },
+    maxSize: { w: 4, h: 2 },
+    description: '显示最近的倒数日'
   }
 };
 
