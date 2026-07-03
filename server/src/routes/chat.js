@@ -242,7 +242,7 @@ router.post('/groups', function(req, res) {
       return res.status(400).json({ code: 400, message: 'member_ids 格式不正确', data: null });
     }
     // 轻量格式校验：member_id 为 6 位数字（YYCCNN 格式）
-    // 不校验本地 users 表存在性——多服务器中继模式下跨班用户可能尚未同步到本地
+    // 不校验本地 users 表存在性——多服务器中继模式下 CC 用户可能尚未同步到本地
     for (var i = 0; i < memberIds.length; i++) {
       var mid = memberIds[i];
       if (typeof mid !== 'string' || mid.length !== 6 || !/^\d{6}$/.test(mid)) {

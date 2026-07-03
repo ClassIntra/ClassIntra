@@ -656,7 +656,7 @@ router.get('/files/:param', auth.requireAuth, function(req, res) {
   // 哈希查找
   var file = db.prepare('SELECT storage_path, deleted, mime_type FROM cloud_files WHERE hash = ?').get(fileHash);
   if (!file) {
-    // 跨班同步：数据库中无记录，尝试扫描磁盘（Syncthing 同步的文件）
+    // CC 同步：数据库中无记录，尝试扫描磁盘（Syncthing 同步的文件）
     file = findSyncedFile(fileHash);
   }
   if (!file) {
@@ -708,7 +708,7 @@ router.get('/files/:param', auth.requireAuth, function(req, res) {
   return sendMediaFile(req, res, filePath);
 });
 
-// ============ 跨班文件同步 ============
+// ============ CC 文件同步 ============
 
 // 供 peer 服务器拉取文件（relay secret 认证）
 router.get('/peer-fetch/:hash', function(req, res) {
@@ -726,7 +726,7 @@ router.get('/peer-fetch/:hash', function(req, res) {
 
   var file = db.prepare('SELECT storage_path, size, mime_type, original_name, deleted FROM cloud_files WHERE hash = ?').get(hash);
   if (!file || file.deleted === 1) {
-    // 跨班同步：尝试扫描磁盘
+    // CC 同步：尝试扫描磁盘
     file = findSyncedFile(hash);
   }
   if (!file || file.deleted === 1) {

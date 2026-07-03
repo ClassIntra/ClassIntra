@@ -520,7 +520,7 @@ function initDatabase() {
   // 若手动迁移已完成（cloud_migration_done=1），自动跳过
   runCloudMigration();
 
-  // 跨班帖子ID映射表（relay post ID remapping）
+  // CC 帖子ID映射表（relay post ID remapping）
   db.exec("CREATE TABLE IF NOT EXISTS post_id_mappings (original_id TEXT PRIMARY KEY, local_id INTEGER NOT NULL, source_server TEXT DEFAULT '', created_at TEXT DEFAULT (datetime('now')))");
 
   // 迁移 community_likes.target_id 从 INTEGER 到 TEXT

@@ -82,7 +82,7 @@
                   <div v-if="isUserOnline(contact.user_id)" class="chat-item-online-dot"></div>
                 </div>
                 <div class="chat-item-info">
-                  <div class="chat-item-name">{{ getContactDisplayName(contact) }}<span v-if="isRemoteUser(contact.user_id)" class="remote-badge">跨班</span></div>
+                  <div class="chat-item-name">{{ getContactDisplayName(contact) }}<span v-if="isRemoteUser(contact.user_id)" class="cc-badge">CC</span></div>
                   <div class="chat-item-preview">{{ getPrivatePreview(contact.user_id) }}</div>
                 </div>
                 <div class="chat-item-meta">
@@ -4700,7 +4700,7 @@ export default {
   color: var(--success-color);
 }
 
-.remote-badge {
+.cc-badge {
   display: inline-block;
   font-size: var(--font-size-caption2);
   font-weight: 600;

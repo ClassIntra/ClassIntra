@@ -14,7 +14,9 @@ var ROUTE_APP_MAP = {
   '/weather': 'weather',
   '/music': 'music',
   '/settings': 'settings',
-  '/timetable': 'timetable'
+  '/timetable': 'timetable',
+  '/calendar': 'calendar',
+  '/countdown': 'countdown'
 };
 // 启用应用列表缓存（null=未加载，数组=已加载）
 var enabledAppsCache = null;
@@ -35,7 +37,7 @@ function getEnabledApps() {
     return enabledAppsCache;
   }).catch(function() {
     // 降级：全部启用
-    enabledAppsCache = ['chat', 'community', 'ai-chat', 'notes', 'resource', 'weather', 'music', 'settings', 'timetable'];
+    enabledAppsCache = ['chat', 'community', 'ai-chat', 'notes', 'resource', 'weather', 'music', 'settings', 'timetable', 'calendar', 'countdown'];
     enabledAppsLoading = null;
     return enabledAppsCache;
   });
@@ -157,6 +159,18 @@ var routes = [
     path: '/timetable',
     name: 'Timetable',
     component: function() { return import('@/views/Timetable.vue'); },
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/calendar',
+    name: 'Calendar',
+    component: function() { return import('@/views/Calendar.vue'); },
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/countdown',
+    name: 'Countdown',
+    component: function() { return import('@/views/Countdown.vue'); },
     meta: { requiresAuth: true }
   },
   {
