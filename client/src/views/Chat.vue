@@ -420,8 +420,8 @@
               <span class="settings-row-label">好友备注</span>
               <input
                 class="form-input settings-remark-input"
-                :value="friendRemarks[currentChat] || ''"
-                @change="setFriendRemark(currentChat, $event.target.value)"
+                v-model="editingRemark"
+                @change="saveCurrentRemark"
                 placeholder="添加备注..."
               />
             </div>
@@ -677,6 +677,7 @@ export default {
       inviteGroupId: '',
       contactSearch: '',
       friendRemarks: {},
+      editingRemark: '',
       inviteUserIds: [],
       showTransferModal: false,
       transferGroupId: '',
@@ -1054,7 +1055,13 @@ export default {
       if (this.isPrivateChat && this.currentChat) {
         this.sendMarkRead();
       }
-    }
+    },
+    showPrivateSettings: function(val) {
+      if (val) {
+        // 打开设置面板时初始化备注编辑值
+        this.editingRemark = this.friendRemarks[this.currentChat] || '';
+      }
+    },
   },
   mounted: function() {
     var self = this;
@@ -1665,6 +1672,9 @@ export default {
       try {
         localStorage.setItem('classintra_friend_remarks', JSON.stringify(this.friendRemarks));
       } catch (e) {}
+    },
+    saveCurrentRemark: function() {
+      this.setFriendRemark(this.currentChat, this.editingRemark);
     },
     isTabActive: function(tabKey) {
       if (tabKey === 'public') {
