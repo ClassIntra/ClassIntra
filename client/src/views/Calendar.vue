@@ -291,6 +291,10 @@ export default {
     self.loadBirthdays();
   },
   methods: {
+    // 轻量提示 toast
+    toast: function(message, type) {
+      this.$store.commit('toast/SHOW_TOAST', { message: message, type: type || 'info' });
+    },
     getCategoryColor: getCategoryColor,
     buildCell: function(date, inMonth, todayStr) {
       var self = this;
@@ -445,11 +449,11 @@ export default {
       var self = this;
       var form = self.editor.form;
       if (!form.title.trim()) {
-        alert('请输入标题');
+        self.toast('请输入标题');
         return;
       }
       if (!form.event_date) {
-        alert('请选择日期');
+        self.toast('请选择日期');
         return;
       }
       var payload = {
@@ -467,30 +471,38 @@ export default {
             self.closeEditor();
             self.loadData();
           } else {
-            alert((res.data && res.data.message) || '保存失败');
+            self.toast((res.data && res.data.message) || '保存失败', 'error');
           }
-        }).catch(function() { alert('保存失败'); });
+        }).catch(function() { self.toast('保存失败', 'error'); });
       } else {
         api.post('/calendar/events', payload).then(function(res) {
           if (res.data && res.data.code === 200) {
             self.closeEditor();
             self.loadData();
           } else {
-            alert((res.data && res.data.message) || '创建失败');
+            self.toast((res.data && res.data.message) || '创建失败', 'error');
           }
-        }).catch(function() { alert('创建失败'); });
+        }).catch(function() { self.toast('创建失败', 'error'); });
       }
     },
     deleteEvent: function(ev) {
       var self = this;
-      if (!confirm('确定删除「' + ev.title + '」？')) return;
-      api.delete('/calendar/events/' + ev.id).then(function(res) {
-        if (res.data && res.data.code === 200) {
-          self.loadData();
-        } else {
-          alert((res.data && res.data.message) || '删除失败');
-        }
-      }).catch(function() { alert('删除失败'); });
+      self.$modal.confirm({
+        title: '删除事件',
+        message: '确定删除「' + ev.title + '」？此操作不可恢复。',
+        confirmText: '删除',
+        cancelText: '取消'
+      }).then(function(result) {
+        if (!result) return;
+        api.delete('/calendar/events/' + ev.id).then(function(res) {
+          if (res.data && res.data.code === 200) {
+            self.loadData();
+            self.toast('已删除', 'success');
+          } else {
+            self.toast((res.data && res.data.message) || '删除失败', 'error');
+          }
+        }).catch(function() { self.toast('删除失败', 'error'); });
+      }).catch(function() {});
     }
   }
 };
