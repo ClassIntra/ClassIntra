@@ -144,6 +144,8 @@ app.use('/api/cdn', require('./routes/cdn-proxy'));
 app.use('/api/music', require('./routes/music'));
 app.use('/api/system', require('./routes/system'));
 app.use('/api/timetable', require('./routes/timetable'));
+app.use('/api/calendar', require('./routes/calendar'));
+app.use('/api/countdown', require('./routes/countdown'));
 
 // Setup 页面路由
 app.get('/setup', function(req, res) {

@@ -748,7 +748,50 @@ function initDatabase() {
     ')'
   ].join('\n'));
   // 初始化 8 个桌面应用的默认启用记录
-  var defaultApps = ['chat', 'community', 'ai-chat', 'notes', 'resource', 'weather', 'music', 'settings', 'timetable'];
+  // 日历事件表 — 用户个人日程
+  db.exec([
+    'CREATE TABLE IF NOT EXISTS calendar_events (',
+    '  id INTEGER PRIMARY KEY AUTOINCREMENT,',
+    '  user_id TEXT NOT NULL,',
+    '  title TEXT NOT NULL,',
+    '  description TEXT DEFAULT \'\',',
+    '  event_date TEXT NOT NULL,',
+    '  start_time TEXT DEFAULT \'\',',
+    '  end_time TEXT DEFAULT \'\',',
+    '  category TEXT DEFAULT \'general\',',
+    '  color TEXT DEFAULT \'\',',
+    '  reminder_minutes INTEGER DEFAULT 0,',
+    '  reminded INTEGER DEFAULT 0,',
+    '  created_at TEXT DEFAULT (datetime(\'now\')),',
+    '  updated_at TEXT DEFAULT (datetime(\'now\'))',
+    ')'
+  ].join('\n'));
+  db.exec('CREATE INDEX IF NOT EXISTS idx_cal_events_user ON calendar_events(user_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_cal_events_date ON calendar_events(event_date)');
+
+  // 倒数日事件表 — 纪念日/生日/倒数/节日
+  db.exec([
+    'CREATE TABLE IF NOT EXISTS countdown_events (',
+    '  id INTEGER PRIMARY KEY AUTOINCREMENT,',
+    '  user_id TEXT NOT NULL,',
+    '  title TEXT NOT NULL,',
+    '  target_date TEXT NOT NULL,',
+    '  category TEXT DEFAULT \'anniversary\',',
+    '  color TEXT DEFAULT \'\',',
+    '  icon TEXT DEFAULT \'\',',
+    '  pinned INTEGER DEFAULT 0,',
+    '  repeat_type TEXT DEFAULT \'none\',',
+    '  reminder_minutes INTEGER DEFAULT 0,',
+    '  reminded INTEGER DEFAULT 0,',
+    '  note TEXT DEFAULT \'\',',
+    '  created_at TEXT DEFAULT (datetime(\'now\')),',
+    '  updated_at TEXT DEFAULT (datetime(\'now\'))',
+    ')'
+  ].join('\n'));
+  db.exec('CREATE INDEX IF NOT EXISTS idx_cd_events_user ON countdown_events(user_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_cd_events_date ON countdown_events(target_date)');
+
+  var defaultApps = ['chat', 'community', 'ai-chat', 'notes', 'resource', 'weather', 'music', 'settings', 'timetable', 'calendar', 'countdown'];
   var initAppStmt = db.prepare("INSERT OR IGNORE INTO app_control (app_name, enabled) VALUES (?, 1)");
   for (var di = 0; di < defaultApps.length; di++) {
     initAppStmt.run(defaultApps[di]);
