@@ -18,7 +18,8 @@ function cacheBusterPlugin() {
     name: 'cache-buster',
     transformIndexHtml: function(html) {
       if (!buildHash) return html;
-      var script = '<script>(function(){var k=\'_cv\',s=localStorage.getItem(k),v=\'' + buildHash + '\';if(s&&s!==v){try{if(\'caches\' in window)caches.keys().then(function(n){for(var i=0;i<n.length;i++)caches.delete(n[i]);});}catch(e){}localStorage.setItem(k,v);location.replace(location.href.split(\'?\')[0]+\'?_v=\'+v);}else if(!s){localStorage.setItem(k,v);}})();</' + 'script>';
+      // 缓存破坏：检测版本变更时清除浏览器缓存，但不修改 URL 以保护浏览器历史记录
+      var script = '<script>(function(){var k=\'_cv\',s=localStorage.getItem(k),v=\'' + buildHash + '\';if(s&&s!==v){try{if(\'caches\' in window)caches.keys().then(function(n){for(var i=0;i<n.length;i++)caches.delete(n[i]);});}catch(e){}localStorage.setItem(k,v);}else if(!s){localStorage.setItem(k,v);}})();</' + 'script>';
       return html.replace('<head>', '<head>' + script);
     }
   };
