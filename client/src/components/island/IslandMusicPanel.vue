@@ -79,6 +79,7 @@ export default {
   align-items: center;
   gap: 6px;
   overflow: hidden;
+  height: 100%;
 }
 
 .music-compact-cover {
