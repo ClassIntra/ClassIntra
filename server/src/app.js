@@ -43,7 +43,18 @@ if (corsOrigins) {
 }
 app.use(cors(corsOptions));
 app.use(morgan('dev'));
-app.use(compression());
+// Gzip 压缩：SVG 是 XML 文本格式，压缩率极高（70-90%），显著减小图标传输体积
+app.use(compression({
+  // 压缩级别 6：平衡 CPU 与压缩率
+  level: 6,
+  // 仅对大于 1KB 的响应启用压缩（跳过极小文件）
+  threshold: 1024,
+  // 确保 SVG 文本格式被压缩（image/svg+xml 默认在白名单中，此处显式声明）
+  filter: function(req, res) {
+    if (req.headers['x-no-compression']) return false;
+    return compression.filter(req, res);
+  }
+}));
 app.use('/api/auth', rateLimit({ max: 60, windowMs: 60000, message: '登录请求过于频繁，请稍后再试' }));
 app.use('/api/admin', rateLimit({ max: 200, windowMs: 60000 }));
 app.use('/api/ai-chat', rateLimit({ max: 30, windowMs: 60000, message: 'AI请求过于频繁，请稍后再试' }));

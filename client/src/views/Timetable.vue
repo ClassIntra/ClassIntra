@@ -777,7 +777,7 @@ export default {
   flex-direction: column;
   overflow: hidden;
   background: var(--bg-color, #f2f2f7);
-  color: var(--text-color, #1d1d1f);
+  color: var(--text-primary);
 }
 
 /* 顶部 nav 操作区 */
@@ -798,7 +798,7 @@ export default {
 .view-toggle-btn {
   border: none;
   background: transparent;
-  color: var(--text-color, #1d1d1f);
+  color: var(--text-primary);
   font-size: var(--font-size-sm, 13px);
   font-weight: 600;
   padding: 0 10px;
@@ -810,7 +810,7 @@ export default {
 .view-toggle-btn.active {
   background: var(--card-bg, #fff);
   opacity: 1;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+  box-shadow: var(--shadow-sm);
 }
 
 /* 单双周切换按钮 */
@@ -820,21 +820,21 @@ export default {
   border-radius: 15px;
   border: 1px solid var(--border-color, rgba(0,0,0,0.1));
   background: var(--card-bg, rgba(255,255,255,0.8));
-  color: var(--text-color, #1d1d1f);
+  color: var(--text-primary);
   font-size: var(--font-size-sm, 13px);
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s var(--ease-standard, ease);
 }
 .week-toggle.odd {
-  background: rgba(255, 69, 58, 0.15);
-  color: #FF453A;
-  border-color: rgba(255, 69, 58, 0.3);
+  background: rgba(var(--danger-rgb), 0.15);
+  color: var(--danger-color);
+  border-color: rgba(var(--danger-rgb), 0.3);
 }
 .week-toggle.even {
-  background: rgba(0, 122, 255, 0.15);
-  color: #007AFF;
-  border-color: rgba(0, 122, 255, 0.3);
+  background: rgba(var(--primary-rgb), 0.15);
+  color: var(--primary-color);
+  border-color: rgba(var(--primary-rgb), 0.3);
 }
 .week-toggle:hover { transform: scale(1.05); }
 .week-toggle:active { transform: scale(0.95); }
@@ -868,12 +868,12 @@ export default {
   border-radius: 8px;
 }
 .week-type-label.odd {
-  color: #FF453A;
-  background: rgba(255, 69, 58, 0.1);
+  color: var(--danger-color);
+  background: rgba(var(--danger-rgb), 0.1);
 }
 .week-type-label.even {
-  color: #007AFF;
-  background: rgba(0, 122, 255, 0.1);
+  color: var(--primary-color);
+  background: rgba(var(--primary-rgb), 0.1);
 }
 .edit-icon {
   font-size: 11px;
@@ -901,14 +901,14 @@ export default {
   border: 1px solid var(--border-color, rgba(0,0,0,0.1));
   border-radius: 8px;
   background: var(--card-bg, #fff);
-  color: var(--text-color, #1d1d1f);
+  color: var(--text-primary);
   font-size: var(--font-size-sm, 13px);
 }
 .picker-confirm {
   padding: 5px 12px;
   border: none;
   border-radius: 8px;
-  background: #007AFF;
+  background: var(--primary-color);
   color: #fff;
   font-size: var(--font-size-sm, 13px);
   cursor: pointer;
@@ -941,7 +941,7 @@ export default {
   background: var(--card-bg, rgba(0,0,0,0.06));
   border: 1px solid var(--border-color, rgba(0,0,0,0.1));
   border-radius: var(--radius-xl, 12px);
-  color: var(--text-color, #1d1d1f);
+  color: var(--text-primary);
   font-size: var(--font-size-sm, 13px);
   cursor: pointer;
   transition: all 0.2s;
@@ -957,7 +957,8 @@ export default {
   padding: 0;
 }
 .timetable-scroll::-webkit-scrollbar { width: 4px; height: 4px; }
-.timetable-scroll::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 2px; }
+.timetable-scroll::-webkit-scrollbar-thumb { background: var(--separator-color); border-radius: 2px; }
+[data-theme="dark"] .timetable-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); }
 
 .timetable-table {
   border-collapse: separate;
@@ -991,10 +992,10 @@ export default {
   transition: background 0.2s;
 }
 .day-header.today {
-  background: rgba(0, 122, 255, 0.08);
+  background: rgba(var(--primary-rgb), 0.08);
 }
 .day-header.today .day-name {
-  color: #007AFF;
+  color: var(--primary-color);
 }
 .day-header.weekend .day-name {
   opacity: 0.6;
@@ -1030,7 +1031,7 @@ export default {
   color: #fff;
 }
 .tag-holiday {
-  background: #FF453A;
+  background: var(--danger-color);
 }
 .tag-adjust {
   background: #FF9500;
@@ -1051,7 +1052,7 @@ export default {
 .period-name {
   font-size: var(--font-size-sm, 13px);
   font-weight: 600;
-  color: var(--text-color, #1d1d1f);
+  color: var(--text-primary);
   display: inline-block;
 }
 
@@ -1065,7 +1066,7 @@ export default {
   text-align: center;
 }
 .class-cell.today {
-  background: rgba(0, 122, 255, 0.03);
+  background: rgba(var(--primary-rgb), 0.03);
 }
 tr.period-start td.class-cell {
   border-top: 1px solid var(--border-color, rgba(0,0,0,0.08));
@@ -1161,11 +1162,11 @@ tr.period-start .period-cell {
 }
 .banner i { font-size: 18px; }
 .banner-holiday {
-  background: rgba(255, 69, 58, 0.12);
-  color: #FF453A;
+  background: rgba(var(--danger-rgb), 0.12);
+  color: var(--danger-color);
 }
 .banner-adjust {
-  background: rgba(255, 149, 0, 0.12);
+  background: rgba(var(--warning-rgb), 0.12);
   color: #FF9500;
 }
 
@@ -1178,10 +1179,10 @@ tr.period-start .period-cell {
   transition: all 0.3s;
 }
 .next-class-card.ongoing {
-  box-shadow: 0 0 0 2px #34C759, 0 4px 16px rgba(52, 199, 89, 0.2);
+  box-shadow: 0 0 0 2px var(--success-color), 0 4px 16px rgba(var(--success-rgb), 0.2);
 }
 .next-class-card.upcoming {
-  box-shadow: 0 0 0 2px #007AFF, 0 4px 16px rgba(0, 122, 255, 0.15);
+  box-shadow: 0 0 0 2px var(--primary-color), 0 4px 16px rgba(var(--primary-rgb), 0.15);
 }
 .next-class-card.done {
   opacity: 0.7;
@@ -1195,7 +1196,7 @@ tr.period-start .period-cell {
 .next-class-label {
   font-size: var(--font-size-sm, 13px);
   font-weight: 600;
-  color: var(--text-color, #1d1d1f);
+  color: var(--text-primary);
   opacity: 0.6;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -1203,10 +1204,10 @@ tr.period-start .period-cell {
 .next-class-countdown {
   font-size: var(--font-size-body, 15px);
   font-weight: 700;
-  color: #007AFF;
+  color: var(--primary-color);
 }
 .next-class-card.ongoing .next-class-countdown {
-  color: #34C759;
+  color: var(--success-color);
 }
 .next-class-body {
   display: flex;
@@ -1232,7 +1233,7 @@ tr.period-start .period-cell {
 .ncs-name {
   font-size: 20px;
   font-weight: 700;
-  color: var(--text-color, #1d1d1f);
+  color: var(--text-primary);
 }
 .ncs-time {
   font-size: var(--font-size-sm, 13px);
@@ -1242,7 +1243,7 @@ tr.period-start .period-cell {
   display: flex;
   align-items: center;
   gap: 10px;
-  color: #34C759;
+  color: var(--success-color);
   font-size: var(--font-size-body, 15px);
   font-weight: 600;
 }
@@ -1266,7 +1267,7 @@ tr.period-start .period-cell {
 }
 .reset-overrides-btn {
   border: none;
-  background: rgba(255, 149, 0, 0.12);
+  background: rgba(var(--warning-rgb), 0.12);
   color: #FF9500;
   font-size: var(--font-size-sm, 13px);
   padding: 4px 10px;
@@ -1293,11 +1294,11 @@ tr.period-start .period-cell {
   position: relative;
 }
 .today-item.ongoing {
-  background: rgba(52, 199, 89, 0.1);
-  box-shadow: 0 0 0 2px #34C759;
+  background: rgba(var(--success-rgb), 0.1);
+  box-shadow: 0 0 0 2px var(--success-color);
 }
 .today-item.upcoming {
-  background: rgba(0, 122, 255, 0.06);
+  background: rgba(var(--primary-rgb), 0.06);
 }
 .today-item.ended {
   opacity: 0.45;
@@ -1322,7 +1323,7 @@ tr.period-start .period-cell {
   min-width: 42px;
   opacity: 0.7;
 }
-.ti-time-start { color: var(--text-color, #1d1d1f); }
+.ti-time-start { color: var(--text-primary); }
 .ti-time-end { opacity: 0.5; }
 .today-item-subject {
   flex: 1;
@@ -1349,7 +1350,7 @@ tr.period-start .period-cell {
 .today-item-edit {
   border: none;
   background: transparent;
-  color: var(--text-color, #1d1d1f);
+  color: var(--text-primary);
   opacity: 0.4;
   font-size: 14px;
   cursor: pointer;
@@ -1389,7 +1390,7 @@ tr.period-start .period-cell {
   width: 100%;
   max-width: 360px;
   overflow: hidden;
-  box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+  box-shadow: var(--shadow-xl);
 }
 .oe-header {
   display: flex;
@@ -1406,7 +1407,7 @@ tr.period-start .period-cell {
   border: none;
   background: transparent;
   font-size: 18px;
-  color: var(--text-color, #1d1d1f);
+  color: var(--text-primary);
   opacity: 0.5;
   cursor: pointer;
   padding: 4px;
@@ -1437,14 +1438,14 @@ tr.period-start .period-cell {
   border: 1px solid var(--border-color, rgba(0,0,0,0.12));
   border-radius: 10px;
   background: var(--bg-color, #f2f2f7);
-  color: var(--text-color, #1d1d1f);
+  color: var(--text-primary);
   font-size: var(--font-size-body, 15px);
   outline: none;
   transition: border-color 0.2s;
 }
 .oe-field select:focus,
 .oe-field input:focus {
-  border-color: #007AFF;
+  border-color: var(--primary-color);
 }
 .oe-actions {
   display: flex;
@@ -1470,20 +1471,20 @@ tr.period-start .period-cell {
 }
 .oe-btn:active { transform: scale(0.96); }
 .oe-btn-save {
-  background: #007AFF;
+  background: var(--primary-color);
   color: #fff;
 }
 .oe-btn-cancel {
   background: var(--border-color, rgba(0,0,0,0.08));
-  color: var(--text-color, #1d1d1f);
+  color: var(--text-primary);
 }
 .oe-btn-delete {
-  background: rgba(255, 69, 58, 0.12);
-  color: #FF453A;
+  background: rgba(var(--danger-rgb), 0.12);
+  color: var(--danger-color);
 }
 .oe-btn-insert {
-  background: rgba(52, 199, 89, 0.12);
-  color: #34C759;
+  background: rgba(var(--success-rgb), 0.12);
+  color: var(--success-color);
 }
 
 /* 小屏适配 */
