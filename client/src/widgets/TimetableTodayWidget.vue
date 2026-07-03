@@ -62,7 +62,9 @@ import {
   formatCountdown,
   timeStrToTodayMs,
   formatTime,
-  getSubjectColor
+  getSubjectColor,
+  loadOverrides,
+  applyOverrides
 } from '@/widgets/timetable-helpers';
 
 var DAY_LABELS = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日'];
@@ -106,7 +108,10 @@ export default {
     todayClasses: function() {
       if (!this.raw || this.todayHoliday) return [];
       var eff = getEffectiveDay(new Date().getDay(), this.todayDateStr, this.raw.adjustments, this.weekType);
-      return getDayClasses(this.raw, eff.day, eff.weekType);
+      var baseClasses = getDayClasses(this.raw, eff.day, eff.weekType);
+      // 应用本地调课（与 Timetable.vue 共享同一份 localStorage 数据）
+      var overrides = loadOverrides(this.todayDateStr);
+      return applyOverrides(baseClasses, overrides);
     },
     nextClassInfo: function() {
       var _ = this.nowTime;
