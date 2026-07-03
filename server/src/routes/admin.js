@@ -1703,7 +1703,10 @@ var DESKTOP_APPS = [
   { name: 'resource', label: '资源', icon: 'fa-solid fa-folder', color: '#5856D6' },
   { name: 'weather', label: '天气', icon: 'fa-solid fa-cloud-sun-rain', color: '#5AC8FA' },
   { name: 'music', label: '音乐', icon: 'fa-solid fa-music', color: '#FF2D55' },
-  { name: 'settings', label: '设置', icon: 'fa-solid fa-gear', color: '#8E8E93' }
+  { name: 'settings', label: '设置', icon: 'fa-solid fa-gear', color: '#8E8E93' },
+  { name: 'timetable', label: '课程表', icon: 'fa-solid fa-table-list', color: '#FF3B30' },
+  { name: 'calendar', label: '日历', icon: 'fa-solid fa-calendar-days', color: '#FF3B30' },
+  { name: 'countdown', label: '倒数日', icon: 'fa-solid fa-hourglass-half', color: '#FF9500' }
 ];
 
 // GET /api/admin/app-control - 获取所有应用及启用状态
