@@ -24,6 +24,8 @@ import api from '@/utils/api';
 import updateChecker from '@/utils/update-checker';
 import wsManager from '@/utils/websocket';
 import audioManager from '@/utils/audio-manager';
+import islandNotify from '@/utils/island-notify';
+import reminderChecker from '@/utils/reminder-checker';
 
 export default {
   name: 'App',
@@ -381,8 +383,12 @@ export default {
     };
     window.addEventListener('offline', self._onBrowserOffline);
     window.addEventListener('online', self._onBrowserOnline);
+    // 注入灵动岛桥接 + 启动提醒检查器
+    islandNotify.setSuperIslandRef(self.$refs.superIsland);
+    reminderChecker.start();
   },
   beforeDestroy: function() {
+    reminderChecker.stop();
     if (this._banWsHandler) {
       wsManager.off('_message', this._banWsHandler);
     }
