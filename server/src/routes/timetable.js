@@ -154,6 +154,8 @@ function loadTimetableData() {
   // 数据校验 + 补全
   if (!data.subjects) data.subjects = [];
   if (!data.schedules) data.schedules = [];
+  if (!data.holidays) data.holidays = [];
+  if (!data.adjustments) data.adjustments = [];
 
   // 为每个 schedule 补全字段类型
   for (var i = 0; i < data.schedules.length; i++) {
@@ -167,6 +169,22 @@ function loadTimetableData() {
       if (cls.start_time && typeof cls.start_time !== 'string') cls.start_time = String(cls.start_time);
       if (cls.end_time && typeof cls.end_time !== 'string') cls.end_time = String(cls.end_time);
     }
+  }
+
+  // 补全 holidays 字段类型（date/name）
+  for (var h = 0; h < data.holidays.length; h++) {
+    var hol = data.holidays[h];
+    if (!hol.date) hol.date = '';
+    if (!hol.name) hol.name = '';
+  }
+
+  // 补全 adjustments 字段类型（date/as_day/weeks/note）
+  for (var a = 0; a < data.adjustments.length; a++) {
+    var adj = data.adjustments[a];
+    if (!adj.date) adj.date = '';
+    if (typeof adj.as_day !== 'number') adj.as_day = parseInt(adj.as_day, 10) || 0;
+    if (!adj.weeks) adj.weeks = 'all';
+    if (!adj.note) adj.note = '';
   }
 
   return data;

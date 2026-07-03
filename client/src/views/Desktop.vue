@@ -71,9 +71,24 @@
         :key="page.id"
         class="desktop-page"
       >
-        <!-- 小组件区域（预留，后续实现具体小组件） -->
+        <!-- 小组件区域 -->
         <div v-if="widgetsByPage(page.id).length > 0" class="desktop-widgets">
-          <!-- 小组件将在此渲染 -->
+          <div
+            v-for="w in widgetsByPage(page.id)"
+            :key="w.id"
+            class="desktop-widget"
+            :class="{ 'widget-editing': isEditMode }"
+            :style="widgetStyle(w)"
+          >
+            <component :is="resolveWidget(w.type)" :config="w.config || {}" />
+            <button
+              v-if="isEditMode"
+              class="widget-remove-btn"
+              @click.stop="removeWidgetFromPage(page.id, w.id)"
+            >
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+          </div>
         </div>
         <div class="desktop-grid">
           <div
@@ -214,6 +229,7 @@ import BirthdayCelebration from '@/components/BirthdayCelebration.vue';
 import desktopDrag from '@/mixins/desktop-drag.js';
 import desktopGestures from '@/mixins/desktop-gestures.js';
 import { APP_REGISTRY } from '@/store/modules/desktop.js';
+import { getWidget } from '@/widgets/index.js';
 
 var WALLPAPER_MAP = {
   'default': 'linear-gradient(135deg, #007AFF 0%, #5AC8FA 50%, #BFEEFF 100%)',
@@ -511,6 +527,26 @@ export default {
     }
   },
   methods: {
+    // ===== 小组件相关 =====
+    // 懒加载 widget 组件
+    resolveWidget: function(type) {
+      var def = getWidget(type);
+      if (!def || !def.component) return null;
+      return def.component;
+    },
+    // 计算 widget 网格跨度样式
+    widgetStyle: function(w) {
+      var colSpan = (w && w.w) || 2;
+      var rowSpan = (w && w.h) || 2;
+      return {
+        gridColumn: 'span ' + colSpan,
+        gridRow: 'span ' + rowSpan
+      };
+    },
+    // 从指定页移除 widget
+    removeWidgetFromPage: function(pageId, widgetId) {
+      this.$store.dispatch('desktop/removeWidget', { pageId: pageId, widgetId: widgetId });
+    },
     detectPerformanceLevel: function() {
       var self = this;
       var existingPerf = document.documentElement.getAttribute('data-perf');
@@ -1093,6 +1129,60 @@ export default {
   justify-content: center;
   padding: 0 32px;
 }
+
+/* ===== 小组件区域 ===== */
+.desktop-widgets {
+  width: 100%;
+  max-width: 760px;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  grid-auto-rows: 80px;
+  grid-gap: 12px;
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+.desktop-widget {
+  position: relative;
+  min-height: 80px;
+  border-radius: 22px;
+  overflow: hidden;
+  transition: transform 0.2s var(--ease-standard, ease);
+}
+.desktop-widget.widget-editing {
+  animation: widgetWiggle 0.25s ease-in-out infinite;
+  outline: 2px dashed rgba(0, 122, 255, 0.5);
+  outline-offset: -2px;
+}
+.desktop-widget.widget-editing:hover {
+  transform: scale(1.02);
+}
+@keyframes widgetWiggle {
+  0%, 100% { transform: rotate(-0.5deg); }
+  50% { transform: rotate(0.5deg); }
+}
+.widget-remove-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  border: none;
+  font-size: 12px;
+  cursor: pointer;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: center;
+  align-items: center;
+  -webkit-justify-content: center;
+  justify-content: center;
+  z-index: 10;
+  transition: transform 0.15s;
+}
+.widget-remove-btn:hover { transform: scale(1.15); background: #FF453A; }
+.widget-remove-btn:active { transform: scale(0.9); }
 
 /* ===== 4×6 网格 ===== */
 .desktop-grid {
