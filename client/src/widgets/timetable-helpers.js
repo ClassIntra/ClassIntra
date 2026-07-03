@@ -232,6 +232,133 @@ function getSubjectColor(subjectName) {
   return SUBJECT_COLORS[subjectName] || '#8E8E93';
 }
 
+// ===== 调课系统（按日期隔离，基于稳定 key 引用）=====
+// 调课数据存于 localStorage，key 为 timetable_overrides_YYYY-MM-DD
+// override 结构: { key, action: 'replace'|'delete'|'insert', subject?, start_time?, end_time?, afterKey? }
+// key = start_time + '|' + subject，用作稳定标识，避免 idx 在 insert/delete 后漂移
+
+// 构建课节稳定标识：start_time + '|' + subject
+function buildClassKey(cls) {
+  return (cls.start_time || '') + '|' + (cls.subject || '');
+}
+
+// 读取某日调课数据
+function loadOverrides(dateStr) {
+  if (!dateStr) return [];
+  try {
+    var raw = localStorage.getItem('timetable_overrides_' + dateStr);
+    if (!raw) return [];
+    var arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+// 保存某日调课数据
+function saveOverrides(dateStr, list) {
+  if (!dateStr) return;
+  try {
+    localStorage.setItem('timetable_overrides_' + dateStr, JSON.stringify(list));
+  } catch (e) {}
+}
+
+// 清除某日调课数据
+function clearOverrides(dateStr) {
+  if (!dateStr) return;
+  try {
+    localStorage.removeItem('timetable_overrides_' + dateStr);
+  } catch (e) {}
+}
+
+// 去重合并：同 key 同 action 的旧 override 被新 override 替换
+function dedupeOverride(overrides, newOverride) {
+  var result = overrides.filter(function(o) {
+    return !(o.key === newOverride.key && o.action === newOverride.action);
+  });
+  result.push(newOverride);
+  return result;
+}
+
+// 应用调课到原始课节数组（基于稳定 key，避免索引漂移）
+// classes: 原始课节数组（来自 getDayClasses）
+// overrides: [{ key, action, subject?, start_time?, end_time?, afterKey? }]
+// 返回: 新数组，调课后的课节带 _adjusted: true 标记，_overrideKey 供模板引用
+function applyOverrides(classes, overrides) {
+  if (!overrides || !overrides.length) {
+    return classes.map(function(c) {
+      return Object.assign({}, c, { _adjusted: false, _overrideKey: buildClassKey(c) });
+    });
+  }
+  // 1. 复制原数组并附加内部 _key 索引
+  var result = classes.map(function(c) {
+    return Object.assign({}, c, { _adjusted: false, _key: buildClassKey(c) });
+  });
+
+  // 2. 按 action 分组处理
+  var replaces = overrides.filter(function(o) { return o.action === 'replace'; });
+  var deletes = overrides.filter(function(o) { return o.action === 'delete'; });
+  var inserts = overrides.filter(function(o) { return o.action === 'insert'; });
+
+  // replace：按 key 查找原课节并覆盖字段
+  replaces.forEach(function(o) {
+    for (var i = 0; i < result.length; i++) {
+      if (result[i]._key === o.key) {
+        var newSubject = o.subject || result[i].subject;
+        var newStart = o.start_time || result[i].start_time;
+        var newEnd = o.end_time || result[i].end_time;
+        result[i] = Object.assign({}, result[i], {
+          subject: newSubject,
+          start_time: newStart,
+          end_time: newEnd,
+          _adjusted: true,
+          _key: buildClassKey({ start_time: newStart, subject: newSubject })
+        });
+        break;
+      }
+    }
+  });
+
+  // delete：按 key 查找并移除
+  deletes.forEach(function(o) {
+    for (var i = 0; i < result.length; i++) {
+      if (result[i]._key === o.key) {
+        result.splice(i, 1);
+        break;
+      }
+    }
+  });
+
+  // insert：基于 afterKey 定位插入位置
+  inserts.forEach(function(o) {
+    var insertAt = result.length; // 默认追加到末尾
+    if (o.afterKey) {
+      for (var i = 0; i < result.length; i++) {
+        if (result[i]._key === o.afterKey) {
+          insertAt = i + 1;
+          break;
+        }
+      }
+    }
+    var newCls = {
+      subject: o.subject || '自习',
+      start_time: o.start_time || '00:00:00',
+      end_time: o.end_time || '00:00:00',
+      _adjusted: true,
+      _key: buildClassKey({ start_time: o.start_time, subject: o.subject })
+    };
+    result.splice(insertAt, 0, newCls);
+  });
+
+  // 3. 清理内部 _key 字段，附加 _overrideKey 供模板引用
+  return result.map(function(c) {
+    var copy = Object.assign({}, c);
+    delete copy._key;
+    copy._overrideKey = buildClassKey(c);
+    return copy;
+  });
+}
+
 export {
   SUBJECT_COLORS,
   DAY_LABELS,
@@ -251,5 +378,11 @@ export {
   findNextClass,
   formatCountdown,
   timeStrToTodayMs,
-  getSubjectColor
+  getSubjectColor,
+  buildClassKey,
+  loadOverrides,
+  saveOverrides,
+  clearOverrides,
+  dedupeOverride,
+  applyOverrides
 };

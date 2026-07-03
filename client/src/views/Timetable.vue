@@ -169,7 +169,7 @@
               <span class="ti-simplified">{{ getSimplified(cls.subject) }}</span>
               <span v-if="cls._adjusted" class="ti-adjusted-tag">调</span>
             </div>
-            <button class="today-item-edit" @click="openOverrideEditor(idx)" title="调课">
+            <button class="today-item-edit" @click="openOverrideEditor(cls._overrideKey || buildClassKey(cls))" title="调课">
               <i class="fa-solid fa-pen"></i>
             </button>
           </div>
@@ -190,7 +190,7 @@
     <div v-if="overrideEditor.open" class="override-editor-mask" @click.self="closeOverrideEditor">
       <div class="override-editor">
         <div class="oe-header">
-          <span class="oe-title">调课 · 第 {{ overrideEditor.idx + 1 }} 节</span>
+          <span class="oe-title">调课 · {{ overrideEditor.origClass ? overrideEditor.origClass.subject + ' ' + formatTime(overrideEditor.origClass.start_time) : '' }}</span>
           <button class="oe-close" @click="closeOverrideEditor"><i class="fa-solid fa-xmark"></i></button>
         </div>
         <div class="oe-body">
@@ -213,10 +213,10 @@
           </div>
         </div>
         <div class="oe-actions">
-          <button class="oe-btn oe-btn-delete" @click="deleteOverride" v-if="overrideEditor.idx !== null">
+          <button class="oe-btn oe-btn-delete" @click="deleteOverride" v-if="overrideEditor.key !== null">
             <i class="fa-solid fa-trash"></i> 删除此节
           </button>
-          <button class="oe-btn oe-btn-insert" @click="insertOverrideAfter" v-if="overrideEditor.idx !== null">
+          <button class="oe-btn oe-btn-insert" @click="insertOverrideAfter" v-if="overrideEditor.key !== null">
             <i class="fa-solid fa-plus"></i> 后插一节
           </button>
           <button class="oe-btn oe-btn-save" @click="saveOverride">保存</button>
@@ -248,7 +248,13 @@ import {
   findNextClass,
   formatCountdown,
   timeStrToTodayMs,
-  getSubjectColor
+  getSubjectColor,
+  buildClassKey,
+  loadOverrides,
+  saveOverrides,
+  clearOverrides,
+  dedupeOverride,
+  applyOverrides
 } from '@/widgets/timetable-helpers';
 
 // 构建周视图表格行（保持原逻辑）
@@ -372,81 +378,6 @@ function getWeekDateStrs() {
   return dates;
 }
 
-// ===== 本地调课存储（按日期隔离）=====
-function loadOverrides(dateStr) {
-  if (!dateStr) return [];
-  try {
-    var raw = localStorage.getItem('timetable_overrides_' + dateStr);
-    if (!raw) return [];
-    var arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr : [];
-  } catch (e) {
-    return [];
-  }
-}
-
-function saveOverrides(dateStr, list) {
-  if (!dateStr) return;
-  try {
-    localStorage.setItem('timetable_overrides_' + dateStr, JSON.stringify(list));
-  } catch (e) {}
-}
-
-function clearOverrides(dateStr) {
-  if (!dateStr) return;
-  try {
-    localStorage.removeItem('timetable_overrides_' + dateStr);
-  } catch (e) {}
-}
-
-// 应用调课到今日课节数组
-// overrides: [{ idx, action: 'replace'|'delete'|'insert', subject?, start_time?, end_time? }]
-function applyOverrides(classes, overrides) {
-  if (!overrides || !overrides.length) return classes.map(function(c) {
-    return Object.assign({}, c, { _adjusted: false });
-  });
-  // 按 idx 排序，倒序处理 delete/insert 避免索引错乱
-  // 这里采用顺序重建：先复制原数组，再逐个应用
-  var result = classes.map(function(c) {
-    return Object.assign({}, c, { _adjusted: false });
-  });
-  // 先处理 replace 和 delete
-  var sortedReplaces = overrides.filter(function(o) { return o.action === 'replace'; }).sort(function(a, b) { return a.idx - b.idx; });
-  var sortedDeletes = overrides.filter(function(o) { return o.action === 'delete'; }).sort(function(a, b) { return b.idx - a.idx; });
-  var sortedInserts = overrides.filter(function(o) { return o.action === 'insert'; }).sort(function(a, b) { return a.idx - b.idx; });
-
-  sortedReplaces.forEach(function(o) {
-    if (o.idx >= 0 && o.idx < result.length) {
-      result[o.idx] = Object.assign({}, result[o.idx], {
-        subject: o.subject || result[o.idx].subject,
-        start_time: o.start_time || result[o.idx].start_time,
-        end_time: o.end_time || result[o.idx].end_time,
-        _adjusted: true
-      });
-    }
-  });
-
-  sortedDeletes.forEach(function(o) {
-    if (o.idx >= 0 && o.idx < result.length) {
-      result.splice(o.idx, 1);
-    }
-  });
-
-  sortedInserts.forEach(function(o) {
-    var insertAt = o.idx + 1;
-    if (insertAt < 0) insertAt = 0;
-    if (insertAt > result.length) insertAt = result.length;
-    result.splice(insertAt, 0, {
-      subject: o.subject || '自习',
-      start_time: o.start_time || '00:00:00',
-      end_time: o.end_time || '00:00:00',
-      _adjusted: true
-    });
-  });
-
-  return result;
-}
-
 export default {
   name: 'Timetable',
   components: { AppNavBar },
@@ -463,10 +394,11 @@ export default {
       weekDateStrs: {},
       nowTime: Date.now(),
       viewMode: 'week',
-      // 调课编辑器
+      // 调课编辑器（基于稳定 key 引用原课节，避免 idx 漂移）
       overrideEditor: {
         open: false,
-        idx: null,
+        key: null,        // 当前编辑课节的稳定 key（start_time|subject）
+        origClass: null,  // 当前编辑的原课节对象（用于显示初始值）
         form: {
           subject: '',
           start_time: '',
@@ -695,11 +627,29 @@ export default {
       var e = parseInt(ep[0], 10) * 60 + parseInt(ep[1], 10);
       return nowMin > e;
     },
-    // ===== 调课编辑器 =====
-    openOverrideEditor: function(idx) {
-      var cls = this.todayClassesWithOverride[idx];
+    // ===== 调课编辑器（基于稳定 key，避免 idx 漂移）=====
+    buildClassKey: function(cls) { return buildClassKey(cls); },
+    openOverrideEditor: function(key) {
+      // 优先在原始课表中查找（保证调课基准一致）
+      var cls = null;
+      for (var i = 0; i < this.todayBaseClasses.length; i++) {
+        if (buildClassKey(this.todayBaseClasses[i]) === key) {
+          cls = this.todayBaseClasses[i];
+          break;
+        }
+      }
+      // 兜底：在已调课的列表中查（用户点击了被 replace 过的节）
+      if (!cls) {
+        for (var j = 0; j < this.todayClassesWithOverride.length; j++) {
+          if (buildClassKey(this.todayClassesWithOverride[j]) === key) {
+            cls = this.todayClassesWithOverride[j];
+            break;
+          }
+        }
+      }
       if (!cls) return;
-      this.overrideEditor.idx = idx;
+      this.overrideEditor.key = key;
+      this.overrideEditor.origClass = cls;
       this.overrideEditor.form.subject = cls.subject || '';
       this.overrideEditor.form.start_time = formatTime(cls.start_time);
       this.overrideEditor.form.end_time = formatTime(cls.end_time);
@@ -707,63 +657,74 @@ export default {
     },
     closeOverrideEditor: function() {
       this.overrideEditor.open = false;
-      this.overrideEditor.idx = null;
+      this.overrideEditor.key = null;
+      this.overrideEditor.origClass = null;
+      this.overrideEditor.form.subject = '';
+      this.overrideEditor.form.start_time = '';
+      this.overrideEditor.form.end_time = '';
     },
     saveOverride: function() {
-      if (this.overrideEditor.idx === null) return;
+      if (!this.overrideEditor.key) return;
       var form = this.overrideEditor.form;
       if (!form.subject) {
-        alert('请选择科目');
+        this.$store.commit('toast/SHOW_TOAST', { message: '请选择科目', type: 'warning' });
         return;
       }
-      // 转换 'HH:MM' -> 'HH:MM:SS'
       var startTime = form.start_time.length === 5 ? form.start_time + ':00' : form.start_time;
       var endTime = form.end_time.length === 5 ? form.end_time + ':00' : form.end_time;
       var overrides = loadOverrides(this.todayDateStr);
-      overrides.push({
-        idx: this.overrideEditor.idx,
+      var newOverride = {
+        key: this.overrideEditor.key,
         action: 'replace',
         subject: form.subject,
         start_time: startTime,
         end_time: endTime
-      });
+      };
+      overrides = dedupeOverride(overrides, newOverride);
       saveOverrides(this.todayDateStr, overrides);
       this.closeOverrideEditor();
     },
     deleteOverride: function() {
-      if (this.overrideEditor.idx === null) return;
+      if (!this.overrideEditor.key) return;
       var overrides = loadOverrides(this.todayDateStr);
-      overrides.push({
-        idx: this.overrideEditor.idx,
+      overrides = dedupeOverride(overrides, {
+        key: this.overrideEditor.key,
         action: 'delete'
       });
       saveOverrides(this.todayDateStr, overrides);
       this.closeOverrideEditor();
     },
     insertOverrideAfter: function() {
-      if (this.overrideEditor.idx === null) return;
+      if (!this.overrideEditor.key) return;
       var form = this.overrideEditor.form;
       if (!form.subject) {
-        alert('请选择科目');
+        this.$store.commit('toast/SHOW_TOAST', { message: '请选择科目', type: 'warning' });
         return;
       }
       var startTime = form.start_time.length === 5 ? form.start_time + ':00' : form.start_time;
       var endTime = form.end_time.length === 5 ? form.end_time + ':00' : form.end_time;
       var overrides = loadOverrides(this.todayDateStr);
-      overrides.push({
-        idx: this.overrideEditor.idx,
+      // insert：afterKey 引用插入位置，key 用新课节的稳定标识
+      var newOverride = {
+        key: buildClassKey({ start_time: startTime, subject: form.subject }),
         action: 'insert',
         subject: form.subject,
         start_time: startTime,
-        end_time: endTime
-      });
+        end_time: endTime,
+        afterKey: this.overrideEditor.key
+      };
+      overrides = dedupeOverride(overrides, newOverride);
       saveOverrides(this.todayDateStr, overrides);
       this.closeOverrideEditor();
     },
     resetOverrides: function() {
-      if (confirm('确定要清除今日所有调课吗？')) {
-        clearOverrides(this.todayDateStr);
-      }
+      var self = this;
+      this.$modal.confirm('确定要清除今日所有调课吗？').then(function(ok) {
+        if (!ok) return;
+        clearOverrides(self.todayDateStr);
+        self.closeOverrideEditor();
+        self.$store.commit('toast/SHOW_TOAST', { message: '已清除今日调课', type: 'success' });
+      });
     }
   }
 };
