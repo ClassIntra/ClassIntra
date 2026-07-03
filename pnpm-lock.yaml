@@ -13,7 +13,11 @@ overrides:
 
 importers:
 
-  .: {}
+  .:
+    devDependencies:
+      sharp:
+        specifier: ^0.35.2
+        version: 0.35.2
 
   client:
     dependencies:
@@ -5108,7 +5112,7 @@ snapshots:
 
   node-abi@3.89.0:
     dependencies:
-      semver: 7.7.4
+      semver: 7.8.5
 
   node-addon-api@7.1.1:
     optional: true
