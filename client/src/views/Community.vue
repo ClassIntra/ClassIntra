@@ -111,7 +111,7 @@
                   <span class="post-author">{{ post.is_anonymous && canViewAnonymous ? post.admin_net_name : (post.is_anonymous ? '匿名用户' : (post.net_name || '未知用户')) }}</span>
                   <span v-if="!post.is_anonymous && userLevels[post.user_id] && userLevels[post.user_id].role === 'admin'" class="admin-badge-sm">管理</span>
                   <span v-if="post.is_anonymous && canViewAnonymous && post.admin_net_name" class="admin-anonymous-badge">匿名</span>
-                  <span v-if="post.relayed_from" class="remote-badge">跨班</span>
+                  <span v-if="post.relayed_from" class="cc-badge">CC</span>
                   <img v-if="!post.is_anonymous && userLevels[post.user_id] && userLevels[post.user_id].show_level_community" :src="'/resources/public/level/Lv' + userLevels[post.user_id].level + '.svg'" class="level-icon level-icon-sm" />
                   <span v-if="post.type === 'food'" class="post-type-badge food">美食</span>
               <span v-if="post.type === 'hot'" class="post-type-badge hot">热事</span>
@@ -2682,7 +2682,7 @@ export default {
 .survey-q-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .survey-q-num { font-weight: 700; font-size: var(--font-size-sm); color: var(--primary-color); }
 .form-select.sm { padding: 4px 8px; font-size: var(--font-size-caption); }
-.remote-badge { display: inline-block; font-size: var(--font-size-caption2); font-weight: 600; color: #fff; background: var(--primary-color); border-radius: var(--radius-xs); padding: 1px 5px; margin-left: 4px; vertical-align: middle; line-height: 1.4; }
+.cc-badge { display: inline-block; font-size: var(--font-size-caption2); font-weight: 600; color: #fff; background: var(--primary-color); border-radius: var(--radius-xs); padding: 1px 5px; margin-left: 4px; vertical-align: middle; line-height: 1.4; }
 .post-title { font-size: var(--font-size-sm); font-weight: 600; color: var(--text-primary); margin-bottom: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .post-preview { font-size: var(--font-size-sm); color: var(--text-secondary); line-height: 1.5; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; max-width: 100%; margin-top: 3px; }
 .playlist-share-card { display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 10px 14px; border-radius: var(--radius-md); background: rgba(var(--primary-rgb), 0.06); border: 0.5px solid rgba(var(--primary-rgb), 0.15); cursor: pointer; transition: background 0.15s, border-color 0.15s; }

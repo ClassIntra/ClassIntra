@@ -252,7 +252,7 @@ export default {
       self.wsListeners['super_island_notification'] = function(data) {
         var notif = data.notification || data;
         if (notif.type === 'broadcast') {
-          var prefix = notif.relayed_from ? '[跨班] ' : '';
+          var prefix = notif.relayed_from ? '[CC] ' : '';
           self.latestBroadcast = { content: prefix + notif.content, priority: notif.priority };
           self.broadcastText = prefix + notif.content;
         }

@@ -14,7 +14,7 @@
 
 var bus = require('./relay-bus');
 
-// ========== 跨班云盘文件预取 ==========
+// ========== CC 云盘文件预取 ==========
 
 var config = require('../config');
 var fs = require('fs');
@@ -101,7 +101,7 @@ function preFetchCloudFiles(content, sourceServerId) {
 
           fs.writeFileSync(destPath, buffer);
 
-          // 创建数据库记录（owner 标记为跨班来源）
+          // 创建数据库记录（owner 标记为 CC 来源）
           db.prepare('INSERT OR IGNORE INTO cloud_files (hash, owner_user_id, original_name, size, mime_type, storage_path) VALUES (?, ?, ?, ?, ?, ?)').run(fileHash, '__relay__', fileName, buffer.length, mimeType, storagePath);
           console.log('[CloudSync] 预取完成:', fileHash, '(' + (buffer.length / 1024).toFixed(1) + ' KB) from', sourceServerId);
         } catch (e) {
