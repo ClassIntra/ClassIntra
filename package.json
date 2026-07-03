@@ -17,5 +17,8 @@
       "es5-ext",
       "esbuild"
     ]
+  },
+  "devDependencies": {
+    "sharp": "^0.35.2"
   }
 }
