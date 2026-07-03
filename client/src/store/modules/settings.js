@@ -1,3 +1,6 @@
+import api from '@/utils/api';
+import { getTheme } from '@/themes/index.js';
+
 var state = {
   theme: localStorage.getItem('theme') || 'light',
   wallpaper: localStorage.getItem('wallpaper') || 'default',
@@ -8,6 +11,8 @@ var state = {
 
 var getters = {
   theme: function(state) { return state.theme; },
+  // 返回完整主题对象（含 type/icons 字段），供未来组件使用
+  currentTheme: function(state) { return getTheme(state.theme); },
   wallpaper: function(state) { return state.wallpaper; },
   notifications: function(state) { return state.notifications; },
   desktopLayout: function(state) { return state.desktopLayout; }
@@ -45,6 +50,11 @@ var actions = {
     context.commit('SET_THEME', theme);
     context.commit('SET_WALLPAPER', wallpaper);
     context.commit('SET_DESKTOP_LAYOUT', desktopLayout);
+  },
+  // 切换主题：提交 mutation（即时生效）+ 最佳努力持久化到服务端
+  setTheme: function(context, theme) {
+    context.commit('SET_THEME', theme);
+    api.post('/user/settings', { theme: theme }).catch(function() {});
   },
   saveSettings: function(context) {
     // Settings are auto-saved via localStorage in mutations

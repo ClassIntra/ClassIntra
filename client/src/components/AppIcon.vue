@@ -5,7 +5,7 @@
     @click="onClick"
   >
     <div class="app-icon-img-wrap">
-      <img :src="app.icon" :alt="app.label" loading="eager" draggable="false" />
+      <img :src="resolveIcon(app)" :alt="app.label" loading="eager" draggable="false" />
       <span v-if="badge" class="app-icon-badge" :class="{ 'app-icon-badge--dot': badge === '●' }">
         {{ badge === '●' ? '' : badge }}
       </span>
@@ -19,6 +19,8 @@
 </template>
 
 <script>
+import { resolveAppIcon } from '@/utils/icon-resolver.js';
+
 export default {
   name: 'AppIcon',
   props: {
@@ -36,6 +38,10 @@ export default {
     showLabel: { type: Boolean, default: true }
   },
   methods: {
+    // 通过 icon-resolver 解析图标路径（为未来主题图标切换预留接入点）
+    resolveIcon: function(app) {
+      return resolveAppIcon(app);
+    },
     onClick: function() {
       // 编辑态下点击图标不启动应用（仅 wiggle），符合 iPad 行为
       if (this.editing) return;
