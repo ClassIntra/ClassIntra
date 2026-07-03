@@ -52,9 +52,14 @@
             >
               <div class="pc-header">
                 <span class="pc-icon">{{ getEventIcon(ev) }}</span>
-                <span v-if="isRepeat(ev)" class="pc-repeat" title="重复事件">
-                  <i class="fa-solid fa-arrows-rotate"></i>
-                </span>
+                <div class="pc-header-right">
+                  <span v-if="isRepeat(ev)" class="pc-repeat" title="重复事件">
+                    <i class="fa-solid fa-arrows-rotate"></i>
+                  </span>
+                  <button class="pc-unpin-btn" @click.stop="togglePin(ev)" title="取消置顶">
+                    <i class="fa-solid fa-thumbtack"></i>
+                  </button>
+                </div>
               </div>
               <div class="pc-title">{{ ev.title }}</div>
               <div class="pc-countdown" :class="getCountdown(ev).status">
@@ -729,7 +734,24 @@ export default {
   margin-bottom: 6px;
 }
 .pc-icon { font-size: 24px; }
+.pc-header-right { display: flex; align-items: center; gap: 8px; }
 .pc-repeat { color: var(--text-tertiary); font-size: 12px; }
+.pc-unpin-btn {
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  border: none;
+  background: var(--surface-elevated);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  transition: all 0.2s;
+  -webkit-tap-highlight-color: transparent;
+}
+.pc-unpin-btn:hover { background: var(--danger-color); color: #fff; transform: scale(1.1); }
+.pc-unpin-btn:active { transform: scale(0.9); }
 .pc-title {
   font-size: var(--font-size-body);
   font-weight: 600;

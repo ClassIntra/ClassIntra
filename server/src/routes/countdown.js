@@ -111,9 +111,11 @@ router.put('/events/:id', auth.requireAuth, function(req, res) {
     var repeatType = (req.body.repeat_type !== undefined) ? req.body.repeat_type : existing.repeat_type;
     var reminderMinutes = (req.body.reminder_minutes !== undefined) ? (parseInt(req.body.reminder_minutes, 10) || 0) : existing.reminder_minutes;
     var note = (req.body.note !== undefined) ? req.body.note : existing.note;
+    // 置顶字段：编辑器保存时可修改（取消勾选即取消置顶）；编辑场景不走上限校验
+    var pinned = (req.body.pinned !== undefined) ? (req.body.pinned ? 1 : 0) : existing.pinned;
     // 修改提醒设置时重置提醒标记
     var reminded = (req.body.reminder_minutes !== undefined && req.body.reminder_minutes != existing.reminder_minutes) ? 0 : existing.reminded;
-    db.prepare('UPDATE countdown_events SET title = ?, target_date = ?, category = ?, color = ?, icon = ?, repeat_type = ?, reminder_minutes = ?, reminded = ?, note = ?, updated_at = datetime(\'now\') WHERE id = ?').run(title, targetDate, category, color, icon, repeatType, reminderMinutes, reminded, note, eventId);
+    db.prepare('UPDATE countdown_events SET title = ?, target_date = ?, category = ?, color = ?, icon = ?, pinned = ?, repeat_type = ?, reminder_minutes = ?, reminded = ?, note = ?, updated_at = datetime(\'now\') WHERE id = ?').run(title, targetDate, category, color, icon, pinned, repeatType, reminderMinutes, reminded, note, eventId);
     res.json({ code: 200, message: '更新成功' });
   } catch (e) {
     res.status(500).json({ code: 500, message: '更新失败' });
