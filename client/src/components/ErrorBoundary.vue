@@ -45,7 +45,7 @@ export default {
     goBack: function() {
       this.error = null;
       if (window.history.length > 1) {
-        this.$router.push('/').catch(function() {});
+        this.$router.go(-1);
       } else {
         this.$router.push('/').catch(function() {});
       }

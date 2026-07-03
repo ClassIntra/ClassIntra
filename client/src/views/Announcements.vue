@@ -1,7 +1,7 @@
 <template>
   <div class="announcements-page">
     <div class="ann-header">
-      <button class="ann-back" @click="$router.push('/')">
+      <button class="ann-back" @click="$router.go(-1)">
         <i class="fa-solid fa-arrow-left"></i>
       </button>
       <h2 class="ann-title">公告中心</h2>
