@@ -210,9 +210,9 @@ export default {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  color: var(--text-primary, #1d1d1f);
+  color: var(--text-primary);
   overflow: hidden;
-  box-shadow: 0 2px 16px rgba(0,0,0,0.08);
+  box-shadow: var(--shadow-sm);
 }
 
 /* 加载/错误状态 */
@@ -227,8 +227,8 @@ export default {
 .tw-spinner {
   width: 20px;
   height: 20px;
-  border: 2px solid rgba(0,0,0,0.1);
-  border-top-color: #007AFF;
+  border: 2px solid var(--separator-color);
+  border-top-color: var(--primary-color);
   border-radius: 50%;
   animation: twSpin 0.8s linear infinite;
 }
@@ -242,7 +242,7 @@ export default {
   display: flex;
   align-items: center;
   gap: 10px;
-  color: #FF453A;
+  color: var(--danger-color);
 }
 .tw-holiday i { font-size: 28px; }
 .tw-holiday-text {
@@ -284,12 +284,12 @@ export default {
   border-radius: 8px;
 }
 .tw-week-type.odd {
-  background: rgba(255, 69, 58, 0.15);
-  color: #FF453A;
+  background: rgba(var(--danger-rgb), 0.15);
+  color: var(--danger-color);
 }
 .tw-week-type.even {
-  background: rgba(0, 122, 255, 0.15);
-  color: #007AFF;
+  background: rgba(var(--primary-rgb), 0.15);
+  color: var(--primary-color);
 }
 
 /* 下节课 */
@@ -299,16 +299,16 @@ export default {
   gap: 10px;
   padding: 10px;
   border-radius: 14px;
-  background: rgba(0,0,0,0.04);
+  background: var(--surface-elevated);
   transition: all 0.3s;
 }
 .tw-next.upcoming {
-  background: rgba(0, 122, 255, 0.08);
-  box-shadow: 0 0 0 1px rgba(0, 122, 255, 0.2);
+  background: rgba(var(--primary-rgb), 0.08);
+  box-shadow: 0 0 0 1px rgba(var(--primary-rgb), 0.2);
 }
 .tw-next.ongoing {
-  background: rgba(52, 199, 89, 0.1);
-  box-shadow: 0 0 0 1px #34C759;
+  background: rgba(var(--success-rgb), 0.1);
+  box-shadow: 0 0 0 1px var(--success-color);
 }
 .tw-next-subject {
   width: 40px;
@@ -343,14 +343,14 @@ export default {
 .tw-next-countdown {
   font-size: 12px;
   font-weight: 700;
-  color: #007AFF;
+  color: var(--primary-color);
   white-space: nowrap;
 }
 .tw-next-countdown.ongoing {
-  color: #34C759;
+  color: var(--success-color);
 }
 .tw-next-done {
-  color: #34C759;
+  color: var(--success-color);
   font-size: 13px;
   font-weight: 600;
   justify-content: center;
