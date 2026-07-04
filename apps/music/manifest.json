@@ -1,0 +1,19 @@
+{
+  "name": "music",
+  "label": "音乐",
+  "icon": "/resources/public/icons/Music.png",
+  "color": "#FF2D55",
+  "category": "desktop",
+  "order": 7,
+  "defaultEnabled": true,
+  "canDisable": true,
+  "frontend": {
+    "route": "/music",
+    "routeName": "Music",
+    "component": "./frontend/Music.vue"
+  },
+  "backend": {
+    "mountPath": "/api/music",
+    "entry": "./backend/routes.js"
+  }
+}
