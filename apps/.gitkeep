@@ -1,0 +1,2 @@
+# 此文件保留 apps/ 目录结构
+# 每个应用子目录包含 manifest.json + frontend/ + backend/
