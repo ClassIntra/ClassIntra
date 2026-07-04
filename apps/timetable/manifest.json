@@ -1,0 +1,31 @@
+{
+  "name": "timetable",
+  "label": "课程表",
+  "icon": "/resources/public/icons/Timetable.png",
+  "color": "#FF3B30",
+  "category": "desktop",
+  "order": 9,
+  "defaultEnabled": true,
+  "canDisable": true,
+  "frontend": {
+    "route": "/timetable",
+    "routeName": "Timetable",
+    "component": "./frontend/Timetable.vue",
+    "widgets": [
+      {
+        "id": "timetable-today",
+        "name": "今日课表",
+        "component": "./frontend/widgets/TimetableTodayWidget.vue",
+        "defaultSize": { "w": 2, "h": 2 },
+        "minSize": { "w": 1, "h": 1 },
+        "maxSize": { "w": 4, "h": 4 },
+        "description": "显示今日课程和下节课倒计时",
+        "configSchema": null
+      }
+    ]
+  },
+  "backend": {
+    "mountPath": "/api/timetable",
+    "entry": "./backend/routes.js"
+  }
+}
