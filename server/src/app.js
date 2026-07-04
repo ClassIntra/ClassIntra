@@ -127,6 +127,25 @@ app.use(express.static(path.join(__dirname, '../../client/dist'), {
   }
 }));
 
+// 应用目录静态资源（支持 manifest.icon 指向应用目录内图标）
+// 访问路径：/apps-static/{appName}/icon.png → apps/{appName}/icon.png
+try {
+  if (fs.existsSync(path.join(__dirname, '../../apps'))) {
+    app.use('/apps-static', express.static(path.join(__dirname, '../../apps'), {
+      maxAge: '0',
+      immutable: false,
+      setHeaders: function(res) {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+      }
+    }));
+  }
+} catch (e) {
+  console.warn('[app] apps-static 静态路由初始化失败（apps/ 目录可能不存在）:', e.message);
+}
+
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/user', require('./routes/user'));
 app.use('/api/chat', require('./routes/chat'));
