@@ -81,12 +81,16 @@
             >
               <div
                 v-if="row.cells[day.value]"
-                class="class-item"
+                class="class-item week-class-item"
                 :style="{ background: row.cells[day.value].bg, color: row.cells[day.value].color }"
-                :class="{ current: isCurrentClass(row.cells[day.value], day.value) }"
+                :class="{ current: isCurrentClass(row.cells[day.value], day.value), adjusted: row.cells[day.value]._adjusted }"
+                @click.stop="openWeekOverrideEditor(row.cells[day.value], day.value)"
+                title="点击调课"
               >
+                <span v-if="row.cells[day.value]._adjusted" class="week-adjust-tag">调</span>
                 <span class="class-name">{{ row.cells[day.value].simplified }}</span>
                 <span class="class-time">{{ formatTime(row.cells[day.value].start) }}</span>
+                <i class="fa-solid fa-pen class-edit-icon"></i>
               </div>
             </td>
           </tr>
@@ -397,8 +401,9 @@ export default {
       // 调课编辑器（基于稳定 key 引用原课节，避免 idx 漂移）
       overrideEditor: {
         open: false,
-        key: null,        // 当前编辑课节的稳定 key（start_time|subject）
-        origClass: null,  // 当前编辑的原课节对象（用于显示初始值）
+        key: null,          // 当前编辑课节的稳定 key（start_time|subject）
+        origClass: null,    // 当前编辑的原课节对象（用于显示初始值）
+        targetDate: null,   // 当前编辑的目标日期（YYYY-MM-DD）；null 表示今日视图
         form: {
           subject: '',
           start_time: '',
@@ -436,7 +441,10 @@ export default {
     },
     rows: function() {
       if (!this.raw) return [];
-      return buildTimetable(this.raw, this.weekType);
+      var baseRows = buildTimetable(this.raw, this.weekType);
+      // 触发 weekDateStrs 依赖（页面可见性变化时重新计算）
+      var _ = this.weekDateStrs;
+      return this.applyWeekOverrides(baseRows);
     },
     legendSubjects: function() {
       return buildLegend(this.raw, this.weekType);
@@ -629,6 +637,52 @@ export default {
     },
     // ===== 调课编辑器（基于稳定 key，避免 idx 漂移）=====
     buildClassKey: function(cls) { return buildClassKey(cls); },
+    // 将本周每天的调课（replace/delete）应用到周视图单元格
+    // insert 类型因会破坏 period+slot 对齐结构，暂不在周视图展示
+    applyWeekOverrides: function(rows) {
+      if (!rows || !rows.length) return rows;
+      // 批量加载本周 7 天的 overrides
+      var overridesByDay = {};
+      for (var d = 1; d <= 7; d++) {
+        var dateStr = this.weekDateStrs[d];
+        overridesByDay[d] = dateStr ? loadOverrides(dateStr) : [];
+      }
+      // 遍历每个单元格应用 replace/delete
+      for (var i = 0; i < rows.length; i++) {
+        var row = rows[i];
+        for (var day = 1; day <= 7; day++) {
+          var cell = row.cells[day];
+          if (!cell) continue;
+          var dayOverrides = overridesByDay[day];
+          if (!dayOverrides || !dayOverrides.length) continue;
+          var key = buildClassKey({ start_time: cell.start, subject: cell.subject });
+          for (var k = 0; k < dayOverrides.length; k++) {
+            var ov = dayOverrides[k];
+            if (ov.key !== key) continue;
+            if (ov.action === 'replace') {
+              var newSubject = ov.subject || cell.subject;
+              var newStart = ov.start_time || cell.start;
+              var newEnd = ov.end_time || cell.end;
+              var color = getSubjectColor(newSubject);
+              row.cells[day] = {
+                subject: newSubject,
+                simplified: this.getSimplified(newSubject),
+                start: newStart,
+                end: newEnd,
+                color: color,
+                bg: hexToRgba(color, 0.16),
+                _adjusted: true,
+                _origKey: key // 保留原始 key，供再次调课时引用原课节
+              };
+            } else if (ov.action === 'delete') {
+              row.cells[day] = null;
+            }
+            break;
+          }
+        }
+      }
+      return rows;
+    },
     openOverrideEditor: function(key) {
       // 优先在原始课表中查找（保证调课基准一致）
       var cls = null;
@@ -650,15 +704,36 @@ export default {
       if (!cls) return;
       this.overrideEditor.key = key;
       this.overrideEditor.origClass = cls;
+      this.overrideEditor.targetDate = null; // 今日视图：targetDate 留空，回退到 todayDateStr
       this.overrideEditor.form.subject = cls.subject || '';
       this.overrideEditor.form.start_time = formatTime(cls.start_time);
       this.overrideEditor.form.end_time = formatTime(cls.end_time);
+      this.overrideEditor.open = true;
+    },
+    // 周视图调课入口：cell 是 buildTimetable 构建的单元格对象（字段为 start/end）
+    openWeekOverrideEditor: function(cell, dayValue) {
+      if (!cell) return;
+      var targetDate = this.weekDateStrs[dayValue] || this.todayDateStr;
+      // 优先用 _origKey（已被 replace 过的 cell），否则用当前值构造 key
+      // 这样再次编辑已调课的节时，仍能引用原课节，避免 key 漂移
+      var key = cell._origKey || buildClassKey({ start_time: cell.start, subject: cell.subject });
+      this.overrideEditor.key = key;
+      this.overrideEditor.origClass = {
+        subject: cell.subject,
+        start_time: cell.start,
+        end_time: cell.end
+      };
+      this.overrideEditor.targetDate = targetDate;
+      this.overrideEditor.form.subject = cell.subject || '';
+      this.overrideEditor.form.start_time = formatTime(cell.start);
+      this.overrideEditor.form.end_time = formatTime(cell.end);
       this.overrideEditor.open = true;
     },
     closeOverrideEditor: function() {
       this.overrideEditor.open = false;
       this.overrideEditor.key = null;
       this.overrideEditor.origClass = null;
+      this.overrideEditor.targetDate = null;
       this.overrideEditor.form.subject = '';
       this.overrideEditor.form.start_time = '';
       this.overrideEditor.form.end_time = '';
@@ -672,7 +747,9 @@ export default {
       }
       var startTime = form.start_time.length === 5 ? form.start_time + ':00' : form.start_time;
       var endTime = form.end_time.length === 5 ? form.end_time + ':00' : form.end_time;
-      var overrides = loadOverrides(this.todayDateStr);
+      // 周视图调课用 targetDate，今日视图回退到 todayDateStr
+      var targetDate = this.overrideEditor.targetDate || this.todayDateStr;
+      var overrides = loadOverrides(targetDate);
       var newOverride = {
         key: this.overrideEditor.key,
         action: 'replace',
@@ -681,18 +758,21 @@ export default {
         end_time: endTime
       };
       overrides = dedupeOverride(overrides, newOverride);
-      saveOverrides(this.todayDateStr, overrides);
+      saveOverrides(targetDate, overrides);
       this.closeOverrideEditor();
+      this.$store.commit('toast/SHOW_TOAST', { message: '调课已保存', type: 'success' });
     },
     deleteOverride: function() {
       if (!this.overrideEditor.key) return;
-      var overrides = loadOverrides(this.todayDateStr);
+      var targetDate = this.overrideEditor.targetDate || this.todayDateStr;
+      var overrides = loadOverrides(targetDate);
       overrides = dedupeOverride(overrides, {
         key: this.overrideEditor.key,
         action: 'delete'
       });
-      saveOverrides(this.todayDateStr, overrides);
+      saveOverrides(targetDate, overrides);
       this.closeOverrideEditor();
+      this.$store.commit('toast/SHOW_TOAST', { message: '已删除该节调课', type: 'success' });
     },
     insertOverrideAfter: function() {
       if (!this.overrideEditor.key) return;
@@ -703,7 +783,8 @@ export default {
       }
       var startTime = form.start_time.length === 5 ? form.start_time + ':00' : form.start_time;
       var endTime = form.end_time.length === 5 ? form.end_time + ':00' : form.end_time;
-      var overrides = loadOverrides(this.todayDateStr);
+      var targetDate = this.overrideEditor.targetDate || this.todayDateStr;
+      var overrides = loadOverrides(targetDate);
       // insert：afterKey 引用插入位置，key 用新课节的稳定标识
       var newOverride = {
         key: buildClassKey({ start_time: startTime, subject: form.subject }),
@@ -714,8 +795,9 @@ export default {
         afterKey: this.overrideEditor.key
       };
       overrides = dedupeOverride(overrides, newOverride);
-      saveOverrides(this.todayDateStr, overrides);
+      saveOverrides(targetDate, overrides);
       this.closeOverrideEditor();
+      this.$store.commit('toast/SHOW_TOAST', { message: '已插入新课节', type: 'success' });
     },
     resetOverrides: function() {
       var self = this;
@@ -1065,6 +1147,48 @@ tr.period-start .period-cell {
   font-size: 10px;
   opacity: 0.65;
   font-weight: 500;
+}
+
+/* 周视图调课交互 */
+.week-class-item {
+  cursor: pointer;
+  position: relative;
+}
+.week-class-item:hover {
+  transform: scale(1.04);
+  box-shadow: var(--shadow-sm);
+}
+.class-edit-icon {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  font-size: 9px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  pointer-events: none;
+}
+.week-class-item:hover .class-edit-icon {
+  opacity: 0.7;
+}
+/* 调课标记角标 */
+.week-adjust-tag {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  width: 14px;
+  height: 14px;
+  line-height: 14px;
+  border-radius: 50%;
+  background: #FF9500;
+  color: #fff;
+  text-align: center;
+}
+/* 已调课单元格的虚线提示边框 */
+.class-item.adjusted {
+  outline: 1px dashed rgba(255, 149, 0, 0.6);
+  outline-offset: -2px;
 }
 
 /* 科目图例 */
