@@ -1,0 +1,20 @@
+{
+  "name": "community",
+  "label": "社区",
+  "icon": "/resources/public/icons/Community.png",
+  "color": "#FF9500",
+  "category": "desktop",
+  "order": 2,
+  "defaultEnabled": true,
+  "canDisable": true,
+  "frontend": {
+    "route": "/community",
+    "routeName": "Community",
+    "component": "./frontend/Community.vue"
+  },
+  "backend": {
+    "mountPath": "/api/community",
+    "entry": "./backend/routes.js",
+    "rateLimit": { "max": 120, "windowMs": 60000 }
+  }
+}
