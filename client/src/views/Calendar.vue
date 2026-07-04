@@ -433,6 +433,11 @@ export default {
     },
     openEditor: function(event) {
       var self = this;
+      // 联动事件（来自倒数日）不可在日历中编辑，提示用户去倒数日编辑
+      if (event && event.source === 'countdown') {
+        self.toast('此事件来自倒数日，请在倒数日应用中编辑', 'info');
+        return;
+      }
       if (event && event.id) {
         // 编辑现有事件
         self.editor.id = event.id;
