@@ -1,0 +1,19 @@
+{
+  "name": "weather",
+  "label": "天气",
+  "icon": "/resources/public/icons/Weather.png",
+  "color": "#5AC8FA",
+  "category": "desktop",
+  "order": 6,
+  "defaultEnabled": true,
+  "canDisable": true,
+  "frontend": {
+    "route": "/weather",
+    "routeName": "Weather",
+    "component": "./frontend/Weather.vue"
+  },
+  "backend": {
+    "mountPath": "/api/weather",
+    "entry": "./backend/routes.js"
+  }
+}
