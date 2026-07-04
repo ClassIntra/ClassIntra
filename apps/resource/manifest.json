@@ -1,0 +1,19 @@
+{
+  "name": "resource",
+  "label": "资源",
+  "icon": "/resources/public/icons/Files.png",
+  "color": "#5856D6",
+  "category": "desktop",
+  "order": 5,
+  "defaultEnabled": true,
+  "canDisable": true,
+  "frontend": {
+    "route": "/resource",
+    "routeName": "Resource",
+    "component": "./frontend/Resource.vue"
+  },
+  "backend": {
+    "mountPath": "/api/resources",
+    "entry": "./backend/routes.js"
+  }
+}
