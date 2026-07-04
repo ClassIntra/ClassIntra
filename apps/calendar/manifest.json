@@ -1,0 +1,19 @@
+{
+  "name": "calendar",
+  "label": "日历",
+  "icon": "/resources/public/icons/Calendar.png",
+  "color": "#FF3B30",
+  "category": "desktop",
+  "order": 10,
+  "defaultEnabled": true,
+  "canDisable": true,
+  "frontend": {
+    "route": "/calendar",
+    "routeName": "Calendar",
+    "component": "./frontend/Calendar.vue"
+  },
+  "backend": {
+    "mountPath": "/api/calendar",
+    "entry": "./backend/routes.js"
+  }
+}
