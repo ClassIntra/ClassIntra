@@ -146,23 +146,16 @@ try {
 
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/user', require('./routes/user'));
-app.use('/api/chat', require('./routes/chat'));
-app.use('/api/weather', require('./routes/weather'));
-app.use('/api/ai-chat', require('./routes/ai-chat'));
-app.use('/api/resources', require('./routes/resource'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/assets', require('./routes/assets'));
-app.use('/api/community', require('./routes/community'));
-app.use('/api/notes', require('./routes/notes'));
-app.use('/api/cloud', require('./routes/cloud'));
 app.use('/api/setup', require('./routes/setup'));
 app.use('/api/level', require('./routes/level'));
 app.use('/api/cdn', require('./routes/cdn-proxy'));
-app.use('/api/music', require('./routes/music'));
 app.use('/api/system', require('./routes/system'));
-app.use('/api/timetable', require('./routes/timetable'));
-app.use('/api/calendar', require('./routes/calendar'));
-app.use('/api/countdown', require('./routes/countdown'));
+
+// 应用路由（从 apps/*/manifest.json 聚合挂载，rateLimit 由 manifest 声明）
+var routeAggregator = require('./core/route-aggregator');
+routeAggregator.mountAppRoutes(app);
 
 // Setup 页面路由
 app.get('/setup', function(req, res) {

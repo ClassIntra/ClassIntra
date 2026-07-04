@@ -140,7 +140,7 @@
 
 <script>
 import AppNavBar from './AppNavBar.vue';
-import { listWidgets, getWidget as getWidgetDef } from '@/widgets/index.js';
+import { listWidgets, getWidget as getWidgetDef } from '@/core/widget-aggregator';
 import { listThemes } from '@/themes/index.js';
 
 export default {
