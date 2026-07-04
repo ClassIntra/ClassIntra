@@ -1,0 +1,19 @@
+{
+  "name": "notes",
+  "label": "笔记",
+  "icon": "/resources/public/icons/Note.png",
+  "color": "#FFCC00",
+  "category": "desktop",
+  "order": 4,
+  "defaultEnabled": true,
+  "canDisable": true,
+  "frontend": {
+    "route": "/notes",
+    "routeName": "Notes",
+    "component": "./frontend/Notes.vue"
+  },
+  "backend": {
+    "mountPath": "/api/notes",
+    "entry": "./backend/routes.js"
+  }
+}
