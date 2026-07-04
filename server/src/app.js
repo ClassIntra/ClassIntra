@@ -57,9 +57,7 @@ app.use(compression({
 }));
 app.use('/api/auth', rateLimit({ max: 60, windowMs: 60000, message: '登录请求过于频繁，请稍后再试' }));
 app.use('/api/admin', rateLimit({ max: 200, windowMs: 60000 }));
-app.use('/api/ai-chat', rateLimit({ max: 30, windowMs: 60000, message: 'AI请求过于频繁，请稍后再试' }));
-app.use('/api/community', rateLimit({ max: 120, windowMs: 60000 }));
-app.use('/api/chat', rateLimit({ max: 120, windowMs: 60000 }));
+// ai-chat/community/chat 的 rateLimit 由 manifest.backend.rateLimit 声明，route-aggregator 自动应用
 
 app.use(function(req, res, next) {
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
@@ -300,7 +298,7 @@ function startWeatherAlertScheduler() {
         if (schedules[i].schedule_time === currentTime && !weatherAlertLastChecked[scheduleKey]) {
           weatherAlertLastChecked[scheduleKey] = true;
           console.log('[WeatherAlert] Scheduled check triggered at ' + currentTime);
-          var weatherRoute = require('./routes/weather');
+          var weatherRoute = require('../../../apps/weather/backend/routes');
           weatherRoute.checkWeatherAlert().then(function(result) {
             if (result.has_rain || result.has_warning) {
               var alertType = 'both';

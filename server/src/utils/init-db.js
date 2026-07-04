@@ -807,7 +807,9 @@ function initDatabase() {
     }
   } catch (e) { console.error('[init-db] calendar_events.show_in_countdown 迁移失败:', e.message); }
 
-  var defaultApps = ['chat', 'community', 'ai-chat', 'notes', 'resource', 'weather', 'music', 'settings', 'timetable', 'calendar', 'countdown'];
+  // 默认启用应用列表现由 @/core/default-apps-loader 从 apps/*/manifest.json 聚合产生
+  var defaultAppsLoader = require('../core/default-apps-loader');
+  var defaultApps = defaultAppsLoader.getDefaultApps();
   var initAppStmt = db.prepare("INSERT OR IGNORE INTO app_control (app_name, enabled) VALUES (?, 1)");
   for (var di = 0; di < defaultApps.length; di++) {
     initAppStmt.run(defaultApps[di]);

@@ -1,23 +1,11 @@
 import Vue from 'vue';
 import VueRouter from 'vue-router';
 import api from '@/utils/api';
+import { appRoutes, ROUTE_APP_MAP } from '@/core/router-aggregator';
 
 Vue.use(VueRouter);
 
-// 应用管控：路由路径到应用名的映射
-var ROUTE_APP_MAP = {
-  '/chat': 'chat',
-  '/community': 'community',
-  '/ai-chat': 'ai-chat',
-  '/notes': 'notes',
-  '/resource': 'resource',
-  '/weather': 'weather',
-  '/music': 'music',
-  '/settings': 'settings',
-  '/timetable': 'timetable',
-  '/calendar': 'calendar',
-  '/countdown': 'countdown'
-};
+// ROUTE_APP_MAP 现由 @/core/router-aggregator 从 apps/*/manifest.json 聚合产生
 // 启用应用列表缓存（null=未加载，数组=已加载）
 var enabledAppsCache = null;
 var enabledAppsLoading = null;
@@ -83,96 +71,8 @@ var routes = [
     name: 'Browser',
     component: function() { return import('@/views/Browser.vue'); },
     meta: { requiresAuth: true }
-  },
-  {
-    path: '/chat',
-    name: 'Chat',
-    component: function() { return import('@/views/Chat.vue'); },
-    meta: { requiresAuth: true }
-  },
-  {
-    path: '/community',
-    name: 'Community',
-    component: function() { return import('@/views/Community.vue'); },
-    meta: { requiresAuth: true }
-  },
-  {
-    path: '/weather',
-    name: 'Weather',
-    component: function() { return import('@/views/Weather.vue'); },
-    meta: { requiresAuth: true }
-  },
-  {
-    path: '/music',
-    name: 'Music',
-    component: function() { return import('@/views/Music.vue'); },
-    meta: { requiresAuth: true }
-  },
-  {
-    path: '/ai-chat',
-    name: 'AIChat',
-    component: function() { return import('@/views/AIChat.vue'); },
-    meta: { requiresAuth: true }
-  },
-  {
-    path: '/notes',
-    name: 'Notes',
-    component: function() { return import('@/views/Notes.vue'); },
-    meta: { requiresAuth: true }
-  },
-  {
-    path: '/resource',
-    name: 'Resource',
-    component: function() { return import('@/views/Resource.vue'); },
-    meta: { requiresAuth: true }
-  },
-  {
-    path: '/cloud',
-    name: 'CloudDrive',
-    component: function() { return import('@/views/CloudDrive.vue'); },
-    meta: { requiresAuth: true }
-  },
-  {
-    path: '/cloud-picker',
-    name: 'CloudFilePicker',
-    component: function() { return import('@/views/CloudFilePicker.vue'); },
-    meta: { requiresAuth: true }
-  },
-  {
-    path: '/cloud-upload',
-    name: 'CloudUpload',
-    component: function() { return import('@/views/CloudUpload.vue'); },
-    meta: { requiresAuth: true }
-  },
-  {
-    path: '/guest-upload',
-    name: 'GuestUpload',
-    component: function() { return import('@/views/GuestUpload.vue'); }
-  },
-  {
-    path: '/settings',
-    name: 'Settings',
-    component: function() { return import('@/views/Settings.vue'); },
-    meta: { requiresAuth: true }
-  },
-  {
-    path: '/timetable',
-    name: 'Timetable',
-    component: function() { return import('@/views/Timetable.vue'); },
-    meta: { requiresAuth: true }
-  },
-  {
-    path: '/calendar',
-    name: 'Calendar',
-    component: function() { return import('@/views/Calendar.vue'); },
-    meta: { requiresAuth: true }
-  },
-  {
-    path: '/countdown',
-    name: 'Countdown',
-    component: function() { return import('@/views/Countdown.vue'); },
-    meta: { requiresAuth: true }
-  },
+  }
+].concat(appRoutes).concat([
   {
     path: '/admin',
     name: 'Admin',
@@ -183,7 +83,7 @@ var routes = [
     path: '*',
     redirect: '/'
   }
-];
+]);
 
 var router = new VueRouter({
   mode: 'history',
