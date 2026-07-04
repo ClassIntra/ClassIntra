@@ -1,0 +1,45 @@
+{
+  "name": "countdown",
+  "label": "倒数日",
+  "icon": "/resources/public/icons/Countdown.png",
+  "color": "#FF9500",
+  "category": "desktop",
+  "order": 11,
+  "defaultEnabled": true,
+  "canDisable": true,
+  "frontend": {
+    "route": "/countdown",
+    "routeName": "Countdown",
+    "component": "./frontend/Countdown.vue",
+    "widgets": [
+      {
+        "id": "countdown",
+        "name": "倒数日",
+        "component": "./frontend/widgets/CountdownWidget.vue",
+        "defaultSize": { "w": 2, "h": 1 },
+        "minSize": { "w": 1, "h": 1 },
+        "maxSize": { "w": 4, "h": 2 },
+        "description": "显示最近的倒数日",
+        "configSchema": {
+          "fields": [
+            {
+              "key": "filter",
+              "label": "显示范围",
+              "type": "select",
+              "options": [
+                { "value": "all", "label": "全部" },
+                { "value": "pinned", "label": "仅置顶" },
+                { "value": "today", "label": "仅今天" }
+              ],
+              "default": "all"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "backend": {
+    "mountPath": "/api/countdown",
+    "entry": "./backend/routes.js"
+  }
+}
