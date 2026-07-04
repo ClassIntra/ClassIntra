@@ -317,7 +317,7 @@ router.post('/settings', function(req, res) {
 function validateDesktopLayout(layout) {
   if (!layout || typeof layout !== 'object' || Array.isArray(layout)) return null;
   if (!Array.isArray(layout.pages) || layout.pages.length < 1 || layout.pages.length > 9) return null;
-  if (!Array.isArray(layout.dock) || layout.dock.length > 4) return null;
+  if (!Array.isArray(layout.dock) || layout.dock.length > 12) return null;
   if (!Array.isArray(layout.pinnedApps)) return null;
   if (layout.folders !== null && (typeof layout.folders !== 'object' || Array.isArray(layout.folders))) return null;
 
@@ -365,12 +365,39 @@ function validateDesktopLayout(layout) {
     }
   }
 
+  // 校验 widgets 结构（{ pageId: [{ id, type, slot, w, h, config }] }）
+  // 持久化小组件配置，跨设备同步
+  var widgets = {};
+  if (layout.widgets && typeof layout.widgets === 'object' && !Array.isArray(layout.widgets)) {
+    var widgetPageIds = Object.keys(layout.widgets);
+    for (var wi = 0; wi < widgetPageIds.length; wi++) {
+      var pageId = widgetPageIds[wi];
+      var widgetList = layout.widgets[pageId];
+      if (!Array.isArray(widgetList)) continue;
+      widgets[pageId] = [];
+      for (var wj = 0; wj < widgetList.length; wj++) {
+        var w = widgetList[wj];
+        if (!w || typeof w !== 'object') continue;
+        if (typeof w.id !== 'string' || typeof w.type !== 'string') continue;
+        widgets[pageId].push({
+          id: w.id,
+          type: w.type,
+          slot: typeof w.slot === 'number' ? w.slot : 0,
+          w: Math.max(1, Math.min(4, parseInt(w.w, 10) || 2)),
+          h: Math.max(1, Math.min(4, parseInt(w.h, 10) || 2)),
+          config: (w.config && typeof w.config === 'object') ? w.config : {}
+        });
+      }
+    }
+  }
+
   return {
     version: typeof layout.version === 'number' ? layout.version : 1,
     pages: pages,
     dock: dock,
     pinnedApps: pinnedApps,
-    folders: folders
+    folders: folders,
+    widgets: widgets
   };
 }
 

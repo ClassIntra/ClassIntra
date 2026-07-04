@@ -75,6 +75,10 @@ export default {
     config: {
       type: Object,
       default: function() { return {}; }
+    },
+    refreshKey: {
+      type: Number,
+      default: 0
     }
   },
   data: function() {
@@ -86,6 +90,12 @@ export default {
       weekType: 'odd',
       nowTime: Date.now()
     };
+  },
+  watch: {
+    // 监听 refreshKey 变化，触发数据重新加载
+    refreshKey: function() {
+      this.loadData();
+    }
   },
   computed: {
     todayDateStr: function() {

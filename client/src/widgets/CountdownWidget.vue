@@ -66,6 +66,10 @@ export default {
     config: {
       type: Object,
       default: function() { return {}; }
+    },
+    refreshKey: {
+      type: Number,
+      default: 0
     }
   },
   data: function() {
@@ -75,15 +79,39 @@ export default {
       events: []
     };
   },
+  watch: {
+    // 监听 refreshKey 变化，触发数据重新加载
+    refreshKey: function() {
+      this.loadData();
+    }
+  },
   computed: {
+    // 按 config.filter 过滤后的事件
+    filteredEvents: function() {
+      var filter = (this.config && this.config.filter) || 'all';
+      if (filter === 'all') return this.events;
+      var now = new Date();
+      var todayStr = now.getFullYear() + '-' + (now.getMonth() + 1 < 10 ? '0' + (now.getMonth() + 1) : (now.getMonth() + 1)) + '-' + (now.getDate() < 10 ? '0' + now.getDate() : now.getDate());
+      if (filter === 'pinned') {
+        return this.events.filter(function(e) { return !!e.pinned; });
+      }
+      if (filter === 'today') {
+        return this.events.filter(function(e) {
+          var dateStr = e.next_date || e.target_date;
+          return dateStr === todayStr;
+        });
+      }
+      return this.events;
+    },
     // 最近的事件：优先未来，其次今天，最后最近的过去
     nearest: function() {
-      if (!this.events.length) return null;
+      var events = this.filteredEvents;
+      if (!events.length) return null;
       var future = [];
       var today = [];
       var past = [];
-      for (var i = 0; i < this.events.length; i++) {
-        var ev = this.events[i];
+      for (var i = 0; i < events.length; i++) {
+        var ev = events[i];
         var dateStr = ev.next_date || ev.target_date;
         var cd = calcDays(dateStr);
         if (cd.status === 'future') future.push({ ev: ev, cd: cd });
