@@ -260,7 +260,7 @@ import BirthdayCelebration from '@/components/BirthdayCelebration.vue';
 import desktopDrag from '@/mixins/desktop-drag.js';
 import desktopGestures from '@/mixins/desktop-gestures.js';
 import { APP_REGISTRY } from '@/store/modules/desktop.js';
-import { getWidget } from '@/widgets/index.js';
+import { getWidget } from '@/core/widget-aggregator';
 
 var WALLPAPER_MAP = {
   'default': 'linear-gradient(135deg, #007AFF 0%, #5AC8FA 50%, #BFEEFF 100%)',
