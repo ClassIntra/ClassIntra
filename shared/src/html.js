@@ -10,6 +10,6 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-module.exports = {
-  escapeHtml: escapeHtml
+export {
+  escapeHtml
 };

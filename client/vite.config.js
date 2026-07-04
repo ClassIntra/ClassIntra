@@ -140,7 +140,18 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, 'src'),
       '@apps': path.resolve(__dirname, '../apps'),
-      '@shared': path.resolve(__dirname, '../shared/src')
+      '@shared': path.resolve(__dirname, '../shared/src'),
+      // apps/ 目录在 Vite root 之外，显式映射前端 bare imports 到 client/node_modules
+      // 后端 bare imports（express 等）由 apps/node_modules junction 指向 server/node_modules 解析
+      'marked': path.resolve(__dirname, 'node_modules/marked'),
+      'dompurify': path.resolve(__dirname, 'node_modules/dompurify'),
+      'highlight.js': path.resolve(__dirname, 'node_modules/highlight.js'),
+      'katex': path.resolve(__dirname, 'node_modules/katex'),
+      'mermaid': path.resolve(__dirname, 'node_modules/mermaid'),
+      'video.js': path.resolve(__dirname, 'node_modules/video.js'),
+      'videojs-mobile-ui': path.resolve(__dirname, 'node_modules/videojs-mobile-ui'),
+      '@videojs/http-streaming': path.resolve(__dirname, 'node_modules/@videojs/http-streaming'),
+      'axios': path.resolve(__dirname, 'node_modules/axios')
     }
   },
   server: {
