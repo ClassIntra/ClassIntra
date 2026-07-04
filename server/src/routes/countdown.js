@@ -66,6 +66,44 @@ router.get('/events', auth.requireAuth, function(req, res) {
   }
 });
 
+// GET /api/countdown/events/for-calendar?month=YYYY-MM — 返回本月可显示到日历的倒数日（虚拟事件）
+// 用于日历应用消费倒数日数据，id 加 cd_ 前缀避免与日历事件 id 冲突
+router.get('/events/for-calendar', auth.requireAuth, function(req, res) {
+  var userId = req.user.user_id;
+  var month = req.query.month;
+  if (!month || !/^\d{4}-\d{2}$/.test(month)) {
+    return res.status(400).json({ code: 400, message: '月份参数格式应为 YYYY-MM' });
+  }
+  try {
+    // 查询所有 show_in_calendar=1 的事件，前端再按月筛选（重复事件 next_date 可能跨月）
+    var rows = db.prepare('SELECT id, title, target_date, category, color, icon, repeat_type, note FROM countdown_events WHERE user_id = ? AND show_in_calendar = 1 ORDER BY target_date ASC').all(userId);
+    var result = [];
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      // 计算重复事件的下次发生日期
+      var effDate = (r.repeat_type && r.repeat_type !== 'none') ? getNextOccurrence(r.target_date, r.repeat_type) : r.target_date;
+      if (effDate && effDate.substring(0, 7) === month) {
+        result.push({
+          id: 'cd_' + r.id,           // 加 cd_ 前缀避免与日历事件 id 冲突
+          source: 'countdown',
+          source_id: r.id,
+          title: r.title,
+          event_date: effDate,
+          start_time: '',
+          end_time: '',
+          category: r.category,
+          color: r.color,
+          note: r.note,
+          icon: r.icon
+        });
+      }
+    }
+    res.json({ code: 200, message: 'ok', data: result });
+  } catch (e) {
+    res.status(500).json({ code: 500, message: '查询联动倒数日失败' });
+  }
+});
+
 // POST /api/countdown/events — 创建
 router.post('/events', auth.requireAuth, function(req, res) {
   var userId = req.user.user_id;
@@ -113,9 +151,11 @@ router.put('/events/:id', auth.requireAuth, function(req, res) {
     var note = (req.body.note !== undefined) ? req.body.note : existing.note;
     // 置顶字段：编辑器保存时可修改（取消勾选即取消置顶）；编辑场景不走上限校验
     var pinned = (req.body.pinned !== undefined) ? (req.body.pinned ? 1 : 0) : existing.pinned;
+    // 联动字段：是否同步显示到日历
+    var showInCalendar = (req.body.show_in_calendar !== undefined) ? (req.body.show_in_calendar ? 1 : 0) : existing.show_in_calendar;
     // 修改提醒设置时重置提醒标记
     var reminded = (req.body.reminder_minutes !== undefined && req.body.reminder_minutes != existing.reminder_minutes) ? 0 : existing.reminded;
-    db.prepare('UPDATE countdown_events SET title = ?, target_date = ?, category = ?, color = ?, icon = ?, pinned = ?, repeat_type = ?, reminder_minutes = ?, reminded = ?, note = ?, updated_at = datetime(\'now\') WHERE id = ?').run(title, targetDate, category, color, icon, pinned, repeatType, reminderMinutes, reminded, note, eventId);
+    db.prepare('UPDATE countdown_events SET title = ?, target_date = ?, category = ?, color = ?, icon = ?, pinned = ?, repeat_type = ?, reminder_minutes = ?, reminded = ?, note = ?, show_in_calendar = ?, updated_at = datetime(\'now\') WHERE id = ?').run(title, targetDate, category, color, icon, pinned, repeatType, reminderMinutes, reminded, note, showInCalendar, eventId);
     res.json({ code: 200, message: '更新成功' });
   } catch (e) {
     res.status(500).json({ code: 500, message: '更新失败' });
