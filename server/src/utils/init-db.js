@@ -791,6 +791,22 @@ function initDatabase() {
   db.exec('CREATE INDEX IF NOT EXISTS idx_cd_events_user ON countdown_events(user_id)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_cd_events_date ON countdown_events(target_date)');
 
+  // ===== P3: 倒数日 ↔ 日历双向联动字段 =====
+  // countdown_events.show_in_calendar: 倒数日事件可同步显示到日历
+  try {
+    var cdCols = db.prepare("PRAGMA table_info(countdown_events)").all().map(function(c) { return c.name; });
+    if (cdCols.indexOf('show_in_calendar') === -1) {
+      db.exec("ALTER TABLE countdown_events ADD COLUMN show_in_calendar INTEGER DEFAULT 0");
+    }
+  } catch (e) { console.error('[init-db] countdown_events.show_in_calendar 迁移失败:', e.message); }
+  // calendar_events.show_in_countdown: 日历事件可同步显示到倒数日
+  try {
+    var calCols = db.prepare("PRAGMA table_info(calendar_events)").all().map(function(c) { return c.name; });
+    if (calCols.indexOf('show_in_countdown') === -1) {
+      db.exec("ALTER TABLE calendar_events ADD COLUMN show_in_countdown INTEGER DEFAULT 0");
+    }
+  } catch (e) { console.error('[init-db] calendar_events.show_in_countdown 迁移失败:', e.message); }
+
   var defaultApps = ['chat', 'community', 'ai-chat', 'notes', 'resource', 'weather', 'music', 'settings', 'timetable', 'calendar', 'countdown'];
   var initAppStmt = db.prepare("INSERT OR IGNORE INTO app_control (app_name, enabled) VALUES (?, 1)");
   for (var di = 0; di < defaultApps.length; di++) {

@@ -107,6 +107,34 @@ router.delete('/events/:id', auth.requireAuth, function(req, res) {
   }
 });
 
+// GET /api/calendar/events/for-countdown — 返回可显示到倒数日的日历事件（虚拟倒数日）
+// 用于倒数日应用消费日历数据，id 加 cal_ 前缀避免与倒数日事件 id 冲突
+router.get('/events/for-countdown', auth.requireAuth, function(req, res) {
+  var userId = req.user.user_id;
+  try {
+    var rows = db.prepare('SELECT id, title, description, event_date, start_time, end_time, category, color FROM calendar_events WHERE user_id = ? AND show_in_countdown = 1 ORDER BY event_date ASC').all(userId);
+    var result = [];
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      result.push({
+        id: 'cal_' + r.id,
+        source: 'calendar',
+        source_id: r.id,
+        title: r.title,
+        target_date: r.event_date,
+        category: r.category || 'other',
+        color: r.color,
+        icon: '',
+        note: r.description || '',
+        repeat_type: 'none'
+      });
+    }
+    res.json({ code: 200, message: 'ok', data: result });
+  } catch (e) {
+    res.status(500).json({ code: 500, message: '查询联动日历事件失败' });
+  }
+});
+
 // GET /api/calendar/reminders/due — 查询已到期待提醒事件（reminder-checker 调用）
 router.get('/reminders/due', auth.requireAuth, function(req, res) {
   var userId = req.user.user_id;

@@ -296,6 +296,12 @@
             <label>备注</label>
             <textarea v-model="editor.form.note" class="form-input" placeholder="备注（可选）" rows="2" maxlength="100"></textarea>
           </div>
+          <div class="form-row">
+            <label class="checkbox-label">
+              <input type="checkbox" v-model="editor.form.show_in_calendar" />
+              <span>同步显示到日历</span>
+            </label>
+          </div>
         </div>
         <div class="editor-actions">
           <button class="ea-save" @click="saveEvent">保存</button>
@@ -356,6 +362,7 @@ export default {
   data: function() {
     return {
       events: [],
+      linkedCalendarEvents: [],  // 来自日历的虚拟倒数日（show_in_countdown=1）
       loading: true,
       error: '',
       activeCategory: 'all',
@@ -374,23 +381,38 @@ export default {
           pinned: false,
           repeat_type: 'none',
           reminder_minutes: 0,
-          note: ''
+          note: '',
+          show_in_calendar: false
         }
       }
     };
   },
   computed: {
-    // 置顶事件（跟随分类筛选）
+    // 合并原生倒数日 + 来自日历的虚拟倒数日
+    // 虚拟事件标记 _source: 'linked'，原生事件标记 _source: 'native'
+    allEventsWithLinked: function() {
+      var native = this.events.map(function(e) {
+        return Object.assign({}, e, { _source: 'native' });
+      });
+      var linked = this.linkedCalendarEvents.map(function(e) {
+        // 为虚拟事件预计算 _countdown
+        var copy = Object.assign({}, e, { _source: 'linked' });
+        copy._countdown = this.calcDays(this.getEffectiveDate(copy));
+        return copy;
+      }.bind(this));
+      return native.concat(linked);
+    },
+    // 置顶事件（仅原生倒数日可置顶；跟随分类筛选）
     pinnedEvents: function() {
       var self = this;
-      return self.events.filter(function(ev) {
-        return ev.pinned && (self.activeCategory === 'all' || ev.category === self.activeCategory);
+      return self.allEventsWithLinked.filter(function(ev) {
+        return ev.pinned && ev._source === 'native' && (self.activeCategory === 'all' || ev.category === self.activeCategory);
       });
     },
-    // 非置顶事件（跟随分类筛选）
+    // 非置顶事件（含来自日历的虚拟事件；跟随分类筛选）
     nonPinnedEvents: function() {
       var self = this;
-      return self.events.filter(function(ev) {
+      return self.allEventsWithLinked.filter(function(ev) {
         return !ev.pinned && (self.activeCategory === 'all' || ev.category === self.activeCategory);
       });
     },
@@ -550,7 +572,8 @@ export default {
         pinned: form.pinned ? 1 : 0,
         repeat_type: form.repeat_type,
         reminder_minutes: parseInt(form.reminder_minutes, 10) || 0,
-        note: form.note
+        note: form.note,
+        show_in_calendar: form.show_in_calendar ? 1 : 0
       };
       if (self.editor.id) {
         api.put('/countdown/events/' + self.editor.id, payload).then(function(res) {
