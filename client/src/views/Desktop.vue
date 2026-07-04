@@ -80,14 +80,45 @@
             :class="{ 'widget-editing': isEditMode }"
             :style="widgetStyle(w)"
           >
-            <component :is="resolveWidget(w.type)" :config="w.config || {}" />
-            <button
-              v-if="isEditMode"
-              class="widget-remove-btn"
-              @click.stop="removeWidgetFromPage(page.id, w.id)"
-            >
-              <i class="fa-solid fa-xmark"></i>
-            </button>
+            <component :is="resolveWidget(w.type)" :config="w.config || {}" :refresh-key="widgetRefreshKey" />
+            <template v-if="isEditMode">
+              <button
+                class="widget-remove-btn"
+                @click.stop="removeWidgetFromPage(page.id, w.id)"
+                title="移除"
+              >
+                <i class="fa-solid fa-xmark"></i>
+              </button>
+              <button
+                class="widget-ctrl-btn widget-resize-minus"
+                @click.stop="resizeWidget(page.id, w, -1, 0)"
+                title="缩小宽度"
+              >
+                <i class="fa-solid fa-minus"></i>
+              </button>
+              <button
+                class="widget-ctrl-btn widget-resize-plus"
+                @click.stop="resizeWidget(page.id, w, 1, 0)"
+                title="加宽"
+              >
+                <i class="fa-solid fa-plus"></i>
+              </button>
+              <button
+                v-if="hasWidgetConfig(w.type)"
+                class="widget-ctrl-btn widget-config-btn"
+                @click.stop="openWidgetConfig(page.id, w)"
+                title="配置"
+              >
+                <i class="fa-solid fa-gear"></i>
+              </button>
+              <button
+                class="widget-ctrl-btn widget-refresh-btn"
+                @click.stop="refreshAllWidgets"
+                title="刷新"
+              >
+                <i class="fa-solid fa-rotate"></i>
+              </button>
+            </template>
           </div>
         </div>
         <div class="desktop-grid">
@@ -452,6 +483,10 @@ export default {
     // 小组件列表 getter（预留小组件系统）
     widgetsByPage: function() {
       return this.$store.getters['desktop/widgetsByPage'];
+    },
+    // widget 刷新 key（watch 此值触发 widget 重新加载数据）
+    widgetRefreshKey: function() {
+      return this.$store.state.desktop.widgetRefreshKey;
     }
   },
   mounted: function() {
@@ -546,6 +581,53 @@ export default {
     // 从指定页移除 widget
     removeWidgetFromPage: function(pageId, widgetId) {
       this.$store.dispatch('desktop/removeWidget', { pageId: pageId, widgetId: widgetId });
+    },
+    // 调整 widget 大小（dw/dh 为增量）
+    resizeWidget: function(pageId, widget, dw, dh) {
+      this.$store.dispatch('desktop/resizeWidget', {
+        pageId: pageId, widgetId: widget.id, dw: dw, dh: dh
+      });
+    },
+    // 判断 widget 是否有配置项
+    hasWidgetConfig: function(type) {
+      var def = getWidget(type);
+      return !!(def && def.configSchema && def.configSchema.fields && def.configSchema.fields.length);
+    },
+    // 打开 widget 配置弹窗（简化实现：仅支持 select 类型单字段）
+    openWidgetConfig: function(pageId, widget) {
+      var def = getWidget(widget.type);
+      if (!def || !def.configSchema || !def.configSchema.fields || !def.configSchema.fields.length) return;
+      var self = this;
+      var field = def.configSchema.fields[0];
+      // 仅处理 select 类型
+      if (field.type !== 'select') return;
+      var currentVal = (widget.config && widget.config[field.key]) || field.default;
+      var optionsText = field.options.map(function(o, i) {
+        return (i + 1) + '. ' + o.label + (o.value === currentVal ? '（当前）' : '');
+      }).join('\n');
+      this.$modal.prompt({
+        title: '配置 ' + def.name,
+        message: field.label + '（输入序号 1-' + field.options.length + '）：\n' + optionsText,
+        defaultValue: '',
+        placeholder: '1-' + field.options.length
+      }).then(function(input) {
+        if (input === null || input === false) return;
+        var idx = parseInt(input, 10) - 1;
+        if (isNaN(idx) || idx < 0 || idx >= field.options.length) {
+          self.$store.commit('toast/SHOW_TOAST', { message: '无效的选项序号', type: 'error' });
+          return;
+        }
+        var newConfig = {};
+        newConfig[field.key] = field.options[idx].value;
+        self.$store.dispatch('desktop/updateWidgetConfig', {
+          pageId: pageId, widgetId: widget.id, config: newConfig
+        });
+        self.$store.commit('toast/SHOW_TOAST', { message: '配置已更新', type: 'success' });
+      }).catch(function() {});
+    },
+    // 刷新所有 widget
+    refreshAllWidgets: function() {
+      this.$store.dispatch('desktop/refreshAllWidgets');
     },
     detectPerformanceLevel: function() {
       var self = this;
@@ -1185,6 +1267,38 @@ export default {
 }
 .widget-remove-btn:hover { transform: scale(1.15); background: #FF453A; }
 .widget-remove-btn:active { transform: scale(0.9); }
+
+/* widget 编辑态控制按钮（resize/config/refresh） */
+.widget-ctrl-btn {
+  position: absolute;
+  bottom: 6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  border: none;
+  font-size: 11px;
+  cursor: pointer;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: center;
+  align-items: center;
+  -webkit-justify-content: center;
+  justify-content: center;
+  z-index: 10;
+  transition: transform 0.15s, background 0.15s;
+}
+.widget-ctrl-btn:hover { transform: scale(1.15); }
+.widget-ctrl-btn:active { transform: scale(0.9); }
+.widget-resize-minus { right: 6px; }
+.widget-resize-minus:hover { background: rgba(0, 0, 0, 0.8); }
+.widget-resize-plus { right: 32px; }
+.widget-resize-plus:hover { background: rgba(0, 0, 0, 0.8); }
+.widget-config-btn { right: 58px; }
+.widget-config-btn:hover { background: var(--primary-color, #007AFF); }
+.widget-refresh-btn { right: 84px; }
+.widget-refresh-btn:hover { background: var(--success-color, #34C759); }
 
 /* ===== 4×6 网格 ===== */
 .desktop-grid {

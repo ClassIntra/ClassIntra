@@ -156,7 +156,8 @@ var state = {
   draggingApp: null,        // 拖拽源信息 { type, pageIndex, index, folderId, appName }
   openFolderId: null,       // 当前打开的文件夹 id
   settingsPanelOpen: false,  // 捏合调出的桌面设置面板
-  enabledApps: null          // 应用管控：null=未加载（全部启用），数组=已启用的应用名列表
+  enabledApps: null,         // 应用管控：null=未加载（全部启用），数组=已启用的应用名列表
+  widgetRefreshKey: 0        // 自增 key，watch 此值的 widget 重新加载数据
 };
 
 var getters = {
@@ -590,6 +591,27 @@ var mutations = {
     }
     state.layout = layout;
   },
+  // 调整小组件大小
+  // payload: { pageId, widgetId, w, h }
+  RESIZE_WIDGET: function(state, payload) {
+    if (!state.layout || !state.layout.widgets) return;
+    var layout = cloneLayout(state.layout);
+    var list = layout.widgets[payload.pageId];
+    if (list) {
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].id === payload.widgetId) {
+          list[i].w = payload.w;
+          list[i].h = payload.h;
+          break;
+        }
+      }
+    }
+    state.layout = layout;
+  },
+  // 触发所有 widget 刷新（自增 key，widget 组件 watch 此值重新加载数据）
+  BUMP_WIDGET_REFRESH: function(state) {
+    state.widgetRefreshKey++;
+  },
 
   // 添加新页面
   ADD_PAGE: function(state) {
@@ -805,6 +827,32 @@ var actions = {
   updateWidgetConfig: function(context, payload) {
     context.commit('UPDATE_WIDGET', { pageId: payload.pageId, widgetId: payload.widgetId, config: payload.config });
     context.dispatch('saveDesktopLayout');
+  },
+  // 调整小组件大小（带边界校验）
+  // payload: { pageId, widgetId, dw, dh } —— dw/dh 为增量（+1/-1）
+  resizeWidget: function(context, payload) {
+    var layout = context.state.layout;
+    if (!layout || !layout.widgets) return;
+    var list = layout.widgets[payload.pageId];
+    if (!list) return;
+    var widget = null;
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].id === payload.widgetId) { widget = list[i]; break; }
+    }
+    if (!widget) return;
+    // 从 WIDGET_REGISTRY 取 minSize/maxSize
+    var def = getWidgetDef(widget.type);
+    var minSize = (def && def.minSize) || { w: 1, h: 1 };
+    var maxSize = (def && def.maxSize) || { w: 4, h: 4 };
+    var newW = Math.max(minSize.w, Math.min(maxSize.w, widget.w + payload.dw));
+    var newH = Math.max(minSize.h, Math.min(maxSize.h, widget.h + payload.dh));
+    if (newW === widget.w && newH === widget.h) return;
+    context.commit('RESIZE_WIDGET', { pageId: payload.pageId, widgetId: payload.widgetId, w: newW, h: newH });
+    context.dispatch('saveDesktopLayout');
+  },
+  // 刷新所有 widget（触发 widget 组件重新加载数据）
+  refreshAllWidgets: function(context) {
+    context.commit('BUMP_WIDGET_REFRESH');
   }
 };
 
