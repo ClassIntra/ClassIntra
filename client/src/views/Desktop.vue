@@ -246,6 +246,56 @@
       :userName="birthdayUserName"
       @dismiss="dismissBirthdayCelebration"
     />
+
+    <!-- Widget 配置弹窗（支持多字段、select/text/bool/number 类型） -->
+    <div v-if="widgetConfigEditor.open" class="widget-config-mask" @click.self="closeWidgetConfig">
+      <div class="widget-config-dialog">
+        <div class="wc-header">
+          <span class="wc-title">配置 · {{ widgetConfigEditor.widgetName }}</span>
+          <button class="wc-close" @click="closeWidgetConfig"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="wc-body">
+          <div v-for="f in widgetConfigEditor.fields" :key="f.key" class="wc-field">
+            <label class="wc-label">{{ f.label }}</label>
+            <!-- select 类型 -->
+            <select v-if="f.type === 'select'" class="wc-select" v-model="widgetConfigEditor.form[f.key]">
+              <option v-for="opt in f.options" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+            </select>
+            <!-- text 类型 -->
+            <input
+              v-else-if="f.type === 'text'"
+              type="text"
+              class="wc-input"
+              v-model="widgetConfigEditor.form[f.key]"
+              :placeholder="f.placeholder || ''"
+            />
+            <!-- number 类型 -->
+            <input
+              v-else-if="f.type === 'number'"
+              type="number"
+              class="wc-input"
+              v-model.number="widgetConfigEditor.form[f.key]"
+              :placeholder="f.placeholder || ''"
+            />
+            <!-- bool 类型（开关） -->
+            <div v-else-if="f.type === 'bool'" class="wc-switch-wrap">
+              <button
+                class="wc-switch"
+                :class="{ on: !!widgetConfigEditor.form[f.key] }"
+                @click="widgetConfigEditor.form[f.key] = !widgetConfigEditor.form[f.key]"
+              >
+                <span class="wc-switch-knob"></span>
+              </button>
+            </div>
+          </div>
+          <div v-if="!widgetConfigEditor.fields.length" class="wc-empty">暂无可配置项</div>
+        </div>
+        <div class="wc-actions">
+          <button class="wc-btn wc-btn-cancel" @click="closeWidgetConfig">取消</button>
+          <button class="wc-btn wc-btn-save" @click="saveWidgetConfig">保存</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -324,7 +374,17 @@ export default {
       enabledApps: null,  // null=未加载，数组=已加载的启用应用名列表
       // 生日庆祝
       showBirthdayCelebration: false,
-      birthdayUserName: ''
+      birthdayUserName: '',
+      // widget 配置弹窗（支持多字段、select/text/bool/number 类型）
+      widgetConfigEditor: {
+        open: false,
+        pageId: null,
+        widgetId: null,
+        widgetType: '',
+        widgetName: '',
+        fields: [],
+        form: {}
+      }
     };
   },
   computed: {
@@ -593,37 +653,56 @@ export default {
       var def = getWidget(type);
       return !!(def && def.configSchema && def.configSchema.fields && def.configSchema.fields.length);
     },
-    // 打开 widget 配置弹窗（简化实现：仅支持 select 类型单字段）
+    // 打开 widget 配置弹窗（支持多字段、select/text/bool/number 类型）
     openWidgetConfig: function(pageId, widget) {
       var def = getWidget(widget.type);
       if (!def || !def.configSchema || !def.configSchema.fields || !def.configSchema.fields.length) return;
+      var form = {};
+      def.configSchema.fields.forEach(function(f) {
+        // 优先用 widget 已有配置，其次用字段默认值
+        var currentVal = (widget.config && widget.config[f.key] !== undefined)
+          ? widget.config[f.key]
+          : f.default;
+        form[f.key] = currentVal;
+      });
+      this.widgetConfigEditor.pageId = pageId;
+      this.widgetConfigEditor.widgetId = widget.id;
+      this.widgetConfigEditor.widgetType = widget.type;
+      this.widgetConfigEditor.widgetName = def.name || widget.type;
+      this.widgetConfigEditor.fields = def.configSchema.fields;
+      this.widgetConfigEditor.form = form;
+      this.widgetConfigEditor.open = true;
+    },
+    // 关闭 widget 配置弹窗
+    closeWidgetConfig: function() {
+      this.widgetConfigEditor.open = false;
+      this.widgetConfigEditor.pageId = null;
+      this.widgetConfigEditor.widgetId = null;
+      this.widgetConfigEditor.widgetType = '';
+      this.widgetConfigEditor.widgetName = '';
+      this.widgetConfigEditor.fields = [];
+      this.widgetConfigEditor.form = {};
+    },
+    // 保存 widget 配置
+    saveWidgetConfig: function() {
       var self = this;
-      var field = def.configSchema.fields[0];
-      // 仅处理 select 类型
-      if (field.type !== 'select') return;
-      var currentVal = (widget.config && widget.config[field.key]) || field.default;
-      var optionsText = field.options.map(function(o, i) {
-        return (i + 1) + '. ' + o.label + (o.value === currentVal ? '（当前）' : '');
-      }).join('\n');
-      this.$modal.prompt({
-        title: '配置 ' + def.name,
-        message: field.label + '（输入序号 1-' + field.options.length + '）：\n' + optionsText,
-        defaultValue: '',
-        placeholder: '1-' + field.options.length
-      }).then(function(input) {
-        if (input === null || input === false) return;
-        var idx = parseInt(input, 10) - 1;
-        if (isNaN(idx) || idx < 0 || idx >= field.options.length) {
-          self.$store.commit('toast/SHOW_TOAST', { message: '无效的选项序号', type: 'error' });
-          return;
+      var newConfig = {};
+      this.widgetConfigEditor.fields.forEach(function(f) {
+        var val = self.widgetConfigEditor.form[f.key];
+        // 数字类型转换
+        if (f.type === 'number') {
+          val = parseFloat(val);
+          if (isNaN(val)) val = f.default;
         }
-        var newConfig = {};
-        newConfig[field.key] = field.options[idx].value;
-        self.$store.dispatch('desktop/updateWidgetConfig', {
-          pageId: pageId, widgetId: widget.id, config: newConfig
-        });
-        self.$store.commit('toast/SHOW_TOAST', { message: '配置已更新', type: 'success' });
-      }).catch(function() {});
+        newConfig[f.key] = val;
+      });
+      this.$store.dispatch('desktop/updateWidgetConfig', {
+        pageId: this.widgetConfigEditor.pageId,
+        widgetId: this.widgetConfigEditor.widgetId,
+        config: newConfig
+      });
+      this.$store.commit('toast/SHOW_TOAST', { message: '配置已更新', type: 'success' });
+      this.closeWidgetConfig();
     },
     // 刷新所有 widget
     refreshAllWidgets: function() {
@@ -1792,5 +1871,163 @@ export default {
 .folder-expand-leave-to {
   -webkit-transform: scale(0.92);
   transform: scale(0.92);
+}
+
+/* ========== Widget 配置弹窗（支持多字段、select/text/bool/number） ========== */
+.widget-config-mask {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.widget-config-dialog {
+  width: 360px;
+  max-width: 92vw;
+  max-height: 80vh;
+  background: var(--card-bg, #fff);
+  border-radius: 18px;
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: wcDialogIn 0.2s var(--ease-standard, ease);
+}
+@keyframes wcDialogIn {
+  from { opacity: 0; transform: scale(0.92); }
+  to { opacity: 1; transform: scale(1); }
+}
+.wc-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--separator-color, rgba(0,0,0,0.06));
+}
+.wc-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.wc-close {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 8px;
+  transition: background 0.15s;
+}
+.wc-close:hover {
+  background: var(--separator-color, rgba(0,0,0,0.06));
+}
+.wc-body {
+  padding: 16px 20px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.wc-field {
+  margin-bottom: 16px;
+}
+.wc-field:last-child {
+  margin-bottom: 0;
+}
+.wc-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+.wc-select, .wc-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color, rgba(0,0,0,0.1));
+  border-radius: 10px;
+  background: var(--bg-color, #f2f2f7);
+  color: var(--text-primary);
+  font-size: 14px;
+  box-sizing: border-box;
+  transition: border-color 0.15s;
+}
+.wc-select:focus, .wc-input:focus {
+  outline: none;
+  border-color: var(--primary-color);
+}
+/* iOS 风格开关 */
+.wc-switch-wrap {
+  display: flex;
+  align-items: center;
+}
+.wc-switch {
+  width: 44px;
+  height: 26px;
+  border-radius: 13px;
+  border: none;
+  background: var(--separator-color, #e9e9ea);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s;
+  padding: 0;
+  flex-shrink: 0;
+}
+.wc-switch.on {
+  background: var(--success-color, #34C759);
+}
+.wc-switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+  transition: transform 0.2s var(--ease-standard, ease);
+}
+.wc-switch.on .wc-switch-knob {
+  transform: translateX(18px);
+}
+.wc-empty {
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 14px;
+  padding: 20px 0;
+}
+.wc-actions {
+  display: flex;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--separator-color, rgba(0,0,0,0.06));
+  justify-content: flex-end;
+}
+.wc-btn {
+  padding: 8px 20px;
+  border-radius: 12px;
+  border: none;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  min-height: 38px;
+}
+.wc-btn:active {
+  transform: scale(0.96);
+}
+.wc-btn-cancel {
+  background: var(--separator-color, rgba(0,0,0,0.06));
+  color: var(--text-primary);
+}
+.wc-btn-save {
+  background: var(--primary-color);
+  color: #fff;
+}
+.wc-btn-save:hover {
+  opacity: 0.9;
 }
 </style>
