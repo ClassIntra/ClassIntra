@@ -152,6 +152,12 @@
             <label>描述</label>
             <textarea v-model="editor.form.description" class="form-input" placeholder="事件描述（可选）" rows="3"></textarea>
           </div>
+          <div class="form-row">
+            <label class="checkbox-label">
+              <input type="checkbox" v-model="editor.form.show_in_countdown" />
+              <span>同步显示到倒数日</span>
+            </label>
+          </div>
         </div>
         <div class="editor-actions">
           <button class="ea-save" @click="saveEvent">保存</button>
@@ -204,6 +210,7 @@ export default {
       weekdays: WEEKDAYS,
       events: [],
       birthdays: [],
+      linkedCountdowns: [],  // 来自倒数日的虚拟事件（show_in_calendar=1）
       selectedDate: formatDate(now),
       lunarCache: {},
       editor: {
@@ -216,7 +223,8 @@ export default {
           end_time: '',
           category: 'general',
           reminder_minutes: 0,
-          description: ''
+          description: '',
+          show_in_countdown: false
         }
       }
     };
@@ -252,9 +260,13 @@ export default {
     },
     selectedDateEvents: function() {
       var self = this;
-      return self.events.filter(function(ev) {
+      var native = self.events.filter(function(ev) {
         return ev.event_date === self.selectedDate;
-      }).sort(function(a, b) {
+      });
+      var linked = self.linkedCountdowns.filter(function(ev) {
+        return ev.event_date === self.selectedDate;
+      });
+      return native.concat(linked).sort(function(a, b) {
         return (a.start_time || '').localeCompare(b.start_time || '');
       });
     },
@@ -289,6 +301,7 @@ export default {
     var self = this;
     self.loadData();
     self.loadBirthdays();
+    self.loadLinkedCountdowns();
   },
   methods: {
     // 轻量提示 toast
@@ -321,6 +334,9 @@ export default {
       var solarTerm = info ? info.solarTerm : '';
       // 当日事件
       var dayEvents = self.events.filter(function(ev) { return ev.event_date === dateStr; });
+      // 合并联动倒数日（show_in_calendar=1 的倒数日虚拟事件）
+      var linkedEvents = self.linkedCountdowns.filter(function(ev) { return ev.event_date === dateStr; });
+      var mergedEvents = dayEvents.concat(linkedEvents);
       // 当日生日（按月-日匹配）
       var dayBirthdays = self.birthdays.filter(function(bd) {
         if (!bd.birthday) return false;
@@ -336,7 +352,7 @@ export default {
         lunarLabel: lunarLabel,
         festival: festival,
         solarTerm: solarTerm,
-        events: dayEvents,
+        events: mergedEvents,
         birthdays: dayBirthdays
       };
     },
@@ -357,6 +373,7 @@ export default {
           self.events = res.data.data || [];
         }
       }).catch(function() {});
+      self.loadLinkedCountdowns();
     },
     loadBirthdays: function() {
       var self = this;
@@ -364,6 +381,16 @@ export default {
       api.get('/calendar/birthdays', { params: { month: monthStr } }).then(function(res) {
         if (res.data && res.data.code === 200) {
           self.birthdays = res.data.data || [];
+        }
+      }).catch(function() {});
+    },
+    // 加载联动倒数日（show_in_calendar=1 的倒数日虚拟事件，按月过滤）
+    loadLinkedCountdowns: function() {
+      var self = this;
+      var monthStr = self.year + '-' + (self.month < 10 ? '0' + self.month : self.month);
+      api.get('/countdown/events/for-calendar', { params: { month: monthStr } }).then(function(res) {
+        if (res.data && res.data.code === 200) {
+          self.linkedCountdowns = res.data.data || [];
         }
       }).catch(function() {});
     },
@@ -377,6 +404,7 @@ export default {
       }
       self.loadData();
       self.loadBirthdays();
+      self.loadLinkedCountdowns();
     },
     nextMonth: function() {
       var self = this;
@@ -388,6 +416,7 @@ export default {
       }
       self.loadData();
       self.loadBirthdays();
+      self.loadLinkedCountdowns();
     },
     goToday: function() {
       var self = this;
@@ -397,6 +426,7 @@ export default {
       self.selectedDate = formatDate(now);
       self.loadData();
       self.loadBirthdays();
+      self.loadLinkedCountdowns();
     },
     selectDate: function(cell) {
       this.selectedDate = cell.dateStr;
@@ -413,7 +443,8 @@ export default {
           end_time: event.end_time || '',
           category: event.category || 'general',
           reminder_minutes: event.reminder_minutes || 0,
-          description: event.description || ''
+          description: event.description || '',
+          show_in_countdown: !!event.show_in_countdown
         };
       } else if (event && event.event_date) {
         // 指定日期新建
@@ -425,7 +456,8 @@ export default {
           end_time: '',
           category: 'general',
           reminder_minutes: 0,
-          description: ''
+          description: '',
+          show_in_countdown: false
         };
       } else {
         // 全新新建
@@ -437,7 +469,8 @@ export default {
           end_time: '',
           category: 'general',
           reminder_minutes: 0,
-          description: ''
+          description: '',
+          show_in_countdown: false
         };
       }
       self.editor.open = true;
@@ -463,7 +496,8 @@ export default {
         end_time: form.end_time,
         category: form.category,
         reminder_minutes: parseInt(form.reminder_minutes, 10) || 0,
-        description: form.description
+        description: form.description,
+        show_in_countdown: form.show_in_countdown ? 1 : 0
       };
       if (self.editor.id) {
         api.put('/calendar/events/' + self.editor.id, payload).then(function(res) {
@@ -926,6 +960,18 @@ export default {
   font-weight: 600;
   color: var(--text-secondary);
 }
+.checkbox-label {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  margin-bottom: 0 !important;
+  color: var(--text-primary) !important;
+  font-size: 14px !important;
+  font-weight: 400 !important;
+}
+.checkbox-label input { width: 18px; height: 18px; cursor: pointer; }
 .form-row-inline {
   display: flex;
   gap: 12px;
