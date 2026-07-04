@@ -108,3 +108,6 @@ server/stream-cache/
 # 防止嵌套 git 仓库
 client/.git/
 server/.git/
+
+# 迁移前完整备份目录（不提交）
+backup/
