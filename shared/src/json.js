@@ -9,6 +9,6 @@ function safeJsonParse(str, fallback) {
   }
 }
 
-module.exports = {
-  safeJsonParse: safeJsonParse
+export {
+  safeJsonParse
 };

@@ -2,8 +2,8 @@ var express = require('express');
 var router = express.Router();
 var path = require('path');
 var fs = require('fs');
-var auth = require('../middleware/auth');
-var config = require('../config');
+var auth = require('../../../server/src/middleware/auth');
+var config = require('../../../server/src/config');
 
 var RESOURCES_DIR = config.resourcesDir;
 
@@ -131,7 +131,7 @@ router.use(auth.requireAuth);
 
 // ── 流媒体转码路由（MKV → MP4 实时转码）──
 
-var streamTranscoder = require('../services/stream-transcoder');
+var streamTranscoder = require('../../../server/src/services/stream-transcoder');
 var _ffmpegAvailable = null;
 
 function isFFmpegAvailable() {

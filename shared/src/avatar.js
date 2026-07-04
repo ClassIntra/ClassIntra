@@ -21,8 +21,8 @@ function pickAvatarColor(userId) {
   return AVATAR_COLORS[sum % AVATAR_COLORS.length];
 }
 
-module.exports = {
-  AVATAR_COLORS: AVATAR_COLORS,
-  AVATAR_PRESETS: AVATAR_PRESETS,
-  pickAvatarColor: pickAvatarColor
+export {
+  AVATAR_COLORS,
+  AVATAR_PRESETS,
+  pickAvatarColor
 };

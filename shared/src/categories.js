@@ -37,9 +37,9 @@ function findCategory(value) {
   return CATEGORIES[CATEGORIES.length - 1];
 }
 
-module.exports = {
-  CATEGORIES: CATEGORIES,
-  CATEGORIES_PURE: CATEGORIES_PURE,
-  REMINDER_OPTIONS: REMINDER_OPTIONS,
-  findCategory: findCategory
+export {
+  CATEGORIES,
+  CATEGORIES_PURE,
+  REMINDER_OPTIONS,
+  findCategory
 };

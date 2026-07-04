@@ -712,7 +712,7 @@ router.get('/files/:param', auth.requireAuth, function(req, res) {
 
 // 供 peer 服务器拉取文件（relay secret 认证）
 router.get('/peer-fetch/:hash', function(req, res) {
-  var relaySecret = (require('../config').relay || {}).secret || '';
+  var relaySecret = (require('../../../server/src/config').relay || {}).secret || '';
   var authHeader = req.get('X-Relay-Secret') || '';
 
   if (!relaySecret || authHeader !== relaySecret) {
