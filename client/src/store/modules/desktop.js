@@ -1,22 +1,9 @@
 import api from '@/utils/api';
-import { getWidget as getWidgetDef } from '@/widgets/index.js';
+import { getWidget as getWidgetDef } from '@/core/widget-aggregator';
+import { APP_REGISTRY } from '@/core/app-registry';
 
-// 应用元数据注册表：单一数据源，store 和组件均引用
-// 字段：name（唯一标识）、label、icon、color、route
-var APP_REGISTRY = [
-  { name: 'chat', label: '聊天', icon: '/resources/public/icons/Chat.png', color: '#007AFF', route: '/chat' },
-  { name: 'community', label: '社区', icon: '/resources/public/icons/Community.png', color: '#FF9500', route: '/community' },
-  { name: 'ai-chat', label: 'AI', icon: '/resources/public/icons/AI-Chat.png', color: '#AF52DE', route: '/ai-chat' },
-  { name: 'notes', label: '笔记', icon: '/resources/public/icons/Note.png', color: '#FFCC00', route: '/notes' },
-  { name: 'resource', label: '资源', icon: '/resources/public/icons/Files.png', color: '#5856D6', route: '/resource' },
-  { name: 'weather', label: '天气', icon: '/resources/public/icons/Weather.png', color: '#5AC8FA', route: '/weather' },
-  { name: 'music', label: '音乐', icon: '/resources/public/icons/Music.png', color: '#FF2D55', route: '/music' },
-  { name: 'settings', label: '设置', icon: '/resources/public/icons/Settings.png', color: '#8E8E93', route: '/settings' },
-  { name: 'timetable', label: '课程表', icon: '/resources/public/icons/Timetable.png', color: '#FF3B30', route: '/timetable' },
-  { name: 'calendar', label: '日历', icon: '/resources/public/icons/Calendar.png', color: '#FF3B30', route: '/calendar' },
-  { name: 'countdown', label: '倒数日', icon: '/resources/public/icons/Countdown.png', color: '#FF9500', route: '/countdown' }
-];
-
+// APP_REGISTRY 现由 @/core/app-registry 从 apps/*/manifest.json 聚合产生
+// 保留 export 供其他模块引用（如 Desktop.vue 中的 defaultApps）
 // 网格规格
 var MAX_PAGES = 9;
 var MAX_DOCK = 12;  // Dock 可滚动扩展，上限 12
