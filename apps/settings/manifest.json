@@ -1,0 +1,15 @@
+{
+  "name": "settings",
+  "label": "设置",
+  "icon": "/resources/public/icons/Settings.png",
+  "color": "#8E8E93",
+  "category": "desktop",
+  "order": 8,
+  "defaultEnabled": true,
+  "canDisable": false,
+  "frontend": {
+    "route": "/settings",
+    "routeName": "Settings",
+    "component": "./frontend/Settings.vue"
+  }
+}
