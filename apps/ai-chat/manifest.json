@@ -1,0 +1,20 @@
+{
+  "name": "ai-chat",
+  "label": "AI",
+  "icon": "/resources/public/icons/AI-Chat.png",
+  "color": "#AF52DE",
+  "category": "desktop",
+  "order": 3,
+  "defaultEnabled": true,
+  "canDisable": true,
+  "frontend": {
+    "route": "/ai-chat",
+    "routeName": "AIChat",
+    "component": "./frontend/AIChat.vue"
+  },
+  "backend": {
+    "mountPath": "/api/ai-chat",
+    "entry": "./backend/routes.js",
+    "rateLimit": { "max": 30, "windowMs": 60000, "message": "AI请求过于频繁，请稍后再试" }
+  }
+}
