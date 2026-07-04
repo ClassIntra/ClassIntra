@@ -518,6 +518,11 @@ export default {
     },
     openEditor: function(event) {
       var self = this;
+      // 联动事件（来自日历）不可在倒数日中编辑，提示用户去日历编辑
+      if (event && event._source === 'linked') {
+        self.$store.commit('toast/SHOW_TOAST', { message: '此事件来自日历，请在日历应用中编辑', type: 'info' });
+        return;
+      }
       if (event && event.id) {
         // 编辑
         self.editor.id = event.id;

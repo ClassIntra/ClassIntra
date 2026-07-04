@@ -372,17 +372,24 @@ export default {
     renameFolder: function(folder) {
       var self = this;
       self.closeFolderMenu();
-      var newName = prompt('重命名分组「' + folder.name + '」', folder.name);
-      if (!newName || newName.trim() === '' || newName.trim() === folder.name) return;
-      api.put('/cloud/folders/' + folder.id, { name: newName.trim() }).then(function(res) {
-        if (res.data.code === 200) {
-          self.showToast('已重命名为「' + newName.trim() + '」');
-          self.loadFolders();
-          self.loadFiles();
-        }
-      }).catch(function(err) {
-        self.showToast((err.response && err.response.data && err.response.data.message) || '重命名失败');
-      });
+      self.$modal.prompt({
+        title: '重命名分组',
+        message: '请输入新的分组名称：',
+        defaultValue: folder.name,
+        placeholder: '分组名称'
+      }).then(function(newName) {
+        if (newName === null || newName === false) return;
+        if (!newName || newName.trim() === '' || newName.trim() === folder.name) return;
+        api.put('/cloud/folders/' + folder.id, { name: newName.trim() }).then(function(res) {
+          if (res.data.code === 200) {
+            self.showToast('已重命名为「' + newName.trim() + '」');
+            self.loadFolders();
+            self.loadFiles();
+          }
+        }).catch(function(err) {
+          self.showToast((err.response && err.response.data && err.response.data.message) || '重命名失败');
+        });
+      }).catch(function() {});
     },
     deleteFolder: function(folder) {
       var self = this;
@@ -401,16 +408,23 @@ export default {
     },
     showCreateFromSelection: function() {
       var self = this;
-      var name = prompt('输入新分组名称');
-      if (!name || !name.trim()) return;
-      api.post('/cloud/folders', { name: name.trim() }).then(function(res) {
-        if (res.data.code === 200) {
-          self.batchMove(name.trim());
-          self.loadFolders();
-        }
-      }).catch(function(err) {
-        self.showToast((err.response && err.response.data && err.response.data.message) || '创建失败');
-      });
+      self.$modal.prompt({
+        title: '新建分组',
+        message: '请输入新分组名称：',
+        defaultValue: '',
+        placeholder: '分组名称'
+      }).then(function(name) {
+        if (name === null || name === false) return;
+        if (!name || !name.trim()) return;
+        api.post('/cloud/folders', { name: name.trim() }).then(function(res) {
+          if (res.data.code === 200) {
+            self.batchMove(name.trim());
+            self.loadFolders();
+          }
+        }).catch(function(err) {
+          self.showToast((err.response && err.response.data && err.response.data.message) || '创建失败');
+        });
+      }).catch(function() {});
     },
 
     // ====== 分组菜单 ======
