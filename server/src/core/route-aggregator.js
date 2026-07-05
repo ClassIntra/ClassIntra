@@ -7,33 +7,48 @@ var path = require('path');
 var manifestLoader = require('./manifest-loader');
 var rateLimitLib = require('../middleware/rate-limit').createRateLimiter;
 
+// 挂载单个 backend 声明（主 backend 或 extraBackends 中的一项）
+// backend 形如 { mountPath, entry, rateLimit? }，appName 用于日志
+function _mountOne(app, m, backend, appName) {
+  if (!backend || !backend.mountPath || !backend.entry) return false;
+  var entryPath = manifestLoader.getAppEntryPath(appName, backend.entry);
+  if (!fs.existsSync(entryPath)) {
+    console.error('[route-aggregator] 后端入口不存在:', appName, entryPath);
+    return false;
+  }
+  try {
+    // 清除 require 缓存（开发时热加载）
+    delete require.cache[require.resolve(entryPath)];
+    var router = require(entryPath);
+    // 应用 manifest 中声明的 rateLimit
+    if (backend.rateLimit) {
+      var opts = backend.rateLimit;
+      var rlOpts = { max: opts.max, windowMs: opts.windowMs };
+      if (opts.message) rlOpts.message = opts.message;
+      app.use(backend.mountPath, rateLimitLib(rlOpts));
+    }
+    app.use(backend.mountPath, router);
+    console.log('[route-aggregator] 挂载应用路由:', appName, '->', backend.mountPath);
+    return true;
+  } catch (e) {
+    console.error('[route-aggregator] 挂载应用路由失败:', appName, e.message);
+    return false;
+  }
+}
+
 // 挂载所有应用的后端路由到 express app
+// 支持 manifest.backend（主）和 manifest.extraBackends（数组，附加挂载点）
 function mountAppRoutes(app) {
   var manifests = manifestLoader.loadManifests();
   var mounted = 0;
   manifests.forEach(function(m) {
-    if (!m.backend || !m.backend.mountPath || !m.backend.entry) return;
-    var entryPath = manifestLoader.getAppEntryPath(m.name, m.backend.entry);
-    if (!fs.existsSync(entryPath)) {
-      console.error('[route-aggregator] 后端入口不存在:', m.name, entryPath);
-      return;
-    }
-    try {
-      // 清除 require 缓存（开发时热加载）
-      delete require.cache[require.resolve(entryPath)];
-      var router = require(entryPath);
-      // 应用 manifest 中声明的 rateLimit
-      if (m.backend.rateLimit) {
-        var opts = m.backend.rateLimit;
-        var rlOpts = { max: opts.max, windowMs: opts.windowMs };
-        if (opts.message) rlOpts.message = opts.message;
-        app.use(m.backend.mountPath, rateLimitLib(rlOpts));
-      }
-      app.use(m.backend.mountPath, router);
-      mounted++;
-      console.log('[route-aggregator] 挂载应用路由:', m.name, '->', m.backend.mountPath);
-    } catch (e) {
-      console.error('[route-aggregator] 挂载应用路由失败:', m.name, e.message);
+    // 主 backend
+    if (_mountOne(app, m, m.backend, m.name)) mounted++;
+    // 附加 backends（extraBackends 数组，向后兼容无该字段的老 manifest）
+    if (Array.isArray(m.extraBackends)) {
+      m.extraBackends.forEach(function(eb) {
+        if (_mountOne(app, m, eb, m.name)) mounted++;
+      });
     }
   });
   console.log('[route-aggregator] 共挂载 ' + mounted + ' 个应用路由');

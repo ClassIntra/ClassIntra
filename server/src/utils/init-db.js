@@ -815,6 +815,12 @@ function initDatabase() {
     initAppStmt.run(defaultApps[di]);
   }
 
+  // 云盘已合并到资源仓库（apps/cloud/ → apps/resource/），清理孤儿管控记录
+  // 幂等：无 cloud 行时 DELETE 不报错
+  try {
+    db.prepare("DELETE FROM app_control WHERE app_name = 'cloud'").run();
+  } catch (e) { /* app_control 表可能尚未创建，忽略 */ }
+
   // 上传码表 — 已登录用户生成码，供未登录浏览器免登录上传文件
   db.exec([
     'CREATE TABLE IF NOT EXISTS upload_codes (',
