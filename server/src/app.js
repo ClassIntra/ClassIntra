@@ -1,6 +1,9 @@
 var crashLogger = require('./utils/crash-logger');
 crashLogger.installCrashHandlers();
 
+var errorsLib = require('./core/errors');
+var globalErrorHandler = errorsLib.globalErrorHandler;
+
 require('dotenv').config();
 var express = require('express');
 var path = require('path');
@@ -206,6 +209,8 @@ app.use(function(err, req, res, next) {
     console.warn('[API] ' + req.method + ' ' + req.path + ' -> ' + status + ': ' + (err.message || message));
   } else {
     console.error('[API] ' + req.method + ' ' + req.path + ' -> ' + status + ':', err.message || 'Unknown error');
+    // 5xx 错误交给 globalErrorHandler（写入 crash.log + 通知订阅者）
+    globalErrorHandler.handle(err);
   }
   res.status(status).json({ code: status, message: message });
 });

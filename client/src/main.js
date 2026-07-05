@@ -88,20 +88,24 @@ import store from './store';
 import ModalDialog from './components/ModalDialog.vue';
 import LoadingSkeleton from './components/LoadingSkeleton.vue';
 import ErrorBoundary from './components/ErrorBoundary.vue';
+import { globalErrorHandler } from '@shared/errors';
 import '@fortawesome/fontawesome-free/css/all.min.css';
 import './styles/global.scss';
 
 Vue.config.productionTip = false;
 Vue.config.errorHandler = function(err, vm, info) {
   console.error('[Vue Error]', info, err);
+  globalErrorHandler.handle(err);
 };
 
 window.onerror = function(msg, url, line, col, error) {
   console.error('[Global Error]', msg, url, line, col, error);
+  globalErrorHandler.handle(error || msg);
 };
 
 window.addEventListener('unhandledrejection', function(event) {
   console.error('[Unhandled Rejection]', event.reason);
+  globalErrorHandler.handle(event.reason);
 });
 
 Vue.component('ModalDialog', ModalDialog);
