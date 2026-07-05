@@ -26,6 +26,7 @@ import wsManager from '@/utils/websocket';
 import audioManager from '@/utils/audio-manager';
 import islandNotify from '@/utils/island-notify';
 import reminderChecker from '@/utils/reminder-checker';
+import { getThemeEngine } from '@/core/theme-engine';
 
 export default {
   name: 'App',
@@ -167,6 +168,9 @@ export default {
     document.documentElement.setAttribute('data-perf', perfLevel);
     var savedTheme = localStorage.getItem('theme') || 'light';
     this.$store.commit('settings/SET_THEME', savedTheme);
+    // 阶段 2：初始化动画开关（localStorage > prefers-reduced-motion > 默认启用）
+    // 主题已由 SET_THEME 委托 ThemeEngine 应用，此处仅初始化动画降级
+    try { getThemeEngine().initMotion(); } catch (e) {}
     var storedUser = (function() { try { return JSON.parse(localStorage.getItem('user') || 'null'); } catch(e) { localStorage.removeItem('user'); return null; } })();
     if (storedUser && self.$store.state.auth.token) {
       api.get('/auth/check-status').then(function(response) {

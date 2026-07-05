@@ -1,0 +1,71 @@
+// 动画系统 - 单档动画 + 关闭开关
+// 配合 ThemeEngine.setMotionEnabled 使用：
+//   - 启用（默认）：使用 --ease-standard 单档曲线
+//   - 禁用：documentElement 添加 data-no-motion="true"，全局降级
+//
+// 设计要点：
+// 1. 单档策略：只保留 --ease-standard 一档曲线，不区分 fast/normal/slow 多档
+// 2. 关闭开关：[data-no-motion="true"] 时所有 transition/animation 降级为即时
+// 3. 保留 reduced-motion 媒体查询作为系统级兜底
+// 4. 通过 mixin 提供复用，避免硬编码
+
+// ========== 单档动画曲线 ==========
+// 与 global.scss :root 中的 --ease-standard 保持一致
+// 提供给 SCSS 编译期使用的静态值（运行期用 CSS 变量）
+$ease-standard: cubic-bezier(0.25, 0.1, 0.25, 1);
+$ease-decelerate: cubic-bezier(0, 0, 0.2, 1);
+$ease-accelerate: cubic-bezier(0.4, 0, 1, 1);
+$ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+$duration-fast: 0.15s;
+$duration-normal: 0.25s;
+$duration-slow: 0.35s;
+
+// ========== Mixin ==========
+
+// 标准过渡（单档）
+@mixin motion-standard($properties: all, $duration: $duration-normal) {
+  transition: $properties $duration $ease-standard;
+}
+
+// 减速进入（如弹窗出现）
+@mixin motion-decelerate($properties: all, $duration: $duration-normal) {
+  transition: $properties $duration $ease-decelerate;
+}
+
+// 加速离开（如弹窗消失）
+@mixin motion-accelerate($properties: all, $duration: $duration-fast) {
+  transition: $properties $duration $ease-accelerate;
+}
+
+// 弹性过渡（如按钮按下回弹）
+@mixin motion-spring($properties: transform, $duration: $duration-normal) {
+  transition: $properties $duration $ease-spring;
+}
+
+// ========== 关闭开关：[data-no-motion="true"] ==========
+// ThemeEngine.setMotionEnabled(false) 会在 <html> 上设置此属性
+// 全局降级所有动画为即时生效，保证低性能设备/无障碍场景
+[data-no-motion="true"] {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+// ========== 系统级兜底：prefers-reduced-motion ==========
+// 用户在操作系统层面禁用动画时也降级（即使 ThemeEngine 未初始化）
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
