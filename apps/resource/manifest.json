@@ -1,5 +1,7 @@
 {
   "name": "resource",
+  "type": "app",
+  "version": "1.0.0",
   "label": "资源",
   "icon": "/resources/public/icons/Files.png",
   "color": "#5856D6",

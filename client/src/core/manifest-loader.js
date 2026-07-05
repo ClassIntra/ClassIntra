@@ -5,6 +5,8 @@
 // 注意：import.meta.glob 路径必须以相对路径或别名开头，Vite 在构建时静态分析
 // 此文件位于 client/src/core/，到 apps/ 的相对路径为 ../../../apps/
 
+import { validateManifest } from '@shared/manifest-schema';
+
 var manifestModules = import.meta.glob('../../../apps/*/manifest.json', { eager: true, as: 'json' });
 var componentModules = import.meta.glob('../../../apps/*/frontend/**/*.{vue,js}');
 
@@ -17,7 +19,17 @@ function loadManifests() {
   Object.keys(manifestModules).forEach(function(p) {
     var mod = manifestModules[p];
     var m = mod.default || mod;
-    if (m && m.name) list.push(m);
+    if (!m || !m.name) return;
+    // 阶段 3：验证 manifest，errors 阻断，warnings 仅 warn
+    var result = validateManifest(m);
+    if (!result.valid) {
+      console.warn('[manifest-loader] manifest "' + (m.name || p) + '" 验证失败:', result.errors.join('; '));
+      return;
+    }
+    if (result.warnings.length > 0) {
+      console.warn('[manifest-loader] manifest "' + m.name + '" 警告:', result.warnings.join('; '));
+    }
+    list.push(result.manifest);
   });
   // 按 order 升序排序（越小越靠前，未配置默认 99）
   list.sort(function(a, b) { return (a.order || 99) - (b.order || 99); });

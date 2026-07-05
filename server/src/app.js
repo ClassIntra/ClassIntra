@@ -160,6 +160,12 @@ app.use('/api/system', require('./routes/system'));
 var routeAggregator = require('./core/route-aggregator');
 routeAggregator.mountAppRoutes(app);
 
+// 阶段 3：ServiceRegistry 注册后端核心服务（阶段 4 集成系统会扩展）
+var serviceRegistry = require('./core/service-registry').getServiceRegistry();
+serviceRegistry.register('db', function() { return require('./utils/db'); });
+serviceRegistry.register('errors', function() { return errorsLib; });
+// 阶段 4 将注册 'integration' 服务（webhook 接收 + token 管理）
+
 // Setup 页面路由
 app.get('/setup', function(req, res) {
   res.sendFile(path.join(__dirname, '../public/setup.html'));

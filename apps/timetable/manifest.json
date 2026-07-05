@@ -1,5 +1,7 @@
 {
   "name": "timetable",
+  "type": "app",
+  "version": "1.0.0",
   "label": "课程表",
   "icon": "/resources/public/icons/Timetable.png",
   "color": "#FF3B30",
