@@ -11,6 +11,7 @@
       </div>
     </transition>
     <ModalDialog ref="modalDialog" />
+    <GlobalSearch ref="globalSearch" />
     <transition name="lock-fade">
       <LockScreen v-if="isLocked" @unlock="unlockScreen" />
     </transition>
@@ -20,6 +21,7 @@
 <script>
 import SuperIsland from '@/components/SuperIsland.vue';
 import LockScreen from '@/components/LockScreen.vue';
+import GlobalSearch from '@/components/GlobalSearch.vue';
 import api from '@/utils/api';
 import updateChecker from '@/utils/update-checker';
 import wsManager from '@/utils/websocket';
@@ -27,12 +29,14 @@ import audioManager from '@/utils/audio-manager';
 import islandNotify from '@/utils/island-notify';
 import reminderChecker from '@/utils/reminder-checker';
 import { getThemeEngine } from '@/core/theme-engine';
+import { getHotkeyManager } from '@/core/hotkey-manager';
 
 export default {
   name: 'App',
   components: {
     SuperIsland: SuperIsland,
-    LockScreen: LockScreen
+    LockScreen: LockScreen,
+    GlobalSearch: GlobalSearch
   },
   data: function() {
     return {
@@ -390,6 +394,24 @@ export default {
     // 注入灵动岛桥接 + 启动提醒检查器
     islandNotify.setSuperIslandRef(self.$refs.superIsland);
     reminderChecker.start();
+
+    // 阶段 5：注册 Ctrl+K 全局搜索快捷键（global: true，输入框中也触发）
+    try {
+      var hotkeyManager = getHotkeyManager();
+      self._unregisterGlobalSearch = hotkeyManager.register({
+        id: 'global-search',
+        combo: 'Ctrl+K',
+        description: '打开全局搜索',
+        global: true,
+        handler: function(e) {
+          if (self.$refs.globalSearch) {
+            self.$refs.globalSearch.open();
+          }
+        }
+      });
+    } catch (e) {
+      console.warn('[App] 全局搜索快捷键注册失败:', e.message);
+    }
   },
   beforeDestroy: function() {
     reminderChecker.stop();
@@ -417,6 +439,9 @@ export default {
     }
     if (this._onBrowserOnline) {
       window.removeEventListener('online', this._onBrowserOnline);
+    }
+    if (this._unregisterGlobalSearch) {
+      this._unregisterGlobalSearch();
     }
     updateChecker.stopPeriodicCheck();
   },
