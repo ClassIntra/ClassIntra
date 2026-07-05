@@ -1,0 +1,17 @@
+{
+  "name": "integration",
+  "type": "system",
+  "version": "1.0.0",
+  "label": "集成管理",
+  "icon": "/resources/public/icons/Settings.png",
+  "color": "#8E8E93",
+  "category": "hidden",
+  "order": 99,
+  "defaultEnabled": true,
+  "canDisable": false,
+  "frontend": {
+    "route": "/integration",
+    "routeName": "Integration",
+    "component": "./frontend/Integration.vue"
+  }
+}

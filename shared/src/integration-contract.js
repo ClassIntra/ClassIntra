@@ -1,41 +1,148 @@
-// 共享层：集成协议契约（阶段 4 预留）
-// 参考 Ditto packages/integration/src/contract.ts
-//
-// 本期仅定义接口契约和类型常量，具体实现见阶段 4：
-// - client/src/core/integration-manager.js — postMessage 双向通信
-// - server/src/routes/integrations.js — webhook 接收 + HMAC 验签
-// - server/src/services/integration-token-service.js — token 签发与管理
+// 共享层：集成协议契约
+// 参考 Ditto packages/integration/src/contract.ts + IPCBus 消息格式
 //
 // 设计要点：
-// 1. postMessage 协议：外部嵌入页 ↔ ClassIntra，使用受限的消息类型白名单
+// 1. postMessage 协议：外部嵌入页 ↔ ClassIntra，使用 envelope 信封格式
 // 2. webhook 协议：ClassIntra → 外部系统，HMAC-SHA256 签名 + 时间戳防重放
-// 3. 双向事件命名空间：ci:out:*（ outbound webhook）、ci:in:*（inbound postMessage）
+// 3. 双向事件命名空间：channel 定义所有通信通道，scope 控制权限
+// 4. 强制 origin 白名单（绝不 '*'）+ envelope 校验，防跨域攻击
 
-// ========== 集成协议版本 ==========
-// 与 constants.js INTEGRATION_PROTOCOL_VERSION 保持同步
+// ========== 协议常量 ==========
+var MSG_TYPE = 'classintra-integration';
 var PROTOCOL_VERSION = '1.0';
+var DEFAULT_TIMEOUT_MS = 5000;
+var DEFAULT_TOKEN_TTL_DAYS = 30;
 
-// ========== postMessage 消息类型白名单 ==========
-// 外部页面可发送给 ClassIntra 的消息类型
-var INBOUND_MESSAGE_TYPES = {
-  READY: 'ci:in:ready',           // 外部页面就绪，请求初始数据
-  REQUEST_DATA: 'ci:in:request',  // 请求数据（如用户信息、事件列表）
-  NAVIGATE: 'ci:in:navigate',     // 导航到指定路由
-  ACTION: 'ci:in:action',         // 触发动作（如创建事件）
-  SUBSCRIBE: 'ci:in:subscribe'    // 订阅事件流
+// ========== 通道定义 ==========
+// direction: 'inbound'（外部→ClassIntra）/ 'outbound'（ClassIntra→外部）/ 'bidirectional'
+// scope: 该通道所需的权限范围
+var CHANNELS = {
+  'handshake:request': { direction: 'bidirectional', scope: null },
+  'handshake:response': { direction: 'bidirectional', scope: null },
+  'ping': { direction: 'bidirectional', scope: null },
+  'app:open': { direction: 'inbound', scope: 'app:write' },
+  'user:info': { direction: 'inbound', scope: 'user:read' },
+  'user:signed-out': { direction: 'outbound', scope: 'user:read' },
+  'notification:send': { direction: 'inbound', scope: 'notification:write' },
+  'data:query': { direction: 'inbound', scope: 'data:read' },
+  'data:update': { direction: 'inbound', scope: 'data:write' },
+  'event:subscribe': { direction: 'inbound', scope: 'data:read' },
+  'event:push': { direction: 'outbound', scope: 'data:read' },
+  'calendar:event_created': { direction: 'outbound', scope: 'calendar:read' },
+  'countdown:reached': { direction: 'outbound', scope: 'countdown:read' }
 };
 
-// ClassIntra 发送给外部页面的消息类型
-var OUTBOUND_MESSAGE_TYPES = {
-  READY: 'ci:out:ready',           // ClassIntra 就绪
-  DATA: 'ci:out:data',             // 数据响应
-  EVENT: 'ci:out:event',           // 事件推送
-  ERROR: 'ci:out:error',           // 错误响应
-  UNSUBSCRIBED: 'ci:out:unsub'     // 取消订阅
+// ========== 权限范围 ==========
+var SCOPES = [
+  'app:read', 'app:write',
+  'user:read', 'user:write',
+  'notification:write',
+  'data:read', 'data:write',
+  'calendar:read', 'calendar:write',
+  'countdown:read',
+  'message:read', 'message:write',
+  'community:read', 'community:write'
+];
+
+// ========== Envelope 信封格式 ==========
+// kind: 'request' | 'response' | 'event' | 'error'
+// 所有 postMessage 消息必须符合此格式
+
+/**
+ * 创建 envelope
+ * @param {Object} options
+ * @param {string} options.channel - 通道名（见 CHANNELS）
+ * @param {string} options.kind - 消息类型（request/response/event/error）
+ * @param {Object} [options.payload] - 消息体
+ * @param {string} [options.id] - 消息 id（缺省自动生成）
+ * @param {string} [options.requestId] - 关联的请求 id（response/error 类必填）
+ * @param {string} [options.source] - 来源标识
+ * @param {string} [options.target] - 目标标识
+ * @param {Object} [options.error] - 错误信息（kind=error 时）
+ * @returns {Object} envelope
+ */
+function createEnvelope(options) {
+  if (!options || !options.channel || !options.kind) {
+    throw new Error('createEnvelope: channel 和 kind 必填');
+  }
+  return {
+    v: PROTOCOL_VERSION,
+    type: MSG_TYPE,
+    id: options.id || _generateId(),
+    kind: options.kind,
+    channel: options.channel,
+    source: options.source || null,
+    target: options.target || null,
+    payload: options.payload || null,
+    requestId: options.requestId || null,
+    error: options.error || null,
+    timestamp: Date.now()
+  };
+}
+
+/**
+ * 验证 envelope 格式
+ * @param {Object} env - 待验证的 envelope
+ * @param {string} [expectedOrigin] - 期望的来源 origin（用于跨域校验）
+ * @returns {{ valid: boolean, errors: string[] }}
+ */
+function validateEnvelope(env, expectedOrigin) {
+  var errors = [];
+  if (!env || typeof env !== 'object') {
+    return { valid: false, errors: ['envelope 必须是对象'] };
+  }
+  if (env.type !== MSG_TYPE) {
+    errors.push('type 不匹配，期望 "' + MSG_TYPE + '"，实际 "' + env.type + '"');
+  }
+  if (!env.v || typeof env.v !== 'string') {
+    errors.push('v（协议版本）缺失或非字符串');
+  }
+  if (!env.id || typeof env.id !== 'string') {
+    errors.push('id 缺失或非字符串');
+  }
+  if (['request', 'response', 'event', 'error'].indexOf(env.kind) === -1) {
+    errors.push('kind "' + env.kind + '" 不在枚举中');
+  }
+  if (!env.channel || typeof env.channel !== 'string') {
+    errors.push('channel 缺失或非字符串');
+  } else if (!CHANNELS[env.channel]) {
+    errors.push('channel "' + env.channel + '" 未注册');
+  }
+  if (typeof env.timestamp !== 'number') {
+    errors.push('timestamp 缺失或非数字');
+  }
+  // response/error 必须有 requestId
+  if ((env.kind === 'response' || env.kind === 'error') && !env.requestId) {
+    errors.push(env.kind + ' 类型必须有 requestId');
+  }
+  // kind=error 必须有 error 字段
+  if (env.kind === 'error' && !env.error) {
+    errors.push('error 类型必须有 error 字段');
+  }
+  return { valid: errors.length === 0, errors: errors };
+}
+
+// ========== 工具函数 ==========
+function _generateId() {
+  return 'ci_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+}
+
+// ========== Webhook 签名格式 ==========
+// Headers:
+//   X-ClassIntra-Signature: sha256=<hmac_hex>
+//   X-ClassIntra-Token: <token>
+//   X-ClassIntra-Timestamp: <unix_ms>
+//   X-ClassIntra-Event: <event_type>
+// 签名计算：HMAC-SHA256(secret, timestamp + '.' + rawBody)
+
+var WEBHOOK_HEADERS = {
+  SIGNATURE: 'x-classintra-signature',
+  TOKEN: 'x-classintra-token',
+  TIMESTAMP: 'x-classintra-timestamp',
+  EVENT: 'x-classintra-event'
 };
 
-// ========== webhook 事件类型 ==========
-// ClassIntra 向外部系统推送的事件
+// webhook 事件类型（与 server 端 integration-token-service 一致）
 var WEBHOOK_EVENTS = {
   USER_SIGNED_IN: 'user.signed_in',
   USER_SIGNED_OUT: 'user.signed_out',
@@ -46,75 +153,29 @@ var WEBHOOK_EVENTS = {
   CUSTOM_EVENT: 'custom.event'
 };
 
-// ========== 接口契约（JSDoc 风格，供阶段 4 实现） ==========
+// ========== 预留函数签名（具体实现在前后端各自实现） ==========
 
 /**
- * postMessage 入站消息格式
- * @typedef {Object} InboundMessage
- * @property {string} type - 消息类型（见 INBOUND_MESSAGE_TYPES）
- * @property {string} id - 消息 id（用于响应关联）
- * @property {string} version - 协议版本
- * @property {Object} payload - 消息体
+ * 计算 webhook 签名（后端实现）
+ * @param {string} secret - HMAC 密钥
+ * @param {string} timestamp - 时间戳（ms）
+ * @param {string} rawBody - 原始请求体
+ * @returns {string} 签名（hex）
  */
-
-/**
- * postMessage 出站消息格式
- * @typedef {Object} OutboundMessage
- * @property {string} type - 消息类型（见 OUTBOUND_MESSAGE_TYPES）
- * @property {string} id - 关联的入站消息 id（响应类消息）
- * @property {string} version - 协议版本
- * @property {Object} payload - 消息体
- * @property {Error} [error] - 错误信息（type=ERROR 时）
- */
-
-/**
- * webhook 推送格式
- * @typedef {Object} WebhookPayload
- * @property {string} event - 事件类型（见 WEBHOOK_EVENTS）
- * @property {string} timestamp - ISO 8601 时间戳
- * @property {string} signature - HMAC-SHA256 签名（hex）
- * @property {Object} data - 事件数据
- */
-
-/**
- * 集成配置（存储在 integrations 表中）
- * @typedef {Object} IntegrationConfig
- * @property {number} id - 集成 id
- * @property {string} name - 集成名称
- * @property {string} token - HMAC 签名 token
- * @property {string} webhook_url - webhook 推送 URL
- * @property {string[]} subscribed_events - 订阅的事件列表
- * @property {boolean} active - 是否启用
- * @property {string} created_at - 创建时间
- * @property {string} expires_at - 过期时间
- */
-
-// ========== 预留函数签名（阶段 4 实现） ==========
-
-/**
- * 验证 webhook 签名（阶段 4 实现）
- * @param {string} payload - 原始 payload 字符串
- * @param {string} signature - 签名（hex）
- * @param {string} token - HMAC token
- * @returns {boolean} 签名是否有效
- */
-function verifyWebhookSignature(payload, signature, token) {
-  // 阶段 4 实现：crypto.createHmac('sha256', token).update(payload).digest('hex')
-  throw new Error('verifyWebhookSignature 尚未实现（阶段 4）');
-}
-
-/**
- * 构造出站 postMessage（阶段 4 实现）
- */
-function buildOutboundMessage(type, payload, correlationId) {
-  throw new Error('buildOutboundMessage 尚未实现（阶段 4）');
+function computeWebhookSignature(secret, timestamp, rawBody) {
+  throw new Error('computeWebhookSignature 应在后端实现（crypto.createHmac）');
 }
 
 export {
+  MSG_TYPE,
   PROTOCOL_VERSION,
-  INBOUND_MESSAGE_TYPES,
-  OUTBOUND_MESSAGE_TYPES,
+  DEFAULT_TIMEOUT_MS,
+  DEFAULT_TOKEN_TTL_DAYS,
+  CHANNELS,
+  SCOPES,
+  WEBHOOK_HEADERS,
   WEBHOOK_EVENTS,
-  verifyWebhookSignature,
-  buildOutboundMessage
+  createEnvelope,
+  validateEnvelope,
+  computeWebhookSignature
 };
