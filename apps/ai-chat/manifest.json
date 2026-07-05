@@ -1,5 +1,7 @@
 {
   "name": "ai-chat",
+  "type": "app",
+  "version": "1.0.0",
   "label": "AI",
   "icon": "/resources/public/icons/AI-Chat.png",
   "color": "#AF52DE",

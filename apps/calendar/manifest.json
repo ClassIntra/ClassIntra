@@ -1,5 +1,7 @@
 {
   "name": "calendar",
+  "type": "app",
+  "version": "1.0.0",
   "label": "日历",
   "icon": "/resources/public/icons/Calendar.png",
   "color": "#FF3B30",

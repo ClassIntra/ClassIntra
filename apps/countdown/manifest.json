@@ -1,5 +1,7 @@
 {
   "name": "countdown",
+  "type": "app",
+  "version": "1.0.0",
   "label": "倒数日",
   "icon": "/resources/public/icons/Countdown.png",
   "color": "#FF9500",

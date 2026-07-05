@@ -4,6 +4,7 @@
 
 var fs = require('fs');
 var path = require('path');
+var validateManifest = require('./manifest-schema').validateManifest;
 
 var appsDir = path.resolve(__dirname, '../../../apps');
 
@@ -26,7 +27,17 @@ function loadManifests() {
       if (!fs.existsSync(manifestPath)) continue;
       try {
         var m = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-        if (m && m.name) manifests.push(m);
+        if (!m || !m.name) continue;
+        // 阶段 3：验证 manifest，errors 阻断，warnings 仅 warn
+        var result = validateManifest(m);
+        if (!result.valid) {
+          console.warn('[manifest-loader] manifest "' + m.name + '" 验证失败:', result.errors.join('; '));
+          continue;
+        }
+        if (result.warnings.length > 0) {
+          console.warn('[manifest-loader] manifest "' + m.name + '" 警告:', result.warnings.join('; '));
+        }
+        manifests.push(result.manifest);
       } catch (e) {
         console.error('[manifest-loader] 加载 manifest 失败:', entries[i].name, e.message);
       }

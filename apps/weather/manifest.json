@@ -1,5 +1,7 @@
 {
   "name": "weather",
+  "type": "app",
+  "version": "1.0.0",
   "label": "天气",
   "icon": "/resources/public/icons/Weather.png",
   "color": "#5AC8FA",

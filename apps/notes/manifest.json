@@ -1,5 +1,7 @@
 {
   "name": "notes",
+  "type": "app",
+  "version": "1.0.0",
   "label": "笔记",
   "icon": "/resources/public/icons/Note.png",
   "color": "#FFCC00",

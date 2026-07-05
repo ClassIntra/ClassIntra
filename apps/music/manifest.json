@@ -1,5 +1,7 @@
 {
   "name": "music",
+  "type": "app",
+  "version": "1.0.0",
   "label": "音乐",
   "icon": "/resources/public/icons/Music.png",
   "color": "#FF2D55",

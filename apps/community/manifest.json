@@ -1,5 +1,7 @@
 {
   "name": "community",
+  "type": "app",
+  "version": "1.0.0",
   "label": "社区",
   "icon": "/resources/public/icons/Community.png",
   "color": "#FF9500",

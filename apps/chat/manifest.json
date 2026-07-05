@@ -1,5 +1,7 @@
 {
   "name": "chat",
+  "type": "app",
+  "version": "1.0.0",
   "label": "聊天",
   "icon": "/resources/public/icons/Chat.png",
   "color": "#007AFF",

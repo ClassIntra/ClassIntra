@@ -1,5 +1,7 @@
 {
   "name": "settings",
+  "type": "app",
+  "version": "1.0.0",
   "label": "设置",
   "icon": "/resources/public/icons/Settings.png",
   "color": "#8E8E93",

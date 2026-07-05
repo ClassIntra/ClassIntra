@@ -89,6 +89,10 @@ import ModalDialog from './components/ModalDialog.vue';
 import LoadingSkeleton from './components/LoadingSkeleton.vue';
 import ErrorBoundary from './components/ErrorBoundary.vue';
 import { globalErrorHandler } from '@shared/errors';
+import { getServiceRegistry } from '@/core/service-registry';
+import { getEventBus } from '@/core/event-bus';
+import { getThemeEngine } from '@/core/theme-engine';
+import { getHotkeyManager } from '@/core/hotkey-manager';
 import '@fortawesome/fontawesome-free/css/all.min.css';
 import './styles/global.scss';
 
@@ -160,6 +164,15 @@ router.replace = function(location) {
     return Promise.reject(err);
   });
 };
+
+// ========== 阶段 3：ServiceRegistry 注册核心服务 ==========
+var serviceRegistry = getServiceRegistry();
+serviceRegistry.register('eventBus', function() { return getEventBus(); });
+serviceRegistry.register('store', function() { return store; });
+serviceRegistry.register('themeEngine', function() { return getThemeEngine(); });
+serviceRegistry.register('hotkey', function() { return getHotkeyManager(); });
+// 暴露到 Vue 原型，供组件通过 this.$services.resolve('xxx') 访问
+Vue.prototype.$services = serviceRegistry;
 
 new Vue({
   router: router,
