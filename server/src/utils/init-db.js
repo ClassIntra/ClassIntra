@@ -852,6 +852,26 @@ function initDatabase() {
       initWatermarkStmt.run(watermarkTypes[wi].type, maxId);
     } catch (e) {}
   }
+
+  // ========== 阶段 4：集成系统表 ==========
+  // integrations 表：存储外部集成的 token + secret_hash + scopes + origins + webhook_url
+  // 阶段 5 将抽取为 002_add_integrations_tables.js 迁移文件
+  db.exec([
+    'CREATE TABLE IF NOT EXISTS integrations (',
+    '  id INTEGER PRIMARY KEY AUTOINCREMENT,',
+    '  name TEXT NOT NULL,',
+    '  token TEXT NOT NULL UNIQUE,',
+    '  secret_hash TEXT NOT NULL,',
+    '  scopes_json TEXT DEFAULT \'[]\',',
+    '  webhook_url TEXT DEFAULT \'\',',
+    '  origins_json TEXT DEFAULT \'[]\',',
+    '  active INTEGER DEFAULT 1,',
+    '  created_at TEXT DEFAULT (datetime(\'now\')),',
+    '  expires_at TEXT DEFAULT NULL',
+    ')'
+  ].join('\n'));
+  db.exec('CREATE INDEX IF NOT EXISTS idx_integrations_token ON integrations(token)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_integrations_active ON integrations(active)');
 }
 
 // ========== 云盘旧文件自动迁移 ==========

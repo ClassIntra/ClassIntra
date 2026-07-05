@@ -155,6 +155,7 @@ app.use('/api/setup', require('./routes/setup'));
 app.use('/api/level', require('./routes/level'));
 app.use('/api/cdn', require('./routes/cdn-proxy'));
 app.use('/api/system', require('./routes/system'));
+app.use('/api/integrations', require('./routes/integrations'));
 
 // 应用路由（从 apps/*/manifest.json 聚合挂载，rateLimit 由 manifest 声明）
 var routeAggregator = require('./core/route-aggregator');

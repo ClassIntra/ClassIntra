@@ -93,6 +93,7 @@ import { getServiceRegistry } from '@/core/service-registry';
 import { getEventBus } from '@/core/event-bus';
 import { getThemeEngine } from '@/core/theme-engine';
 import { getHotkeyManager } from '@/core/hotkey-manager';
+import { getIntegrationManager } from '@/integrations';
 import '@fortawesome/fontawesome-free/css/all.min.css';
 import './styles/global.scss';
 
@@ -165,12 +166,13 @@ router.replace = function(location) {
   });
 };
 
-// ========== 阶段 3：ServiceRegistry 注册核心服务 ==========
+// ========== 阶段 3-4：ServiceRegistry 注册核心服务 ==========
 var serviceRegistry = getServiceRegistry();
 serviceRegistry.register('eventBus', function() { return getEventBus(); });
 serviceRegistry.register('store', function() { return store; });
 serviceRegistry.register('themeEngine', function() { return getThemeEngine(); });
 serviceRegistry.register('hotkey', function() { return getHotkeyManager(); });
+serviceRegistry.register('integration', function() { return getIntegrationManager(); });
 // 暴露到 Vue 原型，供组件通过 this.$services.resolve('xxx') 访问
 Vue.prototype.$services = serviceRegistry;
 
