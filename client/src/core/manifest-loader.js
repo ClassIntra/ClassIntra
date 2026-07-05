@@ -7,7 +7,8 @@
 
 import { validateManifest } from '@shared/manifest-schema';
 
-var manifestModules = import.meta.glob('../../../apps/*/manifest.json', { eager: true, as: 'json' });
+// Vite 5+ 推荐 query 形式（as 选项已废弃）；返回模块对象 { default: parsedJson }
+var manifestModules = import.meta.glob('../../../apps/*/manifest.json', { eager: true, query: '?json' });
 var componentModules = import.meta.glob('../../../apps/*/frontend/**/*.{vue,js}');
 
 // 缓存 manifests 数组（只加载一次）

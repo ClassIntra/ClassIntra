@@ -73,6 +73,9 @@ importers:
       '@vitejs/plugin-vue2':
         specifier: ^2.3.1
         version: 2.3.4(vite@5.4.21(sass@1.99.0)(terser@5.46.1))(vue@2.7.16)
+      postcss:
+        specifier: ^8.4.43
+        version: 8.5.9
       sass:
         specifier: ^1.70.0
         version: 1.99.0

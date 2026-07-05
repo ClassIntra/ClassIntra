@@ -1,8 +1,15 @@
+// Vite 配置（ESM 形式，避免 CJS 加载警告）
+// 注意：本文件以 .mjs 扩展名确保 Vite 以 ESM 方式加载
 import { defineConfig } from 'vite';
 import vue2 from '@vitejs/plugin-vue2';
 import path from 'path';
 import fs from 'fs';
+import { fileURLToPath } from 'url';
 import postcss from 'postcss';
+
+// ESM 中没有 __dirname，需通过 fileURLToPath 计算
+var __filename = fileURLToPath(import.meta.url);
+var __dirname = path.dirname(__filename);
 
 var versionJsonPath = path.resolve(__dirname, '../server/version.json');
 var appVersion = '1.0.0';
@@ -129,6 +136,12 @@ export default defineConfig({
     '__APP_VERSION__': JSON.stringify(appVersion)
   },
   css: {
+    preprocessorOptions: {
+      scss: {
+        // 使用现代 Sass API，避免 legacy-js-api 弃用警告
+        api: 'modern-compiler'
+      }
+    },
     postcss: {
       plugins: [
         flexGapPolyfillPlugin(),

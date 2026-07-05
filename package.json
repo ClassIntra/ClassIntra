@@ -9,15 +9,6 @@
     "build": "node -e \"var fs=require('fs'),p='server/version.json',d=JSON.parse(fs.readFileSync(p,'utf8'));d.buildHash=Date.now().toString(36)+Math.random().toString(36).slice(2,8);d.buildTime=new Date().toISOString();fs.writeFileSync(p,JSON.stringify(d,null,2))\" && cd client && pnpm run build",
     "start": "pnpm --filter server run start"
   },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "@parcel/watcher",
-      "better-sqlite3",
-      "core-js",
-      "es5-ext",
-      "esbuild"
-    ]
-  },
   "devDependencies": {
     "sharp": "^0.35.2"
   }
