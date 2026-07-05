@@ -1,5 +1,6 @@
 import api from '@/utils/api';
 import { getTheme } from '@/themes/index.js';
+import { getThemeEngine } from '@/core/theme-engine';
 
 var state = {
   theme: localStorage.getItem('theme') || 'light',
@@ -19,13 +20,20 @@ var getters = {
 };
 
 var mutations = {
+  // 阶段 2 起：委托 ThemeEngine 处理 CSS 切换 + --ci-* 变量写入 + 通知订阅者
+  // 旧机制（setAttribute）由 ThemeEngine 内部完成，保持向后兼容
   SET_THEME: function(state, theme) {
     state.theme = theme;
     localStorage.setItem('theme', theme);
-    if (theme === 'light') {
-      document.documentElement.removeAttribute('data-theme');
-    } else {
-      document.documentElement.setAttribute('data-theme', theme);
+    try {
+      getThemeEngine().setTheme(theme);
+    } catch (e) {
+      // ThemeEngine 异常时回退到旧机制
+      if (theme === 'light') {
+        document.documentElement.removeAttribute('data-theme');
+      } else {
+        document.documentElement.setAttribute('data-theme', theme);
+      }
     }
   },
   SET_WALLPAPER: function(state, wallpaper) {
