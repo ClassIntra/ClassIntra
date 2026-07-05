@@ -1,88 +1,89 @@
 ﻿﻿// ============================================================
 // ClassIntra 全局样式
-// 主题策略（阶段 2 起）：
-//   1. :root + [data-theme="dark"] 提供 80+ 旧 CSS 变量（--primary-color 等）
-//   2. ThemeEngine 运行时额外写入 --ci-* 新变量（inline style，供新代码使用）
-//   3. 旧代码继续用旧变量，新代码优先用 --ci-* 变量
-//   4. 动画开关：[data-no-motion="true"] 全局禁用（见 _motion.scss）
+// 主题策略（阶段 2 起，双写清理后）：
+//   1. :root + [data-theme="dark"] 中的主题相关变量定义为 --ci-* 的别名
+//      形如：--primary-color: var(--ci-color-primary, #007AFF);
+//      ThemeEngine 写入 --ci-* 后，旧变量自动跟随；未写入时用 fallback 硬编码值
+//   2. 静态变量（font/spacing/radius/z/line-height/transition）保持硬编码（与主题无关）
+//   3. 动画开关：[data-no-motion="true"] 全局禁用（见 _motion.scss）
 // ============================================================
 @use './motion';
 
 :root {
-  /* 主交互色 - iOS System Blue */
-  --primary-color: #007AFF;
-  --primary-hover: #0066CC;
-  --primary-pressed: #004E99;
-  --primary-rgb: 0, 122, 255;
-  --primary-light: rgba(0, 122, 255, 0.12);
-  --primary-lighter: rgba(0, 122, 255, 0.06);
-  --primary-dark: #004E99;
+  /* 主交互色 - iOS System Blue（别名指向 --ci-color-primary） */
+  --primary-color: var(--ci-color-primary, #007AFF);
+  --primary-hover: var(--ci-color-primary-hover, #0066CC);
+  --primary-pressed: var(--ci-color-primary-pressed, #004E99);
+  --primary-rgb: var(--ci-color-primary-rgb, 0, 122, 255);
+  --primary-light: var(--ci-color-primary-light, rgba(0, 122, 255, 0.12));
+  --primary-lighter: var(--ci-color-primary-lighter, rgba(0, 122, 255, 0.06));
+  --primary-dark: #004E99; /* theme-tokens 中无对应字段，保留硬编码 */
 
-  /* 功能模块标志色 - iOS 多彩系统 */
-  --accent-music: #FF2D55;
-  --accent-weather: #4A90D9;
-  --accent-community: #FF9500;
-  --accent-chat: #34C759;
-  --accent-notes: #FFCC00;
-  --accent-resource: #5856D6;
-  --accent-settings: #8E8E93;
-  --accent-ai: #AF52DE;
-  --accent-ai-rgb: 175, 82, 222;
+  /* 功能模块标志色 - iOS 多彩系统（别名指向 --ci-color-accent-*） */
+  --accent-music: var(--ci-color-accent-music, #FF2D55);
+  --accent-weather: var(--ci-color-accent-weather, #4A90D9);
+  --accent-community: var(--ci-color-accent-community, #FF9500);
+  --accent-chat: var(--ci-color-accent-chat, #34C759);
+  --accent-notes: var(--ci-color-accent-notes, #FFCC00);
+  --accent-resource: var(--ci-color-accent-resource, #5856D6);
+  --accent-settings: var(--ci-color-accent-settings, #8E8E93);
+  --accent-ai: var(--ci-color-accent-ai, #AF52DE);
+  --accent-ai-rgb: var(--ci-color-accent-ai-rgb, 175, 82, 222);
 
-  /* 语义色 */
-  --success-color: #34C759;
-  --success-rgb: 52, 199, 89;
-  --warning-color: #FF9500;
-  --warning-rgb: 255, 149, 0;
-  --danger-color: #FF3B30;
-  --danger-rgb: 255, 59, 48;
-  --danger-pressed: #D70015;
-  --info-color: #5AC8FA;
+  /* 语义色（别名指向 --ci-color-semantic-*） */
+  --success-color: var(--ci-color-semantic-success, #34C759);
+  --success-rgb: var(--ci-color-semantic-success-rgb, 52, 199, 89);
+  --warning-color: var(--ci-color-semantic-warning, #FF9500);
+  --warning-rgb: var(--ci-color-semantic-warning-rgb, 255, 149, 0);
+  --danger-color: var(--ci-color-semantic-danger, #FF3B30);
+  --danger-rgb: var(--ci-color-semantic-danger-rgb, 255, 59, 48);
+  --danger-pressed: var(--ci-color-semantic-danger-pressed, #D70015);
+  --info-color: var(--ci-color-semantic-info, #5AC8FA);
 
-  /* 背景与表面 */
-  --bg-color: #F2F2F7;
-  --card-bg: #FFFFFF;
-  --surface-elevated: rgba(255, 255, 255, 0.72);
-  --surface-glass: rgba(255, 255, 255, 0.65);
+  /* 背景与表面（别名指向 --ci-color-bg-*） */
+  --bg-color: var(--ci-color-bg-base, #F2F2F7);
+  --card-bg: var(--ci-color-bg-card, #FFFFFF);
+  --surface-elevated: var(--ci-color-bg-elevated, rgba(255, 255, 255, 0.72));
+  --surface-glass: var(--ci-color-bg-glass, rgba(255, 255, 255, 0.65));
 
-  /* 文字色 - 半透明设计，毛玻璃上自动获得对比度 */
-  --text-primary: rgba(0, 0, 0, 0.90);
-  --text-secondary: rgba(60, 60, 67, 0.60);
-  --text-tertiary: rgba(60, 60, 67, 0.30);
+  /* 文字色 - 半透明设计，毛玻璃上自动获得对比度（别名指向 --ci-color-text-*） */
+  --text-primary: var(--ci-color-text-primary, rgba(0, 0, 0, 0.90));
+  --text-secondary: var(--ci-color-text-secondary, rgba(60, 60, 67, 0.60));
+  --text-tertiary: var(--ci-color-text-tertiary, rgba(60, 60, 67, 0.30));
 
-  /* 边框与分隔线 */
-  --border-color: rgba(60, 60, 67, 0.12);
-  --separator-color: rgba(60, 60, 67, 0.29);
+  /* 边框与分隔线（别名指向 --ci-color-border-*） */
+  --border-color: var(--ci-color-border-default, rgba(60, 60, 67, 0.12));
+  --separator-color: var(--ci-color-border-separator, rgba(60, 60, 67, 0.29));
 
-  /* 毛玻璃背景 */
-  --dock-bg: rgba(255, 255, 255, 0.65);
-  --nav-bg: rgba(249, 249, 249, 0.70);
-  --nav-border: rgba(60, 60, 67, 0.12);
-  --island-bg: rgba(28, 28, 30, 0.72);
-  --island-text: #FFFFFF;
-  --sidebar-bg: rgba(242, 242, 247, 0.60);
-  --glass-bg: rgba(255, 255, 255, 0.55);
-  --glass-border: rgba(255, 255, 255, 0.18);
+  /* 毛玻璃背景（别名指向 --ci-color-glass-*） */
+  --dock-bg: var(--ci-color-glass-dock, rgba(255, 255, 255, 0.65));
+  --nav-bg: var(--ci-color-glass-nav, rgba(249, 249, 249, 0.70));
+  --nav-border: var(--ci-color-glass-nav-border, rgba(60, 60, 67, 0.12));
+  --island-bg: var(--ci-color-glass-island, rgba(28, 28, 30, 0.72));
+  --island-text: var(--ci-color-glass-island-text, #FFFFFF);
+  --sidebar-bg: var(--ci-color-glass-sidebar, rgba(242, 242, 247, 0.60));
+  --glass-bg: var(--ci-color-glass-bg, rgba(255, 255, 255, 0.55));
+  --glass-border: var(--ci-color-glass-border, rgba(255, 255, 255, 0.18));
 
-  /* 桌面壁纸上的文字/指示器 token（亮色壁纸场景） */
-  --text-on-wallpaper: #FFFFFF;
-  --text-shadow-wallpaper: 0 1px 3px rgba(0, 0, 0, 0.6);
-  --indicator-dot: rgba(255, 255, 255, 0.4);
-  --indicator-dot-active: #FFFFFF;
+  /* 桌面壁纸上的文字/指示器 token（别名指向 --ci-color-on-wallpaper-*） */
+  --text-on-wallpaper: var(--ci-color-on-wallpaper-text, #FFFFFF);
+  --text-shadow-wallpaper: var(--ci-color-on-wallpaper-shadow, 0 1px 3px rgba(0, 0, 0, 0.6));
+  --indicator-dot: var(--ci-color-on-wallpaper-dot, rgba(255, 255, 255, 0.4));
+  --indicator-dot-active: var(--ci-color-on-wallpaper-dot-active, #FFFFFF);
 
-  /* 毛玻璃参数 - iOS HIG 标准 */
+  /* 毛玻璃参数 - iOS HIG 标准（静态，与主题无关） */
   --glass-blur-container: blur(30px) saturate(180%);
   --glass-blur-overlay: blur(20px) saturate(180%);
   --glass-blur-thin: blur(10px) saturate(150%);
   --glass-blur-nav: blur(20px) saturate(180%);
 
-  /* 阴影 */
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
-  --shadow-md: 0 4px 12px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.04);
-  --shadow-lg: 0 12px 40px rgba(0,0,0,0.12), 0 4px 12px rgba(0,0,0,0.06);
-  --shadow-xl: 0 24px 80px rgba(0,0,0,0.16);
+  /* 阴影（别名指向 --ci-shadow-*） */
+  --shadow-sm: var(--ci-shadow-sm, 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04));
+  --shadow-md: var(--ci-shadow-md, 0 4px 12px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.04));
+  --shadow-lg: var(--ci-shadow-lg, 0 12px 40px rgba(0,0,0,0.12), 0 4px 12px rgba(0,0,0,0.06));
+  --shadow-xl: var(--ci-shadow-xl, 0 24px 80px rgba(0,0,0,0.16));
 
-  /* 圆角 - iOS HIG 标准 */
+  /* 圆角 - iOS HIG 标准（静态，与主题无关） */
   --radius-xs: 4px;
   --radius-sm: 8px;
   --radius-md: 10px;
@@ -91,10 +92,10 @@
   --radius-2xl: 20px;
   --radius-pill: 9999px;
 
-  /* 字体 */
+  /* 字体（静态，与主题无关） */
   --font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'PingFang SC', 'Noto Sans CJK SC', 'Helvetica Neue', 'Microsoft YaHei', sans-serif;
 
-  /* 字号 - iOS 动态字号（保留旧变量名作为别名） */
+  /* 字号 - iOS 动态字号（静态，与主题无关） */
   --font-size-caption2: 11px;
   --font-size-caption1: 12px;
   --font-size-caption: 12px;
@@ -114,19 +115,19 @@
   --font-size-xxl: 34px;
   --font-size-largeTitle: 34px;
 
-  /* 字重 */
+  /* 字重（静态，与主题无关） */
   --font-weight-normal: 400;
   --font-weight-regular: 400;
   --font-weight-medium: 500;
   --font-weight-semibold: 600;
   --font-weight-bold: 700;
 
-  /* 行高 */
+  /* 行高（静态，与主题无关） */
   --line-height-tight: 1.25;
   --line-height-normal: 1.5;
   --line-height-relaxed: 1.75;
 
-  /* 间距 - 8pt 网格 */
+  /* 间距 - 8pt 网格（静态，与主题无关） */
   --spacing-xs: 4px;
   --spacing-sm: 8px;
   --spacing-md: 16px;
@@ -134,65 +135,65 @@
   --spacing-xl: 32px;
   --spacing-xxl: 48px;
 
-  /* 动画曲线 - iOS 标准 */
-  --ease-standard: cubic-bezier(0.25, 0.1, 0.25, 1);
-  --ease-decelerate: cubic-bezier(0, 0, 0.2, 1);
-  --ease-accelerate: cubic-bezier(0.4, 0, 1, 1);
-  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* 动画曲线 - iOS 标准（别名指向 --ci-motion-ease-*） */
+  --ease-standard: var(--ci-motion-ease-standard, cubic-bezier(0.25, 0.1, 0.25, 1));
+  --ease-decelerate: var(--ci-motion-ease-decelerate, cubic-bezier(0, 0, 0.2, 1));
+  --ease-accelerate: var(--ci-motion-ease-accelerate, cubic-bezier(0.4, 0, 1, 1));
+  --ease-spring: var(--ci-motion-ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
 
-  /* 动画时长 */
-  --duration-fast: 0.15s;
-  --duration-normal: 0.25s;
-  --duration-slow: 0.35s;
+  /* 动画时长（别名指向 --ci-motion-duration-*） */
+  --duration-fast: var(--ci-motion-duration-fast, 0.15s);
+  --duration-normal: var(--ci-motion-duration-normal, 0.25s);
+  --duration-slow: var(--ci-motion-duration-slow, 0.35s);
 
-  /* 过渡 */
+  /* 过渡（组合变量，依赖上面的 ease-*） */
   --transition-fast: 0.15s var(--ease-standard);
   --transition-normal: 0.25s var(--ease-standard);
   --transition-slow: 0.35s var(--ease-standard);
 
-  /* 层级 */
+  /* 层级（静态，与主题无关） */
   --z-modal: 10001;
   --z-overlay: 10000;
 }
 
 [data-theme="dark"] {
-  /* 主交互色 */
-  --primary-color: #0A84FF;
-  --primary-hover: #409CFF;
-  --primary-pressed: #0066CC;
-  --primary-rgb: 10, 132, 255;
-  --primary-light: rgba(10, 132, 255, 0.16);
-  --primary-lighter: rgba(10, 132, 255, 0.08);
+  /* 主交互色（dark fallback 值，ThemeEngine 写入 --ci-* 后被覆盖） */
+  --primary-color: var(--ci-color-primary, #0A84FF);
+  --primary-hover: var(--ci-color-primary-hover, #409CFF);
+  --primary-pressed: var(--ci-color-primary-pressed, #0066CC);
+  --primary-rgb: var(--ci-color-primary-rgb, 10, 132, 255);
+  --primary-light: var(--ci-color-primary-light, rgba(10, 132, 255, 0.16));
+  --primary-lighter: var(--ci-color-primary-lighter, rgba(10, 132, 255, 0.08));
 
   /* 背景与表面 - iOS 纯黑深色模式 */
-  --bg-color: #000000;
-  --card-bg: #1C1C1E;
-  --surface-elevated: rgba(28, 28, 30, 0.72);
-  --surface-glass: rgba(28, 28, 30, 0.65);
+  --bg-color: var(--ci-color-bg-base, #000000);
+  --card-bg: var(--ci-color-bg-card, #1C1C1E);
+  --surface-elevated: var(--ci-color-bg-elevated, rgba(28, 28, 30, 0.72));
+  --surface-glass: var(--ci-color-bg-glass, rgba(28, 28, 30, 0.65));
 
   /* 文字色 */
-  --text-primary: rgba(235, 235, 245, 0.95);
-  --text-secondary: rgba(235, 235, 245, 0.60);
-  --text-tertiary: rgba(235, 235, 245, 0.30);
+  --text-primary: var(--ci-color-text-primary, rgba(235, 235, 245, 0.95));
+  --text-secondary: var(--ci-color-text-secondary, rgba(235, 235, 245, 0.60));
+  --text-tertiary: var(--ci-color-text-tertiary, rgba(235, 235, 245, 0.30));
 
   /* 边框与分隔线 */
-  --border-color: rgba(84, 84, 88, 0.65);
-  --separator-color: rgba(84, 84, 88, 0.65);
+  --border-color: var(--ci-color-border-default, rgba(84, 84, 88, 0.65));
+  --separator-color: var(--ci-color-border-separator, rgba(84, 84, 88, 0.65));
 
   /* 毛玻璃背景 */
-  --dock-bg: rgba(28, 28, 30, 0.65);
-  --nav-bg: rgba(20, 20, 22, 0.70);
-  --nav-border: rgba(84, 84, 88, 0.65);
-  --island-bg: rgba(18, 18, 20, 0.75);
-  --sidebar-bg: rgba(18, 18, 20, 0.60);
-  --glass-bg: rgba(28, 28, 30, 0.55);
-  --glass-border: rgba(255, 255, 255, 0.08);
+  --dock-bg: var(--ci-color-glass-dock, rgba(28, 28, 30, 0.65));
+  --nav-bg: var(--ci-color-glass-nav, rgba(20, 20, 22, 0.70));
+  --nav-border: var(--ci-color-glass-nav-border, rgba(84, 84, 88, 0.65));
+  --island-bg: var(--ci-color-glass-island, rgba(18, 18, 20, 0.75));
+  --sidebar-bg: var(--ci-color-glass-sidebar, rgba(18, 18, 20, 0.60));
+  --glass-bg: var(--ci-color-glass-bg, rgba(28, 28, 30, 0.55));
+  --glass-border: var(--ci-color-glass-border, rgba(255, 255, 255, 0.08));
 
   /* 阴影 - 深色模式减弱 */
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
-  --shadow-md: 0 4px 12px rgba(0,0,0,0.3);
-  --shadow-lg: 0 12px 40px rgba(0,0,0,0.4);
-  --shadow-xl: 0 24px 80px rgba(0,0,0,0.5);
+  --shadow-sm: var(--ci-shadow-sm, 0 1px 3px rgba(0,0,0,0.3));
+  --shadow-md: var(--ci-shadow-md, 0 4px 12px rgba(0,0,0,0.3));
+  --shadow-lg: var(--ci-shadow-lg, 0 12px 40px rgba(0,0,0,0.4));
+  --shadow-xl: var(--ci-shadow-xl, 0 24px 80px rgba(0,0,0,0.5));
 }
 
 * {

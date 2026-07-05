@@ -68,17 +68,74 @@ function removeFromElement(element) {
 }
 
 // 从单一颜色生成色阶（50-900）
-// 供主题包加载用，本期预留不实现完整逻辑
+// 供主题包加载用：用户主题包只需提供一个主色，自动生成完整色阶
+// 算法：50-400 与白色混合（越靠近 50 越浅），500 为原色，600-900 与黑色混合（越靠近 900 越深）
 // 输入：'#007AFF' → 输出：{ 50: '...', 100: '...', ..., 900: '...' }
 function generateColorScale(hex) {
-  // 简化版：仅返回原色作为所有色阶的值
-  // 完整实现可参考 Ditto adapter.ts 的 mixWithWhite/mixWithBlack
-  var scale = {};
+  var rgb = _hexToRgb(hex);
+  if (!rgb) return { 50: hex, 100: hex, 200: hex, 300: hex, 400: hex, 500: hex, 600: hex, 700: hex, 800: hex, 900: hex };
+
   var levels = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900];
+  // 每个色阶与白色/黑色的混合比例
+  // 50: 95% white, 100: 90% white, 200: 75% white, 300: 60% white, 400: 30% white
+  // 500: 原色
+  // 600: 20% black, 700: 40% black, 800: 60% black, 900: 80% black
+  var mixRatios = {
+    50: 0.95, 100: 0.90, 200: 0.75, 300: 0.60, 400: 0.30,
+    500: 0,
+    600: -0.20, 700: -0.40, 800: -0.60, 900: -0.80
+  };
+
+  var scale = {};
   for (var i = 0; i < levels.length; i++) {
-    scale[levels[i]] = hex;
+    var level = levels[i];
+    var ratio = mixRatios[level];
+    if (ratio > 0) {
+      // 与白色混合
+      scale[level] = _rgbToHex(_mix(rgb, { r: 255, g: 255, b: 255 }, ratio));
+    } else if (ratio < 0) {
+      // 与黑色混合
+      scale[level] = _rgbToHex(_mix(rgb, { r: 0, g: 0, b: 0 }, -ratio));
+    } else {
+      // 原色
+      scale[level] = hex;
+    }
   }
   return scale;
+}
+
+// HEX 转 RGB
+function _hexToRgb(hex) {
+  if (!hex || typeof hex !== 'string') return null;
+  var m = hex.replace('#', '').match(/^([a-f\d]{6}|[a-f\d]{3})$/i);
+  if (!m) return null;
+  var s = m[1];
+  if (s.length === 3) {
+    s = s[0] + s[0] + s[1] + s[1] + s[2] + s[2];
+  }
+  return {
+    r: parseInt(s.substr(0, 2), 16),
+    g: parseInt(s.substr(2, 2), 16),
+    b: parseInt(s.substr(4, 2), 16)
+  };
+}
+
+// RGB 转 HEX
+function _rgbToHex(rgb) {
+  var toHex = function(n) {
+    var h = Math.max(0, Math.min(255, Math.round(n))).toString(16);
+    return h.length === 1 ? '0' + h : h;
+  };
+  return '#' + toHex(rgb.r) + toHex(rgb.g) + toHex(rgb.b);
+}
+
+// 混合两个 RGB 颜色，ratio 是 color2 的占比（0-1）
+function _mix(color1, color2, ratio) {
+  return {
+    r: color1.r + (color2.r - color1.r) * ratio,
+    g: color1.g + (color2.g - color1.g) * ratio,
+    b: color1.b + (color2.b - color1.b) * ratio
+  };
 }
 
 export {

@@ -197,11 +197,56 @@ ThemeEngine.prototype.getTheme = function(id) {
   return this._themes[id] || null;
 };
 
-// 预留：加载外部主题包
-// url: 主题包 URL
-// 本期不实现，仅返回 rejected Promise
-ThemeEngine.prototype.loadExternalTheme = function(url) {
-  return Promise.reject(new Error('loadExternalTheme 尚未实现'));
+// 加载外部主题包
+// url: 主题包 JSON URL（同源或 CORS 允许）
+// options: { apply: boolean } apply=true 时加载后自动切换到该主题
+// 主题包格式：{ id, name, type: 'light'|'dark', tokens, icons }
+// 返回 Promise<themeId>
+ThemeEngine.prototype.loadExternalTheme = function(url, options) {
+  options = options || {};
+  var self = this;
+  if (!url || typeof url !== 'string') {
+    return Promise.reject(new Error('loadExternalTheme: url 必填'));
+  }
+  // CLAUDE.md 约束：禁用缓存机制，所以 fetch 用 cache: 'no-store'
+  return fetch(url, { cache: 'no-store' })
+    .then(function(res) {
+      if (!res.ok) {
+        throw new Error('loadExternalTheme: HTTP ' + res.status + ' 加载 ' + url + ' 失败');
+      }
+      return res.json();
+    })
+    .then(function(themePack) {
+      // 验证主题包格式
+      if (!themePack || typeof themePack !== 'object') {
+        throw new Error('loadExternalTheme: 主题包必须是 JSON 对象');
+      }
+      if (!themePack.id || typeof themePack.id !== 'string') {
+        throw new Error('loadExternalTheme: 主题包缺少 id 字段');
+      }
+      if (!themePack.name || typeof themePack.name !== 'string') {
+        throw new Error('loadExternalTheme: 主题包缺少 name 字段');
+      }
+      if (themePack.type !== 'light' && themePack.type !== 'dark') {
+        throw new Error('loadExternalTheme: type 必须是 "light" 或 "dark"');
+      }
+      // 不允许覆盖内置主题（light/dark）
+      if (themePack.id === 'light' || themePack.id === 'dark') {
+        throw new Error('loadExternalTheme: 不允许覆盖内置主题 "' + themePack.id + '"');
+      }
+      // 注册主题
+      self.registerTheme(themePack.id, {
+        name: themePack.name,
+        type: themePack.type,
+        tokens: themePack.tokens || null,
+        icons: themePack.icons || null
+      });
+      // 可选：自动切换到该主题
+      if (options.apply) {
+        self.setTheme(themePack.id);
+      }
+      return themePack.id;
+    });
 };
 
 // ========== 单例 ==========
