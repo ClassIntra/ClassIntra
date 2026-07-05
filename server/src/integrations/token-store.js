@@ -114,7 +114,8 @@ function verifyToken(token) {
  * @param {number} id - 集成 id
  */
 function revokeToken(id) {
-  db.prepare('UPDATE integrations SET active = 0 WHERE id = ?').run(id);
+  var result = db.prepare('UPDATE integrations SET active = 0 WHERE id = ?').run(id);
+  return result.changes > 0;
 }
 
 /**
