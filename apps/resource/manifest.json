@@ -10,10 +10,19 @@
   "frontend": {
     "route": "/resource",
     "routeName": "Resource",
-    "component": "./frontend/Resource.vue"
+    "component": "./frontend/Resource.vue",
+    "extraRoutes": [
+      { "path": "/cloud", "routeName": "CloudDrive", "component": "./frontend/CloudDrive.vue" },
+      { "path": "/cloud-picker", "routeName": "CloudFilePicker", "component": "./frontend/CloudFilePicker.vue" },
+      { "path": "/cloud-upload", "routeName": "CloudUpload", "component": "./frontend/CloudUpload.vue" },
+      { "path": "/guest-upload", "routeName": "GuestUpload", "component": "./frontend/GuestUpload.vue", "requiresAuth": false, "appControl": false }
+    ]
   },
   "backend": {
     "mountPath": "/api/resources",
     "entry": "./backend/routes.js"
-  }
+  },
+  "extraBackends": [
+    { "mountPath": "/api/cloud", "entry": "./backend/cloud-routes.js" }
+  ]
 }
