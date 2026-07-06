@@ -946,7 +946,7 @@ export default {
   height: 56px;
   border-radius: 50%;
   background: #ff3b30;
-  transition: all 0.2s;
+  transition: width 0.2s var(--ease-standard), height 0.2s var(--ease-standard), border-radius 0.2s var(--ease-standard), background 0.2s var(--ease-standard);
 }
 
 .vf-record-btn.recording .vf-btn-inner {

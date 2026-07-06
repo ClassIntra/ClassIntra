@@ -3807,7 +3807,7 @@ export default {
   background: var(--bg-color);
   color: var(--text-tertiary);
   border: 1px solid var(--border-color);
-  transition: all 0.15s;
+  transition: background 0.15s var(--ease-standard), color 0.15s var(--ease-standard), border-color 0.15s var(--ease-standard);
 }
 
 .perm-tag.active {
@@ -5218,7 +5218,7 @@ export default {
   color: var(--text-secondary);
   cursor: pointer;
   font-size: var(--font-size-sm);
-  transition: all 0.2s;
+  transition: background 0.2s var(--ease-standard), color 0.2s var(--ease-standard), border-color 0.2s var(--ease-standard);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -5244,7 +5244,7 @@ export default {
   color: var(--text-secondary);
   cursor: pointer;
   font-size: var(--font-size-sm);
-  transition: all 0.2s;
+  transition: background 0.2s var(--ease-standard), color 0.2s var(--ease-standard), border-color 0.2s var(--ease-standard);
   display: flex;
   align-items: center;
   gap: 6px;

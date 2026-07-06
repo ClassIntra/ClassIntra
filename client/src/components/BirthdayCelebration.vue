@@ -414,7 +414,7 @@ export default {
   left: 50%;
   transform: translate(-50%, -50%) scale(0.5);
   opacity: 0;
-  transition: all 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  transition: transform 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
   pointer-events: none;
 }
 
@@ -500,7 +500,7 @@ export default {
   left: 50%;
   transform: translateX(-50%) translateY(10px);
   opacity: 0;
-  transition: all 0.5s ease 0.5s;
+  transition: transform 0.5s ease 0.5s, opacity 0.5s ease 0.5s;
   color: rgba(255, 255, 255, 0.6);
   font-size: 13px;
   pointer-events: none;
