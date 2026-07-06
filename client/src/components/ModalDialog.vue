@@ -173,14 +173,16 @@ export default {
   align-items: center;
   justify-content: center;
   z-index: var(--z-modal, 10001);
-  backdrop-filter: var(--glass-blur-thin);
-  -webkit-backdrop-filter: var(--glass-blur-thin);
+  backdrop-filter: var(--glass-blur-regular);
+  -webkit-backdrop-filter: var(--glass-blur-regular);
 }
 
 .modal-container {
-  background: var(--card-bg);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-xl);
+  background: var(--surface-elevated);
+  backdrop-filter: var(--glass-blur-thick);
+  -webkit-backdrop-filter: var(--glass-blur-thick);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-xl), 0 0 0 0.5px var(--glass-border);
   min-width: 320px;
   max-width: 440px;
   width: 90%;
@@ -237,7 +239,7 @@ export default {
   width: 100%;
   padding: 10px 14px;
   border: 0.5px solid var(--border-color);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   font-size: var(--font-size-base);
   color: var(--text-primary);
   background: var(--bg-color);
@@ -264,7 +266,7 @@ export default {
 
 .modal-btn {
   padding: 9px 22px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
   cursor: pointer;

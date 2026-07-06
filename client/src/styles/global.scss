@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 // ClassIntra 全局样式
 // 主题策略（阶段 2 起，双写清理后）：
 //   1. :root + [data-theme="dark"] 中的主题相关变量定义为 --ci-* 的别名
@@ -71,11 +71,21 @@
   --indicator-dot: var(--ci-color-on-wallpaper-dot, rgba(255, 255, 255, 0.4));
   --indicator-dot-active: var(--ci-color-on-wallpaper-dot-active, #FFFFFF);
 
-  /* 毛玻璃参数 - iOS HIG 标准（静态，与主题无关） */
-  --glass-blur-container: blur(30px) saturate(180%);
-  --glass-blur-overlay: blur(20px) saturate(180%);
-  --glass-blur-thin: blur(10px) saturate(150%);
+  /* 毛玻璃材质分级 - iPadOS Materials（静态，与主题无关）
+     参考 Apple HIG: Ultra Thin / Thin / Regular / Thick
+     - ultra-thin: 轻微模糊，用于浮层提示
+     - thin: 薄材质，用于导航栏/工具栏
+     - regular: 常规材质，用于卡片/侧边栏
+     - thick: 厚材质，用于弹窗/Sheet 背景
+     - nav: 导航栏专用（含 saturate 增强色彩） */
+  --glass-blur-ultra-thin: blur(8px) saturate(120%);
+  --glass-blur-thin: blur(12px) saturate(150%);
+  --glass-blur-regular: blur(20px) saturate(180%);
+  --glass-blur-thick: blur(30px) saturate(200%);
   --glass-blur-nav: blur(20px) saturate(180%);
+  /* 向后兼容别名（旧代码可能引用） */
+  --glass-blur-container: var(--glass-blur-thick);
+  --glass-blur-overlay: var(--glass-blur-regular);
 
   /* 阴影（别名指向 --ci-shadow-*） */
   --shadow-sm: var(--ci-shadow-sm, 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04));
@@ -83,13 +93,15 @@
   --shadow-lg: var(--ci-shadow-lg, 0 12px 40px rgba(0,0,0,0.12), 0 4px 12px rgba(0,0,0,0.06));
   --shadow-xl: var(--ci-shadow-xl, 0 24px 80px rgba(0,0,0,0.16));
 
-  /* 圆角 - iOS HIG 标准（静态，与主题无关） */
+  /* 圆角 - iPadOS HIG 标准（静态，与主题无关）
+     梯度：xs(4) → sm(8) → md(12) → lg(16) → xl(20) → 2xl(24) → 3xl(28) */
   --radius-xs: 4px;
   --radius-sm: 8px;
-  --radius-md: 10px;
+  --radius-md: 12px;
   --radius-lg: 16px;
-  --radius-xl: 14px;
-  --radius-2xl: 20px;
+  --radius-xl: 20px;
+  --radius-2xl: 24px;
+  --radius-3xl: 28px;
   --radius-pill: 9999px;
 
   /* 字体（静态，与主题无关） */
@@ -831,6 +843,186 @@ input[type="radio"]:checked::after {
 
 [data-perf="medium"] .typing-indicator {
   animation-duration: 2s !important;
+}
+
+// ========== iPadOS 风格工具类系统 ==========
+// 参考 Apple Human Interface Guidelines for iPadOS
+// 提供 Material（毛玻璃材质）/ Typography（大型标题）/ Navigation（导航元素）/ Controls（控件）四类工具类
+
+// ---- Material 材质类 ----
+// 用于需要毛玻璃效果的容器，按 iPadOS Materials 规范分级
+.glass-material-ultra-thin {
+  background: var(--surface-glass);
+  -webkit-backdrop-filter: var(--glass-blur-ultra-thin);
+  backdrop-filter: var(--glass-blur-ultra-thin);
+}
+.glass-material-thin {
+  background: var(--surface-glass);
+  -webkit-backdrop-filter: var(--glass-blur-thin);
+  backdrop-filter: var(--glass-blur-thin);
+}
+.glass-material-regular {
+  background: var(--surface-elevated);
+  -webkit-backdrop-filter: var(--glass-blur-regular);
+  backdrop-filter: var(--glass-blur-regular);
+}
+.glass-material-thick {
+  background: var(--surface-elevated);
+  -webkit-backdrop-filter: var(--glass-blur-thick);
+  backdrop-filter: var(--glass-blur-thick);
+}
+
+// ---- Typography 大型标题 ----
+// iPadOS Large Title 模式（27pt-34pt，粗体，紧凑字距）
+.large-title {
+  font-size: var(--font-size-largeTitle);
+  font-weight: var(--font-weight-bold);
+  line-height: 1.1;
+  letter-spacing: -0.5px;
+  color: var(--text-primary);
+}
+.title1 {
+  font-size: var(--font-size-title1);
+  font-weight: var(--font-weight-bold);
+  line-height: 1.15;
+  letter-spacing: -0.3px;
+  color: var(--text-primary);
+}
+.title2 {
+  font-size: var(--font-size-title2);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.2;
+  color: var(--text-primary);
+}
+
+// ---- Navigation 导航元素 ----
+// iPadOS 顶部导航栏（毛玻璃 + 大型标题模式）
+.ios-nav-bar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: var(--nav-bg);
+  -webkit-backdrop-filter: var(--glass-blur-nav);
+  backdrop-filter: var(--glass-blur-nav);
+  border-bottom: 0.5px solid var(--nav-border);
+  padding: env(safe-area-inset-top, 0) 16px 8px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+// iPadOS 侧边栏（毛玻璃 + 分组列表）
+.ios-sidebar {
+  background: var(--sidebar-bg);
+  -webkit-backdrop-filter: var(--glass-blur-regular);
+  backdrop-filter: var(--glass-blur-regular);
+  border-right: 0.5px solid var(--separator-color);
+  padding: var(--spacing-md);
+}
+
+// iPadOS 底部工具栏
+.ios-toolbar {
+  background: var(--nav-bg);
+  -webkit-backdrop-filter: var(--glass-blur-nav);
+  backdrop-filter: var(--glass-blur-nav);
+  border-top: 0.5px solid var(--nav-border);
+  padding: 8px 16px env(safe-area-inset-bottom, 0);
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+// iPadOS Sheet（底部弹窗 - 圆角 + 毛玻璃）
+.ios-sheet {
+  background: var(--surface-elevated);
+  -webkit-backdrop-filter: var(--glass-blur-thick);
+  backdrop-filter: var(--glass-blur-thick);
+  border-radius: var(--radius-3xl) var(--radius-3xl) 0 0;
+  box-shadow: var(--shadow-xl);
+  padding: var(--spacing-md);
+}
+
+// ---- Controls 控件 ----
+// iPadOS Segmented Control（胶囊形分段控件）
+.segmented-control {
+  display: inline-flex;
+  align-items: center;
+  background: var(--primary-lighter);
+  border-radius: var(--radius-pill);
+  padding: 2px;
+  gap: 0;
+  position: relative;
+}
+.segmented-control-item {
+  padding: 6px 16px;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-secondary);
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: color 0.2s var(--ease-standard), background 0.2s var(--ease-standard);
+  white-space: nowrap;
+  position: relative;
+  z-index: 1;
+}
+.segmented-control-item.active {
+  color: var(--text-primary);
+  background: var(--card-bg);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+// iPadOS List（分组列表 - Settings 风格）
+.ios-list-group {
+  background: var(--card-bg);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  margin-bottom: var(--spacing-md);
+}
+.ios-list-row {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  min-height: 44px;
+  border-bottom: 0.5px solid var(--separator-color);
+  transition: background 0.15s var(--ease-standard);
+}
+.ios-list-row:last-child {
+  border-bottom: none;
+}
+.ios-list-row:active {
+  background: var(--primary-lighter);
+}
+.ios-list-row-label {
+  flex: 1;
+  font-size: var(--font-size-body);
+  color: var(--text-primary);
+}
+.ios-list-row-value {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  margin-right: 6px;
+}
+
+// iPadOS 卡片（强化毛玻璃 + 柔和阴影）
+.ios-card {
+  background: var(--surface-elevated);
+  -webkit-backdrop-filter: var(--glass-blur-regular);
+  backdrop-filter: var(--glass-blur-regular);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm);
+  padding: var(--spacing-md);
+  transition: transform 0.25s var(--ease-standard), box-shadow 0.25s var(--ease-standard);
+}
+.ios-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+.ios-card:active {
+  transform: scale(0.98);
 }
 
 // ========== LaTeX 文档渲染样式 ==========
