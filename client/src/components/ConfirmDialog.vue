@@ -39,12 +39,17 @@ export default {
 <style scoped>
 .confirm-overlay {
   position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0,0,0,0.4); backdrop-filter: var(--glass-blur-thin); -webkit-backdrop-filter: var(--glass-blur-thin);
+  background: rgba(0,0,0,0.45); backdrop-filter: var(--glass-blur-regular); -webkit-backdrop-filter: var(--glass-blur-regular);
   display: flex; align-items: center; justify-content: center; z-index: var(--z-modal, 10001);
 }
 .confirm-box {
-  width: 270px; background: var(--card-bg); border-radius: var(--radius-md);
-  padding: 20px; text-align: center; box-shadow: var(--shadow-lg);
+  width: 270px;
+  background: var(--surface-elevated);
+  backdrop-filter: var(--glass-blur-thick);
+  -webkit-backdrop-filter: var(--glass-blur-thick);
+  border-radius: var(--radius-2xl);
+  padding: 20px; text-align: center;
+  box-shadow: var(--shadow-xl), 0 0 0 0.5px var(--glass-border);
   overflow: hidden;
 }
 .confirm-icon { font-size: 36px; margin-bottom: 14px; }

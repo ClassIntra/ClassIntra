@@ -213,12 +213,12 @@ export default {
 .register-card {
   width: 420px;
   background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur-container);
-  -webkit-backdrop-filter: var(--glass-blur-container);
+  backdrop-filter: var(--glass-blur-thick);
+  -webkit-backdrop-filter: var(--glass-blur-thick);
   border: 1px solid var(--glass-border);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-2xl);
   padding: 40px;
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-xl);
 }
 
 .register-header {
@@ -231,13 +231,14 @@ export default {
   height: 56px;
   margin: 0 auto 12px;
   background: linear-gradient(135deg, var(--primary-dark), var(--primary-color));
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-xl);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: var(--font-size-title1);
   font-weight: var(--font-weight-bold);
   color: var(--card-bg);
+  box-shadow: 0 8px 24px rgba(var(--primary-rgb), 0.35);
 }
 
 .register-title {
