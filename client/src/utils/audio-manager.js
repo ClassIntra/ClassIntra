@@ -5,6 +5,34 @@ audio.preload = 'metadata';
 var store = null;
 var rafId = null;
 
+// 命名函数引用，便于 destroy() 中正确移除监听器
+function onTimeUpdate() {
+  if (store) {
+    store.commit('music/SET_CURRENT_TIME', audio.currentTime);
+    store.dispatch('music/updateLyricIndex');
+  }
+}
+function onLoadedMetadata() {
+  if (store) store.commit('music/SET_DURATION', audio.duration || 0);
+}
+function onEnded() {
+  if (store) store.dispatch('music/next');
+}
+function onPlay() {
+  if (store) store.commit('music/SET_PLAYING', true);
+}
+function onPause() {
+  if (store) store.commit('music/SET_PLAYING', false);
+}
+function onError() {
+  if (store) store.commit('music/SET_PLAYING', false);
+}
+function onProgress() {
+  if (!store || !audio.buffered || audio.buffered.length === 0) return;
+  var end = audio.buffered.end(audio.buffered.length - 1);
+  store.commit('music/SET_BUFFERED_END', end);
+}
+
 function rafLoop() {
   if (store && !audio.paused) {
     store.commit('music/SET_CURRENT_TIME', audio.currentTime);
@@ -17,36 +45,13 @@ export default {
   init: function (_store) {
     store = _store;
 
-    audio.addEventListener('timeupdate', function () {
-      store.commit('music/SET_CURRENT_TIME', audio.currentTime);
-      store.dispatch('music/updateLyricIndex');
-    });
-
-    audio.addEventListener('loadedmetadata', function () {
-      store.commit('music/SET_DURATION', audio.duration || 0);
-    });
-
-    audio.addEventListener('ended', function () {
-      store.dispatch('music/next');
-    });
-
-    audio.addEventListener('play', function () {
-      store.commit('music/SET_PLAYING', true);
-    });
-
-    audio.addEventListener('pause', function () {
-      store.commit('music/SET_PLAYING', false);
-    });
-
-    audio.addEventListener('error', function () {
-      store.commit('music/SET_PLAYING', false);
-    });
-
-    audio.addEventListener('progress', function () {
-      if (!audio.buffered || audio.buffered.length === 0) return;
-      var end = audio.buffered.end(audio.buffered.length - 1);
-      store.commit('music/SET_BUFFERED_END', end);
-    });
+    audio.addEventListener('timeupdate', onTimeUpdate);
+    audio.addEventListener('loadedmetadata', onLoadedMetadata);
+    audio.addEventListener('ended', onEnded);
+    audio.addEventListener('play', onPlay);
+    audio.addEventListener('pause', onPause);
+    audio.addEventListener('error', onError);
+    audio.addEventListener('progress', onProgress);
 
     rafLoop();
   },
@@ -106,13 +111,13 @@ export default {
 
   destroy: function () {
     audio.pause();
-    audio.removeEventListener('timeupdate');
-    audio.removeEventListener('loadedmetadata');
-    audio.removeEventListener('ended');
-    audio.removeEventListener('play');
-    audio.removeEventListener('pause');
-    audio.removeEventListener('error');
-    audio.removeEventListener('progress');
+    audio.removeEventListener('timeupdate', onTimeUpdate);
+    audio.removeEventListener('loadedmetadata', onLoadedMetadata);
+    audio.removeEventListener('ended', onEnded);
+    audio.removeEventListener('play', onPlay);
+    audio.removeEventListener('pause', onPause);
+    audio.removeEventListener('error', onError);
+    audio.removeEventListener('progress', onProgress);
     if (rafId) {
       cancelAnimationFrame(rafId);
       rafId = null;

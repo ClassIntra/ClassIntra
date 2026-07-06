@@ -1133,7 +1133,7 @@ export default {
   cursor: pointer;
   border: 2px solid transparent;
   background: none;
-  transition: all 0.15s;
+  transition: background 0.15s var(--ease-standard), color 0.15s var(--ease-standard), border-color 0.15s var(--ease-standard);
   flex-shrink: 0;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
@@ -1287,7 +1287,7 @@ export default {
   cursor: pointer;
   border: 2px solid transparent;
   background: none;
-  transition: all 0.15s;
+  transition: background 0.15s var(--ease-standard), color 0.15s var(--ease-standard), border-color 0.15s var(--ease-standard);
   padding: 0 8px;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;

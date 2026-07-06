@@ -499,15 +499,15 @@ export default {
   backdrop-filter: var(--glass-blur-thin);
 }
 .global-toast.success {
-  background: rgba(34, 197, 94, 0.95);
+  background: rgba(var(--success-rgb), 0.95);
   color: #fff;
 }
 .global-toast.error {
-  background: rgba(239, 68, 68, 0.95);
+  background: rgba(var(--danger-rgb), 0.95);
   color: #fff;
 }
 .global-toast.info {
-  background: rgba(33, 150, 243, 0.95);
+  background: rgba(var(--primary-rgb), 0.95);
   color: #fff;
 }
 .toast-icon {

@@ -1091,12 +1091,19 @@ export default {
         self.$store.commit('desktop/SET_ENABLED_APPS', apps);
         // 加载桌面布局（传入启用的应用列表用于默认布局生成）
         self.$store.dispatch('desktop/loadDesktopLayout', apps);
+        // 同步清除 router 的应用管控缓存，保证 URL 直接访问也用最新状态
+        if (self.$router && self.$router.clearAppControlCache) {
+          self.$router.clearAppControlCache();
+        }
       }).catch(function() {
         // 降级：全部启用
         var fallback = self.dockApps.map(function(app) { return app.name; });
         self.enabledApps = fallback;
         self.$store.commit('desktop/SET_ENABLED_APPS', fallback);
         self.$store.dispatch('desktop/loadDesktopLayout', fallback);
+        if (self.$router && self.$router.clearAppControlCache) {
+          self.$router.clearAppControlCache();
+        }
       });
     },
     checkVersionUpdate: function() {
@@ -2013,7 +2020,7 @@ export default {
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: transform 0.15s var(--ease-standard), background 0.15s var(--ease-standard), box-shadow 0.15s var(--ease-standard), opacity 0.15s var(--ease-standard);
   min-height: 38px;
 }
 .wc-btn:active {
