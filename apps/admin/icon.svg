@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+  <defs>
+    <linearGradient id="adminBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF453A"/>
+      <stop offset="100%" stop-color="#D70015"/>
+    </linearGradient>
+    <linearGradient id="adminShield" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#F0F0F0"/>
+    </linearGradient>
+  </defs>
+  <!-- 圆角矩形背景 -->
+  <rect x="0" y="0" width="120" height="120" rx="26" ry="26" fill="url(#adminBg)"/>
+  <!-- 盾牌轮廓 -->
+  <path d="M60 22 L88 32 L88 58 C88 76 76 90 60 96 C44 90 32 76 32 58 L32 32 Z"
+        fill="url(#adminShield)" opacity="0.95"/>
+  <!-- 齿轮 -->
+  <g transform="translate(60 58)">
+    <g fill="#FF3B30">
+      <!-- 齿轮齿（8个） -->
+      <rect x="-3" y="-22" width="6" height="8" rx="1.5"/>
+      <rect x="-3" y="14" width="6" height="8" rx="1.5"/>
+      <rect x="-22" y="-3" width="8" height="6" rx="1.5"/>
+      <rect x="14" y="-3" width="8" height="6" rx="1.5"/>
+      <rect x="-3" y="-3" width="6" height="6" rx="1.5" transform="rotate(45)"/>
+      <rect x="-3" y="-3" width="6" height="6" rx="1.5" transform="rotate(45) translate(0 -19)"/>
+      <rect x="-3" y="-3" width="6" height="6" rx="1.5" transform="rotate(45) translate(0 19)"/>
+      <rect x="-3" y="-3" width="6" height="6" rx="1.5" transform="rotate(45) translate(-19 0)"/>
+      <rect x="-3" y="-3" width="6" height="6" rx="1.5" transform="rotate(45) translate(19 0)"/>
+    </g>
+    <!-- 齿轮主体 -->
+    <circle cx="0" cy="0" r="14" fill="#FF3B30"/>
+    <!-- 中心孔 -->
+    <circle cx="0" cy="0" r="5" fill="#FFFFFF"/>
+  </g>
+  <!-- 盾牌勾选标记 -->
+  <path d="M50 70 L56 76 L70 62" stroke="#FF3B30" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.85"/>
+</svg>

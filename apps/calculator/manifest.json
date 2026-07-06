@@ -1,0 +1,17 @@
+{
+  "name": "calculator",
+  "type": "app",
+  "version": "1.0.0",
+  "label": "计算器",
+  "icon": "./icon.svg",
+  "color": "#5856D6",
+  "category": "desktop",
+  "order": 6,
+  "defaultEnabled": true,
+  "canDisable": true,
+  "frontend": {
+    "route": "/calculator",
+    "routeName": "Calculator",
+    "component": "./frontend/Calculator.vue"
+  }
+}

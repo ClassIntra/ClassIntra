@@ -74,12 +74,6 @@ var routes = [
   }
 ].concat(appRoutes).concat([
   {
-    path: '/admin',
-    name: 'Admin',
-    component: function() { return import('@/views/Admin.vue'); },
-    meta: { requiresAuth: true, requiresAdmin: true }
-  },
-  {
     path: '*',
     redirect: '/'
   }

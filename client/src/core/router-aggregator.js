@@ -17,11 +17,14 @@ manifests.forEach(function(m) {
     if (!mainLoader) {
       console.error('[router-aggregator] 找不到主组件:', m.name, m.frontend.component);
     } else {
+      // 合并默认 meta 与 manifest 中声明的 frontend.meta
+      // manifest 可声明 requiresAdmin / requiresAuth 等覆盖默认值
+      var routeMeta = Object.assign({ requiresAuth: true, appName: m.name }, m.frontend.meta || {});
       appRoutes.push({
         path: m.frontend.route,
         name: m.frontend.routeName,
         component: mainLoader,
-        meta: { requiresAuth: true, appName: m.name }
+        meta: routeMeta
       });
       ROUTE_APP_MAP[m.frontend.route] = m.name;
     }

@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+  <defs>
+    <linearGradient id="calcBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#5E5CE6"/>
+      <stop offset="100%" stop-color="#3634A3"/>
+    </linearGradient>
+  </defs>
+  <!-- 圆角矩形背景 -->
+  <rect x="0" y="0" width="120" height="120" rx="26" ry="26" fill="url(#calcBg)"/>
+  <!-- 计算器主体 -->
+  <rect x="28" y="22" width="64" height="76" rx="8" fill="#FFFFFF" opacity="0.95"/>
+  <!-- 显示屏 -->
+  <rect x="34" y="28" width="52" height="18" rx="3" fill="#1C1C2E"/>
+  <text x="82" y="41" font-family="-apple-system, SF Pro Display, sans-serif" font-size="11" font-weight="600" fill="#5AC8FA" text-anchor="end">2+3×4</text>
+  <!-- 按钮网格 -->
+  <g fill="#3634A3">
+    <!-- 第一行：7 8 9 ÷ -->
+    <rect x="34" y="50" width="11" height="11" rx="2.5"/>
+    <rect x="47" y="50" width="11" height="11" rx="2.5"/>
+    <rect x="60" y="50" width="11" height="11" rx="2.5"/>
+    <rect x="73" y="50" width="13" height="11" rx="2.5" fill="#FF9500"/>
+    <!-- 第二行：4 5 6 × -->
+    <rect x="34" y="63" width="11" height="11" rx="2.5"/>
+    <rect x="47" y="63" width="11" height="11" rx="2.5"/>
+    <rect x="60" y="63" width="11" height="11" rx="2.5"/>
+    <rect x="73" y="63" width="13" height="11" rx="2.5" fill="#FF9500"/>
+    <!-- 第三行：1 2 3 - -->
+    <rect x="34" y="76" width="11" height="11" rx="2.5"/>
+    <rect x="47" y="76" width="11" height="11" rx="2.5"/>
+    <rect x="60" y="76" width="11" height="11" rx="2.5"/>
+    <rect x="73" y="76" width="13" height="11" rx="2.5" fill="#FF9500"/>
+    <!-- 第四行：0 . = + -->
+    <rect x="34" y="89" width="24" height="11" rx="2.5"/>
+    <rect x="60" y="89" width="11" height="11" rx="2.5"/>
+    <rect x="73" y="89" width="13" height="11" rx="2.5" fill="#FF9500"/>
+  </g>
+  <!-- 按钮上的数字符号（白色） -->
+  <g fill="#FFFFFF" font-family="-apple-system, SF Pro Display, sans-serif" font-size="7" font-weight="600" text-anchor="middle">
+    <text x="39.5" y="58">7</text>
+    <text x="52.5" y="58">8</text>
+    <text x="65.5" y="58">9</text>
+    <text x="79.5" y="58">÷</text>
+    <text x="39.5" y="71">4</text>
+    <text x="52.5" y="71">5</text>
+    <text x="65.5" y="71">6</text>
+    <text x="79.5" y="71">×</text>
+    <text x="39.5" y="84">1</text>
+    <text x="52.5" y="84">2</text>
+    <text x="65.5" y="84">3</text>
+    <text x="79.5" y="84">−</text>
+    <text x="46" y="97">0</text>
+    <text x="65.5" y="97">.</text>
+    <text x="79.5" y="97">=</text>
+  </g>
+</svg>

@@ -441,6 +441,15 @@ export default {
     isLoaded: function() {
       return this.$store.getters['desktop/isLoaded'];
     },
+    // 当前登录用户
+    currentUser: function() {
+      return this.$store.state.auth.user || {};
+    },
+    // 是否为管理员或班干（用于 admin 应用图标可见性判断）
+    isAdminOrOfficer: function() {
+      var u = this.currentUser;
+      return !!(u && (u.is_admin === 1 || u.is_admin === true || u.role === 'officer' || u.is_class_admin));
+    },
     // 桌面布局模式：'grid'（iPad 桌面图标）| 'dock'（仅 Dock）
     isGridLayout: function() {
       return this.$store.getters['settings/desktopLayout'] === 'grid';
@@ -472,12 +481,13 @@ export default {
     },
     // Dock 应用名列表
     dockAppNames: function() {
+      var self = this;
       var dockNames = this.$store.getters['desktop/dockApps'];
-      // 应用管控过滤：未加载时全显示，加载后过滤禁用的
-      if (this.enabledApps === null) return dockNames;
-      return dockNames.filter(function(name) {
-        return this.enabledApps.indexOf(name) !== -1;
-      }.bind(this));
+      // 应用管控过滤 + 角色过滤（admin 应用仅管理员/班干可见）
+      var filtered = dockNames.filter(function(name) {
+        return self.isVisibleForUser(name);
+      });
+      return filtered;
     },
     // Dock 实际渲染应用列表：
     //   grid 模式 → 仅 layout.dock（过滤禁用应用）
@@ -489,10 +499,13 @@ export default {
       if (!layout) return [];
       var enabled = this.enabledApps;
       var ready = enabled !== null;
+      var self = this;
       var seen = {};
       var result = [];
       function push(name) {
         if (!name) return;
+        // 角色过滤（admin 应用仅管理员/班干可见）
+        if (!self.isVisibleForUser(name)) return;
         if (ready && enabled.indexOf(name) === -1) return;
         if (seen[name]) return;
         seen[name] = true;
@@ -1074,11 +1087,32 @@ export default {
         self.unreadAnnouncements = [];
       });
     },
-    // 判断应用是否启用（对接应用管控，用于 page 渲染过滤）
-    // enabledApps 未加载时（null）默认全部启用，加载后按数组过滤
-    isAppEnabled: function(name) {
+    // 判断应用是否对当前用户可见（结合应用管控 + 角色过滤）
+    // 1. 角色过滤：visibleRoles 声明的应用仅对指定角色显示（如 admin 仅管理员/班干可见）
+    // 2. 应用管控：enabledApps 加载后过滤禁用的应用
+    isVisibleForUser: function(name) {
+      // 1. 角色过滤：查找 APP_REGISTRY 中该应用的 visibleRoles
+      var appMeta = null;
+      for (var i = 0; i < this.dockApps.length; i++) {
+        if (this.dockApps[i].name === name) { appMeta = this.dockApps[i]; break; }
+      }
+      if (appMeta && appMeta.visibleRoles && appMeta.visibleRoles.length) {
+        // admin 应用仅管理员/班干可见
+        var roleOk = false;
+        for (var r = 0; r < appMeta.visibleRoles.length; r++) {
+          var role = appMeta.visibleRoles[r];
+          if (role === 'admin' && this.isAdminOrOfficer) { roleOk = true; break; }
+          if (role === 'officer' && this.currentUser.role === 'officer') { roleOk = true; break; }
+        }
+        if (!roleOk) return false;
+      }
+      // 2. 应用管控过滤：enabledApps 未加载时全部可见，加载后过滤禁用的
       if (this.enabledApps === null) return true;
       return this.enabledApps.indexOf(name) !== -1;
+    },
+    // 判断应用是否启用（兼容旧调用，实际委托给 isVisibleForUser）
+    isAppEnabled: function(name) {
+      return this.isVisibleForUser(name);
     },
     // 加载后端应用管控状态，过滤桌面禁用的应用
     loadEnabledApps: function() {
@@ -1089,18 +1123,20 @@ export default {
         self.enabledApps = apps;
         // 同步到 store（供 DesktopFolder 等组件通过 getter 读取）
         self.$store.commit('desktop/SET_ENABLED_APPS', apps);
-        // 加载桌面布局（传入启用的应用列表用于默认布局生成）
-        self.$store.dispatch('desktop/loadDesktopLayout', apps);
+        // 加载桌面布局：传入当前用户可见的应用列表，避免 admin 等角色限定应用占用普通用户桌面槽位
+        var visibleApps = apps.filter(function(name) { return self.isVisibleForUser(name); });
+        self.$store.dispatch('desktop/loadDesktopLayout', visibleApps);
         // 同步清除 router 的应用管控缓存，保证 URL 直接访问也用最新状态
         if (self.$router && self.$router.clearAppControlCache) {
           self.$router.clearAppControlCache();
         }
       }).catch(function() {
-        // 降级：全部启用
-        var fallback = self.dockApps.map(function(app) { return app.name; });
-        self.enabledApps = fallback;
-        self.$store.commit('desktop/SET_ENABLED_APPS', fallback);
-        self.$store.dispatch('desktop/loadDesktopLayout', fallback);
+        // 降级：全部启用（过滤掉当前用户不可见的应用用于布局生成）
+        var allApps = self.dockApps.map(function(app) { return app.name; });
+        self.enabledApps = allApps;
+        self.$store.commit('desktop/SET_ENABLED_APPS', allApps);
+        var visibleFallback = allApps.filter(function(name) { return self.isVisibleForUser(name); });
+        self.$store.dispatch('desktop/loadDesktopLayout', visibleFallback);
         if (self.$router && self.$router.clearAppControlCache) {
           self.$router.clearAppControlCache();
         }
