@@ -22,7 +22,10 @@ var APP_REGISTRY = manifests
       label: m.label,
       icon: icon,
       color: m.color,
-      route: m.frontend && m.frontend.route
+      route: m.frontend && m.frontend.route,
+      // visibleRoles: 可选，限定应用图标仅对某些角色显示
+      // 未声明表示对所有用户可见
+      visibleRoles: m.visibleRoles || null
     };
   });
 

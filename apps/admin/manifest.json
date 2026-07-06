@@ -1,0 +1,21 @@
+{
+  "name": "admin",
+  "type": "system",
+  "version": "1.0.0",
+  "label": "管理",
+  "icon": "./icon.svg",
+  "color": "#FF3B30",
+  "category": "desktop",
+  "order": 99,
+  "defaultEnabled": true,
+  "canDisable": false,
+  "visibleRoles": ["admin", "officer"],
+  "frontend": {
+    "route": "/admin",
+    "routeName": "Admin",
+    "component": "./frontend/Admin.vue",
+    "meta": {
+      "requiresAdmin": true
+    }
+  }
+}

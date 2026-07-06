@@ -1695,6 +1695,7 @@ router.post('/weather-alert/broadcast', function(req, res) {
 // 管理员/班干控制每个桌面应用的启用与禁用，禁用的应用不在用户桌面显示
 
 // 桌面应用元数据（与前端 Desktop.vue dockApps 保持一致）
+// protectedApps: 系统级应用，禁止通过应用管控禁用（settings 永远可用；admin 仅管理员/班干可见）
 var DESKTOP_APPS = [
   { name: 'chat', label: '聊天', icon: 'fa-solid fa-comments', color: '#007AFF' },
   { name: 'community', label: '社区', icon: 'fa-solid fa-people-group', color: '#FF9500' },
@@ -1703,10 +1704,13 @@ var DESKTOP_APPS = [
   { name: 'resource', label: '资源', icon: 'fa-solid fa-folder', color: '#5856D6' },
   { name: 'weather', label: '天气', icon: 'fa-solid fa-cloud-sun-rain', color: '#5AC8FA' },
   { name: 'music', label: '音乐', icon: 'fa-solid fa-music', color: '#FF2D55' },
-  { name: 'settings', label: '设置', icon: 'fa-solid fa-gear', color: '#8E8E93' },
+  { name: 'settings', label: '设置', icon: 'fa-solid fa-gear', color: '#8E8E93', protected: true },
   { name: 'timetable', label: '课程表', icon: 'fa-solid fa-table-list', color: '#FF3B30' },
   { name: 'calendar', label: '日历', icon: 'fa-solid fa-calendar-days', color: '#FF3B30' },
-  { name: 'countdown', label: '倒数日', icon: 'fa-solid fa-hourglass-half', color: '#FF9500' }
+  { name: 'countdown', label: '倒数日', icon: 'fa-solid fa-hourglass-half', color: '#FF9500' },
+  // admin: 管理应用，仅管理员/班干可见（前端通过 visibleRoles 过滤），后端管控禁止禁用
+  { name: 'admin', label: '管理', icon: 'fa-solid fa-shield-halved', color: '#FF3B30', protected: true },
+  { name: 'calculator', label: '计算器', icon: 'fa-solid fa-calculator', color: '#5856D6' }
 ];
 
 // GET /api/admin/app-control - 获取所有应用及启用状态
@@ -1751,9 +1755,9 @@ router.put('/app-control/:appName', auth.requirePermission('manage_app_control')
   if (!validApp) {
     return res.status(400).json({ code: 400, message: '无效的应用名称' });
   }
-  // settings 应用不允许禁用（确保用户始终能访问设置）
-  if (appName === 'settings' && !req.body.enabled) {
-    return res.status(400).json({ code: 400, message: '设置应用不允许禁用' });
+  // protected 应用不允许禁用（settings 永远可用；admin 仅管理员/班干可见，禁用会锁死管理入口）
+  if (validApp.protected && !req.body.enabled) {
+    return res.status(400).json({ code: 400, message: validApp.label + '应用不允许禁用' });
   }
   var enabled = req.body.enabled ? 1 : 0;
   try {
