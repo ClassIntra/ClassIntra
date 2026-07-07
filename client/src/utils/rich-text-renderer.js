@@ -179,6 +179,7 @@ function generateMediaHtml(url, type) {
  * @param {Object} [options] - 渲染选项
  * @param {string} [options.highlightTerm=''] - 搜索高亮关键词
  * @param {boolean} [options.enableMedia=true] - 是否处理媒体 URL
+ * @param {boolean} [options.linksAsText=false] - 是否将链接渲染为纯文本（无超能岛浏览器权限时使用）
  * @returns {string} 渲染后的 HTML
  */
 function renderRichText(content, options) {
@@ -186,6 +187,7 @@ function renderRichText(content, options) {
   options = options || {};
   var highlightTerm = options.highlightTerm || '';
   var enableMedia = options.enableMedia !== false;
+  var linksAsText = options.linksAsText === true;
 
   // Step 0: 处理云盘媒体标签 [cloud-img:hash.ext] / [cloud-video:hash.ext] / [cloud-audio:hash.ext]
   var cloudTagItems = [];
@@ -245,12 +247,18 @@ function renderRichText(content, options) {
     html = html.replace(placeholder, mediaHtml);
   }
 
-  // Step 6: 还原普通 URL 为可点击链接
+  // Step 6: 还原普通 URL 为可点击链接（或纯文本）
   for (var j = 0; j < urls.length; j++) {
     var urlPlaceholder = '%%URL' + j + '%%';
     var url = urls[j];
     var escapedUrl = escapeHtml(url);
-    var urlHtml = '<a href="' + escapedUrl + '" class="msg-link" data-external="true">' + escapedUrl + '</a>';
+    var urlHtml;
+    if (linksAsText) {
+      // 无超能岛浏览器权限：显示为纯文本，不可点击
+      urlHtml = '<span class="msg-link-text">' + escapedUrl + '</span>';
+    } else {
+      urlHtml = '<a href="' + escapedUrl + '" class="msg-link" data-external="true">' + escapedUrl + '</a>';
+    }
     html = html.replace(urlPlaceholder, urlHtml);
   }
 

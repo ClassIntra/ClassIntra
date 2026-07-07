@@ -1281,6 +1281,13 @@ export default {
     currentUser: function() {
       return this.$store.state.auth.user;
     },
+    // 超能岛浏览器是否启用（应用管控中 browser 应用是否启用）
+    // 禁用时社区中的链接以纯文本显示，不可点击
+    browserEnabled: function() {
+      var store = this.$store;
+      if (!store || !store.getters || !store.getters['desktop/isAppEnabled']) return true;
+      return store.getters['desktop/isAppEnabled']('browser');
+    },
     // 当前长按菜单的图片是否可转存到云盘（仅本站图片）
     canSaveMenuMedia: function() {
       var url = this.imageMenuUrl || '';
@@ -1449,6 +1456,24 @@ export default {
       var target = e.target;
       // 跳过音频原生控件点击（音频保留 controls）
       if (target.tagName === 'AUDIO') return;
+      // 链接点击：拦截并跳转到超能岛浏览器（仅当 browser 启用时）
+      var linkEl = target.closest ? target.closest('a') : null;
+      if (linkEl && linkEl.tagName === 'A') {
+        if (!this.browserEnabled) {
+          // 无权限：阻止默认行为（理论上已被 renderMarkdown 转为 span，这里是兜底）
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+        var href = linkEl.getAttribute('href') || '';
+        // 仅拦截外部链接（http/https），内部路由不动
+        if (/^https?:\/\//i.test(href)) {
+          e.preventDefault();
+          e.stopPropagation();
+          this.$router.push('/browser?url=' + encodeURIComponent(href));
+        }
+        return;
+      }
       // 向上查找最近的 md-media 元素（支持视频包裹器和图片）
       var mediaEl = target.closest ? target.closest('.md-media') : null;
       if (!mediaEl && target.classList && target.classList.contains('md-media')) {
@@ -2517,6 +2542,10 @@ export default {
       var result = LatexRenderer.processContent(content, marked);
       result.html = DOMPurify.sanitize(result.html);
       var html = LatexRenderer.renderFinalHtml(result.html, result.placeholders);
+      // 无超能岛浏览器权限时，将 <a> 标签替换为纯文本，避免点击跳转
+      if (!this.browserEnabled) {
+        html = html.replace(/<a\b[^>]*>([^<]*)<\/a>/gi, '<span class="msg-link-text">$1</span>');
+      }
       return html;
     },
     // 生成纯文本预览，用于列表页性能优化
@@ -3396,6 +3425,12 @@ export default {
 }
 .markdown-body >>> a:hover {
   text-decoration: underline;
+}
+/* 无超能岛浏览器权限时的链接纯文本样式（保持可读，但不可点击） */
+.markdown-body >>> .msg-link-text {
+  color: var(--text-primary);
+  opacity: 0.85;
+  word-break: break-all;
 }
 .markdown-body >>> img {
   max-width: 100%;

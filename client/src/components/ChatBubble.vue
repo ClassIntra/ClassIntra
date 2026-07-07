@@ -278,6 +278,13 @@ export default {
     currentUserId: function() {
       var user = this.$store && this.$store.state && this.$store.state.auth && this.$store.state.auth.user;
       return user ? user.user_id : '';
+    },
+    // 超能岛浏览器是否启用（应用管控中 browser 应用是否启用）
+    // 禁用时聊天中的链接以纯文本显示，不可点击
+    browserEnabled: function() {
+      var store = this.$store;
+      if (!store || !store.getters || !store.getters['desktop/isAppEnabled']) return true;
+      return store.getters['desktop/isAppEnabled']('browser');
     }
   },
   mounted: function() {
@@ -397,7 +404,9 @@ export default {
     },
     renderContent: function(content) {
       return RichTextRenderer.renderRichText(content, {
-        highlightTerm: this.searchTerm
+        highlightTerm: this.searchTerm,
+        // 无超能岛浏览器权限时，链接显示为纯文本
+        linksAsText: !this.browserEnabled
       });
     },
     onContextMenu: function(e) {
@@ -874,6 +883,13 @@ export default {
 
 .own-bubble >>> .msg-link {
   color: #fff;
+}
+
+/* 无超能岛浏览器权限时的链接纯文本样式（保持可读，但无下划线/不可点击） */
+.chat-bubble >>> .msg-link-text {
+  color: inherit;
+  word-break: break-all;
+  opacity: 0.85;
 }
 
 /* Message image — 固定尺寸防止图片加载时布局重排导致滚动卡顿 */

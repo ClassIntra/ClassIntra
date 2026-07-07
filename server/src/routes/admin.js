@@ -1710,7 +1710,9 @@ var DESKTOP_APPS = [
   { name: 'countdown', label: '倒数日', icon: 'fa-solid fa-hourglass-half', color: '#FF9500' },
   // admin: 管控中心，仅管理员/班干可见（前端通过 visibleRoles 过滤），后端管控禁止禁用
   { name: 'admin', label: '管控中心', icon: 'fa-solid fa-shield-halved', color: '#FF3B30', protected: true },
-  { name: 'calculator', label: '计算器', icon: 'fa-solid fa-calculator', color: '#5856D6' }
+  { name: 'calculator', label: '计算器', icon: 'fa-solid fa-calculator', color: '#5856D6' },
+  // browser: 超能岛浏览器，被禁用时聊天/社区中的链接以纯文本显示（无法跳转）
+  { name: 'browser', label: '超能岛浏览器', icon: 'fa-solid fa-compass', color: '#007AFF' }
 ];
 
 // GET /api/admin/app-control - 获取所有应用及启用状态

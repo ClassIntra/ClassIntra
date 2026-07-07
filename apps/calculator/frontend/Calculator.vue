@@ -23,18 +23,32 @@
           </div>
         </div>
 
-        <!-- 按钮网格 -->
+        <!-- 按钮网格：左侧科学功能 + 右侧数字运算 -->
         <div class="calc-keypad">
-          <button
-            v-for="btn in currentButtons"
-            :key="btn.label + (btn.secondaryLabel || '')"
-            class="calc-key"
-            :class="['key-' + btn.type, { 'key-wide': btn.wide, 'key-active': btn.active }]"
-            @click="onKey(btn)"
-            :aria-label="btn.label"
-          >
-            <span class="key-label">{{ btn.label }}</span>
-          </button>
+          <div class="keypad-section keypad-scientific">
+            <button
+              v-for="btn in currentScientificKeys"
+              :key="'s-' + btn.label + (btn.secondaryLabel || '')"
+              class="calc-key"
+              :class="['key-' + btn.type, { 'key-wide': btn.wide, 'key-active': btn.active }]"
+              @click="onKey(btn)"
+              :aria-label="btn.label"
+            >
+              <span class="key-label">{{ btn.label }}</span>
+            </button>
+          </div>
+          <div class="keypad-section keypad-basic">
+            <button
+              v-for="btn in currentBasicKeys"
+              :key="'b-' + btn.label + (btn.secondaryLabel || '')"
+              class="calc-key"
+              :class="['key-' + btn.type, { 'key-wide': btn.wide, 'key-active': btn.active }]"
+              @click="onKey(btn)"
+              :aria-label="btn.label"
+            >
+              <span class="key-label">{{ btn.label }}</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -77,13 +91,14 @@
 import AppNavBar from '@/components/AppNavBar.vue';
 import { evaluate, formatResult } from './calc-parser.js';
 
-// 按钮定义：每行 5 个，共 9 行 = 45 个
+// 按钮定义：分为科学功能组（5列×5行）和数字运算组（5列×5行）
 // type: digit / operator / function / memory / clear / mode
 // action: insert / equals / backspace / allClear / clear / toggle2nd / toggleAngle / toggleHistory
 //         mc / mr / mplus / mminus / negate / recallHistory
 // secondaryLabel: 2nd 模式下显示的替代标签
 // secondaryValue: 2nd 模式下插入的替代值
-var BUTTONS = [
+// dynamicLabel: 是否为动态标签（如 DEG/RAD）
+var SCIENTIFIC_KEYS = [
   // 行1: 模式与记忆
   { label: '2nd', type: 'mode', action: 'toggle2nd', active: false },
   { label: 'DEG', type: 'mode', action: 'toggleAngle', dynamicLabel: true },
@@ -96,43 +111,52 @@ var BUTTONS = [
   { label: 'xʸ', type: 'function', action: 'insert', value: '^', secondaryLabel: 'ⁿ√', secondaryValue: ',root(' },
   { label: 'π', type: 'function', action: 'insert', value: 'π', secondaryLabel: 'e', secondaryValue: 'e' },
   { label: 'n!', type: 'function', action: 'insert', value: '!', secondaryLabel: '1/x', secondaryValue: 'inv(' },
-  // 行3: 三角与对数
+  // 行3: 三角函数（2nd → 反三角 / 双曲）
   { label: 'sin', type: 'function', action: 'insert', value: 'sin(', secondaryLabel: 'sin⁻¹', secondaryValue: 'asin(' },
   { label: 'cos', type: 'function', action: 'insert', value: 'cos(', secondaryLabel: 'cos⁻¹', secondaryValue: 'acos(' },
   { label: 'tan', type: 'function', action: 'insert', value: 'tan(', secondaryLabel: 'tan⁻¹', secondaryValue: 'atan(' },
+  { label: 'sinh', type: 'function', action: 'insert', value: 'sinh(', secondaryLabel: 'sinh⁻¹', secondaryValue: 'asinh(' },
+  { label: 'cosh', type: 'function', action: 'insert', value: 'cosh(', secondaryLabel: 'cosh⁻¹', secondaryValue: 'acosh(' },
+  // 行4: 对数与取整
   { label: 'ln', type: 'function', action: 'insert', value: 'ln(', secondaryLabel: 'eˣ', secondaryValue: 'exp(' },
   { label: 'log', type: 'function', action: 'insert', value: 'log(', secondaryLabel: '10ˣ', secondaryValue: '10^' },
-  // 行4: 括号与常数
+  { label: 'tanh', type: 'function', action: 'insert', value: 'tanh(', secondaryLabel: 'tanh⁻¹', secondaryValue: 'atanh(' },
+  { label: '|x|', type: 'function', action: 'insert', value: 'abs(', secondaryLabel: '⌊x⌋', secondaryValue: 'floor(' },
+  { label: 'mod', type: 'function', action: 'insert', value: 'mod(', secondaryLabel: '⌈x⌉', secondaryValue: 'ceil(' },
+  // 行5: 括号、排列组合、常数
   { label: '(', type: 'function', action: 'insert', value: '(' },
   { label: ')', type: 'function', action: 'insert', value: ')' },
-  { label: ',', type: 'function', action: 'insert', value: ',' },
   { label: 'P', type: 'function', action: 'insert', value: 'P(', secondaryLabel: 'C', secondaryValue: 'C(' },
   { label: 'φ', type: 'function', action: 'insert', value: 'φ', secondaryLabel: 'γ', secondaryValue: '0.5772' },
-  // 行5: 清除与基本运算
+  { label: ',', type: 'function', action: 'insert', value: ',' }
+];
+
+var BASIC_KEYS = [
+  // 行1: 清除与基本运算
   { label: 'AC', type: 'clear', action: 'allClear' },
   { label: 'C', type: 'clear', action: 'clear' },
   { label: '⌫', type: 'clear', action: 'backspace' },
   { label: '÷', type: 'operator', action: 'insert', value: '÷' },
   { label: '×', type: 'operator', action: 'insert', value: '×' },
-  // 行6: 7 8 9 − M+
+  // 行2: 7 8 9 − M+
   { label: '7', type: 'digit', action: 'insert', value: '7' },
   { label: '8', type: 'digit', action: 'insert', value: '8' },
   { label: '9', type: 'digit', action: 'insert', value: '9' },
   { label: '−', type: 'operator', action: 'insert', value: '−' },
   { label: 'M+', type: 'memory', action: 'mplus' },
-  // 行7: 4 5 6 + M−
+  // 行3: 4 5 6 + M−
   { label: '4', type: 'digit', action: 'insert', value: '4' },
   { label: '5', type: 'digit', action: 'insert', value: '5' },
   { label: '6', type: 'digit', action: 'insert', value: '6' },
   { label: '+', type: 'operator', action: 'insert', value: '+' },
   { label: 'M−', type: 'memory', action: 'mminus' },
-  // 行8: 1 2 3 % =
+  // 行4: 1 2 3 % =
   { label: '1', type: 'digit', action: 'insert', value: '1' },
   { label: '2', type: 'digit', action: 'insert', value: '2' },
   { label: '3', type: 'digit', action: 'insert', value: '3' },
   { label: '%', type: 'function', action: 'insert', value: '%' },
   { label: '=', type: 'operator', action: 'equals' },
-  // 行9: 0 . ± EXP Ans
+  // 行5: 0 . ± EXP Ans
   { label: '0', type: 'digit', action: 'insert', value: '0' },
   { label: '.', type: 'digit', action: 'insert', value: '.' },
   { label: '±', type: 'function', action: 'negate' },
@@ -157,7 +181,8 @@ export default {
       memory: 0,          // 记忆值
       showHistory: false, // 显示历史抽屉
       history: [],        // 历史记录数组
-      buttons: BUTTONS,
+      scientificKeys: SCIENTIFIC_KEYS,
+      basicKeys: BASIC_KEYS,
       justCalculated: false  // 刚算完结果，下次输入数字时清空
     };
   },
@@ -170,28 +195,18 @@ export default {
     displayResult: function() {
       return this.result;
     },
-    // 当前按钮列表（根据 2nd 模式动态计算 label）
-    currentButtons: function() {
+    // 当前科学按钮列表（根据 2nd 模式动态计算 label）
+    currentScientificKeys: function() {
       var self = this;
-      return this.buttons.map(function(btn) {
-        var newBtn = Object.assign({}, btn);
-        // 2nd 模式切换标签
-        if (self.secondMode && btn.secondaryLabel) {
-          newBtn.label = btn.secondaryLabel;
-        }
-        // DEG/RAD 动态标签
-        if (btn.dynamicLabel && btn.action === 'toggleAngle') {
-          newBtn.label = self.angleMode;
-        }
-        // 2nd 模式激活样式
-        if (btn.action === 'toggle2nd') {
-          newBtn.active = self.secondMode;
-        }
-        // 角度模式激活样式
-        if (btn.action === 'toggleAngle') {
-          newBtn.active = true;
-        }
-        return newBtn;
+      return this.scientificKeys.map(function(btn) {
+        return self._applyDynamic(btn);
+      });
+    },
+    // 当前数字按钮列表（同上）
+    currentBasicKeys: function() {
+      var self = this;
+      return this.basicKeys.map(function(btn) {
+        return self._applyDynamic(btn);
       });
     }
   },
@@ -217,6 +232,27 @@ export default {
     }
   },
   methods: {
+    // ===== 按钮动态标签计算（2nd 模式 + DEG/RAD 切换 + active 状态） =====
+    _applyDynamic: function(btn) {
+      var newBtn = Object.assign({}, btn);
+      // 2nd 模式切换标签
+      if (this.secondMode && btn.secondaryLabel) {
+        newBtn.label = btn.secondaryLabel;
+      }
+      // DEG/RAD 动态标签
+      if (btn.dynamicLabel && btn.action === 'toggleAngle') {
+        newBtn.label = this.angleMode;
+      }
+      // 2nd 模式激活样式
+      if (btn.action === 'toggle2nd') {
+        newBtn.active = this.secondMode;
+      }
+      // 角度模式激活样式
+      if (btn.action === 'toggleAngle') {
+        newBtn.active = true;
+      }
+      return newBtn;
+    },
     // ===== 按键处理 =====
     onKey: function(btn) {
       var action = btn.action;
@@ -263,7 +299,7 @@ export default {
         return;
       }
       // 智能删除：删除整个函数名（如 sin( → 删除 4 个字符）
-      var multiCharTokens = ['asin(', 'acos(', 'atan(', 'sin(', 'cos(', 'tan(', 'sinh(', 'cosh(', 'tanh(', 'ln(', 'log(', 'sqrt(', 'cbrt(', 'exp(', 'inv(', 'P(', 'C(', 'root('];
+      var multiCharTokens = ['asinh(', 'acosh(', 'atanh(', 'asin(', 'acos(', 'atan(', 'sinh(', 'cosh(', 'tanh(', 'sin(', 'cos(', 'tan(', 'ln(', 'log(', 'sqrt(', 'cbrt(', 'exp(', 'inv(', 'abs(', 'floor(', 'ceil(', 'mod(', 'P(', 'C(', 'root('];
       var deleted = false;
       for (var i = 0; i < multiCharTokens.length; i++) {
         var token = multiCharTokens[i];
@@ -618,14 +654,27 @@ export default {
   font-size: 32px;
 }
 
-/* ===== 按键网格 ===== */
+/* ===== 按键网格：竖屏上下叠放 / 横屏左右两栏 ===== */
 .calc-keypad {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+.keypad-section {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
   grid-auto-rows: 1fr;
   gap: 8px;
   min-height: 0;
+}
+/* 科学功能区比数字区稍矮 */
+.keypad-scientific {
+  flex: 4;
+}
+.keypad-basic {
+  flex: 5;
 }
 
 .calc-key {
@@ -810,26 +859,31 @@ export default {
   opacity: 0;
 }
 
-/* ===== 响应式：横屏优化 ===== */
+/* ===== 响应式：横屏左右两栏布局 ===== */
 @media (orientation: landscape) and (min-width: 768px) {
   .calc-main {
     padding: 20px 24px;
     gap: 20px;
   }
   .calc-display {
-    min-height: 120px;
-    padding: 24px 28px;
+    min-height: 110px;
+    padding: 18px 24px;
   }
-  .display-result.result-large { font-size: 56px; }
-  .display-result.result-small { font-size: 40px; }
+  .display-result.result-large { font-size: 48px; }
+  .display-result.result-small { font-size: 36px; }
+  /* 横屏：左右两栏并排显示 */
   .calc-keypad {
-    grid-template-columns: repeat(9, 1fr);
-    gap: 10px;
+    flex-direction: row;
+    gap: 12px;
+  }
+  .keypad-scientific,
+  .keypad-basic {
+    flex: 1;
   }
   .calc-key {
-    font-size: 17px;
+    font-size: 16px;
   }
-  .key-function { font-size: 15px; }
+  .key-function { font-size: 14px; }
 }
 
 /* 小屏适配 */

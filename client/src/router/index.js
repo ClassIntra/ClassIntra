@@ -6,6 +6,9 @@ import { appRoutes, ROUTE_APP_MAP } from '@/core/router-aggregator';
 Vue.use(VueRouter);
 
 // ROUTE_APP_MAP 现由 @/core/router-aggregator 从 apps/*/manifest.json 聚合产生
+// browser 路由不通过 manifest 注册（写死在下方路由表），但需纳入应用管控：
+// 当管控中心禁用 browser 应用时，聊天/社区中的链接以纯文本显示，无法跳转
+ROUTE_APP_MAP['/browser'] = 'browser';
 // 启用应用列表缓存（null=未加载，数组=已加载）
 var enabledAppsCache = null;
 var enabledAppsLoading = null;
@@ -25,7 +28,7 @@ function getEnabledApps() {
     return enabledAppsCache;
   }).catch(function() {
     // 降级：全部启用
-    enabledAppsCache = ['chat', 'community', 'ai-chat', 'notes', 'resource', 'weather', 'music', 'settings', 'timetable', 'calendar', 'countdown'];
+    enabledAppsCache = ['chat', 'community', 'ai-chat', 'notes', 'resource', 'weather', 'music', 'settings', 'timetable', 'calendar', 'countdown', 'browser'];
     enabledAppsLoading = null;
     return enabledAppsCache;
   });
