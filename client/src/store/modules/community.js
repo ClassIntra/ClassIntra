@@ -112,7 +112,7 @@ var actions = {
     });
   },
   fetchPostsPage: function(context, params) {
-    return api.get('/community/posts', { params: { page: params.page || 1, limit: 20 } }).then(function(response) {
+    return api.get('/community/posts', { params: { page: params.page || 1, limit: 20, sort: params.sort || 'latest' } }).then(function(response) {
       var data = response.data.data;
       var newPosts = data.posts || [];
       context.commit('APPEND_POSTS', newPosts);
