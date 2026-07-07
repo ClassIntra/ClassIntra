@@ -393,6 +393,7 @@
                         <span class="post-author">{{ post.is_anonymous && canViewAnonymous ? post.admin_net_name : (post.is_anonymous ? '匿名用户' : (post.net_name || '未知用户')) }}</span>
                         <span v-if="!post.is_anonymous && userLevels[post.user_id] && userLevels[post.user_id].role === 'admin'" class="admin-badge-sm">管理</span>
                         <span v-if="post.is_anonymous && canViewAnonymous && post.admin_net_name" class="admin-anonymous-badge">匿名</span>
+                        <span v-if="post.relayed_from" class="cc-badge">CC</span>
                         <img v-if="!post.is_anonymous && userLevels[post.user_id] && userLevels[post.user_id].show_level_community" :src="'/resources/public/level/Lv' + userLevels[post.user_id].level + '.svg'" class="level-icon level-icon-sm" />
                         <span v-if="post.type === 'food'" class="post-type-badge food">美食</span>
                         <span v-if="post.type === 'hot'" class="post-type-badge hot">热事</span>
@@ -467,6 +468,7 @@
               <span class="full-detail-author-name">{{ currentPost.is_anonymous && canViewAnonymous ? currentPost.admin_net_name : (currentPost.is_anonymous ? '匿名用户' : (currentPost.net_name || '未知用户')) }}</span>
               <span v-if="!currentPost.is_anonymous && userLevels[currentPost.user_id] && userLevels[currentPost.user_id].role === 'admin'" class="admin-badge-sm">管理</span>
               <span v-if="currentPost.is_anonymous && canViewAnonymous && currentPost.admin_net_name" class="admin-anonymous-badge">匿名</span>
+              <span v-if="currentPost.relayed_from" class="cc-badge">CC</span>
               <img v-if="!currentPost.is_anonymous && userLevels[currentPost.user_id] && userLevels[currentPost.user_id].show_level_community" :src="'/resources/public/level/Lv' + userLevels[currentPost.user_id].level + '.svg'" class="level-icon level-icon-sm" style="vertical-align: middle;" />
               <span class="full-detail-author-time">{{ formatTime(currentPost.created_at) }}</span>
             </div>
@@ -578,6 +580,7 @@
               <div class="comment-body">
                 <div class="comment-meta">
                   <span class="comment-author">{{ comment.net_name || '未知用户' }}</span>
+                  <span v-if="isRemoteUser(comment.user_id)" class="cc-badge">CC</span>
                   <span class="comment-time">{{ formatTime(comment.created_at) }}</span>
                 </div>
                 <div class="comment-text markdown-body" v-html="renderMarkdown(comment.content)" @click="onMarkdownClick" @touchstart="onMarkdownTouchStart" @touchmove="onMarkdownTouchMove" @touchend="onMarkdownTouchEnd"></div>
@@ -608,6 +611,7 @@
                     <div class="comment-body">
                       <div class="comment-meta">
                         <span class="comment-author">{{ reply.net_name || '未知用户' }}</span>
+                        <span v-if="isRemoteUser(reply.user_id)" class="cc-badge">CC</span>
                         <span v-if="reply.parent_author" class="reply-to">@{{ reply.parent_author }}</span>
                         <span class="comment-time">{{ formatTime(reply.created_at) }}</span>
                       </div>
@@ -1681,7 +1685,7 @@ export default {
       if (self.postsLoadingMore || !self.postsHasMore) return;
       self.postsPage++;
       self.postsLoadingMore = true;
-      self.$store.dispatch('community/fetchPostsPage', { page: self.postsPage }).then(function(result) {
+      self.$store.dispatch('community/fetchPostsPage', { page: self.postsPage, sort: self.sortMode }).then(function(result) {
         if (!result || !result.has_more) {
           self.postsHasMore = false;
         }
@@ -1854,6 +1858,23 @@ export default {
       }
       var chars = Array.from(name);
       return chars[0] || '?';
+    },
+    isRemoteUser: function(userId) {
+      // 检查是否是其他班（联动了/中继了）的用户
+      // 1. 如果 post 有 relayed_from，且 user 是 post 的作者
+      if (this.currentPost && this.currentPost.relayed_from && String(this.currentPost.user_id) === String(userId)) {
+        return true;
+      }
+      // 2. 检查远程在线用户列表（来自 chat store 的 WebSocket 推送）
+      var remoteUsers = this.$store.state.chat && this.$store.state.chat.remoteOnlineUsers;
+      if (remoteUsers && remoteUsers.length) {
+        for (var i = 0; i < remoteUsers.length; i++) {
+          if (String(remoteUsers[i].user_id) === String(userId)) {
+            return true;
+          }
+        }
+      }
+      return false;
     },
     isPostOwner: function(post) {
       var user = this.currentUser;
