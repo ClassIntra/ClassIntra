@@ -42,9 +42,10 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 20px;
       animation: al-fade-in 0.5s ease-out;
     }
+    /* Chrome 80 不支持 flex 的 gap，用 margin fallback */
+    #app-loading .al-inner > * + * { margin-top: 20px; }
     @keyframes al-fade-in {
       from { opacity: 0; transform: translateY(8px); }
       to { opacity: 1; transform: translateY(0); }
@@ -81,9 +82,9 @@
     }
     #app-loading .al-dots {
       display: flex;
-      gap: 6px;
       margin-top: 4px;
     }
+    #app-loading .al-dots span + span { margin-left: 6px; }
     #app-loading .al-dots span {
       width: 6px;
       height: 6px;
@@ -98,7 +99,8 @@
       30% { opacity: 1; transform: scale(1.2); background: rgba(0, 122, 255, 0.9); }
     }
     #app-loading.al-timeout .al-inner { display: none; }
-    #app-loading.al-timeout .al-timeout-inner { display: flex; flex-direction: column; align-items: center; gap: 16px; animation: al-fade-in 0.4s ease-out; }
+    #app-loading.al-timeout .al-timeout-inner { display: flex; flex-direction: column; align-items: center; animation: al-fade-in 0.4s ease-out; }
+    #app-loading .al-timeout-inner > * + * { margin-top: 16px; }
     #app-loading .al-timeout-inner { display: none; }
     #app-loading .al-timeout-title { font-size: 20px; font-weight: 600; color: rgba(255, 255, 255, 0.95); }
     #app-loading .al-timeout-msg { font-size: 13px; color: rgba(255, 255, 255, 0.55); margin-bottom: 4px; }
