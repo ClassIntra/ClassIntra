@@ -1115,9 +1115,18 @@ export default {
       if (mediaType === 'audio') return '[音频]';
       return content;
     },
-    // 安全获取字符串首字符（支持 emoji / 数学粗体等代理对字符）
+    // 安全获取字符串第一个"用户感知字符"（grapheme cluster）
+    // 支持：代理对 emoji（😀）、ZWJ 序列（👨‍👩‍👧‍👦）、肤色修饰符（👋🏻）、国旗（🇨🇳）
     firstChar: function(str) {
-      var chars = Array.from(str || '?');
+      if (!str) return '?';
+      if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+        try {
+          var seg = new Intl.Segmenter('zh-CN', { granularity: 'grapheme' });
+          var first = seg.segment(str).containing(0);
+          if (first && first.segment) return first.segment;
+        } catch (e) { /* 降级 */ }
+      }
+      var chars = Array.from(str);
       return chars[0] || '?';
     },
     onDocumentClick: function() {
@@ -3197,6 +3206,7 @@ export default {
   font-weight: 600;
   color: #FFFFFF;
   flex-shrink: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif;
 }
 
 .chat-item-avatar-wrap {
@@ -3928,6 +3938,7 @@ export default {
   font-weight: 600;
   color: #FFFFFF;
   flex-shrink: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif;
 }
 
 .member-select-name {
@@ -4044,6 +4055,7 @@ export default {
   font-weight: 600;
   color: #FFFFFF;
   flex-shrink: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif;
 }
 
 .member-avatar-wrap {
@@ -4257,6 +4269,7 @@ export default {
   font-size: var(--font-size-headline);
   font-weight: 600;
   flex-shrink: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif;
 }
 
 .settings-user-info {
@@ -4688,6 +4701,7 @@ export default {
   color: #FFFFFF;
   background: var(--card-bg);
   flex-shrink: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif;
 }
 
 .forward-target-info {

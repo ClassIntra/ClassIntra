@@ -78,7 +78,16 @@ function setAvatarColor(userId, color) {
 
 function getAvatarText(name) {
   if (!name) return '?';
-  // Array.from 正确处理 emoji / 数学粗体等代理对字符（charAt 会把它们拆成半个显示为 ?）
+  // Intl.Segmenter 正确提取第一个"用户感知字符"（grapheme cluster）
+  // 支持：代理对 emoji（😀）、ZWJ 序列（👨‍👩‍👧‍👦）、肤色修饰符（👋🏻）、国旗（🇨🇳）
+  if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+    try {
+      var seg = new Intl.Segmenter('zh-CN', { granularity: 'grapheme' });
+      var first = seg.segment(name).containing(0);
+      if (first && first.segment) return first.segment;
+    } catch (e) { /* 降级 */ }
+  }
+  // 降级：Array.from 正确处理代理对（不支持 ZWJ 序列）
   var chars = Array.from(name);
   return chars[0] || '?';
 }
