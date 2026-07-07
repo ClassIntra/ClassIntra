@@ -1834,9 +1834,24 @@ export default {
     getAvatarColor: function(userId) {
       return helpers.getAvatarColor(userId);
     },
-    getAvatarText: function(post) {
-      if (post.is_anonymous) return '?';
-      var name = post.net_name || '?';
+    getAvatarText: function(input) {
+      // 兼容两种调用方式：post 对象（含 is_anonymous/net_name）或纯字符串
+      var name;
+      if (typeof input === 'string') {
+        name = input;
+      } else if (input && typeof input === 'object') {
+        if (input.is_anonymous) return '?';
+        name = input.net_name;
+      }
+      if (!name) return '?';
+      // Intl.Segmenter 正确提取第一个"用户感知字符"（grapheme cluster）
+      if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+        try {
+          var seg = new Intl.Segmenter('zh-CN', { granularity: 'grapheme' });
+          var first = seg.segment(name).containing(0);
+          if (first && first.segment) return first.segment;
+        } catch (e) { /* 降级 */ }
+      }
       var chars = Array.from(name);
       return chars[0] || '?';
     },
@@ -2576,7 +2591,7 @@ export default {
 .list-item:active { background: var(--border-color); }
 .list-item.active { background: rgba(var(--primary-rgb), 0.08); border: 1px solid rgba(var(--primary-rgb), 0.2); }
 
-.post-avatar { width: 40px; height: 40px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-size: var(--font-size-callout); font-weight: 600; flex-shrink: 0; cursor: pointer; }
+.post-avatar { width: 40px; height: 40px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-size: var(--font-size-callout); font-weight: 600; flex-shrink: 0; cursor: pointer; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif; }
 .post-info { flex: 1; min-width: 0; }
 .post-meta { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; flex-wrap: wrap; }
 .post-author { font-size: var(--font-size-sm); font-weight: 600; color: var(--text-primary); }
@@ -2744,7 +2759,7 @@ export default {
 .comments-section { margin-bottom: 14px; margin-top: 20px; }
 .section-title { font-size: var(--font-size-body); font-weight: 600; color: var(--text-primary); margin: 0 0 12px 0; padding-bottom: 8px; border-bottom: 0.5px solid var(--separator-color); }
 .comment-item { display: flex; gap: 8px; padding: 8px 0; border-bottom: 0.5px solid var(--separator-color); }
-.comment-avatar { width: 28px; height: 28px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-size: var(--font-size-caption2); font-weight: 600; flex-shrink: 0; cursor: pointer; }
+.comment-avatar { width: 28px; height: 28px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-size: var(--font-size-caption2); font-weight: 600; flex-shrink: 0; cursor: pointer; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif; }
 .comment-body { flex: 1; min-width: 0; }
 .comment-meta { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; flex-wrap: wrap; }
 .comment-author { font-size: var(--font-size-caption); font-weight: 600; color: var(--text-primary); }
