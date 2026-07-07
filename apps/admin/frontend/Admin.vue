@@ -1,6 +1,6 @@
 <template>
   <div class="admin-page">
-    <AppNavBar title="系统管理" />
+    <AppNavBar title="管控中心" />
     <!-- Tab Navigation -->
     <div class="admin-tabs">
       <button

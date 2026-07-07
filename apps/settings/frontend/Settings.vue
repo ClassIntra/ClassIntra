@@ -475,16 +475,7 @@
             </div>
           </div>
 
-          <!-- 系统管理 -->
-          <div v-else-if="activeNav === 'admin' && (isAdmin || isOfficer)" key="admin" class="settings-section">
-            <h2 class="section-title"><i class="fa-solid fa-screwdriver-wrench section-title-icon"></i>系统管理</h2>
-            <div class="form-card">
-              <p class="admin-desc">管理用户、广播、服务器状态和资源文件。</p>
-              <button class="btn-primary" @click="goToAdmin">
-                <i class="fa-solid fa-arrow-right btn-icon"></i>进入管理面板
-              </button>
-            </div>
-          </div>
+          <!-- 系统管理已独立为「管控中心」应用，不再在设置中展示入口 -->
         </transition>
       </div>
     </div>
@@ -600,8 +591,7 @@ export default {
         { key: 'level', icon: 'fa-solid fa-star', label: '等级' },
         { key: 'customize', icon: 'fa-solid fa-palette', label: '个性化' },
         { key: 'data', icon: 'fa-solid fa-database', label: '数据管理' },
-        { key: 'about', icon: 'fa-solid fa-circle-info', label: '关于系统' },
-        { key: 'admin', icon: 'fa-solid fa-screwdriver-wrench', label: '系统管理' }
+        { key: 'about', icon: 'fa-solid fa-circle-info', label: '关于系统' }
       ],
       versionInfo: {
         version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0',
@@ -645,13 +635,7 @@ export default {
       return user && user.officer_title ? user.officer_title : '';
     },
     visibleNavItems: function() {
-      var self = this;
-      return self.navItems.filter(function(nav) {
-        if (nav.key === 'admin') {
-          return self.isAdmin || self.isOfficer;
-        }
-        return true;
-      });
+      return this.navItems;
     },
     theme: function() {
       return this.$store.state.settings.theme;
@@ -1100,9 +1084,6 @@ export default {
         self.updateChecking = false;
         self.$store.commit('toast/SHOW_TOAST', { message: '检查更新失败，请稍后重试', type: 'error' });
       });
-    },
-    goToAdmin: function() {
-      this.$router.push({ name: 'Admin' });
     },
     formatDate: function(dateStr) {
       if (!dateStr) return '';
@@ -1942,13 +1923,6 @@ export default {
   font-size: var(--font-size-caption);
   color: var(--text-secondary);
   margin: 0;
-}
-
-.admin-desc {
-  font-size: var(--font-size-sm);
-  color: var(--text-secondary);
-  margin-bottom: 16px;
-  line-height: 1.6;
 }
 
 /* Section transition */

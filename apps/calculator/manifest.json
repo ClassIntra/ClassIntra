@@ -3,7 +3,7 @@
   "type": "app",
   "version": "1.0.0",
   "label": "计算器",
-  "icon": "./icon.svg",
+  "icon": "/resources/public/icons/Calculator.svg",
   "color": "#5856D6",
   "category": "desktop",
   "order": 6,

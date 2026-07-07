@@ -29,8 +29,7 @@
             v-for="btn in currentButtons"
             :key="btn.label + (btn.secondaryLabel || '')"
             class="calc-key"
-            :class="'key-' + btn.type"
-            :class="{ 'key-wide': btn.wide, 'key-active': btn.active }"
+            :class="['key-' + btn.type, { 'key-wide': btn.wide, 'key-active': btn.active }]"
             @click="onKey(btn)"
             :aria-label="btn.label"
           >
@@ -645,6 +644,10 @@ export default {
   position: relative;
   overflow: hidden;
   min-height: 44px;
+  /* 默认背景兜底：避免某类型按钮缺样式时透明不可见 */
+  background: var(--surface-elevated, rgba(255, 255, 255, 0.8));
+  color: var(--text-primary, #000);
+  box-shadow: var(--shadow-xs, 0 1px 2px rgba(0, 0, 0, 0.08));
 }
 .calc-key:active {
   transform: scale(0.94);
