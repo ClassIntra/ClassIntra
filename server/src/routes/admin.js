@@ -1733,6 +1733,7 @@ router.get('/app-control', auth.requirePermission('manage_app_control'), functio
         icon: app.icon,
         color: app.color,
         enabled: status.enabled,
+        protected: !!app.protected,
         updated_by: status.updated_by,
         updated_at: status.updated_at
       };
