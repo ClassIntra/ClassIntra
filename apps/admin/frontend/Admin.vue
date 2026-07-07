@@ -992,11 +992,11 @@
                 <div class="app-control-status">
                   <span v-if="app.enabled" class="status-enabled">已启用</span>
                   <span v-else class="status-disabled">已禁用</span>
-                  <span v-if="app.name === 'settings'" class="status-locked">（不可禁用）</span>
+                  <span v-if="app.protected" class="status-locked">（不可禁用）</span>
                 </div>
               </div>
               <label class="toggle-switch" @click.stop>
-                <input type="checkbox" :checked="app.enabled" :disabled="app.name === 'settings'" @change="toggleAppControl(app)">
+                <input type="checkbox" :checked="app.enabled" :disabled="app.protected" @change="toggleAppControl(app)">
                 <span class="toggle-slider"></span>
               </label>
             </div>
@@ -2955,9 +2955,9 @@ export default {
     },
     toggleAppControl: function(app) {
       var self = this;
-      // settings 应用不允许禁用（后端也会校验）
-      if (app.name === 'settings' && app.enabled) {
-        self.$store.commit('toast/SHOW_TOAST', { message: '设置应用不允许禁用', type: 'warning' });
+      // 受保护应用不允许禁用（后端也会校验）：settings / 管控中心 admin
+      if (app.protected && app.enabled) {
+        self.$store.commit('toast/SHOW_TOAST', { message: app.label + '不允许禁用', type: 'warning' });
         return;
       }
       var newEnabled = !app.enabled;

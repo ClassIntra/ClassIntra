@@ -1357,6 +1357,9 @@ export default {
   border-radius: 22px;
   overflow: hidden;
   transition: transform 0.2s var(--ease-standard, ease);
+  /* 兜底背景，避免 widget 内部组件未设背景时与壁纸融合看不清 */
+  background: var(--card-bg, rgba(255, 255, 255, 0.7));
+  box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.08));
 }
 .desktop-widget.widget-editing {
   animation: widgetWiggle 0.25s ease-in-out infinite;
@@ -1699,6 +1702,16 @@ export default {
     grid-gap: 8px;
     max-height: 360px;
   }
+  /* 小屏 widget 区域：减小行高和间距，避免占用过多空间 */
+  .desktop-widgets {
+    grid-auto-rows: 70px;
+    grid-gap: 8px;
+    margin-bottom: 8px;
+  }
+  .desktop-widget {
+    min-height: 70px;
+    border-radius: 18px;
+  }
   .dock-bar {
     bottom: 8px;
     left: 8px;
@@ -1724,6 +1737,26 @@ export default {
     right: -3px;
     padding: 0 4px;
     border-width: 2px;
+  }
+}
+
+/* ===== 横屏适配：避免 widget + grid 高度溢出 ===== */
+@media (orientation: landscape) and (max-height: 600px) {
+  .desktop-pages {
+    top: 50px;
+    bottom: 90px;
+  }
+  .desktop-widgets {
+    grid-auto-rows: 70px;
+    grid-gap: 8px;
+    margin-bottom: 8px;
+  }
+  .desktop-widget {
+    min-height: 70px;
+  }
+  .desktop-grid {
+    max-height: 320px;
+    grid-gap: 8px;
   }
 }
 

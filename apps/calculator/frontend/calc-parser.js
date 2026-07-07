@@ -299,7 +299,13 @@ CalculatorParser.prototype = {
       'arctan': function(x) { var r = Math.atan(x); return isDeg ? fromRad(r) : r; },
       'sinh': function(x) { return Math.sinh(x); },
       'cosh': function(x) { return Math.cosh(x); },
-      'tanh': function(x) { return Math.tanh(x); }
+      'tanh': function(x) { return Math.tanh(x); },
+      'asinh': function(x) { return Math.asinh(x); },
+      'acosh': function(x) { return Math.acosh(x); },
+      'atanh': function(x) { return Math.atanh(x); },
+      'arsinh': function(x) { return Math.asinh(x); },
+      'arcosh': function(x) { return Math.acosh(x); },
+      'artanh': function(x) { return Math.atanh(x); }
     };
 
     // 单参数函数
