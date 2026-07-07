@@ -1088,15 +1088,19 @@ export default {
       });
     },
     // 判断应用是否对当前用户可见（结合应用管控 + 角色过滤）
+    // 0. 注册表过滤：不在 APP_REGISTRY 中的应用（如 hidden category 的 integration）一律不显示
     // 1. 角色过滤：visibleRoles 声明的应用仅对指定角色显示（如 admin 仅管理员/班干可见）
     // 2. 应用管控：enabledApps 加载后过滤禁用的应用
     isVisibleForUser: function(name) {
-      // 1. 角色过滤：查找 APP_REGISTRY 中该应用的 visibleRoles
+      // 0. 注册表过滤：查找 APP_REGISTRY 中该应用的元数据
       var appMeta = null;
       for (var i = 0; i < this.dockApps.length; i++) {
         if (this.dockApps[i].name === name) { appMeta = this.dockApps[i]; break; }
       }
-      if (appMeta && appMeta.visibleRoles && appMeta.visibleRoles.length) {
+      // 不在注册表中的应用（hidden category / 未知应用）一律隐藏
+      if (!appMeta) return false;
+      // 1. 角色过滤：visibleRoles 声明的应用仅对指定角色显示
+      if (appMeta.visibleRoles && appMeta.visibleRoles.length) {
         // admin 应用仅管理员/班干可见
         var roleOk = false;
         for (var r = 0; r < appMeta.visibleRoles.length; r++) {
