@@ -72,6 +72,16 @@
                 class="action-btn"
                 @click="batchToggleDeepSeek(false)"
               >批量禁用DeepSeek ({{ selectedUsers.length }})</button>
+              <button
+                v-if="selectedUsers.length > 0 && isAdmin"
+                class="action-btn"
+                @click="batchToggleBrowser(true)"
+              >批量开启超能岛浏览器 ({{ selectedUsers.length }})</button>
+              <button
+                v-if="selectedUsers.length > 0 && isAdmin"
+                class="action-btn"
+                @click="batchToggleBrowser(false)"
+              >批量关闭超能岛浏览器 ({{ selectedUsers.length }})</button>
               <button class="action-btn" @click="toggleSelectAll">
                 {{ isAllSelected ? '取消全选' : '全选' }}
               </button>
@@ -2869,6 +2879,31 @@ export default {
         }
         self.selectedUsers = [];
         self.$store.commit('toast/SHOW_TOAST', { message: (enabled ? '启用' : '禁用') + '成功', type: 'success' });
+      }).catch(function() {
+        self.$store.commit('toast/SHOW_TOAST', { message: '批量操作失败', type: 'error' });
+      });
+    },
+    batchToggleBrowser: function(enabled) {
+      var self = this;
+      if (self.selectedUsers.length === 0) {
+        self.$store.commit('toast/SHOW_TOAST', { message: '请先选择用户', type: 'warning' });
+        return;
+      }
+      api.post('/admin/ai-settings/batch-browser', { user_ids: self.selectedUsers, enabled: enabled }).then(function() {
+        for (var i = 0; i < self.users.length; i++) {
+          if (self.selectedUsers.indexOf(self.users[i].user_id) !== -1) {
+            if (!self.users[i].info) self.$set(self.users[i], 'info', {});
+            self.$set(self.users[i].info, 'browser_enabled', enabled);
+          }
+        }
+        for (var j = 0; j < self.allUsersFetched.length; j++) {
+          if (self.selectedUsers.indexOf(self.allUsersFetched[j].user_id) !== -1) {
+            if (!self.allUsersFetched[j].info) self.$set(self.allUsersFetched[j], 'info', {});
+            self.$set(self.allUsersFetched[j].info, 'browser_enabled', enabled);
+          }
+        }
+        self.selectedUsers = [];
+        self.$store.commit('toast/SHOW_TOAST', { message: (enabled ? '开启' : '关闭') + '超能岛浏览器成功', type: 'success' });
       }).catch(function() {
         self.$store.commit('toast/SHOW_TOAST', { message: '批量操作失败', type: 'error' });
       });
