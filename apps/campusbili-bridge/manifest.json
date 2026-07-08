@@ -1,0 +1,15 @@
+{
+  "name": "campusbili-bridge",
+  "type": "system",
+  "version": "1.0.0",
+  "label": "CampusBili 桥接",
+  "category": "hidden",
+  "order": 99,
+  "defaultEnabled": true,
+  "canDisable": false,
+  "description": "ClassIntra 与 CampusBili 网站的桥接插件：通过超能岛浏览器访问 CampusBili 时注入用户身份，CampusBili 左上角显示返回 ClassIntra 按钮",
+  "backend": {
+    "mountPath": "/api/campusbili-bridge",
+    "entry": "./backend/routes.js"
+  }
+}

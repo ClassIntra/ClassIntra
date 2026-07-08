@@ -38,6 +38,7 @@
         class="browser-iframe"
         sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-modals allow-popups-to-escape-sandbox"
         allow="clipboard-read; clipboard-write"
+        @load="onIframeLoad"
       ></iframe>
     </div>
     <div v-else class="browser-home">
@@ -210,7 +211,59 @@ export default {
       self.navigateTo(self.homepage);
     }
   },
+  mounted: function() {
+    var self = this;
+    // 监听子站点的 postMessage，支持"返回 ClassIntra"等桥接动作
+    self._messageHandler = function(event) {
+      var frame = self.$refs.browserFrame;
+      // 仅处理来自当前 iframe 的消息，避免恶意页面伪造
+      if (!frame || event.source !== frame.contentWindow) return;
+      var data = event.data || {};
+      // 子站点请求返回 ClassIntra（如 campusbili 左上角返回按钮）
+      if (data.action === 'classintra-back') {
+        self.$router.back();
+      }
+    };
+    window.addEventListener('message', self._messageHandler);
+  },
+  beforeDestroy: function() {
+    if (this._messageHandler) {
+      window.removeEventListener('message', this._messageHandler);
+      this._messageHandler = null;
+    }
+  },
   methods: {
+    // iframe 加载完成：向子站点注入 ClassIntra 用户身份标识（插件可据此辨认 ClassIntra 环境）
+    onIframeLoad: function() {
+      var self = this;
+      var frame = self.$refs.browserFrame;
+      if (!frame || !frame.contentWindow) return;
+      var user = self.$store && self.$store.state && self.$store.state.auth && self.$store.state.auth.user;
+      if (!user) return;
+      var payload = {
+        source: 'classintra-browser',
+        user: {
+          user_id: user.user_id,
+          net_name: user.net_name,
+          is_admin: user.is_admin,
+          role: user.role
+        },
+        timestamp: Date.now()
+      };
+      try {
+        // targetOrigin 限定为 iframe 当前 URL 的 origin，避免消息泄漏到其他域
+        frame.contentWindow.postMessage(payload, self._getFrameOrigin());
+      } catch (e) {}
+    },
+    // 计算 iframe 的 origin（用于 postMessage targetOrigin）
+    _getFrameOrigin: function() {
+      try {
+        var u = new URL(this.currentUrl);
+        return u.origin;
+      } catch (e) {
+        return '*';
+      }
+    },
     navigateTo: function(url) {
       var self = this;
       var raw = (url || '').trim();
