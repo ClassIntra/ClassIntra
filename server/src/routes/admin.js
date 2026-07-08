@@ -1527,6 +1527,40 @@ router.post('/ai-settings/batch-deepseek', requireClassAdmin, function(req, res)
   res.json({ code: 200, message: 'ok' });
 });
 
+// POST /api/admin/ai-settings/batch-browser - 批量开启/关闭超能岛浏览器权限
+router.post('/ai-settings/batch-browser', requireClassAdmin, function(req, res) {
+  var userIds = req.body.user_ids || [];
+  var enabled = req.body.enabled ? true : false;
+
+  if (!userIds.length) {
+    return res.status(400).json({ code: 400, message: '请选择用户' });
+  }
+
+  for (var i = 0; i < userIds.length; i++) {
+    var uid = userIds[i];
+    var user = db.prepare('SELECT user_id, info_json FROM users WHERE user_id = ?').get(uid);
+    if (user) {
+      var info = {};
+      try { info = JSON.parse(user.info_json || '{}'); } catch (e) { info = {}; }
+      info.browser_enabled = enabled;
+      db.prepare('UPDATE users SET info_json = ?, updated_at = datetime(\'now\') WHERE user_id = ?')
+        .run(JSON.stringify(info), uid);
+
+      // 通过 WebSocket 广播用户资料更新，客户端实时同步
+      try {
+        var relayBusBrowser = require('../utils/relay-bus');
+        relayBusBrowser.emit('user_profile_updated', {
+          user_id: uid,
+          info_json: JSON.stringify(info)
+        });
+      } catch (e) { console.error('[Admin] Browser batch broadcast failed:', e.message); }
+    }
+  }
+
+  logAction(req.user.user_id, 'batch_toggle_browser', userIds.join(','), 'browser_enabled=' + enabled);
+  res.json({ code: 200, message: 'ok' });
+});
+
 // ======== 天气提醒设置 ========
 
 // GET /api/admin/weather-alert/settings - 获取所有天气提醒时间设置
