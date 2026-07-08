@@ -271,13 +271,15 @@
           </div>
           <div class="form-group">
             <div class="member-select-label">选择成员 <span class="selected-count">({{ newGroupMembers.length }} 人)</span></div>
+            <input v-model="createGroupSearch" class="form-input member-search-input" placeholder="搜索联系人姓名或 ID..." />
             <div class="member-select-list scrollbar-thin">
-              <label v-for="contact in contacts" :key="contact.user_id" class="member-select-item">
+              <label v-for="contact in filteredCreateGroupContacts" :key="contact.user_id" class="member-select-item">
                 <input type="checkbox" :value="contact.user_id" v-model="newGroupMembers" />
                 <div class="member-select-avatar">{{ firstChar(contact.net_name) }}</div>
                 <span class="member-select-name">{{ contact.net_name }}</span>
               </label>
               <div v-if="contacts.length === 0" class="empty-hint">暂无联系人</div>
+              <div v-else-if="filteredCreateGroupContacts.length === 0" class="empty-hint">没有匹配的联系人</div>
             </div>
           </div>
           <div class="modal-actions">
@@ -461,13 +463,15 @@
       <div v-if="showInviteModal" class="modal-overlay" @click.self="showInviteModal = false">
         <div class="modal-card">
           <h3 class="modal-title">邀请入群</h3>
+          <input v-model="inviteSearch" class="form-input member-search-input" placeholder="搜索联系人姓名或 ID..." />
           <div class="member-select-list scrollbar-thin" style="max-height: 300px;">
-            <label v-for="contact in availableInviteContacts" :key="contact.user_id" class="member-select-item">
+            <label v-for="contact in filteredInviteContacts" :key="contact.user_id" class="member-select-item">
               <input type="checkbox" :value="contact.user_id" v-model="inviteUserIds" />
               <div class="member-select-avatar">{{ firstChar(contact.net_name) }}</div>
               <span class="member-select-name">{{ contact.net_name }}</span>
             </label>
             <div v-if="availableInviteContacts.length === 0" class="empty-hint">没有可邀请的联系人</div>
+            <div v-else-if="filteredInviteContacts.length === 0" class="empty-hint">没有匹配的联系人</div>
           </div>
           <div class="modal-actions">
             <button class="btn-cancel" @click="showInviteModal = false">取消</button>
@@ -647,6 +651,7 @@ export default {
       showCreateGroup: false,
       newGroupName: '',
       newGroupMembers: [],
+      createGroupSearch: '',
       wsConnecting: true,
       sending: false,
       showGroupSettings: false,
@@ -658,6 +663,7 @@ export default {
       friendRemarks: {},
       editingRemark: '',
       inviteUserIds: [],
+      inviteSearch: '',
       showTransferModal: false,
       transferGroupId: '',
       showAnnouncementEditor: false,
@@ -851,6 +857,26 @@ export default {
       var memberIds = self.currentGroupMembers.map(function(m) { return m.user_id; });
       return self.contacts.filter(function(c) {
         return memberIds.indexOf(c.user_id) === -1;
+      });
+    },
+    // 创建群聊：按搜索词过滤联系人
+    filteredCreateGroupContacts: function() {
+      var kw = (this.createGroupSearch || '').trim().toLowerCase();
+      if (!kw) return this.contacts;
+      return this.contacts.filter(function(c) {
+        var name = (c.net_name || '').toLowerCase();
+        var uid = (c.user_id || '').toString().toLowerCase();
+        return name.indexOf(kw) !== -1 || uid.indexOf(kw) !== -1;
+      });
+    },
+    // 邀请入群：按搜索词过滤可邀请联系人
+    filteredInviteContacts: function() {
+      var kw = (this.inviteSearch || '').trim().toLowerCase();
+      if (!kw) return this.availableInviteContacts;
+      return this.availableInviteContacts.filter(function(c) {
+        var name = (c.net_name || '').toLowerCase();
+        var uid = (c.user_id || '').toString().toLowerCase();
+        return name.indexOf(kw) !== -1 || uid.indexOf(kw) !== -1;
       });
     },
     isCurrentDnd: function() {
@@ -2104,6 +2130,7 @@ export default {
       }
       self.showInviteModal = false;
       self.inviteUserIds = [];
+      self.inviteSearch = '';
       self.$store.commit('toast/SHOW_TOAST', { message: '邀请已发送', type: 'success' });
     },
     openTransferModal: function() {
@@ -2347,6 +2374,7 @@ export default {
           self.showCreateGroup = false;
           self.newGroupName = '';
           self.newGroupMembers = [];
+          self.createGroupSearch = '';
           self.$store.commit('toast/SHOW_TOAST', { message: '群组创建成功', type: 'success' });
           self.$store.dispatch('chat/loadGroups').then(function() {
             var data = response.data && response.data.data;
@@ -2364,6 +2392,7 @@ export default {
       this.showCreateGroup = false;
       this.newGroupName = '';
       this.newGroupMembers = [];
+      this.createGroupSearch = '';
     },
     playNotificationSound: function() {
       try {
@@ -3821,6 +3850,11 @@ export default {
   font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--text-primary);
+  margin-bottom: 10px;
+}
+
+.member-search-input {
+  width: 100%;
   margin-bottom: 10px;
 }
 

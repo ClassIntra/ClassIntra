@@ -889,6 +889,7 @@ export default {
       if (target.closest('.app-icon')) return false;
       if (target.closest('.desktop-folder')) return false;
       if (target.closest('.dock-slot')) return false;
+      if (target.closest('.desktop-widget')) return false;
       if (target.closest('.desktop-settings-overlay')) return false;
       if (target.closest('.folder-expand')) return false;
       if (target.closest('.announcement-float')) return false;
@@ -1327,13 +1328,13 @@ export default {
 }
 
 /* ===== 多页面容器 ===== */
-/* bottom 需大于指示器顶边（124px+20px=144px），留 6px 间隙 → 150px */
+/* bottom 需大于指示器顶边（124px+20px=144px）+ dock 顶部（124px），留充足间隙 → 170px */
 .desktop-pages {
   position: absolute;
   top: 60px;
   left: 0;
   right: 0;
-  bottom: 150px;
+  bottom: 170px;
   display: -webkit-flex;
   display: flex;
   z-index: 1;
@@ -1369,7 +1370,7 @@ export default {
 }
 .desktop-widget {
   position: relative;
-  min-height: 80px;
+  min-height: 0;
   border-radius: 22px;
   overflow: hidden;
   transition: transform 0.2s var(--ease-standard, ease);
@@ -1711,11 +1712,11 @@ export default {
 /* 注：拖拽 ghost 样式已迁移到 global.scss（ghost 被 append 到 document.body，scoped 样式不生效） */
 
 /* ===== 小屏适配 ===== */
-/* 小屏指示器 bottom:92px + 20px = 112px，留 8px 间隙 → 120px */
+/* 小屏 dock 顶部约 84px + 指示器 92~112px，留充足间隙 → 130px */
 @media (max-height: 400px), (max-width: 520px) {
   .desktop-pages {
     top: 50px;
-    bottom: 120px;
+    bottom: 130px;
   }
   .desktop-grid {
     grid-gap: 8px;
@@ -1728,7 +1729,7 @@ export default {
     margin-bottom: 8px;
   }
   .desktop-widget {
-    min-height: 70px;
+    min-height: 0;
     border-radius: 18px;
   }
   .dock-bar {
@@ -1760,11 +1761,11 @@ export default {
 }
 
 /* ===== 横屏适配：避免 widget + grid 高度溢出 ===== */
-/* 横屏指示器 bottom:92px + 20px = 112px，留 8px 间隙 → 120px */
+/* 横屏 dock 顶部约 84px + 指示器 92~112px，留充足间隙 → 130px */
 @media (orientation: landscape) and (max-height: 600px) {
   .desktop-pages {
     top: 50px;
-    bottom: 120px;
+    bottom: 130px;
   }
   .desktop-widgets {
     grid-auto-rows: 70px;
@@ -1772,7 +1773,7 @@ export default {
     margin-bottom: 8px;
   }
   .desktop-widget {
-    min-height: 70px;
+    min-height: 0;
   }
   .desktop-grid {
     max-height: 320px;
