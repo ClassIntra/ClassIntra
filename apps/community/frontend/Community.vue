@@ -529,7 +529,7 @@
             <button v-if="!hasVoted(currentPost)" class="btn-primary poll-submit-btn" @click="submitSurveyVote(currentPost)">提交问卷</button>
           </div>
           <div v-if="currentPost.title && currentPost.type === 'forum'" class="full-detail-title">{{ currentPost.title }}</div>
-          <div v-if="currentPost.type !== 'poll' && currentPost.type !== 'survey'" class="full-detail-content markdown-body" v-html="renderMarkdown(currentPost.content)" @click="onMarkdownClick" @touchstart="onMarkdownTouchStart" @touchmove="onMarkdownTouchMove" @touchend="onMarkdownTouchEnd"></div>
+          <div v-if="currentPost.type !== 'poll' && currentPost.type !== 'survey'" class="full-detail-content markdown-body" v-html="renderMarkdown(currentPost.content, currentPost.user_id)" @click="onMarkdownClick" @touchstart="onMarkdownTouchStart" @touchmove="onMarkdownTouchMove" @touchend="onMarkdownTouchEnd"></div>
           <div v-if="getPlaylistShare(currentPost)" class="playlist-share-card" @click="openPlaylistFromPost(currentPost)">
             <div class="playlist-share-icon"><i class="fa-solid fa-music"></i></div>
             <div class="playlist-share-info">
@@ -583,7 +583,7 @@
                   <span v-if="isRemoteUser(comment.user_id)" class="cc-badge">CC</span>
                   <span class="comment-time">{{ formatTime(comment.created_at) }}</span>
                 </div>
-                <div class="comment-text markdown-body" v-html="renderMarkdown(comment.content)" @click="onMarkdownClick" @touchstart="onMarkdownTouchStart" @touchmove="onMarkdownTouchMove" @touchend="onMarkdownTouchEnd"></div>
+                <div class="comment-text markdown-body" v-html="renderMarkdown(comment.content, comment.user_id)" @click="onMarkdownClick" @touchstart="onMarkdownTouchStart" @touchmove="onMarkdownTouchMove" @touchend="onMarkdownTouchEnd"></div>
                 <div class="comment-actions">
                   <button class="comment-action-btn" @click="likeComment(comment)">
                     <i :class="comment.liked ? 'fa-solid fa-heart' : 'fa-regular fa-heart'"></i>
@@ -615,7 +615,7 @@
                         <span v-if="reply.parent_author" class="reply-to">@{{ reply.parent_author }}</span>
                         <span class="comment-time">{{ formatTime(reply.created_at) }}</span>
                       </div>
-                      <div class="comment-text markdown-body" v-html="renderMarkdown(reply.content)" @click="onMarkdownClick" @touchstart="onMarkdownTouchStart" @touchmove="onMarkdownTouchMove" @touchend="onMarkdownTouchEnd"></div>
+                      <div class="comment-text markdown-body" v-html="renderMarkdown(reply.content, reply.user_id)" @click="onMarkdownClick" @touchstart="onMarkdownTouchStart" @touchmove="onMarkdownTouchMove" @touchend="onMarkdownTouchEnd"></div>
                       <div class="comment-actions">
                         <button class="comment-action-btn" @click="likeComment(reply)">
                           <i :class="reply.liked ? 'fa-solid fa-heart' : 'fa-regular fa-heart'"></i>
@@ -1287,23 +1287,6 @@ export default {
       var user = this.$store && this.$store.state && this.$store.state.auth && this.$store.state.auth.user;
       return !!(user && user.info && user.info.browser_enabled);
     },
-    // 班管/班干判断（管理员或班干角色，不受 browser_enabled 限制）
-    isClassAdmin: function() {
-      var user = this.currentUser;
-      if (!user) return false;
-      if (user.is_admin === 1) return true;
-      if (user.role === 'officer') return true;
-      if (user.is_class_admin) return true;
-      return false;
-    },
-    // 社区超链接是否可打开：有浏览器权限 或 班管/班干
-    canOpenLink: function() {
-      return this.browserEnabled || this.isClassAdmin;
-    },
-    // 班管/班干但无浏览器权限时，浏览器隐藏地址栏
-    linkNoAddr: function() {
-      return !this.browserEnabled && this.isClassAdmin;
-    },
     // 当前长按菜单的图片是否可转存到云盘（仅本站图片）
     canSaveMenuMedia: function() {
       var url = this.imageMenuUrl || '';
@@ -1468,17 +1451,30 @@ export default {
   beforeDestroy: function() { this.cleanupWSListeners(); },
   methods: {
     // === 图片预览与长按菜单 ===
+    // 判断指定作者是否为班管/班干（基于 userLevels 缓存）
+    // 班管/班干发的帖子，其超链接所有人都可以直接打开
+    isAuthorClassAdmin: function(authorUserId) {
+      if (!authorUserId) return false;
+      var info = this.userLevels[authorUserId];
+      if (!info) return false;
+      return info.role === 'admin' || info.role === 'officer';
+    },
     onMarkdownClick: function(e) {
       var target = e.target;
       // 跳过音频原生控件点击（音频保留 controls）
       if (target.tagName === 'AUDIO') return;
-      // 链接点击：拦截并跳转到超能岛浏览器（有浏览器权限 或 班管/班干）
+      // 链接点击：拦截并跳转到超能岛浏览器
+      // 规则：浏览者有 browser_enabled 可打开任意链接；
+      //       否则，仅当链接所在内容作者为班管/班干时可打开（隐藏地址栏）
       var linkEl = target.closest ? target.closest('a') : null;
       if (linkEl && linkEl.tagName === 'A') {
-        if (!this.canOpenLink) {
-          // 无权限且非班管/班干：阻止默认行为（理论上已被 renderMarkdown 转为 span，这里是兜底）
+        var authorAdmin = linkEl.getAttribute('data-author-admin') === '1';
+        var viewerCanOpen = this.browserEnabled || authorAdmin;
+        if (!viewerCanOpen) {
+          // 无权限：阻止默认行为并提示
           e.preventDefault();
           e.stopPropagation();
+          this.$store.commit('toast/SHOW_TOAST', { message: '你没有权限打开链接', type: 'error' });
           return;
         }
         var href = linkEl.getAttribute('href') || '';
@@ -1486,9 +1482,9 @@ export default {
         if (/^https?:\/\//i.test(href)) {
           e.preventDefault();
           e.stopPropagation();
-          // 班管/班干但无浏览器权限时，隐藏地址栏
           var url = '/browser?url=' + encodeURIComponent(href) + '&fullscreen=1';
-          if (this.linkNoAddr) url += '&noaddr=1';
+          // 作者班管但浏览者无浏览器权限时，隐藏地址栏
+          if (!this.browserEnabled && authorAdmin) url += '&noaddr=1';
           this.$router.push(url);
         }
         return;
@@ -2556,14 +2552,22 @@ export default {
         this.pullRefreshY = 0;
       }
     },
-    renderMarkdown: function(content) {
+    renderMarkdown: function(content, authorUserId) {
       if (!content) return '';
       var result = LatexRenderer.processContent(content, marked);
       result.html = DOMPurify.sanitize(result.html);
       var html = LatexRenderer.renderFinalHtml(result.html, result.placeholders);
-      // 无超能岛浏览器权限且非班管/班干时，将 <a> 标签替换为纯文本，避免点击跳转
-      if (!this.canOpenLink) {
-        html = html.replace(/<a\b[^>]*>([^<]*)<\/a>/gi, '<span class="msg-link-text">$1</span>');
+      // 规则：浏览者有 browser_enabled 可点击任意链接；
+      //       作者为班管/班干时，所有人可点击（浏览者无 browser_enabled 时隐藏地址栏）；
+      //       否则将 <a> 替换为纯文本，点击时提示"你没有权限"
+      var authorIsAdmin = this.isAuthorClassAdmin(authorUserId);
+      var viewerCanOpen = this.browserEnabled || authorIsAdmin;
+      if (!viewerCanOpen) {
+        // 无权限：将 <a> 转为 span（onMarkdownClick 兜底会提示"你没有权限"）
+        html = html.replace(/<a\b[^>]*>([^<]*)<\/a>/gi, '<span class="msg-link-text msg-link-no-perm" title="你没有权限打开链接">$1</span>');
+      } else if (!this.browserEnabled && authorIsAdmin) {
+        // 作者班管但浏览者无浏览器权限：标记 data-author-admin，onMarkdownClick 据此隐藏地址栏
+        html = html.replace(/<a\b([^>]*)>/gi, '<a$1 data-author-admin="1">');
       }
       return html;
     },
@@ -3450,6 +3454,12 @@ export default {
   color: var(--text-primary);
   opacity: 0.85;
   word-break: break-all;
+}
+/* 无权限打开链接时，给纯文本加删除线提示 */
+.markdown-body >>> .msg-link-no-perm {
+  text-decoration: line-through;
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 .markdown-body >>> img {
   max-width: 100%;

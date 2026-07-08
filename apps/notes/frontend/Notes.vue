@@ -365,7 +365,7 @@
             @touchend="onPreviewTextSelect"
           >
             <div class="preview-content-inner">
-              <div class="preview-content-html" v-html="renderedContentHtml"></div>
+              <div class="preview-content-html" v-html="renderedContentHtml" @click="onMarkdownClick"></div>
               <!-- 批注涂鸦层：在滚动内容内部，随内容自然滚动 -->
               <div v-if="showAnnotationLayer" class="annotation-overlay" :class="{ 'annotation-active': annoDrawing }">
                 <DrawCanvas
@@ -658,7 +658,7 @@
             </button>
           </div>
           <div class="modal-body">
-            <div class="version-preview-content" v-html="versionPreviewHtml"></div>
+            <div class="version-preview-content" v-html="versionPreviewHtml" @click="onMarkdownClick"></div>
           </div>
         </div>
       </div>
@@ -992,7 +992,7 @@
           <p>画板数据为空</p>
         </div>
       </div>
-      <div v-else class="cloud-note-fullscreen-content markdown-body" v-html="renderMarkdown(viewingCloudNote.content || '')"></div>
+      <div v-else class="cloud-note-fullscreen-content markdown-body" v-html="renderMarkdown(viewingCloudNote.content || '')" @click="onMarkdownClick"></div>
     </div>
 
     <!-- 云盘图片/音视频选择器 -->
@@ -1252,6 +1252,12 @@ export default {
     };
   },
   computed: {
+    // 超能岛浏览器是否启用（per-user browser_enabled，Admin → 用户列表 → 编辑用户）
+    // 禁用时笔记中的链接以纯文本显示，点击提示"你没有权限"
+    browserEnabled: function() {
+      var user = this.$store && this.$store.state && this.$store.state.auth && this.$store.state.auth.user;
+      return !!(user && user.info && user.info.browser_enabled);
+    },
     activeFile: function() {
       var self = this;
       var allFiles = self.allFiles;
@@ -1461,6 +1467,34 @@ export default {
     }
   },
   methods: {
+    // 笔记中的超链接点击拦截：有 browser_enabled 时用超能岛浏览器打开（隐藏地址栏），无权限提示
+    onMarkdownClick: function(e) {
+      var target = e.target;
+      if (target.tagName === 'AUDIO') return;
+      var linkEl = target.closest ? target.closest('a') : null;
+      if (linkEl && linkEl.tagName === 'A') {
+        if (!this.browserEnabled) {
+          e.preventDefault();
+          e.stopPropagation();
+          this.$store.commit('toast/SHOW_TOAST', { message: '你没有权限打开链接', type: 'error' });
+          return;
+        }
+        var href = linkEl.getAttribute('href') || '';
+        // 仅拦截外部链接（http/https），内部路由不动
+        if (/^https?:\/\//i.test(href)) {
+          e.preventDefault();
+          e.stopPropagation();
+          // 笔记应用打开链接时统一隐藏地址栏
+          var url = '/browser?url=' + encodeURIComponent(href) + '&fullscreen=1&noaddr=1';
+          this.$router.push(url);
+        }
+      }
+    },
+    // 应用超链接权限过滤：无 browser_enabled 时将 <a> 转为带提示的 span
+    applyLinkPermission: function(html) {
+      if (this.browserEnabled) return html;
+      return html.replace(/<a\b[^>]*>([^<]*)<\/a>/gi, '<span class="msg-link-text msg-link-no-perm" title="你没有权限打开链接">$1</span>');
+    },
     renderMarkdown: function(content) {
       if (!content) return '';
       var result = LatexRenderer.processContent(content, marked);
@@ -1469,6 +1503,7 @@ export default {
         ADD_ATTR: ['style', 'displaystyle', 'scriptlevel', 'mathvariant', 'mathsize', 'mathcolor', 'mathbackground', 'linethickness', 'notation', 'open', 'close', 'separators', 'stretchy', 'symmetric', 'lspace', 'rspace', 'largeop', 'movablelimits', 'accent', 'accentunder', 'align', 'columnalign', 'rowalign', 'columnspacing', 'rowspacing', 'columnlines', 'rowlines', 'frame', 'framespacing', 'equalcolumns', 'equalrows', 'minlabelspacing', 'side', 'subscriptshift', 'superscriptshift']
       });
       var html = LatexRenderer.renderFinalHtml(result.html, result.placeholders);
+      html = this.applyLinkPermission(html);
       return html;
     },
     computeRenderedContent: function() {
@@ -1495,6 +1530,7 @@ export default {
       html = LatexRenderer.renderFinalHtml(html, result.placeholders);
       html = this.renderAnnotations(html);
       html = this.renderTodoItems(html);
+      html = this.applyLinkPermission(html);
       return html;
     },
     loadData: function() {
@@ -1652,6 +1688,7 @@ export default {
       html = LatexRenderer.renderFinalHtml(html, result.placeholders);
       html = self.renderAnnotations(html);
       html = self.renderTodoItems(html);
+      html = self.applyLinkPermission(html);
       self.versionPreviewHtml = html;
       self.showVersionPreview = true;
     },
@@ -5435,6 +5472,19 @@ export default {
 
 .markdown-body >>> a:hover {
   text-decoration: underline;
+}
+
+/* 无超能岛浏览器权限时链接转纯文本样式 */
+.markdown-body >>> .msg-link-text {
+  color: var(--text-primary);
+  opacity: 0.85;
+  word-break: break-all;
+}
+/* 无权限打开链接时，给纯文本加删除线提示 */
+.markdown-body >>> .msg-link-no-perm {
+  text-decoration: line-through;
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .markdown-body >>> img {
