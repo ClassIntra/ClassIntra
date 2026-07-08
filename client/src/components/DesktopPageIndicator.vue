@@ -59,6 +59,13 @@ export default {
   }
 }
 
+/* 横屏矮屏适配：避免指示器与桌面图标区域重叠 */
+@media (orientation: landscape) and (max-height: 600px) {
+  .page-indicator {
+    bottom: 92px;
+  }
+}
+
 .page-dot {
   width: 20px;
   height: 20px;

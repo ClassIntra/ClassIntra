@@ -242,9 +242,6 @@
           <button class="ctx-item" @click="handleContextAction('reply')">
             <i class="fa-solid fa-reply"></i> 回复
           </button>
-          <button class="ctx-item" @click="handleContextAction('react')">
-            <i class="fa-regular fa-face-smile"></i> 表情回应
-          </button>
           <button class="ctx-item" @click="handleContextAction('copy')">
             <i class="fa-regular fa-copy"></i> 复制
           </button>
@@ -263,24 +260,6 @@
 
     <!-- Image Preview -->
     <ImagePreview :visible="showImagePreview" :image-url="mediaPreviewUrl" :media-type="mediaPreviewType" @close="closeImagePreview" />
-
-    <!-- Reaction Picker -->
-    <transition name="fade-quick">
-      <div v-if="showReactionPicker" class="context-menu-overlay" @click="closeReactionPicker">
-        <div
-          class="reaction-picker-popup"
-          :style="{ top: reactionPickerPos.y + 'px', left: reactionPickerPos.x + 'px' }"
-          @click.stop
-        >
-          <button
-            v-for="emoji in reactionEmojis"
-            :key="emoji"
-            class="reaction-pick-btn"
-            @click="selectReaction(emoji)"
-          >{{ emoji }}</button>
-        </div>
-      </div>
-    </transition>
 
     <!-- Create Group Modal -->
     <transition name="modal-fade">
@@ -720,11 +699,6 @@ export default {
       showImagePreview: false,
       mediaPreviewUrl: null,
       mediaPreviewType: 'image',
-      // Reaction picker
-      showReactionPicker: false,
-      reactionPickerTarget: null,
-      reactionPickerPos: { x: 0, y: 0 },
-      reactionEmojis: ['\uD83D\uDC4D', '\u2764\uFE0F', '\uD83D\uDE02', '\uD83D\uDE2E', '\uD83D\uDE22', '\uD83D\uDE21'],
       // Message reactions (mapping messageId -> reactions object)
       messageReactions: {},
       // Read receipts (mapping messageId -> boolean)
@@ -1132,9 +1106,6 @@ export default {
     onDocumentClick: function() {
       if (this.showContextMenu) {
         this.closeContextMenu();
-      }
-      if (this.showReactionPicker) {
-        this.closeReactionPicker();
       }
     },
     connectWS: function() {
@@ -2730,8 +2701,6 @@ export default {
     },
     // Context menu
     openContextMenu: function(msg, event) {
-      this.closeReactionPicker();
-
       var x = event.clientX;
       var y = event.clientY;
       // Adjust position to avoid overflow
@@ -2802,8 +2771,6 @@ export default {
 
       if (action === 'reply') {
         self.startReply(msg);
-      } else if (action === 'react') {
-        self.openReactionPicker(msg, self.contextMenuPos);
       } else if (action === 'copy') {
         var content = msg.content || '';
         if (msg.type === 'community_forward') {
@@ -2858,32 +2825,6 @@ export default {
       }
     },
     // Reaction system
-    openReactionPicker: function(msg, pos) {
-      var x = pos ? pos.x : 0;
-      var y = pos ? pos.y : 0;
-      var pickerWidth = 260;
-      var pickerHeight = 50;
-      if (x + pickerWidth > window.innerWidth) {
-        x = window.innerWidth - pickerWidth - 8;
-      }
-      if (y + pickerHeight > window.innerHeight) {
-        y = y - pickerHeight - 8;
-      }
-      this.reactionPickerTarget = msg;
-      this.reactionPickerPos = { x: x, y: y };
-      this.showReactionPicker = true;
-    },
-    closeReactionPicker: function() {
-      this.showReactionPicker = false;
-      this.reactionPickerTarget = null;
-    },
-    selectReaction: function(emoji) {
-      var self = this;
-      var msg = self.reactionPickerTarget;
-      self.closeReactionPicker();
-      if (!msg) return;
-      self.toggleReaction(msg, emoji);
-    },
     getReactionMessageType: function() {
       if (this.currentChat === 'public') return 'public';
       if (this.isGroupChat(this.currentChat)) return 'group';

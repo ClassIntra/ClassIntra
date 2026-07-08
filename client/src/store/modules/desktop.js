@@ -595,6 +595,29 @@ var mutations = {
     }
     state.layout = layout;
   },
+  // 跨页移动小组件：从源页数组移除并追加到目标页数组
+  // payload: { fromPageId, toPageId, widgetId }
+  MOVE_WIDGET: function(state, payload) {
+    if (!state.layout || !state.layout.widgets) return;
+    if (payload.fromPageId === payload.toPageId) return; // 同页无需移动
+    var layout = cloneLayout(state.layout);
+    var fromList = layout.widgets[payload.fromPageId];
+    if (!fromList) return;
+    var widget = null;
+    var remain = [];
+    for (var i = 0; i < fromList.length; i++) {
+      if (fromList[i].id === payload.widgetId) {
+        widget = fromList[i];
+      } else {
+        remain.push(fromList[i]);
+      }
+    }
+    if (!widget) return;
+    layout.widgets[payload.fromPageId] = remain;
+    if (!layout.widgets[payload.toPageId]) layout.widgets[payload.toPageId] = [];
+    layout.widgets[payload.toPageId].push(widget);
+    state.layout = layout;
+  },
   // 触发所有 widget 刷新（自增 key，widget 组件 watch 此值重新加载数据）
   BUMP_WIDGET_REFRESH: function(state) {
     state.widgetRefreshKey++;
@@ -835,6 +858,13 @@ var actions = {
     var newH = Math.max(minSize.h, Math.min(maxSize.h, widget.h + payload.dh));
     if (newW === widget.w && newH === widget.h) return;
     context.commit('RESIZE_WIDGET', { pageId: payload.pageId, widgetId: payload.widgetId, w: newW, h: newH });
+    context.dispatch('saveDesktopLayout');
+  },
+  // 跨页移动小组件
+  // payload: { fromPageId, toPageId, widgetId }
+  moveWidget: function(context, payload) {
+    if (payload.fromPageId === payload.toPageId) return; // 同页无需移动
+    context.commit('MOVE_WIDGET', payload);
     context.dispatch('saveDesktopLayout');
   },
   // 刷新所有 widget（触发 widget 组件重新加载数据）

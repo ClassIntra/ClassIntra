@@ -34,15 +34,19 @@ export default {
       if (!source) {
         // 事件委托：从 e.target 向上找 [data-src-type]
         var target = e.target;
+        // widget 控制按钮（移除/缩放/配置/刷新）点击不触发拖拽
+        if (target && target.closest && target.closest('.widget-remove-btn, .widget-ctrl-btn')) return;
         var el = target && target.closest ? target.closest('[data-src-type]') : null;
         if (!el) return;
         source = this._readSourceFromElement(el);
       }
       if (!source) return;
 
-      // 固定图标不可拖拽
-      var pinnedApps = this.$store.getters['desktop/pinnedApps'];
-      if (source.appName && pinnedApps.indexOf(source.appName) !== -1) return;
+      // 固定图标不可拖拽（widget 没有 appName，跳过此检查）
+      if (source.type !== 'widget') {
+        var pinnedApps = this.$store.getters['desktop/pinnedApps'];
+        if (source.appName && pinnedApps.indexOf(source.appName) !== -1) return;
+      }
 
       var point = this._getPoint(e);
       this.dragState = {
@@ -81,11 +85,13 @@ export default {
       var dock = el.getAttribute('data-src-dock');
       var folder = el.getAttribute('data-src-folder');
       var app = el.getAttribute('data-src-app');
+      var widgetId = el.getAttribute('data-widget-id');
       if (page !== null) source.pageIndex = parseInt(page, 10);
       if (idx !== null) source.index = parseInt(idx, 10);
       if (dock !== null) source.index = parseInt(dock, 10);
       if (folder !== null) source.folderId = folder;
       if (app !== null) source.appName = app;
+      if (widgetId !== null) source.widgetId = widgetId;
       return source;
     },
 
@@ -241,6 +247,8 @@ export default {
         selector = '[data-src-type="dock"][data-src-dock="' + source.index + '"]';
       } else if (source.type === 'folder') {
         selector = '[data-src-type="folder"][data-src-folder="' + source.folderId + '"][data-src-app="' + source.appName + '"]';
+      } else if (source.type === 'widget') {
+        selector = '[data-src-type="widget"][data-widget-id="' + source.widgetId + '"]';
       }
       return selector ? document.querySelector(selector) : null;
     },
@@ -248,56 +256,88 @@ export default {
     // 创建 ghost 元素（克隆图标视觉）
     // ghost 被 append 到 document.body，尺寸/圆角由 global.scss 的 .desktop-drag-ghost* 全局样式控制
     // （scoped 样式不作用于 body 上的元素，否则 img 会按自然尺寸 512px 放大）
-    // 支持 app 和 folder 两种源：folder tile 的 data-src-type 是 'page'，需读实际 slot 判断类型
+    // 支持 app/folder/widget 三种源：folder tile 的 data-src-type 是 'page'，需读实际 slot 判断类型；
+    // widget 拖拽时克隆其 DOM 子树（排除编辑态控制按钮），保持实际尺寸
     _createGhost: function(source) {
       var ghost = document.createElement('div');
       ghost.className = 'desktop-drag-ghost';
-      var innerHtml = '';
+      var ghostW = 72;
+      var ghostH = 72;
 
-      // 判断拖拽源是 app 还是 folder（folder tile 的 source.type 也是 'page'）
-      var slotContent = null;
-      if (source.type === 'page') {
-        var layout = this.$store.state.desktop.layout;
-        if (layout && layout.pages[source.pageIndex]) {
-          slotContent = layout.pages[source.pageIndex].slots[source.index];
+      // widget 拖拽：克隆 widget DOM，保持视觉一致
+      if (source.type === 'widget') {
+        var widgetEl = this._findSourceElement(source);
+        if (widgetEl) {
+          var rect = widgetEl.getBoundingClientRect();
+          var clone = widgetEl.cloneNode(true);
+          // 移除编辑态控制按钮，避免 ghost 上显示按钮
+          var btns = clone.querySelectorAll('.widget-remove-btn, .widget-ctrl-btn');
+          for (var j = 0; j < btns.length; j++) {
+            if (btns[j].parentNode) btns[j].parentNode.removeChild(btns[j]);
+          }
+          // 清除可能继承的样式，用固定宽高
+          clone.style.visibility = '';
+          clone.style.opacity = '';
+          clone.style.gridColumn = '';
+          clone.style.gridRow = '';
+          clone.style.margin = '0';
+          clone.style.width = rect.width + 'px';
+          clone.style.height = rect.height + 'px';
+          ghost.appendChild(clone);
+          ghostW = rect.width;
+          ghostH = rect.height;
         }
-      }
-
-      if (slotContent && slotContent.type === 'folder') {
-        // folder 拖拽 ghost：显示文件夹缩略图（3×3 网格）
-        var folder = this.$store.getters['desktop/folderById'](slotContent.id);
-        var apps = folder ? folder.apps.slice(0, 9) : [];
-        var gridHtml = '';
-        for (var i = 0; i < apps.length; i++) {
-          var meta = this.$store.getters['desktop/appByName'](apps[i]);
-          gridHtml += '<div class="ghost-folder-cell"><img src="' + (meta ? meta.icon : '') + '" draggable="false"/></div>';
-        }
-        innerHtml = '<div class="desktop-drag-ghost-folder">' + gridHtml + '</div>';
       } else {
-        // app 拖拽 ghost：显示应用图标（移除彩色背景，图标自带不透明底）
-        var appMeta = this.$store.getters['desktop/appByName'](source.appName);
-        var imgSrc = appMeta ? appMeta.icon : '';
-        innerHtml = '<div class="desktop-drag-ghost-img"><img src="' + imgSrc + '" draggable="false"/></div>';
+        var innerHtml = '';
+        // 判断拖拽源是 app 还是 folder（folder tile 的 source.type 也是 'page'）
+        var slotContent = null;
+        if (source.type === 'page') {
+          var layout = this.$store.state.desktop.layout;
+          if (layout && layout.pages[source.pageIndex]) {
+            slotContent = layout.pages[source.pageIndex].slots[source.index];
+          }
+        }
+
+        if (slotContent && slotContent.type === 'folder') {
+          // folder 拖拽 ghost：显示文件夹缩略图（3×3 网格）
+          var folder = this.$store.getters['desktop/folderById'](slotContent.id);
+          var apps = folder ? folder.apps.slice(0, 9) : [];
+          var gridHtml = '';
+          for (var i = 0; i < apps.length; i++) {
+            var meta = this.$store.getters['desktop/appByName'](apps[i]);
+            gridHtml += '<div class="ghost-folder-cell"><img src="' + (meta ? meta.icon : '') + '" draggable="false"/></div>';
+          }
+          innerHtml = '<div class="desktop-drag-ghost-folder">' + gridHtml + '</div>';
+        } else {
+          // app 拖拽 ghost：显示应用图标（移除彩色背景，图标自带不透明底）
+          var appMeta = this.$store.getters['desktop/appByName'](source.appName);
+          var imgSrc = appMeta ? appMeta.icon : '';
+          innerHtml = '<div class="desktop-drag-ghost-img"><img src="' + imgSrc + '" draggable="false"/></div>';
+        }
+        ghost.innerHTML = innerHtml;
       }
 
-      ghost.innerHTML = innerHtml;
       // 样式
       ghost.style.position = 'fixed';
       ghost.style.left = '0';
       ghost.style.top = '0';
       ghost.style.pointerEvents = 'none';
       ghost.style.zIndex = '9999';
-      // 中心对齐指针（ghost 72px，偏移 -36）；scale(1.08) 模拟 iPadOS 拖起放大反馈
+      // 记录 ghost 尺寸，供 _updateGhost 中心对齐指针使用
+      this.dragState._ghostW = ghostW;
+      this.dragState._ghostH = ghostH;
+      // 中心对齐指针；scale(1.08) 模拟 iPadOS 拖起放大反馈
       // transform-origin 默认 center，scale 不改变视觉中心，仍对齐指针
-      ghost.style.transform = 'translate(' + (this.dragState.startX - 36) + 'px,' + (this.dragState.startY - 36) + 'px) scale(1.08)';
+      ghost.style.transform = 'translate(' + (this.dragState.startX - ghostW / 2) + 'px,' + (this.dragState.startY - ghostH / 2) + 'px) scale(1.08)';
       return ghost;
     },
 
     // 更新 ghost 位置（中心对齐指针）
     _updateGhost: function(x, y) {
       if (!this.dragState.ghostEl) return;
-      // ghost 72px，偏移 -36 使中心对齐指针；scale(1.08) 拖起放大
-      this.dragState.ghostEl.style.transform = 'translate(' + (x - 36) + 'px,' + (y - 36) + 'px) scale(1.08)';
+      var w = this.dragState._ghostW || 72;
+      var h = this.dragState._ghostH || 72;
+      this.dragState.ghostEl.style.transform = 'translate(' + (x - w / 2) + 'px,' + (y - h / 2) + 'px) scale(1.08)';
     },
 
     // 落点检测：用 elementFromPoint 找目标槽位
@@ -373,9 +413,11 @@ export default {
       this._clearDropHighlight();
 
       // 文件夹创建检测：目标是 app 类型槽位时启动悬停计时
-      if (targetInfo && targetInfo.type === 'page' && targetInfo.slotContent && targetInfo.slotContent.type === 'app') {
+      // widget 拖拽不触发文件夹创建（widget 不能并入文件夹）
+      var src = this.dragState.source;
+      var isWidgetDrag = src.type === 'widget';
+      if (!isWidgetDrag && targetInfo && targetInfo.type === 'page' && targetInfo.slotContent && targetInfo.slotContent.type === 'app') {
         // 不能拖到自己原来的位置
-        var src = this.dragState.source;
         var isSameSlot = src.type === 'page' && src.pageIndex === targetInfo.pageIndex && src.index === targetInfo.index;
         if (!isSameSlot) {
           // 重置计时
@@ -422,6 +464,8 @@ export default {
     _applyShoveAnimation: function(targetInfo) {
       this._clearShoveAnimation();
       if (!targetInfo || !targetInfo.element) return;
+      // widget 拖拽不做让位动画（widget 位置由 grid-auto-flow 自动排布，无"交换"语义）
+      if (this.dragState.source.type === 'widget') return;
       // 空槽位/append 落点没有图标可推
       if (!targetInfo.slotContent) return;
       // 文件夹创建悬停场景不施让位（交给文件夹创建逻辑）
@@ -536,6 +580,12 @@ export default {
       var target = this.dragState.targetInfo;
       var source = this.dragState.source;
 
+      // widget 拖拽单独处理：仅允许跨页移动到 page 落点
+      if (source.type === 'widget') {
+        this._handleWidgetDrop(source, target);
+        return;
+      }
+
       // Dock 满载拦截：追加到 Dock 且已满 12 且来源非 Dock → 提示并取消
       // （mutation 保持纯函数，拦截逻辑放在此处；Dock 内重排不受限）
       if (target && target.type === 'dock' && target.isAppend) {
@@ -568,6 +618,31 @@ export default {
 
       // 触觉反馈
       if (navigator.vibrate) navigator.vibrate(10);
+    },
+
+    // widget 拖拽落点处理：仅允许拖到 page 类型落点（跨页移动）
+    // 同页拖拽由 grid-auto-flow 自动排布，无需操作；拖到 dock/folder/无效落点则取消
+    _handleWidgetDrop: function(source, target) {
+      var oldRects = this._captureIconRects();
+      var moved = false;
+      if (target && target.type === 'page' && target.pageIndex !== source.pageIndex) {
+        var layout = this.$store.state.desktop.layout;
+        var pages = layout && layout.pages;
+        if (pages && pages[source.pageIndex] && pages[target.pageIndex]) {
+          this.$store.dispatch('desktop/moveWidget', {
+            fromPageId: pages[source.pageIndex].id,
+            toPageId: pages[target.pageIndex].id,
+            widgetId: source.widgetId
+          });
+          moved = true;
+        }
+      }
+      this._cleanupDrag();
+      if (moved) {
+        this.$store.dispatch('desktop/saveDesktopLayout');
+        this._runFlipAnimation(oldRects);
+        if (navigator.vibrate) navigator.vibrate(10);
+      }
     },
 
     // 清理拖拽状态
