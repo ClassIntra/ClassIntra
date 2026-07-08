@@ -108,9 +108,9 @@ var SCIENTIFIC_KEYS = [
   // 行2: 幂与根
   { label: 'x²', type: 'function', action: 'insert', value: '^2', secondaryLabel: 'x³', secondaryValue: '^3' },
   { label: '√', type: 'function', action: 'insert', value: '√(', secondaryLabel: '∛', secondaryValue: '∛(' },
-  { label: 'xʸ', type: 'function', action: 'insert', value: '^', secondaryLabel: 'ⁿ√', secondaryValue: ',root(' },
+  { label: 'xʸ', type: 'function', action: 'insert', value: '^', secondaryLabel: 'ⁿ√', secondaryValue: 'root(' },
   { label: 'π', type: 'function', action: 'insert', value: 'π', secondaryLabel: 'e', secondaryValue: 'e' },
-  { label: 'n!', type: 'function', action: 'insert', value: '!', secondaryLabel: '1/x', secondaryValue: 'inv(' },
+  { label: 'n!', type: 'function', action: 'insert', value: '!', secondaryLabel: '1/x', secondaryValue: '^(-1)' },
   // 行3: 三角函数（2nd → 反三角 / 双曲）
   { label: 'sin', type: 'function', action: 'insert', value: 'sin(', secondaryLabel: 'sin⁻¹', secondaryValue: 'asin(' },
   { label: 'cos', type: 'function', action: 'insert', value: 'cos(', secondaryLabel: 'cos⁻¹', secondaryValue: 'acos(' },
@@ -119,7 +119,7 @@ var SCIENTIFIC_KEYS = [
   { label: 'cosh', type: 'function', action: 'insert', value: 'cosh(', secondaryLabel: 'cosh⁻¹', secondaryValue: 'acosh(' },
   // 行4: 对数与取整
   { label: 'ln', type: 'function', action: 'insert', value: 'ln(', secondaryLabel: 'eˣ', secondaryValue: 'exp(' },
-  { label: 'log', type: 'function', action: 'insert', value: 'log(', secondaryLabel: '10ˣ', secondaryValue: '10^' },
+  { label: 'log', type: 'function', action: 'insert', value: 'log(', secondaryLabel: '10ˣ', secondaryValue: '10^(' },
   { label: 'tanh', type: 'function', action: 'insert', value: 'tanh(', secondaryLabel: 'tanh⁻¹', secondaryValue: 'atanh(' },
   { label: '|x|', type: 'function', action: 'insert', value: 'abs(', secondaryLabel: '⌊x⌋', secondaryValue: 'floor(' },
   { label: 'mod', type: 'function', action: 'insert', value: 'mod(', secondaryLabel: '⌈x⌉', secondaryValue: 'ceil(' },
@@ -154,7 +154,7 @@ var BASIC_KEYS = [
   { label: '1', type: 'digit', action: 'insert', value: '1' },
   { label: '2', type: 'digit', action: 'insert', value: '2' },
   { label: '3', type: 'digit', action: 'insert', value: '3' },
-  { label: '%', type: 'function', action: 'insert', value: '%' },
+  { label: '%', type: 'function', action: 'insert', value: '÷100' },
   { label: '=', type: 'operator', action: 'equals' },
   // 行5: 0 . ± EXP Ans
   { label: '0', type: 'digit', action: 'insert', value: '0' },
@@ -276,16 +276,19 @@ export default {
     },
     // ===== 表达式操作 =====
     insert: function(value) {
-      // 刚算完结果，且输入的是数字或常数 → 开始新表达式
-      if (this.justCalculated) {
-        // 如果输入的是运算符（+ - × ÷ ^ 等），则继续用上次结果
+      // 出错后输入新内容，清空重新开始
+      if (this.isError) {
+        this.expr = '';
+        this.isError = false;
+        this.justCalculated = false;
+      } else if (this.justCalculated) {
+        // 刚算完结果，且输入的是运算符（+ - × ÷ ^ 等），则继续用上次结果
         if (this.isOperatorStart(value)) {
           this.expr = String(this.lastResult);
         } else {
           this.expr = '';
         }
         this.justCalculated = false;
-        this.isError = false;
       }
       this.expr += value;
     },
@@ -299,7 +302,16 @@ export default {
         return;
       }
       // 智能删除：删除整个函数名（如 sin( → 删除 4 个字符）
-      var multiCharTokens = ['asinh(', 'acosh(', 'atanh(', 'asin(', 'acos(', 'atan(', 'sinh(', 'cosh(', 'tanh(', 'sin(', 'cos(', 'tan(', 'ln(', 'log(', 'sqrt(', 'cbrt(', 'exp(', 'inv(', 'abs(', 'floor(', 'ceil(', 'mod(', 'P(', 'C(', 'root('];
+      var multiCharTokens = [
+        'asinh(', 'acosh(', 'atanh(', 'asin(', 'acos(', 'atan(',
+        'sinh(', 'cosh(', 'tanh(', 'sin(', 'cos(', 'tan(',
+        'ln(', 'log(', 'log2(', 'log10(', 'logn(', 'logb(',
+        'sqrt(', 'cbrt(', 'exp(', 'inv(', 'abs(', 'floor(', 'ceil(',
+        'mod(', 'P(', 'C(', 'root(', 'pow(', 'gcd(', 'lcm(',
+        'max(', 'min(', 'hypot(', 'atan2(', 'randint(',
+        'fact(', 'trunc(', 'sign(', 'round(', 'deg(', 'rad(',
+        '10^(', '^(-1)', '÷100', '×10^', '(-'
+      ];
       var deleted = false;
       for (var i = 0; i < multiCharTokens.length; i++) {
         var token = multiCharTokens[i];
@@ -478,7 +490,7 @@ export default {
       if (key === '*') { e.preventDefault(); this.insert('×'); return; }
       if (key === '/') { e.preventDefault(); this.insert('÷'); return; }
       if (key === '^') { e.preventDefault(); this.insert('^'); return; }
-      if (key === '%') { e.preventDefault(); this.insert('%'); return; }
+      if (key === '%') { e.preventDefault(); this.insert('÷100'); return; }
       if (key === '(' || key === ')') { e.preventDefault(); this.insert(key); return; }
       if (key === '!') { e.preventDefault(); this.insert('!'); return; }
       if (key === ',') { e.preventDefault(); this.insert(','); return; }

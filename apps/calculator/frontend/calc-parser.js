@@ -5,7 +5,7 @@
 //   - 阶乘 !（后缀，如 5! = 120）
 //   - 括号、逗号分隔的多参数函数
 //   - 三角函数 sin/cos/tan/asin/acos/atan/sinh/cosh/tanh（DEG/RAD 自动切换）
-//   - 对数 ln（自然）/ log（常用 lg）/ log2 / log_n(b,x)（任意底）
+//   - 对数 ln（自然）/ log（常用 lg）/ log2 / logn(b,x)（任意底，b 为底）
 //   - 指数 exp / sqrt / cbrt / abs / floor / ceil / round / sign
 //   - 排列 P(n,m) / 组合 C(n,m) / gcd / lcm / mod
 //   - 常数 π（pi）/ e / φ（phi，黄金分割比）
@@ -310,6 +310,14 @@ CalculatorParser.prototype = {
       'artanh': function(x) { return Math.atanh(x); }
     };
 
+    // 无参数函数
+    var zeroArg = {
+      'random': function() { return Math.random(); },
+      'rand': function() { return Math.random(); },
+      'now': function() { return Date.now(); },
+      'pi': function() { return Math.PI; }  // 兼容 pi() 调用
+    };
+
     // 单参数函数
     var oneArg = {
       'sqrt': Math.sqrt,
@@ -325,6 +333,10 @@ CalculatorParser.prototype = {
       'ceil': Math.ceil,
       'round': Math.round,
       'sign': Math.sign,
+      'trunc': Math.trunc,  // 截断取整
+      'deg': function(x) { return x * 180 / Math.PI; },  // 弧度转度
+      'rad': function(x) { return x * Math.PI / 180; },  // 度转弧度
+      'fact': factorial,  // 阶乘函数形式 fact(n)
       'inv': function(x) {  // 倒数 1/x
         if (x === 0) throw new Error('除零错误');
         return 1 / x;
@@ -334,8 +346,14 @@ CalculatorParser.prototype = {
     // 双参数函数
     var twoArg = {
       'pow': Math.pow,
-      'log_': function(b, x) {  // log_b(x)，任意底
+      'logn': function(b, x) {  // logn(b, x) = log_b(x)，任意底对数
         if (b <= 0 || b === 1) throw new Error('对数底数无效');
+        if (x <= 0) throw new Error('对数真数必须为正');
+        return Math.log(x) / Math.log(b);
+      },
+      'logb': function(b, x) {  // logb 别名
+        if (b <= 0 || b === 1) throw new Error('对数底数无效');
+        if (x <= 0) throw new Error('对数真数必须为正');
         return Math.log(x) / Math.log(b);
       },
       'C': combination,
@@ -350,6 +368,19 @@ CalculatorParser.prototype = {
       },
       'gcd': gcdFunc,
       'lcm': lcmFunc,
+      'max': Math.max,
+      'min': Math.min,
+      'hypot': Math.hypot,  // 直角三角形斜边 sqrt(a²+b²)
+      'atan2': function(y, x) {  // 双参数反正切
+        var r = Math.atan2(y, x);
+        return isDeg ? fromRad(r) : r;
+      },
+      'randint': function(a, b) {  // [a, b] 范围随机整数
+        a = Math.ceil(a);
+        b = Math.floor(b);
+        if (a > b) throw new Error('randint 范围无效');
+        return Math.floor(Math.random() * (b - a + 1)) + a;
+      },
       'root': function(n, x) {  // n 次方根
         if (n === 0) throw new Error('根指数不能为 0');
         if (x < 0 && n % 2 === 0) throw new Error('负数无偶次实根');
@@ -357,11 +388,13 @@ CalculatorParser.prototype = {
       }
     };
 
+    if (zeroArg[name] && args.length === 0) return zeroArg[name]();
     if (trig[name] && args.length === 1) return trig[name](args[0]);
     if (oneArg[name] && args.length === 1) return oneArg[name](args[0]);
     if (twoArg[name] && args.length === 2) return twoArg[name](args[0], args[1]);
 
-    // 三角函数传错参数个数
+    // 函数传错参数个数
+    if (zeroArg[name]) throw new Error(name + '() 不需要参数');
     if (trig[name]) throw new Error(name + '() 需要 1 个参数');
     if (oneArg[name]) throw new Error(name + '() 需要 1 个参数');
     if (twoArg[name]) throw new Error(name + '() 需要 2 个参数');
@@ -393,6 +426,18 @@ function evaluate(expr, options) {
   return parser.parse(expr);
 }
 
+// 格式化科学计数法，去除尾数末尾 0
+function _formatExp(num, precision) {
+  var s = num.toExponential(precision);
+  var parts = s.split('e');
+  var mantissa = parts[0];
+  var exp = parts[1];
+  if (mantissa.indexOf('.') !== -1) {
+    mantissa = mantissa.replace(/0+$/, '').replace(/\.$/, '');
+  }
+  return mantissa + 'e' + exp;
+}
+
 // 格式化数字结果（去除浮点误差，限制位数）
 function formatResult(num) {
   if (!isFinite(num)) {
@@ -404,22 +449,21 @@ function formatResult(num) {
   // 整数直接返回
   if (Number.isInteger(num)) {
     // 大整数转科学计数法（避免精度丢失）
-    if (Math.abs(num) >= 1e15) return num.toExponential(10);
+    if (Math.abs(num) >= 1e15) return _formatExp(num, 10);
     return String(num);
   }
-  // 处理浮点误差：如 0.1+0.2=0.30000000000000004
+  // 非整数：处理浮点误差（如 0.1+0.2=0.30000000000000004）
   var str = num.toString();
-  // 如果是科学计数法
+  // 科学计数法
   if (str.indexOf('e') !== -1 || str.indexOf('E') !== -1) {
-    return num.toPrecision(12).replace(/\.?0+$/, '');
+    return _formatExp(num, 12);
   }
-  // 限制小数位数 12 位，去除末尾 0
+  // 固定表示，限制小数位数 12 位，去除末尾 0
   var fixed = num.toFixed(12);
-  // 去除末尾 0
   fixed = fixed.replace(/0+$/, '').replace(/\.$/, '');
-  // 如果小数位数过多，转科学计数法
-  if (fixed.indexOf('.') !== -1 && fixed.split('.')[1].length > 12) {
-    return num.toExponential(10).replace(/\.?0+e/, 'e');
+  // 如果结果为 0 但原数字不为 0（极小数精度丢失），转科学计数法
+  if (parseFloat(fixed) === 0 && num !== 0) {
+    return _formatExp(num, 12);
   }
   return fixed;
 }
