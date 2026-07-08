@@ -115,6 +115,17 @@ router.beforeEach(function(to, from, next) {
       proceedWithAdminCheck(to, next);
       return;
     }
+    // 超能岛浏览器：不通过应用管控，改为检查 per-user 的 browser_enabled 字段
+    // browser_enabled 在 Admin → 用户列表 → 编辑用户 → 超能岛浏览器 中配置
+    if (appName === 'browser') {
+      var browserEnabled = user && user.info && user.info.browser_enabled;
+      if (browserEnabled) {
+        proceedWithAdminCheck(to, next);
+      } else {
+        next({ name: 'Desktop' });
+      }
+      return;
+    }
     getEnabledApps().then(function(enabledApps) {
       if (enabledApps.indexOf(appName) === -1) {
         // 应用被禁用，重定向到桌面

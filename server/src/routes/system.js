@@ -162,7 +162,7 @@ router.get('/app-control', function(req, res) {
     } catch (e) {
       // 数据库异常时返回全部启用（降级处理，不影响用户使用）
       // admin 仍由前端 Desktop.vue 的 visibleRoles 过滤，普通用户不可见
-      res.json({ code: 200, data: { enabled_apps: ['chat', 'community', 'ai-chat', 'notes', 'resource', 'weather', 'music', 'settings', 'timetable', 'calendar', 'countdown', 'admin', 'calculator'] } });
+      res.json({ code: 200, data: { enabled_apps: ['chat', 'community', 'ai-chat', 'notes', 'resource', 'weather', 'music', 'settings', 'timetable', 'calendar', 'countdown', 'admin', 'calculator', 'browser'] } });
     }
   });
 });
