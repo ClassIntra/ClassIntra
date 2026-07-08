@@ -198,6 +198,10 @@ export default {
     var url = self.$route.query.url || '';
     if (url) {
       self.navigateTo(url);
+      // 通过超链接（聊天/社区）打开时隐藏地址栏
+      if (self.$route.query.fullscreen === '1') {
+        self.isFullscreen = true;
+      }
     } else if (self.homepage) {
       self.navigateTo(self.homepage);
     }

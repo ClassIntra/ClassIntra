@@ -342,7 +342,7 @@ export default {
         e.preventDefault();
         var href = target.getAttribute('href');
         if (href) {
-          this.$router.push('/browser?url=' + encodeURIComponent(href));
+          this.$router.push('/browser?url=' + encodeURIComponent(href) + '&fullscreen=1');
         }
         return;
       }

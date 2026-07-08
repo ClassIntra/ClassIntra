@@ -1469,7 +1469,7 @@ export default {
         if (/^https?:\/\//i.test(href)) {
           e.preventDefault();
           e.stopPropagation();
-          this.$router.push('/browser?url=' + encodeURIComponent(href));
+          this.$router.push('/browser?url=' + encodeURIComponent(href) + '&fullscreen=1');
         }
         return;
       }
