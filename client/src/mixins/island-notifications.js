@@ -259,6 +259,28 @@ export default {
         self.enqueueNotification(notif);
       };
 
+      // 管理员编辑用户资料时，后端广播 user_profile_updated，前端同步刷新 auth store
+      self.wsListeners['user_profile_updated'] = function(data) {
+        var currentUser = self.$store.state.auth.user;
+        if (!currentUser || data.user_id !== currentUser.user_id) return;
+        var updatedUser = Object.assign({}, currentUser);
+        // 同步基本字段
+        if (data.net_name !== undefined) updatedUser.net_name = data.net_name;
+        if (data.real_name !== undefined) updatedUser.real_name = data.real_name;
+        if (data.gender !== undefined) updatedUser.gender = data.gender;
+        // 同步 info_json（browser_enabled 等 per-user 权限就存在这里）
+        if (data.info_json !== undefined && data.info_json !== null) {
+          try {
+            updatedUser.info = typeof data.info_json === 'string'
+              ? JSON.parse(data.info_json)
+              : data.info_json;
+          } catch (e) {
+            updatedUser.info = {};
+          }
+        }
+        self.$store.commit('auth/SET_USER', updatedUser);
+      };
+
       self.wsListeners['community_event'] = function(data) {
         if (!data || !data.action) return;
         if (self.currentRoute === '/community') return;
