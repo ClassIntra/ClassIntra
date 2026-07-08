@@ -223,6 +223,10 @@ export default {
       if (data.action === 'classintra-back') {
         self.$router.back();
       }
+      // 子站点主动询问身份（解决时序问题：mounted 可能错过了 load 时的消息）
+      if (data.action === 'classintra-ping') {
+        self.onIframeLoad();
+      }
     };
     window.addEventListener('message', self._messageHandler);
   },
@@ -272,6 +276,15 @@ export default {
       if (!/^https?:\/\//i.test(raw)) {
         raw = 'https://' + raw;
       }
+      // 添加 classintra=1 参数，让子站点识别 ClassIntra 环境
+      try {
+        var u = new URL(raw);
+        // 避免重复添加
+        if (!u.searchParams.has('classintra')) {
+          u.searchParams.set('classintra', '1');
+          raw = u.toString();
+        }
+      } catch (e) {}
       self.currentUrl = raw;
       self.urlText = raw;
       // 添加到历史记录
