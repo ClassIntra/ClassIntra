@@ -404,9 +404,9 @@ router.get('/posts', function(req, res) {
   var total = totalResult.total;
 
   var sort = req.query.sort || 'latest';
-  var orderStr = 'ORDER BY p.id DESC';
+  var orderStr = 'ORDER BY p.created_at DESC';
   if (sort === 'hot') {
-    orderStr = 'ORDER BY p.like_count DESC, p.id DESC';
+    orderStr = 'ORDER BY p.like_count DESC, p.created_at DESC';
   }
 
   var listStmt = db.prepare(
