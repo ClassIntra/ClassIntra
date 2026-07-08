@@ -62,26 +62,16 @@
                 class="action-btn danger-btn"
                 @click="batchDeleteUsers"
               >批量删除 ({{ selectedUsers.length }})</button>
-              <button
-                v-if="selectedUsers.length > 0 && isAdmin"
-                class="action-btn"
-                @click="batchToggleDeepSeek(true)"
-              >批量启用DeepSeek ({{ selectedUsers.length }})</button>
-              <button
-                v-if="selectedUsers.length > 0 && isAdmin"
-                class="action-btn"
-                @click="batchToggleDeepSeek(false)"
-              >批量禁用DeepSeek ({{ selectedUsers.length }})</button>
-              <button
-                v-if="selectedUsers.length > 0 && isAdmin"
-                class="action-btn"
-                @click="batchToggleBrowser(true)"
-              >批量开启超能岛浏览器 ({{ selectedUsers.length }})</button>
-              <button
-                v-if="selectedUsers.length > 0 && isAdmin"
-                class="action-btn"
-                @click="batchToggleBrowser(false)"
-              >批量关闭超能岛浏览器 ({{ selectedUsers.length }})</button>
+              <span v-if="selectedUsers.length > 0 && isAdmin" class="btn-group">
+                <button class="action-btn btn-group-label" disabled>DeepSeek</button>
+                <button class="action-btn" @click="batchToggleDeepSeek(true)">开</button>
+                <button class="action-btn" @click="batchToggleDeepSeek(false)">关</button>
+              </span>
+              <span v-if="selectedUsers.length > 0 && isAdmin" class="btn-group">
+                <button class="action-btn btn-group-label" disabled>超能岛浏览器</button>
+                <button class="action-btn" @click="batchToggleBrowser(true)">开</button>
+                <button class="action-btn" @click="batchToggleBrowser(false)">关</button>
+              </span>
               <button class="action-btn" @click="toggleSelectAll">
                 {{ isAllSelected ? '取消全选' : '全选' }}
               </button>
@@ -3102,7 +3092,8 @@ export default {
 .toolbar-right {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .toolbar-actions-row {
@@ -3632,6 +3623,35 @@ export default {
 
 .danger-btn:hover {
   opacity: 0.9 !important;
+}
+
+/* 分组按钮：将标签 + 开/关组合为一个紧凑单元 */
+.btn-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+}
+.btn-group .action-btn {
+  border-radius: 0;
+  min-height: 38px;
+  padding: 6px 12px;
+  font-size: var(--font-size-xs);
+  border-right: 1px solid var(--border-color);
+}
+.btn-group .action-btn:last-child {
+  border-right: none;
+}
+.btn-group-label {
+  background: var(--bg-secondary) !important;
+  color: var(--text-secondary) !important;
+  cursor: default !important;
+  font-weight: var(--font-weight-medium) !important;
+}
+.btn-group-label:active {
+  transform: none !important;
 }
 
 .relay-status-panel {
