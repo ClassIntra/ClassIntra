@@ -191,15 +191,15 @@ CalculatorParser.prototype = {
     return left;
   },
 
-  // term: factor (('*' | '/' | '%') factor)*
+  // term: unary (('*' | '/' | '%') unary)*
   //   注：隐式乘法已由 insertImplicitMul 转为显式 *
   parseTerm: function() {
-    var left = this.parseFactor();
+    var left = this.parseUnary();
     while (!this.eof()) {
       var t = this.peek();
       if (t.type === 'op' && (t.value === '*' || t.value === '/' || t.value === '%')) {
         this.next();
-        var right = this.parseFactor();
+        var right = this.parseUnary();
         if (t.value === '*') left = left * right;
         else if (t.value === '/') {
           if (right === 0) throw new Error('除零错误');
@@ -212,25 +212,27 @@ CalculatorParser.prototype = {
     return left;
   },
 
-  // factor: unary ('^' factor)?  幂运算右结合
-  parseFactor: function() {
-    var base = this.parseUnary();
-    if (!this.eof() && this.peek().type === 'op' && this.peek().value === '^') {
-      this.next();
-      var exp = this.parseFactor();  // 右结合：2^3^2 = 2^(3^2)
-      return Math.pow(base, exp);
-    }
-    return base;
-  },
-
-  // unary: ('-' | '+') unary | postfix
+  // unary: ('-' | '+') unary | factor
+  //   一元正负号优先级低于 ^，即 -2^2 = -(2^2) = -4
   parseUnary: function() {
     if (!this.eof() && this.peek().type === 'op' && (this.peek().value === '-' || this.peek().value === '+')) {
       var op = this.next().value;
       var val = this.parseUnary();
       return (op === '-') ? -val : +val;
     }
-    return this.parsePostfix();
+    return this.parseFactor();
+  },
+
+  // factor: postfix ('^' unary)?  幂运算右结合，右操作数支持一元负号（如 2^-3）
+  //   2^3^2 = 2^(3^2) = 512
+  parseFactor: function() {
+    var base = this.parsePostfix();
+    if (!this.eof() && this.peek().type === 'op' && this.peek().value === '^') {
+      this.next();
+      var exp = this.parseUnary();  // 右结合 + 支持负指数
+      return Math.pow(base, exp);
+    }
+    return base;
   },
 
   // postfix: primary ('!')*
