@@ -5,7 +5,7 @@
       <button class="browser-btn" @click="goBack" title="返回">
         <i class="fa-solid fa-chevron-left"></i>
       </button>
-      <div class="browser-url-wrap">
+      <div v-if="!hideAddressBar" class="browser-url-wrap">
         <i class="fa-solid fa-globe browser-url-icon"></i>
         <input
           ref="urlInput"
@@ -18,10 +18,10 @@
           <i class="fa-solid fa-xmark"></i>
         </button>
       </div>
-      <button class="browser-btn browser-go-btn" @click="navigateTo(urlText)" :disabled="!urlText.trim()" title="转到">
+      <button v-if="!hideAddressBar" class="browser-btn browser-go-btn" @click="navigateTo(urlText)" :disabled="!urlText.trim()" title="转到">
         <i class="fa-solid fa-arrow-right"></i>
       </button>
-      <button class="browser-btn browser-bookmark-btn" :class="{ bookmarked: isBookmarked }" @click="toggleBookmark" title="收藏">
+      <button v-if="!hideAddressBar" class="browser-btn browser-bookmark-btn" :class="{ bookmarked: isBookmarked }" @click="toggleBookmark" title="收藏">
         <i :class="isBookmarked ? 'fa-solid fa-star' : 'fa-regular fa-star'"></i>
       </button>
       <button class="browser-btn" @click="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏'">
@@ -177,6 +177,10 @@ export default {
       var self = this;
       if (!self.currentUrl) return false;
       return self.bookmarks.some(function(b) { return b.url === self.currentUrl; });
+    },
+    // 班管/班干无浏览器权限时隐藏地址栏（仅允许从社区链接进入浏览，不可自由输入网址）
+    hideAddressBar: function() {
+      return !!(this.$route && this.$route.query && this.$route.query.noaddr === '1');
     }
   },
   watch: {

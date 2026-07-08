@@ -1287,6 +1287,23 @@ export default {
       var user = this.$store && this.$store.state && this.$store.state.auth && this.$store.state.auth.user;
       return !!(user && user.info && user.info.browser_enabled);
     },
+    // 班管/班干判断（管理员或班干角色，不受 browser_enabled 限制）
+    isClassAdmin: function() {
+      var user = this.currentUser;
+      if (!user) return false;
+      if (user.is_admin === 1) return true;
+      if (user.role === 'officer') return true;
+      if (user.is_class_admin) return true;
+      return false;
+    },
+    // 社区超链接是否可打开：有浏览器权限 或 班管/班干
+    canOpenLink: function() {
+      return this.browserEnabled || this.isClassAdmin;
+    },
+    // 班管/班干但无浏览器权限时，浏览器隐藏地址栏
+    linkNoAddr: function() {
+      return !this.browserEnabled && this.isClassAdmin;
+    },
     // 当前长按菜单的图片是否可转存到云盘（仅本站图片）
     canSaveMenuMedia: function() {
       var url = this.imageMenuUrl || '';
@@ -1455,11 +1472,11 @@ export default {
       var target = e.target;
       // 跳过音频原生控件点击（音频保留 controls）
       if (target.tagName === 'AUDIO') return;
-      // 链接点击：拦截并跳转到超能岛浏览器（仅当 browser 启用时）
+      // 链接点击：拦截并跳转到超能岛浏览器（有浏览器权限 或 班管/班干）
       var linkEl = target.closest ? target.closest('a') : null;
       if (linkEl && linkEl.tagName === 'A') {
-        if (!this.browserEnabled) {
-          // 无权限：阻止默认行为（理论上已被 renderMarkdown 转为 span，这里是兜底）
+        if (!this.canOpenLink) {
+          // 无权限且非班管/班干：阻止默认行为（理论上已被 renderMarkdown 转为 span，这里是兜底）
           e.preventDefault();
           e.stopPropagation();
           return;
@@ -1469,7 +1486,10 @@ export default {
         if (/^https?:\/\//i.test(href)) {
           e.preventDefault();
           e.stopPropagation();
-          this.$router.push('/browser?url=' + encodeURIComponent(href) + '&fullscreen=1');
+          // 班管/班干但无浏览器权限时，隐藏地址栏
+          var url = '/browser?url=' + encodeURIComponent(href) + '&fullscreen=1';
+          if (this.linkNoAddr) url += '&noaddr=1';
+          this.$router.push(url);
         }
         return;
       }
@@ -2541,8 +2561,8 @@ export default {
       var result = LatexRenderer.processContent(content, marked);
       result.html = DOMPurify.sanitize(result.html);
       var html = LatexRenderer.renderFinalHtml(result.html, result.placeholders);
-      // 无超能岛浏览器权限时，将 <a> 标签替换为纯文本，避免点击跳转
-      if (!this.browserEnabled) {
+      // 无超能岛浏览器权限且非班管/班干时，将 <a> 标签替换为纯文本，避免点击跳转
+      if (!this.canOpenLink) {
         html = html.replace(/<a\b[^>]*>([^<]*)<\/a>/gi, '<span class="msg-link-text">$1</span>');
       }
       return html;

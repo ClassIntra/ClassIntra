@@ -71,14 +71,17 @@
         :key="page.id"
         class="desktop-page"
       >
-        <!-- 小组件区域 -->
-        <div v-if="widgetsByPage(page.id).length > 0" class="desktop-widgets">
+        <div class="desktop-grid">
+          <!-- 小组件（与 app 图标共用同一网格，grid-auto-flow: dense 实现环绕分布） -->
           <div
             v-for="w in widgetsByPage(page.id)"
             :key="w.id"
             class="desktop-widget"
             :class="{ 'widget-editing': isEditMode }"
             :style="widgetStyle(w)"
+            :data-widget-id="w.id"
+            :data-src-type="'widget'"
+            :data-src-page="pageIndex"
           >
             <component :is="resolveWidget(w.type)" :config="w.config || {}" :refresh-key="widgetRefreshKey" />
             <template v-if="isEditMode">
@@ -120,11 +123,9 @@
               </button>
             </template>
           </div>
-        </div>
-        <div class="desktop-grid">
           <div
-            v-for="(slot, index) in page.slots"
-            :key="index"
+            v-for="(slot, index) in visibleSlots(page)"
+            :key="'slot-' + index"
             class="desktop-slot"
             :class="{
               'slot--empty': !slot,
@@ -151,7 +152,7 @@
                 @launch="launchApp"
               />
               <DesktopFolder
-                v-else
+                v-else-if="slot.type === 'folder'"
                 :folder="folderById(slot.id) || { id: slot.id, name: '文件夹', apps: [] }"
                 :editing="isEditMode"
                 :data-src-type="'page'"
@@ -650,6 +651,20 @@ export default {
         gridColumn: 'span ' + colSpan,
         gridRow: 'span ' + rowSpan
       };
+    },
+    // 计算当前页可见 slot 数量：总格数(24) - widget 占用格数
+    // 保证 widget + slot 总格数不超过网格容量，实现环绕分布而非整行下移
+    visibleSlots: function(page) {
+      if (!page || !page.slots) return [];
+      var widgets = this.widgetsByPage(page.id);
+      var widgetCells = 0;
+      for (var i = 0; i < widgets.length; i++) {
+        var w = widgets[i];
+        widgetCells += ((w.w || 2) * (w.h || 2));
+      }
+      var maxSlots = 24 - widgetCells;
+      if (maxSlots < 0) maxSlots = 0;
+      return page.slots.slice(0, maxSlots);
     },
     // 从指定页移除 widget
     removeWidgetFromPage: function(pageId, widgetId) {
@@ -1312,12 +1327,13 @@ export default {
 }
 
 /* ===== 多页面容器 ===== */
+/* bottom 需大于指示器顶边（124px+20px=144px），留 6px 间隙 → 150px */
 .desktop-pages {
   position: absolute;
   top: 60px;
   left: 0;
   right: 0;
-  bottom: 130px;
+  bottom: 150px;
   display: -webkit-flex;
   display: flex;
   z-index: 1;
@@ -1429,7 +1445,7 @@ export default {
 .widget-refresh-btn { right: 84px; }
 .widget-refresh-btn:hover { background: var(--success-color, #34C759); }
 
-/* ===== 4×6 网格 ===== */
+/* ===== 4×6 网格（widget + app icon 共用） ===== */
 .desktop-grid {
   width: 100%;
   max-width: 760px;
@@ -1440,6 +1456,8 @@ export default {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
   grid-template-rows: repeat(4, 1fr);
+  /* dense 模式：app icon 自动填充 widget 旁边的空位，实现环绕分布 */
+  grid-auto-flow: row dense;
   grid-gap: 12px;
 }
 
@@ -1693,10 +1711,11 @@ export default {
 /* 注：拖拽 ghost 样式已迁移到 global.scss（ghost 被 append 到 document.body，scoped 样式不生效） */
 
 /* ===== 小屏适配 ===== */
+/* 小屏指示器 bottom:92px + 20px = 112px，留 8px 间隙 → 120px */
 @media (max-height: 400px), (max-width: 520px) {
   .desktop-pages {
     top: 50px;
-    bottom: 110px;
+    bottom: 120px;
   }
   .desktop-grid {
     grid-gap: 8px;
@@ -1741,10 +1760,11 @@ export default {
 }
 
 /* ===== 横屏适配：避免 widget + grid 高度溢出 ===== */
+/* 横屏指示器 bottom:92px + 20px = 112px，留 8px 间隙 → 120px */
 @media (orientation: landscape) and (max-height: 600px) {
   .desktop-pages {
     top: 50px;
-    bottom: 90px;
+    bottom: 120px;
   }
   .desktop-widgets {
     grid-auto-rows: 70px;
