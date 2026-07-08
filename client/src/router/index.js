@@ -6,8 +6,8 @@ import { appRoutes, ROUTE_APP_MAP } from '@/core/router-aggregator';
 Vue.use(VueRouter);
 
 // ROUTE_APP_MAP 现由 @/core/router-aggregator 从 apps/*/manifest.json 聚合产生
-// browser 路由不通过 manifest 注册（写死在下方路由表），但需纳入应用管控：
-// 当管控中心禁用 browser 应用时，聊天/社区中的链接以纯文本显示，无法跳转
+// browser 路由不通过 manifest 注册（写死在下方路由表）
+// 注：超能岛浏览器不通过应用管控，改为 per-user browser_enabled 控制
 ROUTE_APP_MAP['/browser'] = 'browser';
 // 启用应用列表缓存（null=未加载，数组=已加载）
 var enabledAppsCache = null;

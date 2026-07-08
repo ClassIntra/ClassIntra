@@ -279,12 +279,11 @@ export default {
       var user = this.$store && this.$store.state && this.$store.state.auth && this.$store.state.auth.user;
       return user ? user.user_id : '';
     },
-    // 超能岛浏览器是否启用（应用管控中 browser 应用是否启用）
+    // 超能岛浏览器是否启用（per-user browser_enabled，Admin → 用户列表 → 编辑用户）
     // 禁用时聊天中的链接以纯文本显示，不可点击
     browserEnabled: function() {
-      var store = this.$store;
-      if (!store || !store.getters || !store.getters['desktop/isAppEnabled']) return true;
-      return store.getters['desktop/isAppEnabled']('browser');
+      var user = this.$store && this.$store.state && this.$store.state.auth && this.$store.state.auth.user;
+      return !!(user && user.info && user.info.browser_enabled);
     }
   },
   mounted: function() {
