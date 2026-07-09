@@ -120,6 +120,27 @@ function preFetchCloudFiles(content, sourceServerId) {
   });
 }
 
+// 将任意时间戳格式标准化为 SQLite datetime 格式 (YYYY-MM-DD HH:MM:SS)
+// 确保跨班中继帖子和本地帖子的 created_at 格式一致，TEXT 排序正确
+function normalizeSqliteTime(ts) {
+  if (!ts) {
+    var d = new Date();
+    return d.getFullYear() + '-' +
+      String(d.getMonth() + 1).padStart(2, '0') + '-' +
+      String(d.getDate()).padStart(2, '0') + ' ' +
+      String(d.getHours()).padStart(2, '0') + ':' +
+      String(d.getMinutes()).padStart(2, '0') + ':' +
+      String(d.getSeconds()).padStart(2, '0');
+  }
+  // 去除 T、Z、毫秒，统一为 YYYY-MM-DD HH:MM:SS
+  var normalized = String(ts)
+    .replace('T', ' ')
+    .replace('Z', '')
+    .replace(/\.\d+/, '')
+    .substring(0, 19);
+  return normalized;
+}
+
 // ===================================================================
 // 聊天消息
 // ===================================================================
@@ -548,13 +569,16 @@ bus.register('community_event', function(payload, ctx) {
       if (!rpExtra.relayed_from) rpExtra.relayed_from = ctx.sourceServer;
       rpExtra.original_id = rp.id;
 
+      // 标准化时间戳为 SQLite datetime 格式（统一 TEXT 排序）
+      var normalizedTime = normalizeSqliteTime(rp.created_at);
+
       // Try to insert with original ID first
       var insertResult = ctx.db.prepare(
         'INSERT OR IGNORE INTO community_posts (id, user_id, type, title, content, anonymous, visible_groups, hidden_groups, like_count, comment_count, extra_json, tags, share_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
       ).run(
         rp.id, rp.user_id, rp.type || 'forum', rp.title || '', rp.content || '',
         rp.anonymous || 0, rp.visible_groups || '[]', rp.hidden_groups || '[]',
-        0, 0, JSON.stringify(rpExtra), rp.tags || '[]', 0, rp.created_at || new Date().toISOString()
+        0, 0, JSON.stringify(rpExtra), rp.tags || '[]', 0, normalizedTime
       );
 
       var localPostId = rp.id;
@@ -565,7 +589,7 @@ bus.register('community_event', function(payload, ctx) {
         ).run(
           rp.user_id, rp.type || 'forum', rp.title || '', rp.content || '',
           rp.anonymous || 0, rp.visible_groups || '[]', rp.hidden_groups || '[]',
-          0, 0, JSON.stringify(rpExtra), rp.tags || '[]', 0, rp.created_at || new Date().toISOString()
+          0, 0, JSON.stringify(rpExtra), rp.tags || '[]', 0, normalizedTime
         );
         localPostId = localResult.lastInsertRowid;
         // Store the ID mapping for subsequent comment/like lookups

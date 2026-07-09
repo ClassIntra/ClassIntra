@@ -146,6 +146,8 @@ router.post('/posts', function(req, res) {
   );
   var post = postStmt.get(result.lastInsertRowid);
   post.is_anonymous = post.anonymous;
+  // 保存原始 SQLite 时间戳（convertTimes 会转为 ISO 格式用于 API 响应）
+  var originalCreatedAt = post.created_at;
   convertTimes(post);
 
   try { exp.addExp(userId, 'create_post'); } catch (e) { console.error('[Community] Operation failed:', e.message); }
@@ -165,7 +167,7 @@ router.post('/posts', function(req, res) {
       hidden_groups: post.hidden_groups || '[]',
       extra_json: post.extra_json || '{}',
       tags: post.tags || '[]',
-      created_at: post.created_at
+      created_at: originalCreatedAt
     }
   });
 
