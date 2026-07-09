@@ -220,8 +220,9 @@ export default {
       if (!frame || event.source !== frame.contentWindow) return;
       var data = event.data || {};
       // 子站点请求返回 ClassIntra（如 campusbili 左上角返回按钮）
+      // 直接退出浏览器回到桌面，而非 router.back()（避免返回到 campusbili 内部历史）
       if (data.action === 'classintra-back') {
-        self.$router.back();
+        self.$router.push({ name: 'Desktop' }).catch(function() {});
       }
       // 子站点主动询问身份（解决时序问题：mounted 可能错过了 load 时的消息）
       if (data.action === 'classintra-ping') {
@@ -276,15 +277,6 @@ export default {
       if (!/^https?:\/\//i.test(raw)) {
         raw = 'https://' + raw;
       }
-      // 添加 classintra=1 参数，让子站点识别 ClassIntra 环境
-      try {
-        var u = new URL(raw);
-        // 避免重复添加
-        if (!u.searchParams.has('classintra')) {
-          u.searchParams.set('classintra', '1');
-          raw = u.toString();
-        }
-      } catch (e) {}
       self.currentUrl = raw;
       self.urlText = raw;
       // 添加到历史记录
