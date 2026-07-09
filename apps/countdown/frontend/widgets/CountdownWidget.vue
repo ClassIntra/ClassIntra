@@ -1,5 +1,5 @@
 <template>
-  <div class="countdown-widget" @click="goToApp">
+  <div class="countdown-widget">
     <div v-if="loading" class="cw-loading">
       <div class="cw-spinner"></div>
     </div>
@@ -177,11 +177,6 @@ export default {
       }).finally(function() {
         self.loading = false;
       });
-    },
-    goToApp: function() {
-      if (this.$router) {
-        this.$router.push('/countdown');
-      }
     }
   }
 };

@@ -1689,7 +1689,7 @@ router.patch('/weather-alert/settings/:id', function(req, res) {
 
 // GET /api/admin/weather-alert/check - 手动触发天气检查
 router.get('/weather-alert/check', function(req, res) {
-  var weatherRoute = require('./weather');
+  var weatherRoute = require('../../../apps/weather/backend/routes');
   weatherRoute.checkWeatherAlert().then(function(result) {
     res.json({
       code: 200,

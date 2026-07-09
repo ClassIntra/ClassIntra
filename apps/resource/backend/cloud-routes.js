@@ -854,6 +854,9 @@ router.post('/save-from-url', auth.requireAuth, function(req, res) {
   if (imageUrl.indexOf('/api/cloud/files/') === 0) {
     // 云盘文件 URL：可能是新格式（/hash）或旧格式（/filename）
     var urlParam = decodeURIComponent(imageUrl.replace('/api/cloud/files/', ''));
+    // 去除查询参数（如 ?w=800 缩放参数），避免影响 hash 正则匹配
+    var _qIdx = urlParam.indexOf('?');
+    if (_qIdx !== -1) urlParam = urlParam.substring(0, _qIdx);
     if (urlParam.indexOf('..') !== -1 || urlParam.indexOf('/') !== -1 || urlParam.indexOf('\\') !== -1) {
       return res.status(400).json({ code: 400, message: '无效的文件 URL' });
     }
