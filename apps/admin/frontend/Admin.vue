@@ -72,6 +72,11 @@
                 <button class="action-btn" @click="batchToggleBrowser(true)">开</button>
                 <button class="action-btn" @click="batchToggleBrowser(false)">关</button>
               </span>
+              <button
+                v-if="selectedUsers.length > 0"
+                class="action-btn"
+                @click="copySelectedUserInfo"
+              >复制信息 ({{ selectedUsers.length }})</button>
               <button class="action-btn" @click="toggleSelectAll">
                 {{ isAllSelected ? '取消全选' : '全选' }}
               </button>
@@ -1756,6 +1761,54 @@ export default {
         }
         this.selectedUsers = ids;
       }
+    },
+    copySelectedUserInfo: function() {
+      var self = this;
+      if (self.selectedUsers.length === 0) {
+        self.$store.commit('toast/SHOW_TOAST', { message: '请先选择用户', type: 'warning' });
+        return;
+      }
+      // 从列表中查找已选用户的数据
+      var selectedSet = {};
+      for (var i = 0; i < self.selectedUsers.length; i++) {
+        selectedSet[self.selectedUsers[i]] = true;
+      }
+      var lines = [];
+      for (var j = 0; j < self.filteredUsers.length; j++) {
+        var u = self.filteredUsers[j];
+        if (selectedSet[u.user_id]) {
+          lines.push(u.user_id + '\t' + u.real_name + '\t' + u.net_name);
+        }
+      }
+      if (lines.length === 0) {
+        self.$store.commit('toast/SHOW_TOAST', { message: '未找到已选用户数据', type: 'error' });
+        return;
+      }
+      var text = lines.join('\n');
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function() {
+          self.$store.commit('toast/SHOW_TOAST', { message: '已复制 ' + lines.length + ' 条用户信息到剪贴板', type: 'success' });
+        }).catch(function() {
+          self.fallbackCopy(text, lines.length);
+        });
+      } else {
+        self.fallbackCopy(text, lines.length);
+      }
+    },
+    fallbackCopy: function(text, count) {
+      var textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      try {
+        document.execCommand('copy');
+        this.$store.commit('toast/SHOW_TOAST', { message: '已复制 ' + count + ' 条用户信息到剪贴板', type: 'success' });
+      } catch (e) {
+        this.$store.commit('toast/SHOW_TOAST', { message: '复制失败，请重试', type: 'error' });
+      }
+      document.body.removeChild(textarea);
     },
     loadMoreUsers: function() {
       this.userDisplayCount += this.userPageSize;
