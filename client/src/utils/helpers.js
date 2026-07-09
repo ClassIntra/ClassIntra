@@ -1,3 +1,5 @@
+import api from '@/utils/api';
+
 var AVATAR_COLORS = [
   '#007AFF', '#34C759', '#FF9500', '#AF52DE', '#FF3B30',
   '#5AC8FA', '#FF2D55', '#5856D6', '#00C7BE', '#FF6482'
@@ -74,6 +76,26 @@ function setAvatarColor(userId, color) {
   } else {
     localStorage.removeItem('avatar_color_' + userId);
   }
+  // 持久化到服务端（最佳努力，不阻塞 UI）
+  api.post('/user/settings', { avatar_color: color || '' }).catch(function() {});
+}
+
+function syncAvatarColorFromServer(userId) {
+  if (!userId) return Promise.resolve('');
+  return api.get('/user/settings').then(function(response) {
+    if (response.data.code === 200 && response.data.data) {
+      var serverColor = response.data.data.avatar_color;
+      if (serverColor) {
+        localStorage.setItem('avatar_color_' + userId, serverColor);
+        return serverColor;
+      } else {
+        localStorage.removeItem('avatar_color_' + userId);
+      }
+    }
+    return '';
+  }).catch(function() {
+    return '';
+  });
 }
 
 function getAvatarText(name) {
@@ -103,6 +125,7 @@ export default {
   formatTimeFull: formatTimeFull,
   getAvatarColor: getAvatarColor,
   setAvatarColor: setAvatarColor,
+  syncAvatarColorFromServer: syncAvatarColorFromServer,
   getAvatarText: getAvatarText,
   escapeHtml: escapeHtml,
   AVATAR_COLORS: AVATAR_COLORS,

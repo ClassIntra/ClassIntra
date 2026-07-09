@@ -202,6 +202,7 @@ router.get('/settings', function(req, res) {
       user_id: settings.user_id,
       theme: settings.theme,
       wallpaper: settings.wallpaper,
+      avatar_color: settings.avatar_color || '',
       notifications: JSON.parse(settings.notifications_json || '{}'),
       desktop_layout: desktopLayout,
       updated_at: time.toISOString(settings.updated_at)
@@ -220,6 +221,7 @@ router.post('/settings', function(req, res) {
     var theme = req.body.theme;
     var wallpaper = req.body.wallpaper;
     var notifications = req.body.notifications;
+    var avatarColor = req.body.avatar_color;
     var desktopLayout = req.body.desktop_layout;
 
     // Build updates
@@ -239,6 +241,11 @@ router.post('/settings', function(req, res) {
     if (notifications) {
       updates.push('notifications_json = ?');
       params.push(JSON.stringify(notifications));
+    }
+
+    if (avatarColor !== undefined) {
+      updates.push('avatar_color = ?');
+      params.push(avatarColor);
     }
 
     // 桌面布局持久化：校验结构后序列化存储
@@ -290,6 +297,7 @@ router.post('/settings', function(req, res) {
       user_id: settings.user_id,
       theme: settings.theme,
       wallpaper: settings.wallpaper,
+      avatar_color: settings.avatar_color || '',
       notifications: JSON.parse(settings.notifications_json || '{}'),
       desktop_layout: updatedDesktopLayout,
       updated_at: time.toISOString(settings.updated_at)
