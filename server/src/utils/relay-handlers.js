@@ -937,4 +937,46 @@ bus.register('app_update_available', function(payload, ctx) {
   ctx.broadcast({ type: 'app_update_available', version: payload.version, url: payload.url, notes: payload.notes });
 });
 
+// ===================================================================
+// 云盘分组分享码同步（跨班级/跨服务器分享码可用）
+// ===================================================================
+
+bus.register('cloud_share_code_created', function(payload, ctx) {
+  var db = ctx.db;
+  if (!db || !payload.share_code || !payload.source_user_id || !payload.folder_name) return;
+
+  // 1. 同步 cloud_folders 记录（源用户的分组 + 分享码）
+  var existingFolder = db.prepare('SELECT id FROM cloud_folders WHERE user_id = ? AND name = ?').get(payload.source_user_id, payload.folder_name);
+  if (existingFolder) {
+    db.prepare('UPDATE cloud_folders SET share_code = ? WHERE id = ?').run(payload.share_code, existingFolder.id);
+  } else {
+    try {
+      db.prepare('INSERT INTO cloud_folders (user_id, name, share_code) VALUES (?, ?, ?)').run(payload.source_user_id, payload.folder_name, payload.share_code);
+    } catch (e) {
+      // 并发冲突时尝试更新
+      try {
+        db.prepare('UPDATE cloud_folders SET share_code = ? WHERE user_id = ? AND name = ?').run(payload.share_code, payload.source_user_id, payload.folder_name);
+      } catch (e2) { /* ignore */ }
+    }
+  }
+
+  // 2. 同步文件记录（cloud_files）和文件引用（cloud_user_files）
+  // 文件内容通过 Syncthing 同步到磁盘，或通过 peer-fetch 按需拉取
+  if (payload.files && payload.files.length > 0) {
+    var insertFile = db.prepare('INSERT OR IGNORE INTO cloud_files (hash, owner_user_id, original_name, size, mime_type, storage_path) VALUES (?, ?, ?, ?, ?, ?)');
+    var insertFileRef = db.prepare('INSERT OR IGNORE INTO cloud_user_files (user_id, file_hash, display_name, folder) VALUES (?, ?, ?, ?)');
+    for (var i = 0; i < payload.files.length; i++) {
+      var f = payload.files[i];
+      try {
+        // 插入文件元数据（文件内容已由 Syncthing 同步或可按 storage_path 直接访问）
+        insertFile.run(f.hash, payload.source_user_id, f.display_name, f.size, f.mime_type, f.storage_path);
+        // 插入源用户的文件引用（导入时需查询源用户的文件列表）
+        insertFileRef.run(payload.source_user_id, f.hash, f.display_name, payload.folder_name);
+      } catch (e) { /* 忽略单条错误，继续同步其他文件 */ }
+    }
+  }
+
+  console.log('[RelayBus] 云盘分享码已同步:', payload.share_code, '文件数:', payload.files ? payload.files.length : 0);
+});
+
 console.log('[RelayBus] Registered', Object.keys(bus.registry).length, 'event handlers');

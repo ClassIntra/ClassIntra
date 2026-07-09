@@ -41,28 +41,28 @@ export default {
 <style scoped>
 .page-indicator {
   position: absolute;
-  bottom: 140px;
+  bottom: 160px;
   left: 0;
   right: 0;
   display: flex;
   justify-content: center;
   align-items: center;
   gap: 2px;
-  z-index: 50;
+  z-index: 1000;
   -webkit-tap-highlight-color: transparent;
 }
 
-/* 小屏适配：Dock bottom 8px + height ~72px = 顶边 80px，指示器需 bottom ≥ 86px */
+/* 小屏适配：Dock bottom 8px + height ~76px = 顶边 84px，指示器需 bottom ≥ 105px 避开阴影 */
 @media (max-height: 400px), (max-width: 520px) {
   .page-indicator {
-    bottom: 92px;
+    bottom: 108px;
   }
 }
 
 /* 横屏矮屏适配：避免指示器与桌面图标区域重叠 */
 @media (orientation: landscape) and (max-height: 600px) {
   .page-indicator {
-    bottom: 92px;
+    bottom: 108px;
   }
 }
 
