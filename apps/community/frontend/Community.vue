@@ -1447,6 +1447,18 @@ export default {
         });
       } catch (e) {}
     }
+    // 浏览器分享胶囊预填：从超能岛浏览器分享链接到社区，打开发帖弹窗并预填内容
+    var shareLink = self.$route.query.shareLink;
+    if (shareLink) {
+      try {
+        var linkUrl = decodeURIComponent(shareLink);
+        self.$nextTick(function() {
+          self.openCreatePost();
+          self.newPost.content = linkUrl;
+          self.$router.replace({ query: {} }).catch(function() {});
+        });
+      } catch (e) {}
+    }
   },
   beforeDestroy: function() { this.cleanupWSListeners(); },
   methods: {

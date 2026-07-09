@@ -620,29 +620,122 @@ export default {
       if (navigator.vibrate) navigator.vibrate(10);
     },
 
-    // widget 拖拽落点处理：仅允许拖到 page 类型落点（跨页移动）
-    // 同页拖拽由 grid-auto-flow 自动排布，无需操作；拖到 dock/folder/无效落点则取消
+    // widget 拖拽落点处理：
+    // - 跨页：移动到目标页（追加到末尾，清空显式坐标）
+    // - 同页：根据落点 DOM 反算网格坐标，固定到目标格子（CSS grid dense 让 app 图标自动避让）
+    // - 拖到 dock/folder/无效落点则取消
     _handleWidgetDrop: function(source, target) {
       var oldRects = this._captureIconRects();
       var moved = false;
-      if (target && target.type === 'page' && target.pageIndex !== source.pageIndex) {
-        var layout = this.$store.state.desktop.layout;
-        var pages = layout && layout.pages;
-        if (pages && pages[source.pageIndex] && pages[target.pageIndex]) {
-          this.$store.dispatch('desktop/moveWidget', {
-            fromPageId: pages[source.pageIndex].id,
-            toPageId: pages[target.pageIndex].id,
-            widgetId: source.widgetId
+      var layout = this.$store.state.desktop.layout;
+      var pages = layout && layout.pages;
+      if (!pages || !pages[source.pageIndex]) {
+        this._cleanupDrag();
+        return;
+      }
+      var sourcePageId = pages[source.pageIndex].id;
+
+      if (target && target.type === 'page' && target.pageIndex !== source.pageIndex && pages[target.pageIndex]) {
+        // 跨页移动
+        this.$store.dispatch('desktop/moveWidget', {
+          fromPageId: sourcePageId,
+          toPageId: pages[target.pageIndex].id,
+          widgetId: source.widgetId
+        });
+        moved = true;
+      } else if (target && target.type === 'page' && target.pageIndex === source.pageIndex) {
+        // 同页：计算目标网格坐标并固定
+        var pos = this._computeWidgetGridPos(source, target);
+        if (pos) {
+          this.$store.dispatch('desktop/setWidgetPosition', {
+            pageId: sourcePageId,
+            widgetId: source.widgetId,
+            col: pos.col,
+            row: pos.row
           });
           moved = true;
         }
       }
+
       this._cleanupDrag();
       if (moved) {
         this.$store.dispatch('desktop/saveDesktopLayout');
         this._runFlipAnimation(oldRects);
         if (navigator.vibrate) navigator.vibrate(10);
       }
+    },
+
+    // 根据 source 查找 widget 对象
+    _findWidget: function(source) {
+      var layout = this.$store.state.desktop.layout;
+      var page = layout && layout.pages[source.pageIndex];
+      if (!page) return null;
+      var widgets = (layout.widgets && layout.widgets[page.id]) || [];
+      for (var i = 0; i < widgets.length; i++) {
+        if (widgets[i].id === source.widgetId) return widgets[i];
+      }
+      return null;
+    },
+
+    // 计算 widget 拖拽落点的网格坐标（1-based）
+    // 通过落点 DOM 元素相对 grid 容器的位置反算 col/row，含边界约束与冲突检测
+    _computeWidgetGridPos: function(source, target) {
+      if (!target || !target.element) return null;
+      var widget = this._findWidget(source);
+      if (!widget) return null;
+      var w = widget.w || 2;
+      var h = widget.h || 2;
+
+      // 找到 grid 容器
+      var gridEl = target.element.closest ? target.element.closest('.desktop-grid') : null;
+      if (!gridEl) return null;
+      var gridRect = gridEl.getBoundingClientRect();
+      var slotRect = target.element.getBoundingClientRect();
+      if (gridRect.width <= 0 || gridRect.height <= 0) return null;
+
+      // 网格参数（与 .desktop-grid CSS 保持一致）
+      var COLS = 6;
+      var ROWS = 4;
+      var GAP = 12;
+      // 小屏适配：grid-gap 为 8px
+      var computedGap = parseInt(window.getComputedStyle(gridEl).gridGap || window.getComputedStyle(gridEl).gap || GAP, 10);
+      if (isNaN(computedGap) || computedGap < 0) computedGap = GAP;
+      var cellW = (gridRect.width - (COLS - 1) * computedGap) / COLS;
+      var cellH = (gridRect.height - (ROWS - 1) * computedGap) / ROWS;
+      if (cellW <= 0 || cellH <= 0) return null;
+
+      // 落点相对 grid 的偏移 → 1-based col/row
+      var offsetX = slotRect.left - gridRect.left;
+      var offsetY = slotRect.top - gridRect.top;
+      var col = Math.round(offsetX / (cellW + computedGap)) + 1;
+      var row = Math.round(offsetY / (cellH + computedGap)) + 1;
+
+      // 边界约束：widget 不能超出网格
+      if (col < 1) col = 1;
+      if (row < 1) row = 1;
+      if (col + w > COLS + 1) col = COLS - w + 1;
+      if (row + h > ROWS + 1) row = ROWS - h + 1;
+      if (col < 1) col = 1;   // widget 宽度 >= 列数时的兜底
+      if (row < 1) row = 1;   // widget 高度 >= 行数时的兜底
+
+      // 冲突检测：不能与其他已显式定位的 widget 重叠（避免 CSS grid 层叠）
+      var layout = this.$store.state.desktop.layout;
+      var page = layout.pages[source.pageIndex];
+      var widgets = (layout.widgets && layout.widgets[page.id]) || [];
+      for (var i = 0; i < widgets.length; i++) {
+        var other = widgets[i];
+        if (other.id === source.widgetId) continue;
+        if (!other.col || !other.row) continue;  // 未显式定位的 widget 由 dense 自动避让
+        var ow = other.w || 2;
+        var oh = other.h || 2;
+        // 矩形交集：[col, col+w) × [row, row+h) 与 [other.col, other.col+ow) × [other.row, other.row+oh)
+        if (col < other.col + ow && col + w > other.col &&
+            row < other.row + oh && row + h > other.row) {
+          return null;  // 冲突，取消本次放置
+        }
+      }
+
+      return { col: col, row: row };
     },
 
     // 清理拖拽状态

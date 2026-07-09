@@ -618,6 +618,24 @@ var mutations = {
     layout.widgets[payload.toPageId].push(widget);
     state.layout = layout;
   },
+  // 设置小组件网格起始坐标（用于同页拖拽固定到指定格子）
+  // payload: { pageId, widgetId, col, row } —— col/row 为 1-based grid 坐标
+  // 配合 CSS grid-auto-flow: row dense，app 图标会自动避让显式定位的 widget
+  SET_WIDGET_POSITION: function(state, payload) {
+    if (!state.layout || !state.layout.widgets) return;
+    var layout = cloneLayout(state.layout);
+    var list = layout.widgets[payload.pageId];
+    if (list) {
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].id === payload.widgetId) {
+          list[i].col = payload.col;
+          list[i].row = payload.row;
+          break;
+        }
+      }
+    }
+    state.layout = layout;
+  },
   // 触发所有 widget 刷新（自增 key，widget 组件 watch 此值重新加载数据）
   BUMP_WIDGET_REFRESH: function(state) {
     state.widgetRefreshKey++;
@@ -865,6 +883,12 @@ var actions = {
   moveWidget: function(context, payload) {
     if (payload.fromPageId === payload.toPageId) return; // 同页无需移动
     context.commit('MOVE_WIDGET', payload);
+    context.dispatch('saveDesktopLayout');
+  },
+  // 设置小组件网格坐标（同页拖拽固定到指定格子）
+  // payload: { pageId, widgetId, col, row }
+  setWidgetPosition: function(context, payload) {
+    context.commit('SET_WIDGET_POSITION', payload);
     context.dispatch('saveDesktopLayout');
   },
   // 刷新所有 widget（触发 widget 组件重新加载数据）

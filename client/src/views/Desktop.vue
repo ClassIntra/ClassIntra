@@ -655,13 +655,19 @@ export default {
       });
     },
     // 计算 widget 网格跨度样式
+    // 若 widget 有 col/row（拖拽固定后），用显式起始坐标 + span，CSS grid dense 自动让 app 图标避让
     widgetStyle: function(w) {
       var colSpan = (w && w.w) || 2;
       var rowSpan = (w && w.h) || 2;
-      return {
+      var style = {
         gridColumn: 'span ' + colSpan,
         gridRow: 'span ' + rowSpan
       };
+      if (w && w.col && w.row) {
+        style.gridColumn = w.col + ' / span ' + colSpan;
+        style.gridRow = w.row + ' / span ' + rowSpan;
+      }
+      return style;
     },
     // 计算当前页可见 slot 数量：总格数(24) - widget 占用格数
     // 保证 widget + slot 总格数不超过网格容量，实现环绕分布而非整行下移
