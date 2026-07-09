@@ -168,9 +168,14 @@ export default {
     currentWidgets: function() {
       return this.$store.getters['desktop/widgetsByPage'](this.currentPageId);
     },
-    // 可用小组件列表
+    // 可用小组件列表（按当前用户权限过滤）
     availableWidgets: function() {
-      return listWidgets();
+      var all = listWidgets();
+      var self = this;
+      return all.filter(function(w) {
+        if (!w.permission) return true;
+        return self.$store.getters['auth/canManage'](w.permission);
+      });
     },
     // 当前主题 ID
     currentThemeId: function() {

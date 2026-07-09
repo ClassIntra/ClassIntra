@@ -25,6 +25,8 @@ manifests.forEach(function(m) {
       maxSize: w.maxSize || { w: 4, h: 4 },
       description: w.description || '',
       configSchema: w.configSchema || null,
+      // 权限字段：拥有指定 permission 的用户才能查看/添加此 widget（null 表示无限制）
+      permission: w.permission || null,
       // 记录来源应用，便于调试
       _app: m.name
     };

@@ -242,6 +242,112 @@ router.patch('/users/:id/status', auth.requirePermission('manage_users'), functi
   res.json({ code: 200, message: '状态更新成功' });
 });
 
+// POST /api/admin/users/batch-status - 一键批量启用/封禁本班用户（排除班管）
+// 仅供班管与拥有 manage_users 权限的班干调用，作用范围限定为本班用户
+router.post('/users/batch-status', auth.requirePermission('manage_users'), function(req, res) {
+  var newStatus = req.body.status;
+  var reason = req.body.reason || '批量操作';
+  var duration = req.body.duration || 0;
+  var adminUserId = req.user ? req.user.user_id : '';
+
+  if (!newStatus || (newStatus !== 'active' && newStatus !== 'disabled')) {
+    return res.status(400).json({ code: 400, message: '无效的状态值' });
+  }
+
+  // 确定操作范围：班管按 adminClass，班干按 user_id 班级前缀
+  var adminClass = getUserAdminClass(adminUserId);
+  var targetClass = adminClass;
+  if (!targetClass && req.user && req.user.role === 'officer') {
+    targetClass = req.user.user_id.substring(2, 4);
+  }
+  if (!targetClass) {
+    return res.status(403).json({ code: 403, message: '无法确定操作班级范围' });
+  }
+
+  // 查询本班所有用户（user_id 格式 YYCCNN，前缀 = 届号 + 班号）
+  var cohortPrefix = (process.env.COHORT || '25');
+  var likePattern = cohortPrefix + targetClass + '%';
+  var users = db.prepare(
+    'SELECT id, user_id, net_name, real_name, status FROM users WHERE user_id LIKE ?'
+  ).all(likePattern);
+
+  // 排除班管（班管不可被封禁/启用）
+  var targets = [];
+  for (var i = 0; i < users.length; i++) {
+    if (!constants.isClassAdmin(String(users[i].user_id))) {
+      targets.push(users[i]);
+    }
+  }
+
+  if (targets.length === 0) {
+    return res.json({ code: 200, message: '没有可操作的用户', data: { affected: 0, status: newStatus } });
+  }
+
+  // 计算封禁到期时间
+  var banExpiresAt = null;
+  if (newStatus === 'disabled' && duration > 0) {
+    banExpiresAt = new Date(Date.now() + duration * 60000).toISOString().replace('T', ' ').substring(0, 19);
+  }
+
+  // 预编译更新语句（批量复用）
+  var updateStmt;
+  if (newStatus === 'disabled') {
+    updateStmt = db.prepare('UPDATE users SET status = ?, ban_expires_at = ?, ban_reason = ?, updated_at = datetime(\'now\') WHERE id = ?');
+  } else {
+    updateStmt = db.prepare('UPDATE users SET status = ?, ban_expires_at = NULL, ban_reason = NULL, updated_at = datetime(\'now\') WHERE id = ?');
+  }
+
+  // 懒加载 WebSocket 与中继总线（容错）
+  var chatServer = null;
+  try { chatServer = require('../ws/chat-server'); } catch (e) {}
+  var relayBus = null;
+  try { relayBus = require('../utils/relay-bus'); } catch (e) {}
+
+  var affected = 0;
+  for (var j = 0; j < targets.length; j++) {
+    var t = targets[j];
+    if (newStatus === 'disabled') {
+      updateStmt.run(newStatus, banExpiresAt, reason, t.id);
+    } else {
+      updateStmt.run(newStatus, t.id);
+    }
+    affected++;
+
+    // 实时通知被操作用户（前端弹窗提示账号状态变更）
+    if (chatServer) {
+      try {
+        chatServer.sendToClient(t.user_id, {
+          type: 'account_banned',
+          status: newStatus,
+          reason: newStatus === 'disabled' ? reason : '',
+          ban_expires_at: newStatus === 'disabled' ? banExpiresAt : null
+        });
+      } catch (e) {}
+    }
+
+    // 同步到远程服务器，确保跨服务器用户状态一致
+    if (relayBus) {
+      try {
+        relayBus.emit('admin_user_status_changed', {
+          user_id: t.user_id,
+          status: newStatus,
+          reason: newStatus === 'disabled' ? reason : '',
+          ban_expires_at: newStatus === 'disabled' ? banExpiresAt : null
+        });
+      } catch (e) {}
+    }
+  }
+
+  logAction(
+    req.user.user_id,
+    newStatus === 'disabled' ? 'batch_disable_users' : 'batch_enable_users',
+    targetClass + '班',
+    '批量' + (newStatus === 'disabled' ? '封禁' : '启用') + ' ' + affected + ' 人（排除班管）' + (newStatus === 'disabled' ? '，原因：' + reason : '')
+  );
+
+  res.json({ code: 200, message: '批量操作成功', data: { affected: affected, status: newStatus } });
+});
+
 router.get('/users/:id/ban-info', function(req, res) {
   var userId = req.params.id;
   var user = db.prepare('SELECT status, ban_expires_at, ban_reason FROM users WHERE id = ?').get(userId);

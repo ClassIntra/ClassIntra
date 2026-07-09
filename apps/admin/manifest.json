@@ -16,6 +16,19 @@
     "component": "./frontend/Admin.vue",
     "meta": {
       "requiresAdmin": true
-    }
+    },
+    "widgets": [
+      {
+        "id": "admin-user-ban",
+        "name": "一键封禁/启用",
+        "component": "./frontend/widgets/UserBanWidget.vue",
+        "defaultSize": { "w": 2, "h": 1 },
+        "minSize": { "w": 2, "h": 1 },
+        "maxSize": { "w": 4, "h": 2 },
+        "description": "一键封禁/启用本班所有用户（排除班管）",
+        "permission": "manage_users",
+        "configSchema": null
+      }
+    ]
   }
 }

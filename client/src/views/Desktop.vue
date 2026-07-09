@@ -74,7 +74,7 @@
         <div class="desktop-grid">
           <!-- 小组件（与 app 图标共用同一网格，grid-auto-flow: dense 实现环绕分布） -->
           <div
-            v-for="w in widgetsByPage(page.id)"
+            v-for="w in visibleWidgetsByPage(page.id)"
             :key="w.id"
             class="desktop-widget"
             :class="{ 'widget-editing': isEditMode }"
@@ -643,6 +643,17 @@ export default {
       if (!def || !def.component) return null;
       return def.component;
     },
+    // 按权限过滤后的可见 widget 列表（无权限的 widget 不渲染、不占位）
+    visibleWidgetsByPage: function(pageId) {
+      var all = this.widgetsByPage(pageId);
+      var self = this;
+      return all.filter(function(w) {
+        var def = getWidget(w.type);
+        if (!def) return false;
+        if (!def.permission) return true;
+        return self.$store.getters['auth/canManage'](def.permission);
+      });
+    },
     // 计算 widget 网格跨度样式
     widgetStyle: function(w) {
       var colSpan = (w && w.w) || 2;
@@ -656,7 +667,7 @@ export default {
     // 保证 widget + slot 总格数不超过网格容量，实现环绕分布而非整行下移
     visibleSlots: function(page) {
       if (!page || !page.slots) return [];
-      var widgets = this.widgetsByPage(page.id);
+      var widgets = this.visibleWidgetsByPage(page.id);
       var widgetCells = 0;
       for (var i = 0; i < widgets.length; i++) {
         var w = widgets[i];
