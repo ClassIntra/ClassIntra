@@ -24,10 +24,32 @@
       <button v-if="!hideAddressBar" class="browser-btn browser-bookmark-btn" :class="{ bookmarked: isBookmarked }" @click="toggleBookmark" title="收藏">
         <i :class="isBookmarked ? 'fa-solid fa-star' : 'fa-regular fa-star'"></i>
       </button>
+      <button v-if="currentUrl" class="browser-btn browser-share-btn" :class="{ active: showShareCapsule }" @click="toggleShareCapsule" title="分享">
+        <i class="fa-solid fa-share-nodes"></i>
+      </button>
       <button class="browser-btn" @click="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏'">
         <i :class="isFullscreen ? 'fa-solid fa-compress' : 'fa-solid fa-expand'"></i>
       </button>
     </div>
+
+    <!-- 分享胶囊：快捷分享当前链接到聊天/社区 -->
+    <transition name="capsule-slide">
+      <div v-if="showShareCapsule && currentUrl" class="share-capsule" @click.self="showShareCapsule = false">
+        <div class="capsule-inner">
+          <div class="capsule-url" :title="currentUrl">{{ currentUrl }}</div>
+          <div class="capsule-actions">
+            <button class="capsule-btn capsule-to-chat" @click="shareToChat">
+              <i class="fa-solid fa-comment-dots"></i>
+              <span>分享到聊天</span>
+            </button>
+            <button class="capsule-btn capsule-to-community" @click="shareToCommunity">
+              <i class="fa-solid fa-users"></i>
+              <span>分享到社区</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </transition>
 
     <!-- 主内容区 -->
     <div v-if="currentUrl" class="browser-content">
@@ -170,7 +192,10 @@ export default {
       homepage: '',
       homepageDraft: '',
       showHomepageInput: false,
-      isFullscreen: false
+      isFullscreen: false,
+      showShareCapsule: false,
+      // 移动端边缘滑动手势状态（左边缘右滑返回）
+      swipeState: null
     };
   },
   computed: {
@@ -230,20 +255,42 @@ export default {
       }
     };
     window.addEventListener('message', self._messageHandler);
+    // 移动端边缘滑动手势（passive 不阻止 iframe 内部滚动）
+    self._onSwipeStart = self.onSwipeStart.bind(self);
+    self._onSwipeMove = self.onSwipeMove.bind(self);
+    self._onSwipeEnd = self.onSwipeEnd.bind(self);
+    document.addEventListener('touchstart', self._onSwipeStart, { passive: true });
+    document.addEventListener('touchmove', self._onSwipeMove, { passive: true });
+    document.addEventListener('touchend', self._onSwipeEnd, { passive: true });
   },
   beforeDestroy: function() {
     if (this._messageHandler) {
       window.removeEventListener('message', this._messageHandler);
       this._messageHandler = null;
     }
+    if (this._onSwipeStart) {
+      document.removeEventListener('touchstart', this._onSwipeStart);
+      document.removeEventListener('touchmove', this._onSwipeMove);
+      document.removeEventListener('touchend', this._onSwipeEnd);
+      this._onSwipeStart = null;
+      this._onSwipeMove = null;
+      this._onSwipeEnd = null;
+    }
   },
   methods: {
     // iframe 加载完成：向子站点注入 ClassIntra 用户身份标识（插件可据此辨认 ClassIntra 环境）
+    // 同时发送 request-mute 指令：请求子站点（如 CampusBili）默认静音视频播放器
+    // 子站点需监听 source==='classintra-browser' 且 action==='request-mute' 并静音 video 元素
     onIframeLoad: function() {
       var self = this;
       var frame = self.$refs.browserFrame;
       if (!frame || !frame.contentWindow) return;
       var user = self.$store && self.$store.state && self.$store.state.auth && self.$store.state.auth.user;
+      var origin = self._getFrameOrigin();
+      try {
+        // 请求子站点默认静音视频（campusbili 等视频站点应监听此指令）
+        frame.contentWindow.postMessage({ source: 'classintra-browser', action: 'request-mute', timestamp: Date.now() }, origin);
+      } catch (e) {}
       if (!user) return;
       var payload = {
         source: 'classintra-browser',
@@ -257,7 +304,7 @@ export default {
       };
       try {
         // targetOrigin 限定为 iframe 当前 URL 的 origin，避免消息泄漏到其他域
-        frame.contentWindow.postMessage(payload, self._getFrameOrigin());
+        frame.contentWindow.postMessage(payload, origin);
       } catch (e) {}
     },
     // 计算 iframe 的 origin（用于 postMessage targetOrigin）
@@ -350,6 +397,61 @@ export default {
     },
     toggleFullscreen: function() {
       this.isFullscreen = !this.isFullscreen;
+    },
+    // ===== 分享胶囊（需求9）：快捷分享当前链接到聊天/社区 =====
+    toggleShareCapsule: function() {
+      this.showShareCapsule = !this.showShareCapsule;
+    },
+    // 分享当前链接到聊天：跳转 Chat 页面并预填输入框（用户选择会话后直接发送）
+    shareToChat: function() {
+      var url = this.currentUrl;
+      this.showShareCapsule = false;
+      this.$router.push({ name: 'Chat', query: { prefill: encodeURIComponent(url) } }).catch(function() {});
+    },
+    // 分享当前链接到社区：跳转 Community 页面并预填帖子内容
+    shareToCommunity: function() {
+      var url = this.currentUrl;
+      this.showShareCapsule = false;
+      this.$router.push({ name: 'Community', query: { shareLink: encodeURIComponent(url) } }).catch(function() {});
+    },
+    // ===== 移动端边缘滑动手势（需求8）=====
+    // 左边缘右滑触发返回；全屏时顶部下滑退出全屏
+    // 仅在边缘 24px 内起始才捕获，避免干扰 iframe 内部正常滚动
+    onSwipeStart: function(e) {
+      if (!e.touches || !e.touches.length) return;
+      var t = e.touches[0];
+      var startX = t.clientX;
+      var startY = t.clientY;
+      var fromLeftEdge = startX <= 24;
+      var fromTopEdge = this.isFullscreen && startY <= 24;
+      if (!fromLeftEdge && !fromTopEdge) return;
+      this.swipeState = {
+        startX: startX,
+        startY: startY,
+        fromLeftEdge: fromLeftEdge,
+        fromTopEdge: fromTopEdge,
+        triggered: false
+      };
+    },
+    onSwipeMove: function(e) {
+      if (!this.swipeState || this.swipeState.triggered) return;
+      if (!e.touches || !e.touches.length) return;
+      var t = e.touches[0];
+      var dx = t.clientX - this.swipeState.startX;
+      var dy = t.clientY - this.swipeState.startY;
+      // 左边缘右滑 > 60px 且横向位移为主 → 返回
+      if (this.swipeState.fromLeftEdge && dx > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+        this.swipeState.triggered = true;
+        this.goBack();
+      }
+      // 全屏时顶部下滑 > 60px 且纵向为主 → 退出全屏
+      if (this.swipeState.fromTopEdge && dy > 60 && Math.abs(dy) > Math.abs(dx) * 1.5) {
+        this.swipeState.triggered = true;
+        this.isFullscreen = false;
+      }
+    },
+    onSwipeEnd: function() {
+      this.swipeState = null;
     }
   }
 };
@@ -373,7 +475,6 @@ export default {
   gap: 8px;
   padding: 8px 12px;
   background: var(--nav-bg);
-  border-bottom: 0.5px solid var(--separator-color);
   flex-shrink: 0;
   height: 48px;
 }
@@ -467,6 +568,11 @@ export default {
   width: 100%;
   border: none;
   background: var(--card-bg);
+  /* 性能优化：隔离 iframe 渲染层，减少外部重排对视频播放的影响（50 并发场景） */
+  contain: strict;
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+  will-change: transform;
 }
 
 /* ========== 首页 ========== */
@@ -696,4 +802,85 @@ export default {
 .browser-fullscreen .browser-iframe {
   width: 100%;
   height: 100%;
+}
+
+/* ========== 分享胶囊（需求9）========== */
+.browser-share-btn { color: var(--text-tertiary); font-size: 15px; }
+.browser-share-btn.active { color: var(--primary-color); background: var(--primary-light); }
+
+.share-capsule {
+  position: fixed;
+  top: 48px;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  max-width: 320px;
+  background: rgba(0, 0, 0, 0.25);
+  z-index: 9998;
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
+.capsule-inner {
+  margin: 12px;
+  padding: 16px;
+  background: var(--card-bg);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+  animation: capsule-pop 0.22s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@keyframes capsule-pop {
+  from { opacity: 0; transform: translateY(-8px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.capsule-url {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 8px 12px;
+  background: var(--bg-color);
+  border-radius: var(--radius-md);
+  margin-bottom: 12px;
+  font-family: -apple-system, sans-serif;
+}
+
+.capsule-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.capsule-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  cursor: pointer;
+  transition: -webkit-transform 0.15s, transform 0.15s, opacity 0.15s;
+  color: #fff;
+  font-weight: 500;
+}
+
+.capsule-btn:active { -webkit-transform: scale(0.96); transform: scale(0.96); opacity: 0.85; }
+.capsule-btn i { font-size: 15px; }
+
+.capsule-to-chat { background: var(--primary-color); }
+.capsule-to-chat:hover { background: var(--primary-hover); }
+.capsule-to-community { background: #34c759; }
+.capsule-to-community:hover { opacity: 0.9; }
+
+/* 胶囊入场过渡 */
+.capsule-slide-enter-active, .capsule-slide-leave-active {
+  transition: opacity 0.2s ease;
+}
+.capsule-slide-enter, .capsule-slide-leave-to {
+  opacity: 0;
 }</style>

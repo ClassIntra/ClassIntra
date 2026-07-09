@@ -1075,6 +1075,14 @@ export default {
     // 超能岛通知点击跳转：打开对应会话（公共聊天室/群聊/私聊）
     var targetChat = self.$route.query.chat;
     var forwardData = self.$route.query.forward;
+    // 浏览器分享胶囊预填：从超能岛浏览器分享链接到聊天，预填输入框（用户选择会话后发送）
+    var prefillText = self.$route.query.prefill;
+    if (prefillText) {
+      try {
+        self.inputText = decodeURIComponent(prefillText);
+        self.$router.replace({ query: {} }).catch(function() {});
+      } catch (e) {}
+    }
     if (forwardData) {
       try {
         var fwd = JSON.parse(decodeURIComponent(forwardData));
