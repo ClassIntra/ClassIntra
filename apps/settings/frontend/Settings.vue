@@ -667,6 +667,11 @@ export default {
     this.fetchVersionInfo();
     this.loadLevelInfo();
     this.avatarColor = localStorage.getItem('avatar_color_' + (this.user && this.user.user_id)) || '';
+    // 从服务端恢复头像颜色（换设备/清缓存后自动恢复，同时更新响应式数据）
+    var self = this;
+    helpers.syncAvatarColorFromServer(this.user && this.user.user_id).then(function(color) {
+      if (color) self.avatarColor = color;
+    });
   },
   beforeDestroy: function() {
     if (this.autoWallpaperTimer) {

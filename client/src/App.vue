@@ -200,6 +200,13 @@ export default {
               self.$store.commit('settings/SET_THEME', serverSettings.theme);
             }
           }
+          // 同步头像颜色到 localStorage（服务端优先）
+          if (serverSettings.avatar_color) {
+            var uid = (storedUser && storedUser.user_id) || '';
+            if (uid) {
+              localStorage.setItem('avatar_color_' + uid, serverSettings.avatar_color);
+            }
+          }
         }
       }).catch(function() {});
     }
