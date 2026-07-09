@@ -1242,6 +1242,36 @@ router.post('/folders/:id/share', auth.requireAuth, function(req, res) {
   var shareCode = generateUniqueShareCode();
   db.prepare('UPDATE cloud_folders SET share_code = ? WHERE id = ?').run(shareCode, folderId);
 
+  // 跨服务器同步：广播分享码 + 文件列表到所有 peer 服务器
+  // 解决跨班（跨服务器）分享码无效问题：分享码存储在创建者所在服务器数据库，
+  // 需通过 relay-bus 同步到其他服务器，文件内容由 Syncthing/peer-fetch 保证跨服务器可访问
+  try {
+    var relayBus = require('../../../server/src/utils/relay-bus');
+    var sourceFiles = db.prepare([
+      'SELECT cuf.file_hash, cuf.display_name, cfl.size, cfl.mime_type, cfl.storage_path',
+      'FROM cloud_user_files cuf',
+      'JOIN cloud_files cfl ON cuf.file_hash = cfl.hash',
+      'WHERE cuf.user_id = ? AND cuf.folder = ? AND cfl.deleted = 0'
+    ].join('\n')).all(userId, folder.name);
+
+    relayBus.emit('cloud_share_code_created', {
+      share_code: shareCode,
+      source_user_id: userId,
+      folder_name: folder.name,
+      files: sourceFiles.map(function(f) {
+        return {
+          hash: f.file_hash,
+          display_name: f.display_name,
+          size: f.size,
+          mime_type: f.mime_type,
+          storage_path: f.storage_path
+        };
+      })
+    });
+  } catch (e) {
+    console.error('[Cloud] 分享码跨服务器同步失败:', e.message);
+  }
+
   res.json({ code: 200, data: { share_code: shareCode, folder_name: folder.name } });
 });
 

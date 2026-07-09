@@ -270,13 +270,16 @@ export default {
       if (newMode !== oldMode) {
         this.animateIslandHeight();
       }
-      // 音乐展开时监听 document 点击，点击外部则缩回
-      if (newMode === 'music-expanded' && oldMode !== 'music-expanded') {
+      // 展开模式（菜单/音乐/历史/浏览器）监听 document 点击，点击外部则收起
+      var collapsibleModes = ['actions', 'music-expanded', 'history', 'browser'];
+      var isNewCollapsible = collapsibleModes.indexOf(newMode) !== -1;
+      var wasOldCollapsible = collapsibleModes.indexOf(oldMode) !== -1;
+      if (isNewCollapsible && !wasOldCollapsible) {
         var self = this;
         self.$nextTick(function() {
           document.addEventListener('click', self.onDocumentClick);
         });
-      } else if (oldMode === 'music-expanded' && newMode !== 'music-expanded') {
+      } else if (!isNewCollapsible && wasOldCollapsible) {
         document.removeEventListener('click', this.onDocumentClick);
       }
     },
@@ -335,11 +338,12 @@ export default {
       }
     },
     onDocumentClick: function(e) {
-      // 点击 island 外部区域时缩回音乐展开态
-      if (this.islandMode !== 'music-expanded') return;
+      // 点击 island 外部区域时收起展开的菜单/面板
+      var collapsibleModes = ['actions', 'music-expanded', 'history', 'browser'];
+      if (collapsibleModes.indexOf(this.islandMode) === -1) return;
       var el = this.$refs.islandEl;
       if (el && !el.contains(e.target)) {
-        this.islandMode = 'music-compact';
+        this.goCompact();
       }
     },
 

@@ -122,66 +122,50 @@ export default {
         self.loading = false;
       });
     },
-    // 一键封禁：确认后调用批量接口
+    // 一键封禁：直接调用批量接口（无需二次确认）
     onBatchDisable: function() {
       var self = this;
       if (self.total === 0) return;
-      self.$modal.confirm({
-        title: '一键封禁',
-        message: '将封禁本班全部 ' + self.total + ' 名用户（班管除外），被封禁用户将无法登录。确定继续吗？',
-        confirmText: '封禁',
-        cancelText: '取消'
-      }).then(function(result) {
-        if (!result) return;
-        self.operating = true;
-        api.post('/admin/users/batch-status', {
-          status: 'disabled',
-          reason: '一键封禁（桌面小组件）'
-        }).then(function(res) {
-          if (res.data && res.data.code === 200) {
-            var affected = (res.data.data && res.data.data.affected) || 0;
-            self.showToast('已封禁 ' + affected + ' 人', 'success');
-            self.loadData();
-          } else {
-            self.showToast((res.data && res.data.message) || '操作失败', 'error');
-          }
-        }).catch(function(err) {
-          var msg = (err && err.response && err.response.data && err.response.data.message) || '操作失败';
-          self.showToast(msg, 'error');
-        }).finally(function() {
-          self.operating = false;
-        });
-      }).catch(function() {});
+      self.operating = true;
+      api.post('/admin/users/batch-status', {
+        status: 'disabled',
+        reason: '一键封禁（桌面小组件）'
+      }).then(function(res) {
+        if (res.data && res.data.code === 200) {
+          var affected = (res.data.data && res.data.data.affected) || 0;
+          self.showToast('已封禁 ' + affected + ' 人', 'success');
+          self.loadData();
+        } else {
+          self.showToast((res.data && res.data.message) || '操作失败', 'error');
+        }
+      }).catch(function(err) {
+        var msg = (err && err.response && err.response.data && err.response.data.message) || '操作失败';
+        self.showToast(msg, 'error');
+      }).finally(function() {
+        self.operating = false;
+      });
     },
-    // 一键启用：确认后调用批量接口
+    // 一键启用：直接调用批量接口（无需二次确认）
     onBatchEnable: function() {
       var self = this;
       if (self.total === 0) return;
-      self.$modal.confirm({
-        title: '一键启用',
-        message: '将启用本班全部 ' + self.total + ' 名用户（班管除外）。确定继续吗？',
-        confirmText: '启用',
-        cancelText: '取消'
-      }).then(function(result) {
-        if (!result) return;
-        self.operating = true;
-        api.post('/admin/users/batch-status', {
-          status: 'active'
-        }).then(function(res) {
-          if (res.data && res.data.code === 200) {
-            var affected = (res.data.data && res.data.data.affected) || 0;
-            self.showToast('已启用 ' + affected + ' 人', 'success');
-            self.loadData();
-          } else {
-            self.showToast((res.data && res.data.message) || '操作失败', 'error');
-          }
-        }).catch(function(err) {
-          var msg = (err && err.response && err.response.data && err.response.data.message) || '操作失败';
-          self.showToast(msg, 'error');
-        }).finally(function() {
-          self.operating = false;
-        });
-      }).catch(function() {});
+      self.operating = true;
+      api.post('/admin/users/batch-status', {
+        status: 'active'
+      }).then(function(res) {
+        if (res.data && res.data.code === 200) {
+          var affected = (res.data.data && res.data.data.affected) || 0;
+          self.showToast('已启用 ' + affected + ' 人', 'success');
+          self.loadData();
+        } else {
+          self.showToast((res.data && res.data.message) || '操作失败', 'error');
+        }
+      }).catch(function(err) {
+        var msg = (err && err.response && err.response.data && err.response.data.message) || '操作失败';
+        self.showToast(msg, 'error');
+      }).finally(function() {
+        self.operating = false;
+      });
     }
   }
 };
