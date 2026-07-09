@@ -3,9 +3,14 @@
     <AppNavBar title="日历">
       <template slot="actions">
         <div class="nav-actions">
-          <button class="nav-btn" @click="prevMonth" title="上一月"><i class="fa-solid fa-chevron-left"></i></button>
-          <span class="month-label">{{ year }}年{{ month }}月</span>
-          <button class="nav-btn" @click="nextMonth" title="下一月"><i class="fa-solid fa-chevron-right"></i></button>
+          <div class="view-switcher">
+            <button class="view-btn" :class="{ active: view === 'year' }" @click="switchView('year')">年</button>
+            <button class="view-btn" :class="{ active: view === 'month' }" @click="switchView('month')">月</button>
+            <button class="view-btn" :class="{ active: view === 'day' }" @click="switchView('day')">日</button>
+          </div>
+          <button class="nav-btn" @click="prevPeriod" :title="navPrevTitle"><i class="fa-solid fa-chevron-left"></i></button>
+          <span class="month-label">{{ navLabel }}</span>
+          <button class="nav-btn" @click="nextPeriod" :title="navNextTitle"><i class="fa-solid fa-chevron-right"></i></button>
           <button class="today-btn" @click="goToday">今天</button>
           <button class="add-btn" @click="openEditor(null)" title="新建事件"><i class="fa-solid fa-plus"></i></button>
         </div>
@@ -13,8 +18,35 @@
     </AppNavBar>
 
     <div class="calendar-body">
+      <!-- 年视图：12 个月小日历 -->
+      <div v-if="view === 'year'" class="year-view scrollbar-thin">
+        <div
+          v-for="m in yearMonths"
+          :key="m.month"
+          class="year-month-card"
+          :class="{ 'ym-current': m.isCurrentMonth }"
+          @click="selectMonth(m.month)"
+        >
+          <div class="ym-header">
+            <span class="ym-label">{{ m.month }}月</span>
+            <span v-if="m.isCurrentMonth" class="ym-today-tag">本月</span>
+          </div>
+          <div class="ym-weekdays">
+            <span v-for="(wd, wi) in weekdays" :key="wi" class="ym-wd" :class="{ weekend: wi === 0 || wi === 6 }">{{ wd }}</span>
+          </div>
+          <div class="ym-grid">
+            <span
+              v-for="(c, ci) in m.cells"
+              :key="ci"
+              class="ym-cell"
+              :class="{ 'ym-today': c.isToday, 'ym-other': !c.inMonth, 'ym-has-event': c.hasEvent }"
+            >{{ c.day || '' }}</span>
+          </div>
+        </div>
+      </div>
+
       <!-- 月视图网格 -->
-      <div class="calendar-grid">
+      <div v-if="view === 'month'" class="calendar-grid">
         <div class="weekday-row">
           <div v-for="(wd, i) in weekdays" :key="i" class="weekday-cell" :class="{ weekend: i === 0 || i === 6 }">{{ wd }}</div>
         </div>
@@ -46,8 +78,8 @@
         </div>
       </div>
 
-      <!-- 当日详情 -->
-      <div class="day-detail" v-if="selectedDate">
+      <!-- 当日详情（月视图侧边 / 日视图全宽） -->
+      <div class="day-detail" :class="{ 'day-detail-full': view === 'day' }" v-if="selectedDate && view !== 'year'">
         <div class="day-detail-header">
           <div class="ddh-info">
             <span class="ddh-date">{{ selectedDateLabel }}</span>
@@ -207,6 +239,7 @@ export default {
     return {
       year: now.getFullYear(),
       month: now.getMonth() + 1,
+      view: 'month',          // 视图：'year' / 'month' / 'day'
       weekdays: WEEKDAYS,
       events: [],
       birthdays: [],
@@ -230,6 +263,25 @@ export default {
     };
   },
   computed: {
+    // 顶部导航标签（根据视图显示年/月/日）
+    navLabel: function() {
+      if (this.view === 'year') return this.year + '年';
+      if (this.view === 'day') {
+        var parts = this.selectedDate.split('-');
+        return parseInt(parts[1], 10) + '月' + parseInt(parts[2], 10) + '日';
+      }
+      return this.year + '年' + this.month + '月';
+    },
+    navPrevTitle: function() {
+      if (this.view === 'year') return '上一年';
+      if (this.view === 'day') return '前一天';
+      return '上一月';
+    },
+    navNextTitle: function() {
+      if (this.view === 'year') return '下一年';
+      if (this.view === 'day') return '后一天';
+      return '下一月';
+    },
     // 当前月份的日历单元格（含上下月填充）
     calendarCells: function() {
       var self = this;
@@ -295,6 +347,39 @@ export default {
       if (info.solarTerm) parts.push(info.solarTerm);
       if (info.lunar) parts.push(info.lunar.lunarMonthName + '月' + info.lunar.lunarDayName);
       return parts.join(' · ');
+    },
+    // 年视图：12 个月的小日历数据（含事件标记）
+    yearMonths: function() {
+      var self = this;
+      var todayStr = formatDate(new Date());
+      var now = new Date();
+      var currentMonth = (self.year === now.getFullYear()) ? now.getMonth() + 1 : -1;
+      var months = [];
+      for (var m = 1; m <= 12; m++) {
+        var firstDay = new Date(self.year, m - 1, 1);
+        var firstWeekday = firstDay.getDay();
+        var daysInMonth = new Date(self.year, m, 0).getDate();
+        var prevMonthDays = new Date(self.year, m - 1, 0).getDate();
+        var cells = [];
+        // 前置填充（上月末尾）
+        for (var i = firstWeekday - 1; i >= 0; i--) {
+          cells.push({ day: prevMonthDays - i, inMonth: false, isToday: false, hasEvent: false });
+        }
+        // 当月
+        for (var j = 1; j <= daysInMonth; j++) {
+          var dateStr = self.year + '-' + (m < 10 ? '0' + m : m) + '-' + (j < 10 ? '0' + j : j);
+          var hasEvent = self.events.some(function(ev) { return ev.event_date === dateStr; })
+                      || self.linkedCountdowns.some(function(ev) { return ev.event_date === dateStr; });
+          cells.push({ day: j, inMonth: true, isToday: dateStr === todayStr, hasEvent: hasEvent });
+        }
+        // 后置填充补齐 42 格
+        var remaining = 42 - cells.length;
+        for (var k = 1; k <= remaining; k++) {
+          cells.push({ day: k, inMonth: false, isToday: false, hasEvent: false });
+        }
+        months.push({ month: m, isCurrentMonth: m === currentMonth, cells: cells });
+      }
+      return months;
     }
   },
   mounted: function() {
@@ -427,6 +512,90 @@ export default {
       self.loadData();
       self.loadBirthdays();
       self.loadLinkedCountdowns();
+    },
+    // 视图切换
+    switchView: function(v) {
+      this.view = v;
+      if (v === 'year') {
+        // 年视图加载全年事件数据
+        this.loadFullYearEvents();
+      } else if (v === 'month') {
+        this.loadData();
+        this.loadBirthdays();
+        this.loadLinkedCountdowns();
+      }
+    },
+    // 年视图点击某月：切到月视图
+    selectMonth: function(m) {
+      this.month = m;
+      this.view = 'month';
+      this.loadData();
+      this.loadBirthdays();
+      this.loadLinkedCountdowns();
+    },
+    // 上一周期（根据视图：年/月/日）
+    prevPeriod: function() {
+      if (this.view === 'year') {
+        this.year--;
+        this.loadFullYearEvents();
+      } else if (this.view === 'day') {
+        this.shiftSelectedDate(-1);
+      } else {
+        this.prevMonth();
+      }
+    },
+    // 下一周期
+    nextPeriod: function() {
+      if (this.view === 'year') {
+        this.year++;
+        this.loadFullYearEvents();
+      } else if (this.view === 'day') {
+        this.shiftSelectedDate(1);
+      } else {
+        this.nextMonth();
+      }
+    },
+    // 日视图：前后切换日期（delta 为 -1/1）
+    shiftSelectedDate: function(delta) {
+      var parts = this.selectedDate.split('-');
+      var d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+      d.setDate(d.getDate() + delta);
+      this.selectedDate = formatDate(d);
+      // 跨月时同步 year/month 并加载数据
+      if (d.getFullYear() !== this.year || d.getMonth() + 1 !== this.month) {
+        this.year = d.getFullYear();
+        this.month = d.getMonth() + 1;
+        this.loadData();
+        this.loadBirthdays();
+        this.loadLinkedCountdowns();
+      }
+    },
+    // 加载全年事件（年视图用）：循环请求 12 个月并合并
+    loadFullYearEvents: function() {
+      var self = this;
+      var allEvents = [];
+      var allLinked = [];
+      var pending = 24;  // 12 月 × 2 接口
+      var done = function() {
+        pending--;
+        if (pending === 0) {
+          self.events = allEvents;
+          self.linkedCountdowns = allLinked;
+        }
+      };
+      for (var m = 1; m <= 12; m++) {
+        var monthStr = self.year + '-' + (m < 10 ? '0' + m : m);
+        api.get('/calendar/events', { params: { month: monthStr } }).then(function(res) {
+          if (res.data && res.data.code === 200) {
+            allEvents = allEvents.concat(res.data.data || []);
+          }
+        }).catch(function() {}).then(done);
+        api.get('/countdown/events/for-calendar', { params: { month: monthStr } }).then(function(res) {
+          if (res.data && res.data.code === 200) {
+            allLinked = allLinked.concat(res.data.data || []);
+          }
+        }).catch(function() {}).then(done);
+      }
     },
     selectDate: function(cell) {
       this.selectedDate = cell.dateStr;
@@ -1086,5 +1255,126 @@ textarea.form-input {
     font-size: 14px;
     min-width: 80px;
   }
+}
+
+/* ========== 视图切换器 ========== */
+.view-switcher {
+  display: flex;
+  background: var(--bg-color);
+  border-radius: var(--radius-pill);
+  padding: 2px;
+  gap: 0;
+  margin-right: 4px;
+}
+.view-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.view-btn.active {
+  background: var(--primary-color);
+  color: #fff;
+}
+
+/* ========== 年视图 ========== */
+.year-view {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-auto-rows: min-content;
+  gap: 12px;
+  overflow-y: auto;
+  padding: 4px;
+  align-content: start;
+}
+.year-month-card {
+  background: var(--card-bg);
+  border-radius: 14px;
+  padding: 10px;
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+  border: 1.5px solid transparent;
+}
+.year-month-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+.year-month-card.ym-current { border-color: var(--primary-color); }
+.ym-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.ym-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.ym-today-tag {
+  font-size: 10px;
+  color: #fff;
+  background: var(--primary-color);
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+}
+.ym-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  margin-bottom: 4px;
+}
+.ym-wd {
+  text-align: center;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  font-weight: 600;
+}
+.ym-wd.weekend { color: var(--danger-color); }
+.ym-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+}
+.ym-cell {
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-secondary);
+  padding: 3px 0;
+  border-radius: 4px;
+  line-height: 1.2;
+}
+.ym-cell.ym-other { color: var(--text-quaternary); opacity: 0.4; }
+.ym-cell.ym-today {
+  background: var(--primary-color);
+  color: #fff;
+  font-weight: 600;
+}
+.ym-cell.ym-has-event::after {
+  content: '';
+  display: block;
+  width: 3px;
+  height: 3px;
+  background: var(--primary-color);
+  border-radius: 50%;
+  margin: 1px auto 0;
+}
+.ym-cell.ym-today.ym-has-event::after { background: #fff; }
+
+/* ========== 日视图（day-detail 全宽） ========== */
+.day-detail-full {
+  flex: 1 !important;
+  max-width: none !important;
+  width: 100% !important;
+}
+
+/* 小屏：年视图列数自适应 */
+@media (max-width: 720px) {
+  .year-view { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 480px) {
+  .year-view { grid-template-columns: 1fr; }
 }
 </style>
