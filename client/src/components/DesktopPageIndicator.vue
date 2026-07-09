@@ -41,7 +41,7 @@ export default {
 <style scoped>
 .page-indicator {
   position: absolute;
-  bottom: 124px;
+  bottom: 140px;
   left: 0;
   right: 0;
   display: flex;

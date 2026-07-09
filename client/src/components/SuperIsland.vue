@@ -374,7 +374,8 @@ export default {
         if (self.notification.route) {
           if (self.notification.chatId) {
             self.$store.commit('chat/SET_CURRENT_CHAT', self.notification.chatId);
-            self.$router.push(self.notification.route).catch(function() {});
+            // 通过 query 传递 chatId，让 Chat.vue mounted 时自动打开对应会话
+            self.$router.push({ path: self.notification.route, query: { chat: self.notification.chatId } }).catch(function() {});
           } else {
             self.$router.push(self.notification.route).catch(function() {});
           }
@@ -429,7 +430,8 @@ export default {
       if (item.route) {
         if (item.chatId) {
           self.$store.commit('chat/SET_CURRENT_CHAT', item.chatId);
-          self.$router.push(item.route).catch(function() {});
+          // 通过 query 传递 chatId，让 Chat.vue mounted 时自动打开对应会话
+          self.$router.push({ path: item.route, query: { chat: item.chatId } }).catch(function() {});
         } else {
           self.$router.push(item.route).catch(function() {});
         }

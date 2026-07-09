@@ -1065,11 +1065,15 @@ export default {
   },
   mounted: function() {
     var self = this;
-    self.$store.dispatch('chat/loadMessages');
-    self.$store.dispatch('chat/loadContacts');
-    self.$store.dispatch('chat/loadGroups');
+    var loadPromise = Promise.all([
+      self.$store.dispatch('chat/loadMessages'),
+      self.$store.dispatch('chat/loadContacts'),
+      self.$store.dispatch('chat/loadGroups')
+    ]);
     self.loadFriendRemarks();
     self.connectWS();
+    // 超能岛通知点击跳转：打开对应会话（公共聊天室/群聊/私聊）
+    var targetChat = self.$route.query.chat;
     var forwardData = self.$route.query.forward;
     if (forwardData) {
       try {
@@ -1082,6 +1086,14 @@ export default {
         });
         self.$router.replace({ query: {} }).catch(function() {});
       } catch (e) {}
+    } else if (targetChat) {
+      // 通知跳转：等待数据加载完成后切换到对应会话
+      loadPromise.then(function() {
+        self.$nextTick(function() {
+          self.selectChat(targetChat);
+        });
+      });
+      self.$router.replace({ query: {} }).catch(function() {});
     }
     document.addEventListener('click', self.onDocumentClick);
   },
