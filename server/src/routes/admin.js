@@ -292,8 +292,16 @@ router.patch('/users/:id', function(req, res) {
   }
 
   if (req.body.info !== undefined) {
+    var infoToSave = req.body.info;
+    // 仅班管可修改超能岛浏览器权限（防御纵深）
+    if (!constants.isClassAdmin(req.user.user_id)) {
+      var currentRow = db.prepare('SELECT info_json FROM users WHERE id = ?').get(userId);
+      var currentInfo = {};
+      try { currentInfo = JSON.parse((currentRow && currentRow.info_json) || '{}'); } catch (e) {}
+      infoToSave = Object.assign({}, infoToSave, { browser_enabled: currentInfo.browser_enabled });
+    }
     fields.push('info_json = ?');
-    values.push(JSON.stringify(req.body.info));
+    values.push(JSON.stringify(infoToSave));
   }
 
   if (fields.length === 0) {
