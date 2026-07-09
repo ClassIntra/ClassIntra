@@ -62,12 +62,12 @@
                 class="action-btn danger-btn"
                 @click="batchDeleteUsers"
               >批量删除 ({{ selectedUsers.length }})</button>
-              <span v-if="selectedUsers.length > 0 && isAdmin" class="btn-group">
+              <span v-if="selectedUsers.length > 0 && isClassAdmin" class="btn-group">
                 <button class="action-btn btn-group-label" disabled>DeepSeek</button>
                 <button class="action-btn" @click="batchToggleDeepSeek(true)">开</button>
                 <button class="action-btn" @click="batchToggleDeepSeek(false)">关</button>
               </span>
-              <span v-if="selectedUsers.length > 0 && isAdmin" class="btn-group">
+              <span v-if="selectedUsers.length > 0 && isClassAdmin" class="btn-group">
                 <button class="action-btn btn-group-label" disabled>超能岛浏览器</button>
                 <button class="action-btn" @click="batchToggleBrowser(true)">开</button>
                 <button class="action-btn" @click="batchToggleBrowser(false)">关</button>
@@ -1159,7 +1159,7 @@
                 <option :value="true">管理员</option>
               </select>
             </div>
-            <div class="form-group">
+            <div v-if="isClassAdmin" class="form-group">
               <label class="form-label">超能岛浏览器</label>
               <select v-model="editForm.browser_enabled" class="form-input">
                 <option :value="false">禁用</option>
