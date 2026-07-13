@@ -17,12 +17,33 @@ var WebSocketManager = function() {
   this._offlineQueue = [];
   this._maxOfflineQueue = 50;
   this._connectionState = 'disconnected';
+  // HTTP 长轮询回退
+  this._transport = 'ws';     // 'ws' or 'poll'
+  this._pollTimer = null;
+  this._pollLastTs = 0;       // 上次 poll 拉到的事件 ts
+  this._pollInFlight = false;
+  this._pollStopped = false;
+  this._wsSupported = (typeof WebSocket !== 'undefined');
 };
+
+// ===== WebSocket transport =====
 
 WebSocketManager.prototype.connect = function(url) {
   var self = this;
+  // 若已切换到 poll 模式，直接走 poll
+  if (self._transport === 'poll') {
+    self._startPolling();
+    return;
+  }
+  // 检测浏览器是否支持 WebSocket
+  if (!self._wsSupported) {
+    console.warn('[WS] WebSocket not supported, falling back to HTTP polling');
+    self._switchToPolling();
+    return;
+  }
   self.url = url || self.url;
   self._intentionalDisconnect = false;
+  self._pollStopped = false;
   self.token = localStorage.getItem('token') || '';
 
   if (self.ws && (self.ws.readyState === WebSocket.CONNECTING || self.ws.readyState === WebSocket.OPEN)) {
@@ -94,7 +115,13 @@ WebSocketManager.prototype.connect = function(url) {
     self.authenticated = false;
     self.stopHeartbeat();
     self.emit('_wsClose', {});
-    self.scheduleReconnect();
+    // 若已超过最大重试次数，切换到 polling
+    if (self.reconnectAttempts >= self.maxReconnectAttempts) {
+      console.warn('[WS] Max reconnect attempts reached, switching to HTTP polling');
+      self._switchToPolling();
+    } else {
+      self.scheduleReconnect();
+    }
   };
 
   self.ws.onerror = function() {
@@ -119,18 +146,26 @@ WebSocketManager.prototype.disconnect = function() {
     this.ws.close();
     this.ws = null;
   }
+  this._stopPolling();
   this.connected = false;
   this.authenticated = false;
 };
 
 WebSocketManager.prototype.send = function(data) {
-  if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+  // WS 模式优先
+  if (this._transport === 'ws' && this.ws && this.ws.readyState === WebSocket.OPEN) {
     var payload = typeof data === 'string' ? data : JSON.stringify(data);
     this.ws.send(payload);
-  } else {
-    if (this._offlineQueue.length < this._maxOfflineQueue) {
-      this._offlineQueue.push(data);
-    }
+    return;
+  }
+  // Poll 模式：通过 HTTP 发送
+  if (this._transport === 'poll') {
+    this._sendViaHttp(data);
+    return;
+  }
+  // WS 暂未就绪，入队
+  if (this._offlineQueue.length < this._maxOfflineQueue) {
+    this._offlineQueue.push(data);
   }
 };
 
@@ -206,6 +241,11 @@ WebSocketManager.prototype.stopHeartbeat = function() {
 WebSocketManager.prototype.scheduleReconnect = function() {
   var self = this;
   if (self._intentionalDisconnect || self.reconnectAttempts >= self.maxReconnectAttempts) {
+    // 超过最大重试次数，切换到 polling
+    if (self._wsSupported && self._transport === 'ws') {
+      console.warn('[WS] Max reconnect attempts reached, switching to HTTP polling');
+      self._switchToPolling();
+    }
     return;
   }
   self.reconnectAttempts++;
@@ -248,6 +288,192 @@ WebSocketManager.prototype.ensureConnected = function() {
     var wsPort = window.__WS_PORT__ || (window.location.protocol === 'https:' ? '443' : '10001');
     this.connect(protocol + '//' + host + ':' + wsPort + '/ws');
   }
+};
+
+// ===== HTTP 长轮询回退 =====
+
+WebSocketManager.prototype._switchToPolling = function() {
+  if (this._transport === 'poll') return;
+  this._transport = 'poll';
+  // 清理 WS 残留
+  if (this.ws) {
+    try { this.ws.onclose = null; this.ws.close(); } catch (e) {}
+    this.ws = null;
+  }
+  this.stopHeartbeat();
+  this.connected = false;
+  this.authenticated = false;
+  this._startPolling();
+};
+
+WebSocketManager.prototype._getPollHeaders = function() {
+  var token = localStorage.getItem('token') || '';
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': token ? ('Bearer ' + token) : ''
+  };
+};
+
+WebSocketManager.prototype._startPolling = function() {
+  var self = this;
+  if (self._pollTimer || self._pollInFlight) return;
+  self._pollStopped = false;
+  self._connectionState = 'connecting';
+  self.emit('_connectionStateChange', { state: 'connecting', transport: 'poll' });
+
+  // 1. 注册 poller
+  fetch('/api/chat/poll/register', {
+    method: 'POST',
+    headers: self._getPollHeaders(),
+    credentials: 'same-origin',
+    body: JSON.stringify({})
+  }).then(function(response) {
+    if (!response.ok) throw new Error('register failed: ' + response.status);
+    return response.json();
+  }).then(function(result) {
+    if (!result || result.code !== 200 || !result.data) {
+      throw new Error('register invalid response');
+    }
+    var data = result.data;
+    self._pollLastTs = data.server_time || Date.now();
+    self._lastConnectedData = data;
+    self.authenticated = true;
+    self.connected = true;
+    self._connectionState = 'connected';
+    self.emit('_connectionStateChange', { state: 'connected', transport: 'poll' });
+    // 模拟 WS connected 消息
+    self.emit('connected', data);
+    self.emit('_message', data);
+    // 刷新离线队列
+    self._flushOfflineQueue();
+    // 2. 启动长轮询循环
+    self._schedulePoll();
+  }).catch(function(err) {
+    console.error('[Poll] Register failed:', err.message);
+    self.connected = false;
+    self.authenticated = false;
+    self._connectionState = 'disconnected';
+    self.emit('_connectionStateChange', { state: 'disconnected', transport: 'poll', error: err.message });
+    // 5 秒后重试
+    self._pollTimer = setTimeout(function() {
+      self._pollTimer = null;
+      self._startPolling();
+    }, 5000);
+  });
+};
+
+WebSocketManager.prototype._schedulePoll = function() {
+  var self = this;
+  if (self._pollStopped) return;
+  if (self._pollTimer) return;
+  self._pollTimer = setTimeout(function() {
+    self._pollTimer = null;
+    self._doPoll();
+  }, 100);
+};
+
+WebSocketManager.prototype._doPoll = function() {
+  var self = this;
+  if (self._pollStopped) return;
+  if (self._pollInFlight) {
+    // 上一次 poll 还在进行，等待后重新调度
+    self._pollTimer = setTimeout(function() {
+      self._pollTimer = null;
+      self._schedulePoll();
+    }, 1000);
+    return;
+  }
+  self._pollInFlight = true;
+  var url = '/api/chat/poll?since=' + encodeURIComponent(self._pollLastTs);
+  fetch(url, {
+    method: 'GET',
+    headers: self._getPollHeaders(),
+    credentials: 'same-origin'
+  }).then(function(response) {
+    if (!response.ok) throw new Error('poll failed: ' + response.status);
+    return response.json();
+  }).then(function(result) {
+    if (!result || result.code !== 200 || !result.data) {
+      throw new Error('poll invalid response');
+    }
+    var events = result.data.events || [];
+    for (var i = 0; i < events.length; i++) {
+      var evt = events[i];
+      if (evt.ts && evt.ts > self._pollLastTs) {
+        self._pollLastTs = evt.ts;
+      }
+      if (evt.event) {
+        if (evt.event.type) {
+          self.emit(evt.event.type, evt.event);
+        }
+        self.emit('_message', evt.event);
+      }
+    }
+    // 更新 server_time 作为下次 since
+    if (result.data.server_time && result.data.server_time > self._pollLastTs) {
+      self._pollLastTs = result.data.server_time;
+    }
+    self._pollInFlight = false;
+    // 短间隔继续 poll
+    self._schedulePoll();
+  }).catch(function(err) {
+    console.error('[Poll] Fetch error:', err.message);
+    self._pollInFlight = false;
+    // 错误后延迟重试
+    self._pollTimer = setTimeout(function() {
+      self._pollTimer = null;
+      self._schedulePoll();
+    }, 3000);
+  });
+};
+
+WebSocketManager.prototype._stopPolling = function() {
+  this._pollStopped = true;
+  if (this._pollTimer) {
+    clearTimeout(this._pollTimer);
+    this._pollTimer = null;
+  }
+  // 注销 poller（异步，忽略错误）
+  try {
+    fetch('/api/chat/poll/unregister', {
+      method: 'POST',
+      headers: this._getPollHeaders(),
+      credentials: 'same-origin',
+      body: JSON.stringify({})
+    }).catch(function() {});
+  } catch (e) {}
+};
+
+WebSocketManager.prototype._sendViaHttp = function(data) {
+  var self = this;
+  var payload = typeof data === 'string' ? data : JSON.stringify(data);
+  var body;
+  try { body = JSON.parse(payload); } catch (e) { body = { type: 'text', content: payload }; }
+  fetch('/api/chat/poll/send', {
+    method: 'POST',
+    headers: self._getPollHeaders(),
+    credentials: 'same-origin',
+    body: JSON.stringify(body)
+  }).then(function(response) {
+    if (!response.ok) throw new Error('send failed: ' + response.status);
+    return response.json();
+  }).then(function(result) {
+    if (!result || result.code !== 200 || !result.data) return;
+    var responses = result.data.responses || [];
+    for (var i = 0; i < responses.length; i++) {
+      var evt = responses[i];
+      if (evt && evt.type) {
+        self.emit(evt.type, evt);
+      }
+      self.emit('_message', evt);
+    }
+  }).catch(function(err) {
+    console.error('[Poll] Send error:', err.message);
+    // 发送失败入队，等待重试
+    if (self._offlineQueue.length < self._maxOfflineQueue) {
+      self._offlineQueue.push(data);
+    }
+  });
 };
 
 var instance = new WebSocketManager();

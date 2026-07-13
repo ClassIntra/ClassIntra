@@ -652,4 +652,223 @@ router.get('/groups/:groupId/announcement-status', auth.requireAuth, function(re
   }
 });
 
+// ===== HTTP 长轮询回退（用于不支持 WebSocket 的设备）=====
+
+function getUserClassIdForPoll(userId) {
+  if (userId.length === 6 && /^\d{6}$/.test(userId)) {
+    var yy = userId.substring(0, 2);
+    var cc = userId.substring(2, 4);
+    var nn = userId.substring(4, 6);
+    if (nn === '00') return 'class_' + cc;
+    return cc;
+  }
+  if (userId.indexOf('08') === 0) return '08';
+  if (userId.indexOf('18') === 0) return '18';
+  if (constants.isAdmin(userId)) return 'all';
+  return '';
+}
+
+function canUserSeeGroupForPoll(userId, groupId) {
+  var cls = getUserClassIdForPoll(userId);
+  if (cls === 'all') return true;
+  if (groupId.indexOf('class_') === 0) {
+    if (typeof cls === 'string' && cls.indexOf('class_') === 0) {
+      return cls === groupId;
+    }
+    if (typeof cls === 'string' && cls.indexOf('cohort_') === 0) {
+      return true;
+    }
+    var groupClass = groupId.substring('class_'.length);
+    return cls === groupClass;
+  }
+  return true;
+}
+
+// POST /api/chat/poll/register
+// 注册为 HTTP 长轮询客户端，返回初始状态（connected 等价载荷）
+router.post('/poll/register', function(req, res) {
+  try {
+    var userId = req.user.user_id;
+    var cs = getChatServer();
+    if (!cs || !cs.registerPoller) {
+      return res.status(503).json({ code: 503, message: '聊天服务不可用', data: null });
+    }
+    // 先捕获 register 时间作为 poll since 基准，避免遗漏 register 与响应之间入队的事件
+    var registerTime = Date.now();
+    // 拉取用户信息
+    var userRow = db.prepare('SELECT user_id, net_name, real_name, gender FROM users WHERE user_id = ?').get(userId);
+    var userInfo = userRow ? {
+      user_id: userRow.user_id,
+      net_name: userRow.net_name,
+      real_name: userRow.real_name,
+      gender: userRow.gender,
+      status: 'online'
+    } : {
+      user_id: userId,
+      net_name: userId,
+      real_name: userId,
+      gender: '',
+      status: 'online'
+    };
+    cs.registerPoller(userId, userInfo);
+    // 拉取最近 50 条公共消息
+    var history = [];
+    try {
+      var rows = db.prepare(
+        'SELECT id, sender_id, sender_name, content, type, extra_json, recalled, created_at FROM chat_messages WHERE room_id = ? ORDER BY id DESC LIMIT ?'
+      ).all('public', 50);
+      for (var i = rows.length - 1; i >= 0; i--) {
+        var extraData = {};
+        try { extraData = JSON.parse(rows[i].extra_json || '{}'); } catch (e) {}
+        history.push({
+          id: rows[i].id,
+          type: rows[i].type,
+          content: rows[i].content,
+          sender_id: rows[i].sender_id,
+          sender_name: rows[i].sender_name,
+          recalled: rows[i].recalled || 0,
+          reply_to: extraData.reply_to || null,
+          created_at: time.toISOString(rows[i].created_at)
+        });
+      }
+    } catch (e) {}
+    // 拉取用户可见群组
+    var userGroups = [];
+    try {
+      var allGroups = db.prepare('SELECT id, name, creator_id, members_json, announcement, announcement_at, created_at FROM groups').all();
+      for (var g = 0; g < allGroups.length; g++) {
+        if (!canUserSeeGroupForPoll(userId, allGroups[g].id)) continue;
+        var members = [];
+        try { members = JSON.parse(allGroups[g].members_json); } catch (e) {}
+        if (members.indexOf(userId) !== -1) {
+          userGroups.push({
+            group_id: allGroups[g].id,
+            group_name: allGroups[g].name,
+            creator_id: allGroups[g].creator_id,
+            member_count: members.length,
+            members: members,
+            announcement: allGroups[g].announcement || '',
+            announcement_at: allGroups[g].announcement_at ? time.toISOString(allGroups[g].announcement_at) : null,
+            created_at: time.toISOString(allGroups[g].created_at)
+          });
+        }
+      }
+    } catch (e) {}
+    // 在线用户列表
+    var onlineUsersList = [];
+    if (cs.getOnlineUsers) {
+      onlineUsersList = cs.getOnlineUsers();
+    }
+    var remoteUsersList = [];
+    if (cs.getRemoteOnlineUsers) {
+      var remoteMap = cs.getRemoteOnlineUsers();
+      var rkeys = Object.keys(remoteMap);
+      for (var r = 0; r < rkeys.length; r++) {
+        remoteUsersList.push(remoteMap[rkeys[r]]);
+      }
+    }
+    res.json({
+      code: 200,
+      message: 'ok',
+      data: {
+        type: 'connected',
+        user_id: userId,
+        users: onlineUsersList,
+        remote_users: remoteUsersList,
+        history: history,
+        groups: userGroups,
+        transport: 'poll',
+        server_time: registerTime
+      }
+    });
+  } catch (err) {
+    console.error('[Poll] Register error:', err);
+    res.status(500).json({ code: 500, message: '服务器内部错误', data: null });
+  }
+});
+
+// GET /api/chat/poll?since=<ms>
+// 拉取 since 之后的事件。最多阻塞 25 秒（长轮询），若无事件立即返回空数组。
+router.get('/poll', function(req, res) {
+  try {
+    var userId = req.user.user_id;
+    var cs = getChatServer();
+    if (!cs || !cs.consumePollEvents) {
+      return res.status(503).json({ code: 503, message: '聊天服务不可用', data: null });
+    }
+    if (!cs.isPoller || !cs.isPoller(userId)) {
+      return res.status(401).json({ code: 401, message: '尚未注册为 poller，请先调用 /poll/register', data: null });
+    }
+    var since = parseInt(req.query.since) || 0;
+    var startTime = Date.now();
+    var LONG_POLL_TIMEOUT_MS = 25000;
+    function tryFetch() {
+      var events = cs.consumePollEvents(userId, since);
+      if (events.length > 0 || Date.now() - startTime >= LONG_POLL_TIMEOUT_MS) {
+        res.json({
+          code: 200,
+          message: 'ok',
+          data: {
+            events: events,
+            server_time: Date.now()
+          }
+        });
+      } else {
+        setTimeout(tryFetch, 1000);
+      }
+    }
+    tryFetch();
+  } catch (err) {
+    console.error('[Poll] Fetch error:', err);
+    res.status(500).json({ code: 500, message: '服务器内部错误', data: null });
+  }
+});
+
+// POST /api/chat/poll/send
+// 通过 HTTP 发送消息（复用 WS handler）
+router.post('/poll/send', function(req, res) {
+  try {
+    var userId = req.user.user_id;
+    var cs = getChatServer();
+    if (!cs || !cs.handleHttpMessage) {
+      return res.status(503).json({ code: 503, message: '聊天服务不可用', data: null });
+    }
+    if (!cs.isPoller || !cs.isPoller(userId)) {
+      return res.status(401).json({ code: 401, message: '尚未注册为 poller，请先调用 /poll/register', data: null });
+    }
+    var payload = req.body || {};
+    if (!payload.type) {
+      return res.status(400).json({ code: 400, message: '缺少 type 字段', data: null });
+    }
+    var responses = cs.handleHttpMessage(userId, payload);
+    res.json({
+      code: 200,
+      message: 'ok',
+      data: {
+        responses: responses,
+        server_time: Date.now()
+      }
+    });
+  } catch (err) {
+    console.error('[Poll] Send error:', err);
+    res.status(500).json({ code: 500, message: '服务器内部错误', data: null });
+  }
+});
+
+// POST /api/chat/poll/unregister
+// 注销 poller
+router.post('/poll/unregister', function(req, res) {
+  try {
+    var userId = req.user.user_id;
+    var cs = getChatServer();
+    if (cs && cs.unregisterPoller) {
+      cs.unregisterPoller(userId);
+    }
+    res.json({ code: 200, message: 'ok' });
+  } catch (err) {
+    console.error('[Poll] Unregister error:', err);
+    res.status(500).json({ code: 500, message: '服务器内部错误' });
+  }
+});
+
 module.exports = router;

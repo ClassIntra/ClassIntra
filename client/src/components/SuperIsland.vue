@@ -116,6 +116,17 @@
           @toggle="musicToggle"
           @next="musicNext"
         />
+
+        <!-- Share Capsule Mode（由 Campusbili 视频分享按钮触发） -->
+        <IslandShareCapsulePanel
+          v-else-if="islandMode === 'share-capsule'"
+          key="share-capsule"
+          :url="shareCapsuleData && shareCapsuleData.url"
+          :title="shareCapsuleData && shareCapsuleData.title"
+          @cancel="dismissShareCapsule"
+          @share-to-chat="shareToChat"
+          @share-to-community="shareToCommunity"
+        />
       </transition>
     </div>
     </div>
@@ -133,6 +144,7 @@ import IslandActionsPanel from './island/IslandActionsPanel.vue';
 import IslandBrowserPanel from './island/IslandBrowserPanel.vue';
 import IslandMusicPanel from './island/IslandMusicPanel.vue';
 import IslandWeatherPanel from './island/IslandWeatherPanel.vue';
+import IslandShareCapsulePanel from './island/IslandShareCapsulePanel.vue';
 
 export default {
   name: 'SuperIsland',
@@ -142,7 +154,8 @@ export default {
     IslandActionsPanel: IslandActionsPanel,
     IslandBrowserPanel: IslandBrowserPanel,
     IslandMusicPanel: IslandMusicPanel,
-    IslandWeatherPanel: IslandWeatherPanel
+    IslandWeatherPanel: IslandWeatherPanel,
+    IslandShareCapsulePanel: IslandShareCapsulePanel
   },
   mixins: [islandNotificationsMixin, islandGesturesMixin],
   data: function() {
@@ -159,7 +172,9 @@ export default {
       musicIslandDismissed: false,
       // 天气预警
       currentWeatherAlert: null,
-      weatherAlertStartTime: 0
+      weatherAlertStartTime: 0,
+      // 分享胶囊数据（由 Browser.vue 转发 Campusbili share-request 触发）
+      shareCapsuleData: null
     };
   },
   computed: {
@@ -270,8 +285,8 @@ export default {
       if (newMode !== oldMode) {
         this.animateIslandHeight();
       }
-      // 展开模式（菜单/音乐/历史/浏览器）监听 document 点击，点击外部则收起
-      var collapsibleModes = ['actions', 'music-expanded', 'history', 'browser'];
+      // 展开模式（菜单/音乐/历史/浏览器/分享胶囊）监听 document 点击，点击外部则收起
+      var collapsibleModes = ['actions', 'music-expanded', 'history', 'browser', 'share-capsule'];
       var isNewCollapsible = collapsibleModes.indexOf(newMode) !== -1;
       var wasOldCollapsible = collapsibleModes.indexOf(oldMode) !== -1;
       if (isNewCollapsible && !wasOldCollapsible) {
@@ -322,6 +337,10 @@ export default {
     this.cleanupGestureTimers();
     this.cleanupWSListeners();
     document.removeEventListener('click', this.onDocumentClick);
+    if (this._shareBounceTimer) {
+      clearTimeout(this._shareBounceTimer);
+      this._shareBounceTimer = null;
+    }
   },
   methods: {
     goCompact: function() {
@@ -339,7 +358,7 @@ export default {
     },
     onDocumentClick: function(e) {
       // 点击 island 外部区域时收起展开的菜单/面板
-      var collapsibleModes = ['actions', 'music-expanded', 'history', 'browser'];
+      var collapsibleModes = ['actions', 'music-expanded', 'history', 'browser', 'share-capsule'];
       if (collapsibleModes.indexOf(this.islandMode) === -1) return;
       var el = this.$refs.islandEl;
       if (el && !el.contains(e.target)) {
@@ -426,6 +445,46 @@ export default {
       }
       self.islandMode = 'compact';
       self.$router.push({ name: 'Browser', query: { url: url } }).catch(function() {});
+    },
+
+    // ===== 分享胶囊（由 Browser.vue 转发 Campusbili share-request 触发）=====
+    showShareCapsule: function(data) {
+      if (!data || !data.url) return;
+      this.shareCapsuleData = {
+        url: data.url,
+        title: data.title || 'CampusBili 视频',
+        aid: data.aid || 0,
+        bvid: data.bvid || '',
+        pic: data.pic || '',
+        owner: data.owner || ''
+      };
+      this.prevMode = this.islandMode;
+      this.islandMode = 'share-capsule';
+      this.isBouncing = true;
+      var self = this;
+      if (self._shareBounceTimer) clearTimeout(self._shareBounceTimer);
+      self._shareBounceTimer = setTimeout(function() { self.isBouncing = false; }, 500);
+    },
+
+    dismissShareCapsule: function() {
+      this.shareCapsuleData = null;
+      this.goCompact();
+    },
+
+    shareToChat: function() {
+      if (!this.shareCapsuleData) return;
+      var url = this.shareCapsuleData.url;
+      this.shareCapsuleData = null;
+      this.islandMode = 'compact';
+      this.$router.push({ name: 'Chat', query: { prefill: encodeURIComponent(url) } }).catch(function() {});
+    },
+
+    shareToCommunity: function() {
+      if (!this.shareCapsuleData) return;
+      var url = this.shareCapsuleData.url;
+      this.shareCapsuleData = null;
+      this.islandMode = 'compact';
+      this.$router.push({ name: 'Community', query: { shareLink: encodeURIComponent(url) } }).catch(function() {});
     },
 
     handleHistoryClick: function(item) {
