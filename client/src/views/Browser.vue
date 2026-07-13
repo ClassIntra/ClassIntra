@@ -160,6 +160,8 @@
 </template>
 
 <script>
+import islandNotify from '@/utils/island-notify';
+
 var HISTORY_KEY = 'browser_history';
 var BOOKMARKS_KEY = 'browser_bookmarks';
 var HOMEPAGE_KEY = 'browser_homepage';
@@ -252,6 +254,10 @@ export default {
       // 子站点主动询问身份（解决时序问题：mounted 可能错过了 load 时的消息）
       if (data.action === 'classintra-ping') {
         self.onIframeLoad();
+      }
+      // CampusBili 分享请求：转发到超能岛，触发分享胶囊
+      if (data.action === 'campusbili-share-request' && data.payload) {
+        islandNotify.showShareCapsule(data.payload);
       }
     };
     window.addEventListener('message', self._messageHandler);

@@ -25,4 +25,14 @@ function notify(options) {
   }
 }
 
-export default { setSuperIslandRef, notify };
+// 在超能岛展示分享胶囊（由 ClassIntra Browser 监听子站 postMessage 后调用）
+// data: { url, title, aid, bvid, pic, owner }
+function showShareCapsule(data) {
+  if (superIslandRef && typeof superIslandRef.showShareCapsule === 'function') {
+    superIslandRef.showShareCapsule(data);
+    return true;
+  }
+  return false;
+}
+
+export default { setSuperIslandRef, notify, showShareCapsule };

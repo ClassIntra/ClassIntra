@@ -385,6 +385,12 @@ function broadcast(message, excludeClientId, skipRelay) {
   for (var i = 0; i < disconnected.length; i++) {
     handleDisconnect(disconnected[i]);
   }
+  // 同步推送给 HTTP 长轮询客户端（排除 excludeClientId）
+  for (var pollerId in pollQueues) {
+    if (pollerId !== excludeClientId) {
+      pushToPollQueue(pollerId, message);
+    }
+  }
 }
 
 // 仅广播给本地客户端，不中继到其他服务器
@@ -404,6 +410,7 @@ function handleDisconnect(userId) {
 }
 
 function sendToClient(userId, message) {
+  // 优先走 WS
   if (clients[userId] && clients[userId].readyState === WebSocket.OPEN) {
     try {
       var data = JSON.stringify(message);
@@ -419,6 +426,11 @@ function sendToClient(userId, message) {
     } catch (e) {
       return false;
     }
+  }
+  // 回退：若用户注册了 poll queue，推送到队列
+  if (pollQueues[userId]) {
+    pushToPollQueue(userId, message);
+    return true;
   }
   return false;
 }
@@ -2720,12 +2732,171 @@ function broadcastToIsland(notification) {
   }
 }
 
+// ===== HTTP 长轮询回退（用于不支持 WebSocket 的设备）=====
+// pollQueues[user_id] = [{ ts: <ms>, event: <object> }]
+var pollQueues = {};
+var POLL_QUEUE_MAX = 200;           // 单用户队列上限，防止内存泄漏
+var POLL_QUEUE_TTL_MS = 5 * 60 * 1000; // 5 分钟无 poll 视为离线
+var pollLastSeen = {};              // pollLastSeen[user_id] = ms timestamp
+
+function pushToPollQueue(userId, event) {
+  if (!userId || !event) return;
+  if (!pollQueues[userId]) return; // 用户未注册为 poller，忽略
+  var queue = pollQueues[userId];
+  // 同事件去重（防止 broadcast + sendToClient 重复入队）
+  if (queue.length > 0) {
+    var last = queue[queue.length - 1];
+    if (last && last.event && event &&
+        last.event.type === event.type &&
+        last.event.message && event.message &&
+        last.event.message.id === event.message.id) {
+      return;
+    }
+  }
+  queue.push({ ts: Date.now(), event: event });
+  if (queue.length > POLL_QUEUE_MAX) {
+    queue.splice(0, queue.length - POLL_QUEUE_MAX);
+  }
+}
+
+function registerPoller(userId, userInfo) {
+  if (!userId) return null;
+  pollQueues[userId] = pollQueues[userId] || [];
+  pollLastSeen[userId] = Date.now();
+  // 若该用户没有活动的 WS 连接，将其加入 onlineUsers
+  if (!clients[userId] && userInfo) {
+    onlineUsers[userId] = userInfo;
+    relayBus.emit('user_online', { user_id: userId, user_info: userInfo }, userId);
+  } else if (!onlineUsers[userId] && userInfo) {
+    onlineUsers[userId] = userInfo;
+  }
+  return pollQueues[userId];
+}
+
+function unregisterPoller(userId) {
+  delete pollQueues[userId];
+  delete pollLastSeen[userId];
+  // 若用户也没有 WS 连接，则下线
+  if (!clients[userId] && onlineUsers[userId]) {
+    delete onlineUsers[userId];
+    relayBus.emit('user_offline', { user_id: userId });
+  }
+}
+
+function touchPoller(userId) {
+  pollLastSeen[userId] = Date.now();
+}
+
+function consumePollEvents(userId, sinceTs) {
+  if (!userId || !pollQueues[userId]) return [];
+  touchPoller(userId);
+  var queue = pollQueues[userId];
+  var result = [];
+  for (var i = 0; i < queue.length; i++) {
+    if (queue[i].ts > sinceTs) {
+      result.push(queue[i]);
+    }
+  }
+  // 清除已消费且过期的事件
+  var cutoff = Date.now() - POLL_QUEUE_TTL_MS;
+  while (queue.length > 0 && queue[0].ts < cutoff) {
+    queue.shift();
+  }
+  return result;
+}
+
+// 处理来自 HTTP 路由的消息（复用 WS handler）
+// 返回 handler 通过 ws.send 发回调用方的消息数组
+function handleHttpMessage(userId, data) {
+  if (!userId || !data || !data.type) {
+    return [{ type: 'error', message: '缺少 user_id 或消息类型' }];
+  }
+  var responses = [];
+  var fakeWs = {
+    userId: userId,
+    isAlive: true,
+    netName: (onlineUsers[userId] && onlineUsers[userId].net_name) || userId,
+    connectedAt: new Date().toISOString(),
+    readyState: WebSocket.OPEN,
+    bufferedAmount: 0,
+    send: function(payload) {
+      try {
+        var parsed = typeof payload === 'string' ? JSON.parse(payload) : payload;
+        responses.push(parsed);
+      } catch (e) {}
+    },
+    close: function() {},
+    ping: function() {},
+    on: function() {},
+    terminate: function() {}
+  };
+  try {
+    switch (data.type) {
+      case 'text': handleTextMessage(fakeWs, data); break;
+      case 'emoji': handleEmojiMessage(fakeWs, data); break;
+      case 'private_message': handlePrivateMessage(fakeWs, data); break;
+      case 'create_group': handleCreateGroup(fakeWs, data); break;
+      case 'group_message': handleGroupMessage(fakeWs, data); break;
+      case 'leave_group': handleLeaveGroup(fakeWs, data); break;
+      case 'dissolve_group': handleDissolveGroup(fakeWs, data); break;
+      case 'transfer_group': handleTransferGroup(fakeWs, data); break;
+      case 'invite_to_group': handleInviteToGroup(fakeWs, data); break;
+      case 'set_announcement': handleSetAnnouncement(fakeWs, data); break;
+      case 'kick_member': handleKickMember(fakeWs, data); break;
+      case 'rename_group': handleRenameGroup(fakeWs, data); break;
+      case 'recall_message': handleRecallMessage(fakeWs, data); break;
+      case 'mark_read': handleMarkRead(fakeWs, data); break;
+      case 'typing': handleTyping(fakeWs, data); break;
+      case 'status_update': handleStatusUpdate(fakeWs, data); break;
+      case 'get_private_history': handleGetPrivateHistory(fakeWs, data); break;
+      case 'get_groups': handleGetGroups(fakeWs, data); break;
+      case 'get_group_members': handleGetGroupMembers(fakeWs, data); break;
+      case 'get_group_history': handleGetGroupHistory(fakeWs, data); break;
+      case 'load_more': handleLoadMore(fakeWs, data); break;
+      case 'ping':
+        responses.push({ type: 'pong' });
+        break;
+      default:
+        responses.push({ type: 'error', message: '未知的消息类型: ' + data.type });
+    }
+  } catch (e) {
+    console.error('[Poll] Error handling HTTP message:', e.message);
+    crashLogger.writeCrashLog('POLL_HANDLER_ERROR', e);
+    responses.push({ type: 'error', message: '服务器处理消息时出错' });
+  }
+  return responses;
+}
+
+// 定期清理超时的 poller（超过 TTL 未 poll 视为离线）
+setInterval(function() {
+  var now = Date.now();
+  var expired = [];
+  for (var uid in pollLastSeen) {
+    if (now - pollLastSeen[uid] > POLL_QUEUE_TTL_MS) {
+      expired.push(uid);
+    }
+  }
+  for (var i = 0; i < expired.length; i++) {
+    unregisterPoller(expired[i]);
+  }
+  if (expired.length > 0) {
+    console.log('[Poll] Cleaned up expired pollers:', expired.length);
+  }
+}, 60000).unref();
+
 function getOnlineCount() {
-  return Object.keys(clients).length;
+  var wsCount = Object.keys(clients).length;
+  var pollerIds = Object.keys(pollQueues);
+  var pollOnlyCount = 0;
+  for (var i = 0; i < pollerIds.length; i++) {
+    if (!clients[pollerIds[i]]) pollOnlyCount++;
+  }
+  return wsCount + pollOnlyCount;
 }
 
 function getOnlineUsers() {
   var result = [];
+  var seen = {};
   var userIds = Object.keys(clients);
   for (var i = 0; i < userIds.length; i++) {
     var ws = clients[userIds[i]];
@@ -2733,9 +2904,25 @@ function getOnlineUsers() {
       result.push({
         user_id: ws.userId,
         net_name: ws.netName || '',
-        connected_at: ws.connectedAt || ''
+        connected_at: ws.connectedAt || '',
+        transport: 'ws'
       });
+      seen[ws.userId] = true;
     }
+  }
+  // 包含 HTTP 长轮询客户端
+  var pollerIds = Object.keys(pollQueues);
+  for (var p = 0; p < pollerIds.length; p++) {
+    var pid = pollerIds[p];
+    if (seen[pid]) continue;
+    var info = onlineUsers[pid] || {};
+    result.push({
+      user_id: pid,
+      net_name: info.net_name || pid,
+      connected_at: new Date(pollLastSeen[pid] || Date.now()).toISOString(),
+      transport: 'poll'
+    });
+    seen[pid] = true;
   }
   try {
     var db = require('../utils/db');
@@ -2773,6 +2960,11 @@ module.exports = {
   broadcast: broadcast,
   broadcastToClients: broadcastToClients,
   sendToClient: sendToClient,
+  registerPoller: registerPoller,
+  unregisterPoller: unregisterPoller,
+  consumePollEvents: consumePollEvents,
+  handleHttpMessage: handleHttpMessage,
+  isPoller: function(userId) { return !!pollQueues[userId]; },
   getRelayEnabled: function() { return relayEnabled; },
   setRelayEnabled: function(enabled) {
     relayEnabled = enabled;
