@@ -24,10 +24,47 @@ function safeCompare(a, b) {
 var PORT = parseInt(config.wsPort || process.env.WS_PORT || 10001, 10);
 var RELAY_PORT = parseInt(config.relayPort || process.env.RELAY_PORT, 10) || 10011;
 
-var wss = new WebSocket.Server({
-  port: PORT,
-  maxPayload: 5 * 1024 * 1024
-});
+// HTTPS 模式支持
+var https = require('https');
+var fs = require('fs');
+var path = require('path');
+var useHttps = process.env.HTTPS_ENABLED === 'true';
+var sslOptions = null;
+
+if (useHttps) {
+  try {
+    var certsDir = path.join(__dirname, '../../certs');
+    var certFiles = fs.readdirSync(certsDir).filter(function(f) { return f.endsWith('.pem'); });
+    var certFile = certFiles.find(function(f) { return f.includes('-key.pem'); }) || certFiles[0];
+    var keyFile = certFiles.find(function(f) { return f.includes('-key.pem'); }) || certFiles.find(function(f) { return !f.includes('-key.pem'); });
+
+    sslOptions = {
+      key: fs.readFileSync(path.join(certsDir, keyFile)),
+      cert: fs.readFileSync(path.join(certsDir, certFile))
+    };
+    console.log('[WebSocket] HTTPS mode enabled, loading SSL certificates');
+  } catch (e) {
+    console.error('[WebSocket] Failed to load SSL certificates:', e.message);
+    useHttps = false;
+  }
+}
+
+var wss;
+if (useHttps && sslOptions) {
+  var httpsServer = https.createServer(sslOptions);
+  httpsServer.listen(PORT, function() {
+    console.log('[WebSocket] HTTPS WebSocket server running on port', PORT);
+  });
+  wss = new WebSocket.Server({
+    server: httpsServer,
+    maxPayload: 5 * 1024 * 1024
+  });
+} else {
+  wss = new WebSocket.Server({
+    port: PORT,
+    maxPayload: 5 * 1024 * 1024
+  });
+}
 
 var relayWss = new WebSocket.Server({
   port: RELAY_PORT,
