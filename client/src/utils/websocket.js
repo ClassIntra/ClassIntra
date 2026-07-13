@@ -23,6 +23,7 @@ var WebSocketManager = function() {
   this._pollLastTs = 0;       // 上次 poll 拉到的事件 ts
   this._pollInFlight = false;
   this._pollStopped = false;
+  this._pollRetryDelay = 1000; // 错误重试延迟（指数退避，初始 1s，最大 30s）
   this._wsSupported = (typeof WebSocket !== 'undefined');
 };
 
@@ -318,6 +319,7 @@ WebSocketManager.prototype._startPolling = function() {
   var self = this;
   if (self._pollTimer || self._pollInFlight) return;
   self._pollStopped = false;
+  self._pollRetryDelay = 1000; // 重置指数退避延迟
   self._connectionState = 'connecting';
   self.emit('_connectionStateChange', { state: 'connecting', transport: 'poll' });
 
@@ -414,16 +416,20 @@ WebSocketManager.prototype._doPoll = function() {
       self._pollLastTs = result.data.server_time;
     }
     self._pollInFlight = false;
+    // 成功后重置重试延迟
+    self._pollRetryDelay = 1000;
     // 短间隔继续 poll
     self._schedulePoll();
   }).catch(function(err) {
     console.error('[Poll] Fetch error:', err.message);
     self._pollInFlight = false;
-    // 错误后延迟重试
+    // 指数退避：每次失败翻倍延迟，最大 30s
+    var delay = self._pollRetryDelay;
+    self._pollRetryDelay = Math.min(self._pollRetryDelay * 2, 30000);
     self._pollTimer = setTimeout(function() {
       self._pollTimer = null;
       self._schedulePoll();
-    }, 3000);
+    }, delay);
   });
 };
 

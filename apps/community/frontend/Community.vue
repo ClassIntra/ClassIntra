@@ -1447,14 +1447,34 @@ export default {
         });
       } catch (e) {}
     }
-    // 浏览器分享胶囊预填：从超能岛浏览器分享链接到社区，打开发帖弹窗并预填内容
+    // 浏览器分享胶囊预填：从超能岛浏览器分享视频到社区，打开发帖弹窗并预填富文本内容
+    // 支持 title/pic/owner query 时生成带标题、封面、作者的视频卡片 markdown
     var shareLink = self.$route.query.shareLink;
     if (shareLink) {
       try {
         var linkUrl = decodeURIComponent(shareLink);
+        var shareTitle = self.$route.query.title ? decodeURIComponent(self.$route.query.title) : '';
+        var sharePic = self.$route.query.pic ? decodeURIComponent(self.$route.query.pic) : '';
+        var shareOwner = self.$route.query.owner ? decodeURIComponent(self.$route.query.owner) : '';
         self.$nextTick(function() {
           self.openCreatePost();
-          self.newPost.content = linkUrl;
+          // 组装富文本帖子内容
+          var parts = [];
+          if (sharePic) {
+            parts.push('![](' + sharePic + ')');
+            parts.push('');
+          }
+          if (shareTitle) {
+            parts.push('## ' + shareTitle);
+            parts.push('');
+          }
+          parts.push(linkUrl);
+          if (shareOwner) {
+            parts.push('');
+            parts.push('UP主：' + shareOwner);
+          }
+          self.newPost.content = parts.join('\n');
+          if (shareTitle) self.newPost.title = shareTitle;
           self.$router.replace({ query: {} }).catch(function() {});
         });
       } catch (e) {}
