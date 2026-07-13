@@ -127,6 +127,25 @@
           @share-to-chat="shareToChat"
           @share-to-community="shareToCommunity"
         />
+
+        <!-- Video Compact Mode（CampusBili 视频播放中） -->
+        <IslandVideoPanel
+          v-else-if="islandMode === 'video-compact'"
+          key="video-compact"
+          mode="compact"
+          :video-data="videoIslandData"
+        />
+
+        <!-- Video Expanded Mode（CampusBili 视频控制面板） -->
+        <IslandVideoPanel
+          v-else-if="islandMode === 'video-expanded'"
+          key="video-expanded"
+          mode="expanded"
+          :video-data="videoIslandData"
+          @cancel="goCompact"
+          @toggle-play="videoControlToggle"
+          @seek="videoControlSeek"
+        />
       </transition>
     </div>
     </div>
@@ -136,6 +155,7 @@
 
 <script>
 import audioManager from '@/utils/audio-manager';
+import islandNotify from '@/utils/island-notify';
 import islandNotificationsMixin from '@/mixins/island-notifications';
 import islandGesturesMixin from '@/mixins/island-gestures';
 import IslandNotificationPanel from './island/IslandNotificationPanel.vue';
@@ -145,6 +165,7 @@ import IslandBrowserPanel from './island/IslandBrowserPanel.vue';
 import IslandMusicPanel from './island/IslandMusicPanel.vue';
 import IslandWeatherPanel from './island/IslandWeatherPanel.vue';
 import IslandShareCapsulePanel from './island/IslandShareCapsulePanel.vue';
+import IslandVideoPanel from './island/IslandVideoPanel.vue';
 
 export default {
   name: 'SuperIsland',
@@ -155,7 +176,8 @@ export default {
     IslandBrowserPanel: IslandBrowserPanel,
     IslandMusicPanel: IslandMusicPanel,
     IslandWeatherPanel: IslandWeatherPanel,
-    IslandShareCapsulePanel: IslandShareCapsulePanel
+    IslandShareCapsulePanel: IslandShareCapsulePanel,
+    IslandVideoPanel: IslandVideoPanel
   },
   mixins: [islandNotificationsMixin, islandGesturesMixin],
   data: function() {
@@ -174,7 +196,10 @@ export default {
       currentWeatherAlert: null,
       weatherAlertStartTime: 0,
       // 分享胶囊数据（由 Browser.vue 转发 Campusbili share-request 触发）
-      shareCapsuleData: null
+      shareCapsuleData: null,
+      // 视频岛数据（由 CampusBili 视频播放状态同步触发）
+      videoIslandData: null,
+      videoIslandDismissed: false
     };
   },
   computed: {
@@ -198,16 +223,26 @@ export default {
       if (this.isOnDesktop) return true;
       if (this.activeActivities.length > 0) return true;
       if (this.hasMusicPlaying && !this.musicIslandDismissed) return true;
+      if (this.videoIslandData && !this.videoIslandDismissed) return true;
       if (this.currentWeatherAlert) return true;
       return false;
     },
     compactIcon: function() {
+      if (this.videoIslandData && this.islandMode === 'compact' && !this.videoIslandDismissed) {
+        var v = this.videoIslandData;
+        return v.isPlaying ? 'fa-solid fa-play' : 'fa-solid fa-pause';
+      }
       if (this.hasMusicPlaying && this.islandMode === 'compact' && !this.musicIslandDismissed) return 'fa-solid fa-music';
       if (this.isOnDesktop && this.broadcastText && this.activeActivities.length === 0) return 'fa-solid fa-bell';
       if (this.activeActivities.length > 0) return this.activeActivities[0].icon;
       return 'fa-solid fa-circle';
     },
     compactDisplayText: function() {
+      if (this.videoIslandData && this.islandMode === 'compact' && !this.videoIslandDismissed) {
+        var t = this.videoIslandData.title || '';
+        if (t.length > 20) t = t.substring(0, 20) + '...';
+        return t || 'CampusBili 视频';
+      }
       if (this.hasMusicPlaying && this.islandMode === 'compact' && !this.musicIslandDismissed) return this.musicCurrentSong ? this.musicCurrentSong.title : '';
       if (this.isOnDesktop && this.broadcastText && this.activeActivities.length === 0) return this.broadcastText;
       if (this.activeActivities.length > 0) return this.activeActivities[0].compactText;
@@ -286,7 +321,7 @@ export default {
         this.animateIslandHeight();
       }
       // 展开模式（菜单/音乐/历史/浏览器/分享胶囊）监听 document 点击，点击外部则收起
-      var collapsibleModes = ['actions', 'music-expanded', 'history', 'browser', 'share-capsule'];
+      var collapsibleModes = ['actions', 'music-expanded', 'history', 'browser', 'share-capsule', 'video-expanded'];
       var isNewCollapsible = collapsibleModes.indexOf(newMode) !== -1;
       var wasOldCollapsible = collapsibleModes.indexOf(oldMode) !== -1;
       if (isNewCollapsible && !wasOldCollapsible) {
@@ -344,12 +379,18 @@ export default {
   },
   methods: {
     goCompact: function() {
+      if (this.islandMode === 'video-expanded') {
+        this.islandMode = 'video-compact';
+        return;
+      }
       if (this.islandMode === 'music-expanded') {
         this.islandMode = 'music-compact';
         return;
       }
       if (this.activeActivities.length >= 2) {
         this.islandMode = 'split';
+      } else if (this.videoIslandData && !this.videoIslandDismissed) {
+        this.islandMode = 'video-compact';
       } else if (this.hasMusicPlaying && !this.musicIslandDismissed) {
         this.islandMode = 'music-compact';
       } else {
@@ -358,7 +399,7 @@ export default {
     },
     onDocumentClick: function(e) {
       // 点击 island 外部区域时收起展开的菜单/面板
-      var collapsibleModes = ['actions', 'music-expanded', 'history', 'browser', 'share-capsule'];
+      var collapsibleModes = ['actions', 'music-expanded', 'history', 'browser', 'share-capsule', 'video-expanded'];
       if (collapsibleModes.indexOf(this.islandMode) === -1) return;
       var el = this.$refs.islandEl;
       if (el && !el.contains(e.target)) {
@@ -405,7 +446,10 @@ export default {
         }
         self.dismissNotification();
       } else if (self.islandMode === 'compact' || self.islandMode === 'split') {
-        if (self.isOnDesktop && self.browserEnabled) {
+        // 视频岛优先：有视频播放时点击展开视频控制面板
+        if (self.videoIslandData && !self.videoIslandDismissed) {
+          self.islandMode = 'video-expanded';
+        } else if (self.isOnDesktop && self.browserEnabled) {
           self.islandMode = 'actions';
         } else if (self.isOnDesktop) {
           self.islandMode = 'compact';
@@ -473,18 +517,62 @@ export default {
 
     shareToChat: function() {
       if (!this.shareCapsuleData) return;
-      var url = this.shareCapsuleData.url;
+      var d = this.shareCapsuleData;
       this.shareCapsuleData = null;
       this.islandMode = 'compact';
-      this.$router.push({ name: 'Chat', query: { prefill: encodeURIComponent(url) } }).catch(function() {});
+      // 传递完整视频数据，Chat.vue 据此生成 markdown 链接预填
+      var query = { prefill: encodeURIComponent(d.url) };
+      if (d.title) query.title = encodeURIComponent(d.title);
+      this.$router.push({ name: 'Chat', query: query }).catch(function() {});
     },
 
     shareToCommunity: function() {
       if (!this.shareCapsuleData) return;
-      var url = this.shareCapsuleData.url;
+      var d = this.shareCapsuleData;
       this.shareCapsuleData = null;
       this.islandMode = 'compact';
-      this.$router.push({ name: 'Community', query: { shareLink: encodeURIComponent(url) } }).catch(function() {});
+      // 传递完整视频数据，Community.vue 据此生成富文本帖子预填
+      var query = { shareLink: encodeURIComponent(d.url) };
+      if (d.title) query.title = encodeURIComponent(d.title);
+      if (d.pic) query.pic = encodeURIComponent(d.pic);
+      if (d.owner) query.owner = encodeURIComponent(d.owner);
+      this.$router.push({ name: 'Community', query: query }).catch(function() {});
+    },
+
+    // ===== 视频岛（CampusBili 视频播放状态同步） =====
+
+    /** 显示视频岛（由 CampusBili 播放状态上报触发） */
+    showVideoIsland: function(data) {
+      if (!data) return;
+      this.videoIslandData = data;
+      // 视频开始播放时重置 dismissed 标记
+      if (data.isPlaying) this.videoIslandDismissed = false;
+      // 当前在其他模式时不强制切换，仅在 compact/split 时显示视频岛
+      if (this.islandMode === 'compact' || this.islandMode === 'split') {
+        if (this.videoIslandData && !this.videoIslandDismissed) {
+          this.islandMode = 'video-compact';
+        }
+      }
+    },
+
+    /** 隐藏视频岛（视频停止播放时触发） */
+    hideVideoIsland: function() {
+      this.videoIslandData = null;
+      if (this.islandMode === 'video-compact' || this.islandMode === 'video-expanded') {
+        this.goCompact();
+      }
+    },
+
+    /** 切换播放/暂停（超能岛 → Browser → iframe → CampusBili） */
+    videoControlToggle: function() {
+      if (!this.videoIslandData) return;
+      var cmd = this.videoIslandData.isPlaying ? 'pause' : 'play';
+      islandNotify.sendVideoControl(cmd);
+    },
+
+    /** 跳转到指定时间（超能岛 → Browser → iframe → CampusBili） */
+    videoControlSeek: function(time) {
+      islandNotify.sendVideoControl('seek', time);
     },
 
     handleHistoryClick: function(item) {

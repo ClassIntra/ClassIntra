@@ -196,6 +196,8 @@ export default {
       showHomepageInput: false,
       isFullscreen: false,
       showShareCapsule: false,
+      // 当前 iframe 页面标题（同源时可读取，跨域时为空）
+      pageTitle: '',
       // 移动端边缘滑动手势状态（左边缘右滑返回）
       swipeState: null
     };
@@ -259,6 +261,14 @@ export default {
       if (data.action === 'campusbili-share-request' && data.payload) {
         islandNotify.showShareCapsule(data.payload);
       }
+      // CampusBili 视频播放状态同步：转发到超能岛，展示视频岛
+      if (data.action === 'campusbili-playback-status' && data.payload) {
+        if (data.payload.ended) {
+          islandNotify.hideVideoIsland();
+        } else {
+          islandNotify.showVideoIsland(data.payload);
+        }
+      }
     };
     window.addEventListener('message', self._messageHandler);
     // 移动端边缘滑动手势（passive 不阻止 iframe 内部滚动）
@@ -268,8 +278,11 @@ export default {
     document.addEventListener('touchstart', self._onSwipeStart, { passive: true });
     document.addEventListener('touchmove', self._onSwipeMove, { passive: true });
     document.addEventListener('touchend', self._onSwipeEnd, { passive: true });
+    // 注册 browserRef，让超能岛可通过 island-notify 下发指令到 iframe
+    islandNotify.setBrowserRef(self);
   },
   beforeDestroy: function() {
+    islandNotify.setBrowserRef(null);
     if (this._messageHandler) {
       window.removeEventListener('message', this._messageHandler);
       this._messageHandler = null;
@@ -284,6 +297,21 @@ export default {
     }
   },
   methods: {
+    // 向 iframe 子站点下发指令（超能岛 → Browser → iframe → CampusBili）
+    // action: 指令名称（如 'video-control'），payload: 指令数据
+    sendToIframe: function(action, payload) {
+      var frame = this.$refs.browserFrame;
+      if (!frame || !frame.contentWindow) return;
+      var origin = this._getFrameOrigin();
+      try {
+        frame.contentWindow.postMessage({
+          source: 'classintra-browser',
+          action: action,
+          payload: payload,
+          timestamp: Date.now()
+        }, origin);
+      } catch (e) {}
+    },
     // iframe 加载完成：向子站点注入 ClassIntra 用户身份标识（插件可据此辨认 ClassIntra 环境）
     // 同时发送 request-mute 指令：请求子站点（如 CampusBili）默认静音视频播放器
     // 子站点需监听 source==='classintra-browser' 且 action==='request-mute' 并静音 video 元素
@@ -293,6 +321,12 @@ export default {
       if (!frame || !frame.contentWindow) return;
       var user = self.$store && self.$store.state && self.$store.state.auth && self.$store.state.auth.user;
       var origin = self._getFrameOrigin();
+      // 同源时读取 iframe 页面标题（跨域会抛异常，退化为空）
+      try {
+        self.pageTitle = (frame.contentDocument && frame.contentDocument.title) || '';
+      } catch (e) {
+        self.pageTitle = '';
+      }
       try {
         // 请求子站点默认静音视频（campusbili 等视频站点应监听此指令）
         frame.contentWindow.postMessage({ source: 'classintra-browser', action: 'request-mute', timestamp: Date.now() }, origin);
@@ -409,16 +443,22 @@ export default {
       this.showShareCapsule = !this.showShareCapsule;
     },
     // 分享当前链接到聊天：跳转 Chat 页面并预填输入框（用户选择会话后直接发送）
+    // 有 pageTitle 时传递 title query，Chat.vue 生成 markdown 链接格式
     shareToChat: function() {
       var url = this.currentUrl;
+      var query = { prefill: encodeURIComponent(url) };
+      if (this.pageTitle) query.title = encodeURIComponent(this.pageTitle);
       this.showShareCapsule = false;
-      this.$router.push({ name: 'Chat', query: { prefill: encodeURIComponent(url) } }).catch(function() {});
+      this.$router.push({ name: 'Chat', query: query }).catch(function() {});
     },
     // 分享当前链接到社区：跳转 Community 页面并预填帖子内容
+    // 有 pageTitle 时传递 title query，Community.vue 生成带标题的富文本帖子
     shareToCommunity: function() {
       var url = this.currentUrl;
+      var query = { shareLink: encodeURIComponent(url) };
+      if (this.pageTitle) query.title = encodeURIComponent(this.pageTitle);
       this.showShareCapsule = false;
-      this.$router.push({ name: 'Community', query: { shareLink: encodeURIComponent(url) } }).catch(function() {});
+      this.$router.push({ name: 'Community', query: query }).catch(function() {});
     },
     // ===== 移动端边缘滑动手势（需求8）=====
     // 左边缘右滑触发返回；全屏时顶部下滑退出全屏
