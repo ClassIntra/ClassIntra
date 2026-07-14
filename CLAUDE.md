@@ -20,9 +20,26 @@
 
 ```
 ClassIntra/
+├── apps/                 # 应用（前端页面 + 可选后端，小组件 widgets 归属应用内）
+│   ├── <app-name>/
+│   │   ├── frontend/     # 前端页面 + 可选 widgets/ 子目录
+│   │   ├── backend/      # 可选后端路由
+│   │   └── manifest.json # type: "app"
+│   └── package.json      # 应用后端依赖
+├── plugins/              # 插件（独立后端扩展，无前端页面）
+│   ├── <plugin-name>/
+│   │   ├── backend/      # 后端路由
+│   │   └── manifest.json # type: "plugin"
+│   └── package.json      # 插件后端依赖
+├── themes/               # 主题（独立的视觉层）
+│   ├── <theme-name>/
+│   │   ├── manifest.json # id/name/type/version/tokens 路径
+│   │   └── tokens.js     # 主题 Token 数据
+│   └── README.md
 ├── client/src/           # Vue 2 前端源码
 │   ├── views/            # 页面组件（AIChat, Notes, Chat, Community...）
 │   ├── components/       # 可复用组件（ios/, island/, Weather*...）
+│   ├── core/             # 核心模块（manifest-loader, theme-loader, theme-engine...）
 │   ├── utils/            # 工具函数（latex-renderer, api, helpers...）
 │   ├── store/            # Vuex 状态管理
 │   ├── router/           # Vue Router
@@ -34,13 +51,25 @@ ClassIntra/
 │   ├── middleware/        # 中间件（限流、认证）
 │   ├── ws/               # WebSocket 聊天 + 中继
 │   ├── services/         # 业务服务（视频转码、中继总线）
+│   ├── core/             # 核心（manifest-loader 扫描 apps/+plugins/、route-aggregator...）
 │   ├── utils/            # 工具（db, init-db, jwt, cache, crash-logger…）
 │   └── config/           # 配置模块
+├── shared/src/           # 前后端共享层（manifest-schema, theme-adapter, theme-tokens 兼容层...）
 ├── server/public/        # 构建产物（前端 dist + setup.html）
 ├── server/database/      # SQLite 数据库文件目录
 ├── Resources/            # 资源目录（图标、壁纸、等级图标等静态资源）
 └── .git/                 # Git 仓库（含 hooks 和修复脚本）
 ```
+
+### 三大独立模块（应用 / 插件 / 主题）
+
+| 模块 | 目录 | manifest.type | 前端页面 | 后端路由 | 小组件 | 加载器 |
+|------|------|---------------|----------|----------|--------|--------|
+| 应用 | `apps/` | `app` / `system` | 有 | 可选 | 可选（在应用内） | 前端 manifest-loader + 后端 manifest-loader |
+| 插件 | `plugins/` | `plugin` | 无 | 必有 | 无 | 后端 manifest-loader |
+| 主题 | `themes/` | （无 manifest.type） | N/A | N/A | N/A | 前端 theme-loader |
+
+**重要约束**：插件、应用、主题是相互独立的顶级目录，互不嵌套。小组件（widgets）归属应用，位于 `apps/<name>/frontend/widgets/`。
 
 ---
 
@@ -210,6 +239,12 @@ MAJOR 极少变动，只有架构重写时才改。
 | `client/src/views/Notes.vue` | 笔记（Markdown + LaTeX + Mermaid） |
 | `client/src/views/Community.vue` | 社区论坛（Markdown + LaTeX 渲染） |
 | `client/src/utils/api.js` | API 请求封装 |
+| `client/src/core/manifest-loader.js` | 前端应用 manifest 加载器（扫描 `apps/`） |
+| `client/src/core/theme-loader.js` | 主题加载器（扫描 `themes/`） |
+| `client/src/core/theme-engine.js` | ThemeEngine 单例 + 主题切换 + 兼容 API（listThemes/getTheme） |
+| `server/src/core/manifest-loader.js` | 后端 manifest 加载器（扫描 `apps/` + `plugins/`） |
+| `server/src/core/route-aggregator.js` | 后端路由聚合器（按 manifest 挂载 Express 路由） |
+| `shared/src/manifest-schema.js` | 共享 manifest 校验器（前后端通用，支持 type=app/plugin/system/widget） |
 | `server/src/utils/db.js` | SQLite 数据库连接（WAL 模式、连接池） |
 | `server/src/utils/init-db.js` | 数据库初始化 + 迁移 + 预注册导入 |
 | `server/src/services/stream-transcoder.js` | 视频流式转码（ffmpeg） |

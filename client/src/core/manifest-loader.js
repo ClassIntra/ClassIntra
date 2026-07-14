@@ -4,6 +4,10 @@
 //
 // 注意：import.meta.glob 路径必须以相对路径或别名开头，Vite 在构建时静态分析
 // 此文件位于 client/src/core/，到 apps/ 的相对路径为 ../../../apps/
+//
+// 设计意图：仅扫描 apps/（应用），不扫描 plugins/（插件）
+// 插件是后端扩展，无前端页面/小组件，不参与前端聚合
+// 主题独立在 themes/ 顶级目录，由 core/theme-loader.js 扫描
 
 import { validateManifest } from '@shared/manifest-schema';
 

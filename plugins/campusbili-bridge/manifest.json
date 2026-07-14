@@ -1,6 +1,6 @@
 {
   "name": "campusbili-bridge",
-  "type": "system",
+  "type": "plugin",
   "version": "1.0.0",
   "label": "CampusBili 桥接",
   "category": "hidden",

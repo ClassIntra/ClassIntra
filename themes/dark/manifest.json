@@ -1,0 +1,9 @@
+{
+  "id": "dark",
+  "name": "默认深色",
+  "type": "dark",
+  "version": "1.0.0",
+  "description": "ClassIntra 默认深色主题，与 global.scss [data-theme=dark] 保持同步",
+  "tokens": "./tokens.js",
+  "icons": null
+}
