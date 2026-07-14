@@ -356,11 +356,12 @@ WebSocketManager.prototype._startPolling = function() {
     self.authenticated = false;
     self._connectionState = 'disconnected';
     self.emit('_connectionStateChange', { state: 'disconnected', transport: 'poll', error: err.message });
-    // 5 秒后重试
+    // 指数退避重试，最大 30s
+    self._pollRetryDelay = Math.min(self._pollRetryDelay * 2, 30000);
     self._pollTimer = setTimeout(function() {
       self._pollTimer = null;
       self._startPolling();
-    }, 5000);
+    }, self._pollRetryDelay);
   });
 };
 

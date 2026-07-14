@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.1.23] - 2026-07-14
+【新增】
+超能岛视频岛模式 + Browser iframe 指令下发 + polling 指数退避
+WebSocket HTTP long-polling fallback + Super Island share capsule
+
+【其他】
+snapshot before websocket fallback + share capsule
+
+
+
 ## [1.1.22] - 2026-07-09
 【新增】
 小组件固定到格子 + campusbili 静音/性能/手势/分享胶囊 + 日历多视图 + 计算器修复
