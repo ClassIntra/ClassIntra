@@ -11,7 +11,7 @@ var FIELD_DEFS = {
   order: { type: 'number', required: false, default: 99, description: '排序权重（越小越靠前）' },
   defaultEnabled: { type: 'boolean', required: false, default: true, description: '默认是否启用' },
   canDisable: { type: 'boolean', required: false, default: true, description: '是否允许用户禁用' },
-  type: { type: 'string', required: false, default: 'app', enum: ['app', 'system', 'widget'], description: '应用类型' },
+  type: { type: 'string', required: false, default: 'app', enum: ['app', 'system', 'widget', 'plugin'], description: '应用类型（app=应用，plugin=插件，system=系统，widget=小组件）' },
   version: { type: 'string', required: false, default: '0.0.0', description: '语义化版本号' },
   frontend: { type: 'object', required: false, description: '前端配置' },
   backend: { type: 'object', required: false, description: '后端配置' },
@@ -39,7 +39,7 @@ function validateManifest(m) {
   }
 
   var type = m.type || 'app';
-  if (['app', 'system', 'widget'].indexOf(type) === -1) {
+  if (['app', 'system', 'widget', 'plugin'].indexOf(type) === -1) {
     warnings.push('type 字段值 "' + type + '" 不在枚举中，已降级为 "app"');
     type = 'app';
   }

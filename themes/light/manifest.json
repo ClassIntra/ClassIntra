@@ -1,0 +1,9 @@
+{
+  "id": "light",
+  "name": "默认浅色",
+  "type": "light",
+  "version": "1.0.0",
+  "description": "ClassIntra 默认浅色主题，与 global.scss :root 保持同步",
+  "tokens": "./tokens.js",
+  "icons": null
+}

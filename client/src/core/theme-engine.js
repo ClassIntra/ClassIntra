@@ -6,11 +6,13 @@
 // 2. 额外写入 --ci-* 新变量（inline style），供新代码使用
 // 3. 旧变量（--primary-color 等）继续由 :root 和 [data-theme="dark"] CSS 提供
 // 4. subscribe 订阅主题变化，setMotionEnabled 控制动画开关
-// 5. loadExternalTheme 预留主题包加载入口（本期不实现）
+// 5. loadExternalTheme 加载远程主题包 JSON
 // 6. 单例模式 getThemeEngine()
+// 7. 内置主题从 themes/ 顶级目录动态加载（通过 theme-loader）
 
 import { flattenTokens, applyToElement, removeFromElement } from '@shared/theme-adapter';
-import { LIGHT_TOKENS, DARK_TOKENS } from '@shared/theme-tokens';
+import { LIGHT_TOKENS } from '@shared/theme-tokens';
+import { loadThemes } from './theme-loader';
 import { getEventBus } from './event-bus';
 import { EVENT_NAMES } from '@shared/constants';
 
@@ -254,24 +256,64 @@ var _instance = null;
 function getThemeEngine() {
   if (!_instance) {
     _instance = new ThemeEngine();
-    // 注册内置 light/dark 主题
-    _instance.registerTheme('light', {
-      name: '默认浅色',
-      type: 'light',
-      tokens: LIGHT_TOKENS,
-      icons: null
-    });
-    _instance.registerTheme('dark', {
-      name: '默认深色',
-      type: 'dark',
-      tokens: DARK_TOKENS,
-      icons: null
-    });
+    // 从 themes/ 顶级目录加载所有内置主题
+    var themes = loadThemes();
+    if (themes.length === 0) {
+      // 兜底：theme-loader 未加载到任何主题时，使用 shared 重导出的内置 tokens
+      _instance.registerTheme('light', {
+        name: '默认浅色',
+        type: 'light',
+        tokens: LIGHT_TOKENS,
+        icons: null
+      });
+    } else {
+      for (var i = 0; i < themes.length; i++) {
+        _instance.registerTheme(themes[i].id, {
+          name: themes[i].name,
+          type: themes[i].type,
+          tokens: themes[i].tokens,
+          icons: themes[i].icons
+        });
+      }
+    }
   }
   return _instance;
 }
 
+// ========== 兼容 API（替代原 client/src/themes/index.js）==========
+// 旧代码 import { THEME_REGISTRY, listThemes, getTheme } from '@/themes' 仍可正常使用
+function _buildRegistry() {
+  var engine = getThemeEngine();
+  var themes = engine.listThemes();
+  var registry = {};
+  for (var i = 0; i < themes.length; i++) {
+    registry[themes[i].id] = themes[i];
+  }
+  return registry;
+}
+
+// 在模块加载时构建一次快照（与旧 themes/index.js 行为一致）
+// 注意：新主题注册后需调用 listThemes() 获取最新列表
+var THEME_REGISTRY = _buildRegistry();
+
+function listThemes() {
+  return getThemeEngine().listThemes();
+}
+
+function getTheme(id) {
+  var engine = getThemeEngine();
+  var theme = engine.getTheme(id) || engine.getTheme('light');
+  if (!theme) {
+    // ThemeEngine 未初始化时的兜底
+    return { id: 'light', name: '默认浅色', type: 'light', icons: null };
+  }
+  return { id: theme.id, name: theme.name, type: theme.type, icons: theme.icons };
+}
+
 export {
   ThemeEngine,
-  getThemeEngine
+  getThemeEngine,
+  THEME_REGISTRY,
+  listThemes,
+  getTheme
 };

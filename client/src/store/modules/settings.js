@@ -1,6 +1,5 @@
 import api from '@/utils/api';
-import { getTheme } from '@/themes/index.js';
-import { getThemeEngine } from '@/core/theme-engine';
+import { getThemeEngine, getTheme } from '@/core/theme-engine';
 
 var state = {
   theme: localStorage.getItem('theme') || 'light',

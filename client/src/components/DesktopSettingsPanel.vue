@@ -141,7 +141,7 @@
 <script>
 import AppNavBar from './AppNavBar.vue';
 import { listWidgets, getWidget as getWidgetDef } from '@/core/widget-aggregator';
-import { listThemes } from '@/themes/index.js';
+import { listThemes } from '@/core/theme-engine';
 
 export default {
   name: 'DesktopSettingsPanel',
