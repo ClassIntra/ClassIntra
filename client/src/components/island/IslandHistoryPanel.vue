@@ -90,7 +90,7 @@ export default {
   padding: 6px 0;
   border: none;
   background: transparent;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   font-size: 12px;
   color: var(--island-text);
   opacity: 0.5;
@@ -132,7 +132,7 @@ export default {
 .hitem-icon {
   width: 32px;
   height: 32px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -183,7 +183,7 @@ export default {
   font-size: 10px;
   font-weight: 700;
   padding: 0 5px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   line-height: 1.5;
   margin-right: 4px;
   vertical-align: middle;

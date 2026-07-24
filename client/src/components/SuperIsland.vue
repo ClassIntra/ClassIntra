@@ -317,6 +317,8 @@ export default {
       }
     },
     islandMode: function(newMode, oldMode) {
+      // apple-design §3: FLIP morph —— 从当前视觉尺寸平滑过渡到新尺寸，
+      // 用 transform scale 驱动（合成层），避免 layout 回流导致卡顿
       if (newMode !== oldMode) {
         this.animateIslandHeight();
       }
@@ -507,7 +509,7 @@ export default {
       this.isBouncing = true;
       var self = this;
       if (self._shareBounceTimer) clearTimeout(self._shareBounceTimer);
-      self._shareBounceTimer = setTimeout(function() { self.isBouncing = false; }, 500);
+      self._shareBounceTimer = setTimeout(function() { self.isBouncing = false; }, 420);
     },
 
     dismissShareCapsule: function() {
@@ -623,19 +625,22 @@ export default {
 
 <style scoped>
 /* ===== Appear Transition ===== */
+/* apple-design: 进/出对称路径，spring 缓动，可中断 */
 .island-appear-enter-active {
-  transition: opacity 0.3s var(--ease-standard, cubic-bezier(0.32, 0.72, 0, 1)), transform 0.3s var(--ease-standard, cubic-bezier(0.32, 0.72, 0, 1));
+  transition: opacity 0.32s var(--ease-standard, var(--ease-emphasized)),
+              transform 0.4s var(--ease-spring, var(--ease-spring));
 }
 .island-appear-leave-active {
-  transition: opacity 0.2s var(--ease-standard, cubic-bezier(0.32, 0.72, 0, 1)), transform 0.2s var(--ease-standard, cubic-bezier(0.32, 0.72, 0, 1));
+  transition: opacity 0.2s var(--ease-standard, var(--ease-emphasized)),
+              transform 0.2s var(--ease-standard, var(--ease-emphasized));
 }
 .island-appear-enter {
   opacity: 0;
-  transform: translateY(-10px) scale(0.95);
+  transform: translateY(-8px) scale(0.96);
 }
 .island-appear-leave-to {
   opacity: 0;
-  transform: translateY(-6px) scale(0.97);
+  transform: translateY(-4px) scale(0.98);
 }
 
 /* ===== Island Container ===== */
@@ -647,66 +652,113 @@ export default {
   z-index: 10000;
 }
 
+/**
+ * Apple Dynamic Island 核心：
+ * - 纯黑实心背景（OLED-friendly，非毛玻璃）
+ * - morph 由 JS FLIP 驱动（island-gestures.js animateIslandHeight）：
+ *   尺寸通过 class 瞬时切换，用 transform: scale() 反向缩放再动画到 scale(1)，
+ *   全程在合成层（GPU），不触发 layout 回流 —— apple-design §11
+ * - transform-origin 锚定 top center，从顶部展开
+ * - :active 按压反馈 scale(0.97)
+ */
 .island {
   position: relative;
   overflow: hidden;
-  background: var(--island-bg);
-  backdrop-filter: var(--glass-blur-overlay);
-  -webkit-backdrop-filter: var(--glass-blur-overlay);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(255, 255, 255, 0.08) inset;
+  /* 纯黑实心背景：Apple Dynamic Island 的标志性视觉 */
+  background: #000000;
+  /* 无 backdrop-filter —— Dynamic Island 是不透明实心材料 */
+  box-shadow: 0 6px 32px rgba(0, 0, 0, 0.28),
+              0 2px 12px rgba(0, 0, 0, 0.18),
+              0 0 0 0.5px rgba(255, 255, 255, 0.06) inset;
   cursor: pointer;
   contain: layout style paint;
   -webkit-tap-highlight-color: transparent;
   user-select: none;
   -webkit-user-select: none;
+  /* apple-design §11: 只 transition 合成层属性（transform/opacity/box-shadow），
+     绝不 transition width/height/padding —— 那会每帧触发 layout 回流导致卡顿。
+     容器尺寸 morph 由 JS FLIP 用 transform scale 驱动（见 island-gestures.js）。 */
+  transition:
+    transform 0.16s var(--ease-emphasized),
+    box-shadow 0.3s var(--ease-standard, var(--ease-emphasized)),
+    opacity 0.2s var(--ease-standard, var(--ease-emphasized));
+  transform-origin: top center;
+  /* will-change 只用于合成层属性；FLIP 运行时由 JS 动态设置/清理 */
+  will-change: transform;
+}
+
+/* 按压反馈（pointer-down 即时）—— scale + 阴影收紧，增加"按下"物理感 */
+.island:active {
+  transform: scale(0.97);
+  transition-duration: 0.08s;
+  box-shadow: 0 3px 16px rgba(0, 0, 0, 0.32),
+              0 1px 6px rgba(0, 0, 0, 0.22),
+              0 0 0 0.5px rgba(255, 255, 255, 0.08) inset;
+}
+
+/* apple-design §12: 展开面板更大更"厚"，阴影随 box-shadow transition（0.3s）平滑加深 */
+.island.island-mode-notification,
+.island.island-mode-actions,
+.island.island-mode-history,
+.island.island-mode-browser,
+.island.island-mode-share-capsule,
+.island.island-mode-video-expanded,
+.island.island-mode-music-expanded {
+  box-shadow: 0 12px 44px rgba(0, 0, 0, 0.36),
+              0 4px 18px rgba(0, 0, 0, 0.24),
+              0 0 0 0.5px rgba(255, 255, 255, 0.08) inset;
 }
 
 /* ===== Mode Sizes ===== */
+/* 每种模式设置目标尺寸；class 切换后由 JS FLIP 用 transform 平滑 morph */
 .island-mode-compact {
   min-width: 120px;
-  border-radius: 40px;
+  height: 40px;
+  border-radius: var(--radius-pill);
   padding: 0 20px;
   display: inline-flex;
   align-items: center;
 }
 
+/* emil-design: hover 用 subtle 抬升，不用 scale(1.03) 这种过强反馈 */
 .island-mode-compact:hover {
-  transform: scale(1.03);
+  transform: translateY(-0.5px);
 }
 
 .island-mode-split {
   min-width: 220px;
-  border-radius: 40px;
+  height: 40px;
+  border-radius: var(--radius-pill);
   padding: 0 16px;
   display: inline-flex;
   align-items: center;
 }
 
 .island-mode-split:hover {
-  transform: scale(1.02);
+  transform: translateY(-0.5px);
 }
 
 .island-mode-notification {
   min-width: 300px;
-  border-radius: var(--radius-2xl);
+  border-radius: var(--radius-3xl);
   padding: 0 18px;
 }
 
 .island-mode-actions {
   min-width: 280px;
-  border-radius: var(--radius-2xl);
+  border-radius: var(--radius-3xl);
   padding: 16px;
 }
 
 .island-mode-history {
   width: 340px;
-  border-radius: var(--radius-2xl);
+  border-radius: var(--radius-3xl);
   padding: 0;
 }
 
 .island-mode-browser {
   min-width: 280px;
-  border-radius: var(--radius-2xl);
+  border-radius: var(--radius-3xl);
   padding: 0 16px;
 }
 
@@ -714,15 +766,14 @@ export default {
   min-width: 120px;
   max-width: 260px;
   height: 40px;
-  border-radius: 40px;
+  border-radius: var(--radius-pill);
   padding: 0 16px 0 4px;
   display: inline-flex;
   align-items: center;
-  box-shadow: var(--shadow-lg), 0 0 0 0.5px var(--separator-color) inset;
 }
 
 .island-mode-music-compact:hover {
-  transform: scale(1.03);
+  transform: translateY(-0.5px);
 }
 
 /* ===== Weather Compact ===== */
@@ -730,80 +781,127 @@ export default {
   min-width: 120px;
   max-width: 320px;
   height: 40px;
-  border-radius: 40px;
+  border-radius: var(--radius-pill);
   padding: 0 16px 0 8px;
   display: inline-flex;
   align-items: center;
-  box-shadow: var(--shadow-lg), 0 0 0 0.5px var(--separator-color) inset;
 }
 
 .island-mode-weather-compact:hover {
-  transform: scale(1.03);
+  transform: translateY(-0.5px);
 }
 
 .island-mode-music-expanded {
   width: 280px;
-  border-radius: var(--radius-2xl);
+  border-radius: var(--radius-3xl);
   padding: 12px 14px 10px;
 }
 
+/* ===== Video Island Modes ===== */
+.island-mode-video-compact {
+  min-width: 140px;
+  max-width: 280px;
+  height: 40px;
+  border-radius: var(--radius-pill);
+  padding: 0 14px 0 4px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.island-mode-video-compact:hover {
+  transform: translateY(-0.5px);
+}
+
+.island-mode-video-expanded {
+  width: 300px;
+  border-radius: var(--radius-3xl);
+  padding: 10px 12px;
+}
+
+.island-mode-share-capsule {
+  min-width: 280px;
+  border-radius: var(--radius-3xl);
+  padding: 12px 14px;
+}
+
 /* ===== Priority States ===== */
+/* 紧急通知：subtle 脉冲光晕（可中断 transition 而非 keyframe infinite） */
 .island-urgent {
-  box-shadow: 0 4px 24px rgba(var(--danger-rgb), 0.35), 0 0 0 1px rgba(var(--danger-rgb), 0.15) inset;
-  animation: island-urgent-glow 1.5s ease-in-out infinite;
+  box-shadow: 0 6px 32px rgba(var(--danger-rgb, 239, 68, 68), 0.45),
+              0 2px 12px rgba(var(--danger-rgb, 239, 68, 68), 0.25),
+              0 0 0 1px rgba(var(--danger-rgb, 239, 68, 68), 0.2) inset;
+  animation: island-urgent-glow 1.6s ease-in-out infinite;
 }
 
 .island-normal {
-  box-shadow: 0 4px 24px rgba(var(--primary-rgb), 0.2), 0 0 0 1px rgba(var(--primary-rgb), 0.1) inset;
+  box-shadow: 0 6px 32px rgba(0, 0, 0, 0.28),
+              0 2px 12px rgba(0, 0, 0, 0.18),
+              0 0 0 0.5px rgba(255, 255, 255, 0.06) inset;
 }
 
 .island-low {
-  box-shadow: 0 4px 24px var(--text-tertiary), 0 0 0 1px var(--text-tertiary) inset;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.2),
+              0 0 0 0.5px rgba(255, 255, 255, 0.04) inset;
 }
 
 @keyframes island-urgent-glow {
-  0% { box-shadow: 0 4px 24px rgba(var(--danger-rgb), 0.35), 0 0 0 1px rgba(var(--danger-rgb), 0.15) inset; }
-  50% { box-shadow: 0 4px 32px rgba(var(--danger-rgb), 0.55), 0 0 0 2px rgba(var(--danger-rgb), 0.25) inset; }
-  100% { box-shadow: 0 4px 24px rgba(var(--danger-rgb), 0.35), 0 0 0 1px rgba(var(--danger-rgb), 0.15) inset; }
+  0%, 100% {
+    box-shadow: 0 6px 32px rgba(var(--danger-rgb, 239, 68, 68), 0.45),
+                0 2px 12px rgba(var(--danger-rgb, 239, 68, 68), 0.25),
+                0 0 0 1px rgba(var(--danger-rgb, 239, 68, 68), 0.2) inset;
+  }
+  50% {
+    box-shadow: 0 8px 40px rgba(var(--danger-rgb, 239, 68, 68), 0.6),
+                0 2px 16px rgba(var(--danger-rgb, 239, 68, 68), 0.35),
+                0 0 0 1.5px rgba(var(--danger-rgb, 239, 68, 68), 0.3) inset;
+  }
 }
 
+/**
+ * 通知到达时的 pop-in 反馈
+ * apple-design: 用 transition 实现可中断的 spring 入场，替代 keyframe bounce
+ * emil-design: 从 scale(0.96) 起步，never from scale(0)
+ */
 .island-bouncing {
-  animation: island-bounce 0.5s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  animation: island-pop-in 0.4s var(--ease-spring) both;
 }
 
-@keyframes island-bounce {
-  0% { opacity: 0; transform: translateY(-16px) scale(0.85); }
-  40% { opacity: 1; transform: translateY(4px) scale(1.04); }
-  65% { transform: translateY(-2px) scale(0.98); }
-  80% { transform: translateY(1px) scale(1.01); }
-  100% { opacity: 1; transform: translateY(0) scale(1); }
+@keyframes island-pop-in {
+  0%   { transform: translateY(-7px) scale(0.95); }
+  55%  { transform: translateY(1px) scale(1.02); }
+  100% { transform: translateY(0) scale(1); }
 }
 
 .island-dismissing {
-  opacity: 0.6;
-  transform: translateY(-4px) scale(0.96);
-  transition: opacity 0.2s var(--ease-standard, cubic-bezier(0.32, 0.72, 0, 1)), transform 0.2s var(--ease-standard, cubic-bezier(0.32, 0.72, 0, 1)) !important;
+  opacity: 0.55;
+  transform: translateY(-2px) scale(0.97);
+  transition: opacity 0.18s var(--ease-standard, var(--ease-emphasized)),
+              transform 0.18s var(--ease-standard, var(--ease-emphasized)) !important;
 }
 
 /* ===== Content Transition ===== */
+/* 模式内 panel 切换：spring 进、加速出（emil-design） */
 .island-content-enter-active {
-  transition: opacity 0.18s var(--ease-standard, cubic-bezier(0.32, 0.72, 0, 1)) 0.08s, transform 0.22s var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1)) 0.08s;
+  /* delay 0.09s: 让容器先撑开一点，内容再 spring 入场 —— apple-design §8 hint in direction */
+  transition: opacity 0.24s var(--ease-standard, var(--ease-emphasized)) 0.09s,
+              transform 0.34s var(--ease-spring, var(--ease-spring)) 0.09s;
 }
 .island-content-leave-active {
-  transition: opacity 0.1s var(--ease-accelerate), transform 0.1s var(--ease-accelerate);
+  transition: opacity 0.1s var(--ease-accelerate, cubic-bezier(0.4, 0, 1, 1)),
+              transform 0.1s var(--ease-accelerate, cubic-bezier(0.4, 0, 1, 1));
 }
 .island-content-enter {
   opacity: 0;
-  transform: scale(0.9) translateY(-6px);
+  transform: scale(0.92) translateY(-6px);
 }
 .island-content-leave-to {
   opacity: 0;
-  transform: scale(0.95) translateY(-3px);
+  transform: scale(0.96) translateY(-2px);
 }
 
 .island-body {
   width: 100%;
-  color: var(--island-text);
+  color: var(--island-text, #FFFFFF);
 }
 
 /* ===== Compact Mode ===== */
@@ -817,7 +915,7 @@ export default {
 
 .compact-icon {
   font-size: 13px;
-  opacity: 0.8;
+  opacity: 0.85;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -825,7 +923,7 @@ export default {
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  transition: opacity 0.3s;
+  transition: opacity 0.3s var(--ease-standard, var(--ease-emphasized));
 }
 
 .compact-icon-pulse {
@@ -833,7 +931,7 @@ export default {
 }
 
 @keyframes compact-pulse {
-  0%, 100% { opacity: 0.8; }
+  0%, 100% { opacity: 0.85; }
   50% { opacity: 1; }
 }
 
@@ -860,13 +958,20 @@ export default {
   gap: 6px;
   padding: 0 10px;
   min-height: 44px;
-  border-radius: var(--radius-2xl);
-  transition: background 0.2s;
+  border-radius: var(--radius-pill);
+  transition: background 0.18s var(--ease-standard, var(--ease-emphasized)),
+              transform 0.12s var(--ease-emphasized);
   cursor: pointer;
 }
 
 .split-half:hover {
   background: rgba(255, 255, 255, 0.1);
+}
+
+.split-half:active {
+  transform: scale(0.96);
+  background: rgba(255, 255, 255, 0.16);
+  transition-duration: 0.08s;
 }
 
 .split-half i {
@@ -889,14 +994,38 @@ export default {
 }
 
 /* ===== Reduced Motion ===== */
+/* apple-design: reduced motion 仍保留反馈，但用 cross-fade 替代位移/spring */
 @media (prefers-reduced-motion: reduce) {
-  .island { transition: none !important; }
+  .island {
+    transition: opacity 0.18s var(--ease-standard, var(--ease-emphasized)) !important;
+  }
   .island-bouncing { animation: none !important; }
-  .island-dismissing { transition: none !important; }
+  .island-dismissing { transition: opacity 0.15s var(--ease-standard, var(--ease-emphasized)) !important; transform: none !important; }
   .island-urgent { animation: none !important; }
   .compact-icon-pulse { animation: none !important; }
   .island-content-enter-active,
-  .island-content-leave-active { transition: none !important; }
+  .island-content-leave-active {
+    transition: opacity 0.15s var(--ease-standard, var(--ease-emphasized)) !important;
+  }
+  .island-content-enter,
+  .island-content-leave-to { transform: none !important; }
+}
+
+/* ===== Reduced Transparency ===== */
+/* apple-design: 透明度降低时，纯黑实心已经是最高对比度，无需调整 */
+@media (prefers-reduced-transparency: reduce) {
+  .island { background: #000000; }
+}
+
+/* ===== Hover: none（触摸设备） ===== */
+@media (hover: none) {
+  .island-mode-compact:hover,
+  .island-mode-split:hover,
+  .island-mode-music-compact:hover,
+  .island-mode-weather-compact:hover,
+  .island-mode-video-compact:hover {
+    transform: none;
+  }
 }
 
 /* ===== Responsive ===== */

@@ -855,7 +855,7 @@ export default {
   align-items: center;
   justify-content: center;
 }
-.back-btn:active { transform: scale(0.92); opacity: 0.7; }
+.back-btn:active { transform: scale(0.94); opacity: 0.7; }
 
 /* 上传码输入 */
 .code-input-section {
@@ -936,7 +936,7 @@ export default {
   align-items: center;
   justify-content: center;
 }
-.code-confirm-btn:active { transform: scale(0.92); opacity: 0.7; }
+.code-confirm-btn:active { transform: scale(0.94); opacity: 0.7; }
 .code-confirm-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* 主内容 */
@@ -976,7 +976,7 @@ export default {
   cursor: pointer;
   min-height: 32px;
 }
-.code-bar-change:active { transform: scale(0.92); opacity: 0.7; }
+.code-bar-change:active { transform: scale(0.94); opacity: 0.7; }
 
 /* 模式切换 */
 .mode-tabs {
@@ -1091,7 +1091,7 @@ export default {
   cursor: pointer;
   flex-shrink: 0;
 }
-.file-item-remove:active { transform: scale(0.92); opacity: 0.7; }
+.file-item-remove:active { transform: scale(0.94); opacity: 0.7; }
 .file-actions {
   display: flex;
   gap: 12px;
@@ -1113,7 +1113,7 @@ export default {
   align-items: center;
   justify-content: center;
 }
-.action-btn-primary:active { transform: scale(0.92); opacity: 0.7; }
+.action-btn-primary:active { transform: scale(0.94); opacity: 0.7; }
 .action-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 .action-btn-secondary {
   flex: 1;
@@ -1128,7 +1128,7 @@ export default {
   align-items: center;
   justify-content: center;
 }
-.action-btn-secondary:active { transform: scale(0.92); opacity: 0.7; }
+.action-btn-secondary:active { transform: scale(0.94); opacity: 0.7; }
 
 /* 录音/录像区 */
 .record-area, .video-area {
@@ -1198,7 +1198,7 @@ export default {
   transition: transform 0.15s;
   position: relative;
 }
-.record-btn:active { transform: scale(0.92); }
+.record-btn:active { transform: scale(0.94); }
 .record-btn.recording {
   background: var(--danger-color, #ff3b30);
   animation: rec-pulse 1.5s ease-in-out infinite;
@@ -1227,7 +1227,7 @@ export default {
   cursor: pointer;
   min-height: 44px;
 }
-.pause-btn:active { transform: scale(0.92); opacity: 0.7; }
+.pause-btn:active { transform: scale(0.94); opacity: 0.7; }
 
 .record-hint {
   font-size: var(--font-size-body, 15px);
@@ -1316,7 +1316,7 @@ export default {
   font-weight: 600;
   cursor: pointer;
 }
-.vf-error-btn:active { transform: scale(0.92); opacity: 0.7; }
+.vf-error-btn:active { transform: scale(0.94); opacity: 0.7; }
 .vf-bottom-bar {
   position: absolute;
   bottom: 0; left: 0; right: 0;
@@ -1375,7 +1375,7 @@ export default {
   background: #ff3b30;
   transform: scale(0.45);
 }
-.vf-record-btn:active { transform: scale(0.92); }
+.vf-record-btn:active { transform: scale(0.94); }
 
 /* 预览 */
 .record-preview {

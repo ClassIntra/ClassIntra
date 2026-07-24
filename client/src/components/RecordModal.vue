@@ -52,7 +52,7 @@
             </button>
           </div>
           <div v-if="uploading && uploadProgress > 0" class="upload-progress-bar">
-            <div class="upload-progress-fill" :style="{ width: uploadProgress + '%' }"></div>
+            <div class="upload-progress-fill" :style="{ transform: 'scaleX(' + (uploadProgress / 100) + ')' }"></div>
           </div>
         </div>
       </div>
@@ -113,7 +113,7 @@
             <span v-else>上传视频</span>
           </button>
           <div v-if="uploading && uploadProgress > 0" class="upload-progress-bar">
-            <div class="upload-progress-fill" :style="{ width: uploadProgress + '%' }"></div>
+            <div class="upload-progress-fill" :style="{ transform: 'scaleX(' + (uploadProgress / 100) + ')' }"></div>
           </div>
         </div>
       </div>
@@ -576,7 +576,7 @@ export default {
   width: 100%;
   max-width: 500px;
   background: var(--bg-card, #fff);
-  border-radius: 16px 16px 0 0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   padding: 20px 24px calc(20px + env(safe-area-inset-bottom, 0px));
   animation: sheetSlideUp 0.3s var(--ease-standard, ease-out);
 }
@@ -613,7 +613,7 @@ export default {
 }
 
 .sheet-close-btn:active, .sheet-switch-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -687,7 +687,7 @@ export default {
 }
 
 .record-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
 }
 
 .record-btn.recording {
@@ -699,7 +699,7 @@ export default {
   align-items: center;
   gap: 6px;
   padding: 8px 16px;
-  border-radius: 20px;
+  border-radius: var(--radius-xl);
   background: var(--bg-elevated, #f5f5f7);
   color: var(--text-color, #000);
   font-size: 14px;
@@ -709,7 +709,7 @@ export default {
 }
 
 .pause-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -746,7 +746,7 @@ export default {
 .action-btn-secondary, .action-btn-primary {
   flex: 1;
   height: 44px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   font-size: 15px;
   font-weight: 500;
   display: flex;
@@ -766,7 +766,7 @@ export default {
 }
 
 .action-btn-secondary:active, .action-btn-primary:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -823,7 +823,7 @@ export default {
 }
 
 .vf-close-btn:active, .vf-switch-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -832,7 +832,7 @@ export default {
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   background: rgba(0, 0, 0, 0.5);
   color: #fff;
   font-size: 14px;
@@ -885,7 +885,7 @@ export default {
 
 .vf-error-btn {
   padding: 10px 24px;
-  border-radius: 20px;
+  border-radius: var(--radius-xl);
   background: rgba(255, 255, 255, 0.2);
   color: #fff;
   font-size: 14px;
@@ -926,7 +926,7 @@ export default {
 }
 
 .vf-side-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -952,11 +952,11 @@ export default {
 .vf-record-btn.recording .vf-btn-inner {
   width: 24px;
   height: 24px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
 }
 
 .vf-record-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
 }
 
 .vf-preview-bar {
@@ -981,9 +981,13 @@ export default {
 }
 
 .upload-progress-fill {
+  width: 100%;
   height: 100%;
   background: var(--primary-color, #007aff);
-  transition: width 0.2s;
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 0.2s var(--ease-standard, ease);
+  will-change: transform;
 }
 
 .record-error {
@@ -1006,7 +1010,7 @@ export default {
 
 .record-error-btn {
   padding: 10px 24px;
-  border-radius: 20px;
+  border-radius: var(--radius-xl);
   background: var(--primary-color, #007aff);
   color: #fff;
   font-size: 14px;

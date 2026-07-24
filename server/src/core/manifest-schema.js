@@ -15,7 +15,8 @@ var FIELD_DEFS = {
   version: { type: 'string', required: false, default: '0.0.0', description: '语义化版本号' },
   frontend: { type: 'object', required: false, description: '前端配置' },
   backend: { type: 'object', required: false, description: '后端配置' },
-  extraBackends: { type: 'array', required: false, description: '额外后端路由' }
+  extraBackends: { type: 'array', required: false, description: '额外后端路由（阶段 0 引入）' },
+  integration: { type: 'object', required: false, description: '插件联动配置（type=plugin 时使用）：contract/frontendBridge/clientEntry/channels' }
 };
 
 var SEMVER_RE = /^v?\d+\.\d+\.\d+(?:-[a-zA-Z0-9.]+)?(?:\+[a-zA-Z0-9.]+)?$/;

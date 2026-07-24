@@ -1018,7 +1018,7 @@ export default {
 }
 
 .music-nav-btn:hover { background: var(--primary-light); }
-.music-nav-btn:active { transform: scale(0.92); opacity: 0.7; }
+.music-nav-btn:active { transform: scale(0.94); opacity: 0.7; }
 
 .music-nav-title {
   flex: 1;
@@ -1156,7 +1156,7 @@ export default {
 }
 
 .sidebar-create-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -1190,7 +1190,7 @@ export default {
 }
 
 .sidebar-import-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -1271,7 +1271,7 @@ export default {
 }
 
 .search-clear:hover { background: var(--text-tertiary); color: var(--bg-color); }
-.search-clear:active { transform: scale(0.92); opacity: 0.7; }
+.search-clear:active { transform: scale(0.94); opacity: 0.7; }
 
 /* ========== Playlist Header ========== */
 .playlist-header {
@@ -1335,7 +1335,7 @@ export default {
 }
 
 .playlist-action-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -1507,7 +1507,7 @@ export default {
 }
 
 .song-row-fav:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -1533,7 +1533,7 @@ export default {
 }
 
 .song-row-more:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -1559,7 +1559,7 @@ export default {
 }
 
 .song-row-remove:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -1697,7 +1697,7 @@ export default {
 }
 
 .mini-btn:hover { color: var(--primary-color); background: var(--primary-light); }
-.mini-btn:active { transform: scale(0.92); opacity: 0.7; }
+.mini-btn:active { transform: scale(0.94); opacity: 0.7; }
 
 .mini-slide-enter-active,
 .mini-slide-leave-active {
@@ -1802,7 +1802,7 @@ export default {
 }
 
 .modal-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -1819,7 +1819,7 @@ export default {
 }
 
 .modal-btn-primary:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -2075,7 +2075,7 @@ export default {
 }
 
 .player-back-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -2145,7 +2145,7 @@ export default {
 }
 
 .player-effect-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -2430,7 +2430,7 @@ export default {
   background: rgba(255, 255, 255, 0.06);
 }
 
-.ctrl:active { transform: scale(0.92); opacity: 0.7; }
+.ctrl:active { transform: scale(0.94); opacity: 0.7; }
 .ctrl.on { color: var(--primary-color); }
 
 [data-theme="dark"] .ctrl.on { color: var(--primary-color); }
@@ -2463,7 +2463,7 @@ export default {
   color: #000;
   box-shadow: 0 6px 24px rgba(255, 255, 255, 0.35);
 }
-.ctrl-main:active { transform: scale(0.92); opacity: 0.7; }
+.ctrl-main:active { transform: scale(0.94); opacity: 0.7; }
 
 .play-icon { margin-left: 2px; }
 .ctrl-main .fa-pause { margin-left: 0; }
@@ -2523,7 +2523,7 @@ export default {
 }
 
 .vol-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -2661,7 +2661,7 @@ export default {
 }
 
 .lyrics-mode-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 

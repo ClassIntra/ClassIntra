@@ -51,7 +51,7 @@ export default {
   background: transparent;
   border-radius: var(--radius-md);
   cursor: pointer;
-  transition: background 0.15s, transform 0.15s cubic-bezier(0.32, 0.72, 0, 1);
+  transition: background 0.15s, transform 0.15s var(--ease-emphasized);
 }
 
 .action-btn:hover {
@@ -59,7 +59,7 @@ export default {
 }
 
 .action-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
   background: rgba(255, 255, 255, 0.12);
 }

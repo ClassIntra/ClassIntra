@@ -58,7 +58,10 @@ var actions = {
   login: function(context, credentials) {
     return axios.post('/api/auth/login', credentials).then(function(response) {
       if (response.data.code !== 200) {
-        return Promise.reject(new Error(response.data.message || '登录失败'));
+        // 附带 response 模拟 axios 错误结构，让调用方 catch 能读取 err.response.data.message
+        var err = new Error(response.data.message || '登录失败');
+        err.response = response;
+        return Promise.reject(err);
       }
       var data = response.data.data;
       context.commit('SET_TOKEN', data.token);

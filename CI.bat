@@ -149,6 +149,17 @@ goto menu
 :build
 echo [ClassIntra] Building frontend...
 cd client
+if not exist "node_modules\.bin\vite.cmd" (
+    echo [ClassIntra] Dependencies not found, installing...
+    call pnpm install --ignore-scripts
+    if errorlevel 1 (
+        echo [ClassIntra] Install FAILED!
+        cd ..
+        if "%1"=="build" goto end
+        pause
+        goto menu
+    )
+)
 call pnpm run build
 if errorlevel 1 (
     echo [ClassIntra] Build FAILED!

@@ -721,7 +721,7 @@ export default {
   transition: background 0.15s;
 }
 .nav-action-btn:hover { background: var(--primary-light); }
-.nav-action-btn:active { transform: scale(0.92); opacity: 0.7; }
+.nav-action-btn:active { transform: scale(0.94); opacity: 0.7; }
 .cloud-content {
   flex: 1;
   overflow-y: auto;
@@ -766,7 +766,7 @@ export default {
   min-height: 32px;
   transition: opacity 0.15s, transform 0.15s;
 }
-.code-refresh-btn:active { transform: scale(0.92); opacity: 0.7; }
+.code-refresh-btn:active { transform: scale(0.94); opacity: 0.7; }
 .code-refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .upload-code-display {
   text-align: center;

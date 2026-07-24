@@ -473,19 +473,42 @@ export default {
   width: 100%;
 }
 
+/* iPadOS 风格路由切换：从右滑入 + 微缩放（仿 iOS push view controller）
+   - 进入：translateX(40px) + scale(0.96) → 0 + 1，0.45s ease-out（强减速曲线）
+   - 离开：translateX(0) → translateX(-20px) + scale(0.98)，0.22s ease-in（加速曲线）
+   - 注意：先离开再进入（mode="out-in"），避免两层重叠导致 backdrop-filter 性能问题 */
 .page-fade-enter-active {
-  transition: opacity 0.35s var(--ease-decelerate), transform 0.35s var(--ease-decelerate);
+  transition: opacity 0.45s var(--ease-decelerate, cubic-bezier(0, 0, 0.2, 1)),
+              transform 0.5s var(--ease-decelerate, cubic-bezier(0, 0, 0.2, 1));
+  /* 进入时提升合成层，避免 backdrop-filter 闪烁 */
+  will-change: transform, opacity;
 }
 .page-fade-leave-active {
-  transition: opacity 0.2s var(--ease-accelerate), transform 0.2s var(--ease-accelerate);
+  transition: opacity 0.22s var(--ease-accelerate, cubic-bezier(0.4, 0, 1, 1)),
+              transform 0.22s var(--ease-accelerate, cubic-bezier(0.4, 0, 1, 1));
+  will-change: transform, opacity;
 }
 .page-fade-enter {
   opacity: 0;
-  transform: translateX(30px);
+  /* 从右侧滑入 + 微缩放（emil-design：never animate from scale(0)，从 0.96 起步） */
+  transform: translateX(40px) scale(0.96);
 }
 .page-fade-leave-to {
   opacity: 0;
-  transform: translateX(-15px);
+  /* 向左轻推 + 微缩放，模拟被推走的页面 */
+  transform: translateX(-20px) scale(0.98);
+}
+
+/* Reduced motion：纯淡入淡出，无位移与缩放 */
+@media (prefers-reduced-motion: reduce) {
+  .page-fade-enter-active,
+  .page-fade-leave-active {
+    transition: opacity 0.2s ease;
+  }
+  .page-fade-enter,
+  .page-fade-leave-to {
+    transform: none;
+  }
 }
 
 .global-toast {
@@ -524,10 +547,10 @@ export default {
   white-space: nowrap;
 }
 .toast-fade-enter-active {
-  transition: opacity 0.3s var(--ease-standard, cubic-bezier(0.32, 0.72, 0, 1)), transform 0.4s var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
+  transition: opacity 0.3s var(--ease-emphasized), transform 0.4s var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
 }
 .toast-fade-leave-active {
-  transition: opacity 0.2s var(--ease-standard, cubic-bezier(0.32, 0.72, 0, 1)), transform 0.15s var(--ease-accelerate);
+  transition: opacity 0.2s var(--ease-emphasized), transform 0.15s var(--ease-accelerate);
 }
 .toast-fade-enter {
   opacity: 0;

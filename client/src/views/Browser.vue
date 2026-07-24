@@ -1,8 +1,8 @@
 <template>
   <div class="browser-page" :class="{ 'browser-fullscreen': isFullscreen }">
-    <!-- 顶部工具栏：返回 + 地址栏 + 转到 + 收藏 + 全屏 -->
+    <!-- iPadOS 顶部工具栏：毛玻璃 + 44pt 高度 + capsule 地址栏 + 图标按钮 -->
     <div v-if="!isFullscreen" class="browser-toolbar">
-      <button class="browser-btn" @click="goBack" title="返回">
+      <button class="icon-btn browser-btn" @click="goBack" title="返回" aria-label="返回">
         <i class="fa-solid fa-chevron-left"></i>
       </button>
       <div v-if="!hideAddressBar" class="browser-url-wrap">
@@ -14,20 +14,20 @@
           placeholder="输入网址或搜索..."
           @keydown.enter="navigateTo(urlText)"
         />
-        <button v-if="urlText" class="browser-url-clear" @click="urlText = ''">
+        <button v-if="urlText" class="browser-url-clear" @click="urlText = ''" aria-label="清除">
           <i class="fa-solid fa-xmark"></i>
         </button>
       </div>
-      <button v-if="!hideAddressBar" class="browser-btn browser-go-btn" @click="navigateTo(urlText)" :disabled="!urlText.trim()" title="转到">
+      <button v-if="!hideAddressBar" class="capsule-btn browser-go-btn" @click="navigateTo(urlText)" :disabled="!urlText.trim()" title="转到">
         <i class="fa-solid fa-arrow-right"></i>
       </button>
-      <button v-if="!hideAddressBar" class="browser-btn browser-bookmark-btn" :class="{ bookmarked: isBookmarked }" @click="toggleBookmark" title="收藏">
+      <button v-if="!hideAddressBar" class="icon-btn browser-btn browser-bookmark-btn" :class="{ bookmarked: isBookmarked }" @click="toggleBookmark" title="收藏" aria-label="收藏">
         <i :class="isBookmarked ? 'fa-solid fa-star' : 'fa-regular fa-star'"></i>
       </button>
-      <button v-if="currentUrl" class="browser-btn browser-share-btn" :class="{ active: showShareCapsule }" @click="toggleShareCapsule" title="分享">
+      <button v-if="currentUrl" class="icon-btn browser-btn browser-share-btn" :class="{ active: showShareCapsule }" @click="toggleShareCapsule" title="分享" aria-label="分享">
         <i class="fa-solid fa-share-nodes"></i>
       </button>
-      <button class="browser-btn" @click="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏'">
+      <button class="icon-btn browser-btn" @click="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏'" :aria-label="isFullscreen ? '退出全屏' : '全屏'">
         <i :class="isFullscreen ? 'fa-solid fa-compress' : 'fa-solid fa-expand'"></i>
       </button>
     </div>
@@ -72,13 +72,13 @@
           <span v-else class="homepage-hint">未设置首页</span>
         </div>
         <div class="homepage-actions">
-          <button v-if="homepage" class="homepage-btn" @click="navigateTo(homepage)" title="打开首页">
+          <button v-if="homepage" class="icon-btn icon-btn--sm homepage-btn" @click="navigateTo(homepage)" title="打开首页" aria-label="打开首页">
             <i class="fa-solid fa-play"></i>
           </button>
-          <button class="homepage-btn" @click="showHomepageInput = !showHomepageInput" :title="homepage ? '修改首页' : '设置首页'">
+          <button class="icon-btn icon-btn--sm homepage-btn" @click="showHomepageInput = !showHomepageInput" :title="homepage ? '修改首页' : '设置首页'" :aria-label="homepage ? '修改首页' : '设置首页'">
             <i class="fa-solid fa-pen"></i>
           </button>
-          <button v-if="homepage" class="homepage-btn homepage-btn--del" @click="clearHomepage" title="清除首页">
+          <button v-if="homepage" class="icon-btn icon-btn--sm icon-btn--danger homepage-btn" @click="clearHomepage" title="清除首页" aria-label="清除首页">
             <i class="fa-solid fa-xmark"></i>
           </button>
         </div>
@@ -87,22 +87,26 @@
         <input
           ref="homepageInput"
           v-model="homepageDraft"
-          class="homepage-input"
+          class="ios-input homepage-input"
           placeholder="输入首页网址，如 https://baidu.com"
           @keydown.enter="saveHomepage"
           @keydown.escape="showHomepageInput = false"
         />
-        <button class="homepage-save-btn" @click="saveHomepage">保存</button>
+        <button class="capsule-btn homepage-save-btn" @click="saveHomepage">保存</button>
       </div>
 
-      <!-- 首页：历史 + 书签 -->
+      <!-- 首页：历史 + 书签（iPadOS Segmented Control 风格） -->
       <div class="browser-tabs">
-        <button class="browser-tab" :class="{ active: activeTab === 'history' }" @click="activeTab = 'history'">
-          <i class="fa-solid fa-clock"></i> 历史
-        </button>
-        <button class="browser-tab" :class="{ active: activeTab === 'bookmarks' }" @click="activeTab = 'bookmarks'">
-          <i class="fa-solid fa-star"></i> 书签
-        </button>
+        <div class="segmented-control browser-segmented">
+          <button class="segmented-control-item" :class="{ active: activeTab === 'history' }" @click="activeTab = 'history'">
+            <i class="fa-solid fa-clock"></i>
+            <span>历史</span>
+          </button>
+          <button class="segmented-control-item" :class="{ active: activeTab === 'bookmarks' }" @click="activeTab = 'bookmarks'">
+            <i class="fa-solid fa-star"></i>
+            <span>书签</span>
+          </button>
+        </div>
       </div>
       <div class="browser-list">
         <!-- 历史记录列表 -->
@@ -114,7 +118,7 @@
           <div
             v-for="(item, idx) in history"
             :key="'h-' + idx"
-            class="browser-list-item"
+            class="browser-list-item pressable"
             @click="navigateTo(item.url)"
           >
             <div class="browser-item-icon">
@@ -124,11 +128,11 @@
               <div class="browser-item-title">{{ item.title || item.url }}</div>
               <div class="browser-item-url">{{ item.url }}</div>
             </div>
-            <button class="browser-item-del" @click.stop="removeHistory(idx)" title="删除">
+            <button class="browser-item-del icon-btn icon-btn--sm icon-btn--danger" @click.stop="removeHistory(idx)" title="删除" aria-label="删除">
               <i class="fa-solid fa-xmark"></i>
             </button>
           </div>
-          <button v-if="history.length > 0" class="browser-clear-btn" @click="clearHistory">清空历史记录</button>
+          <button v-if="history.length > 0" class="browser-clear-btn capsule-btn" @click="clearHistory">清空历史记录</button>
         </div>
         <!-- 书签列表 -->
         <div v-if="activeTab === 'bookmarks'" class="browser-list-content">
@@ -139,7 +143,7 @@
           <div
             v-for="(item, idx) in bookmarks"
             :key="'b-' + idx"
-            class="browser-list-item"
+            class="browser-list-item pressable"
             @click="navigateTo(item.url)"
           >
             <div class="browser-item-icon browser-item-icon--star">
@@ -149,7 +153,7 @@
               <div class="browser-item-title">{{ item.title || item.url }}</div>
               <div class="browser-item-url">{{ item.url }}</div>
             </div>
-            <button class="browser-item-del" @click.stop="removeBookmark(idx)" title="取消收藏">
+            <button class="browser-item-del icon-btn icon-btn--sm icon-btn--danger" @click.stop="removeBookmark(idx)" title="取消收藏" aria-label="取消收藏">
               <i class="fa-solid fa-xmark"></i>
             </button>
           </div>
@@ -161,6 +165,7 @@
 
 <script>
 import islandNotify from '@/utils/island-notify';
+import { mountBridge, unmountBridge, getCurrentBridge, ACTIONS_CHILD_TO_PARENT } from '@/integrations/campusbili-bridge-client';
 
 var HISTORY_KEY = 'browser_history';
 var BOOKMARKS_KEY = 'browser_bookmarks';
@@ -242,35 +247,6 @@ export default {
   },
   mounted: function() {
     var self = this;
-    // 监听子站点的 postMessage，支持"返回 ClassIntra"等桥接动作
-    self._messageHandler = function(event) {
-      var frame = self.$refs.browserFrame;
-      // 仅处理来自当前 iframe 的消息，避免恶意页面伪造
-      if (!frame || event.source !== frame.contentWindow) return;
-      var data = event.data || {};
-      // 子站点请求返回 ClassIntra（如 campusbili 左上角返回按钮）
-      // 直接退出浏览器回到桌面，而非 router.back()（避免返回到 campusbili 内部历史）
-      if (data.action === 'classintra-back') {
-        self.$router.push({ name: 'Desktop' }).catch(function() {});
-      }
-      // 子站点主动询问身份（解决时序问题：mounted 可能错过了 load 时的消息）
-      if (data.action === 'classintra-ping') {
-        self.onIframeLoad();
-      }
-      // CampusBili 分享请求：转发到超能岛，触发分享胶囊
-      if (data.action === 'campusbili-share-request' && data.payload) {
-        islandNotify.showShareCapsule(data.payload);
-      }
-      // CampusBili 视频播放状态同步：转发到超能岛，展示视频岛
-      if (data.action === 'campusbili-playback-status' && data.payload) {
-        if (data.payload.ended) {
-          islandNotify.hideVideoIsland();
-        } else {
-          islandNotify.showVideoIsland(data.payload);
-        }
-      }
-    };
-    window.addEventListener('message', self._messageHandler);
     // 移动端边缘滑动手势（passive 不阻止 iframe 内部滚动）
     self._onSwipeStart = self.onSwipeStart.bind(self);
     self._onSwipeMove = self.onSwipeMove.bind(self);
@@ -283,10 +259,8 @@ export default {
   },
   beforeDestroy: function() {
     islandNotify.setBrowserRef(null);
-    if (this._messageHandler) {
-      window.removeEventListener('message', this._messageHandler);
-      this._messageHandler = null;
-    }
+    // 卸载桥接实例，移除 message 监听
+    unmountBridge();
     if (this._onSwipeStart) {
       document.removeEventListener('touchstart', this._onSwipeStart);
       document.removeEventListener('touchmove', this._onSwipeMove);
@@ -297,63 +271,66 @@ export default {
     }
   },
   methods: {
-    // 向 iframe 子站点下发指令（超能岛 → Browser → iframe → CampusBili）
-    // action: 指令名称（如 'video-control'），payload: 指令数据
-    sendToIframe: function(action, payload) {
-      var frame = this.$refs.browserFrame;
-      if (!frame || !frame.contentWindow) return;
-      var origin = this._getFrameOrigin();
-      try {
-        frame.contentWindow.postMessage({
-          source: 'classintra-browser',
-          action: action,
-          payload: payload,
-          timestamp: Date.now()
-        }, origin);
-      } catch (e) {}
-    },
-    // iframe 加载完成：向子站点注入 ClassIntra 用户身份标识（插件可据此辨认 ClassIntra 环境）
-    // 同时发送 request-mute 指令：请求子站点（如 CampusBili）默认静音视频播放器
-    // 子站点需监听 source==='classintra-browser' 且 action==='request-mute' 并静音 video 元素
+    // ===== CampusBili 桥接：通过插件桥接模块统一收发消息 =====
+    // iframe 加载完成时挂载桥接实例并注册订阅
+    // 身份注入 + request-mute + 握手（HELLO/WELCOME/READY）+ PING 兜底均由桥接内部完成
     onIframeLoad: function() {
       var self = this;
       var frame = self.$refs.browserFrame;
       if (!frame || !frame.contentWindow) return;
       var user = self.$store && self.$store.state && self.$store.state.auth && self.$store.state.auth.user;
-      var origin = self._getFrameOrigin();
       // 同源时读取 iframe 页面标题（跨域会抛异常，退化为空）
       try {
         self.pageTitle = (frame.contentDocument && frame.contentDocument.title) || '';
       } catch (e) {
         self.pageTitle = '';
       }
-      try {
-        // 请求子站点默认静音视频（campusbili 等视频站点应监听此指令）
-        frame.contentWindow.postMessage({ source: 'classintra-browser', action: 'request-mute', timestamp: Date.now() }, origin);
-      } catch (e) {}
-      if (!user) return;
-      var payload = {
-        source: 'classintra-browser',
-        user: {
-          user_id: user.user_id,
-          net_name: user.net_name,
-          is_admin: user.is_admin,
-          role: user.role
-        },
-        timestamp: Date.now()
-      };
-      try {
-        // targetOrigin 限定为 iframe 当前 URL 的 origin，避免消息泄漏到其他域
-        frame.contentWindow.postMessage(payload, origin);
-      } catch (e) {}
+      // 挂载桥接实例（v1.1 起握手流程驱动身份注入，无需手动调用）
+      var bridge = mountBridge(frame, { user: user });
+      // 订阅子端上报事件（替代旧 onAction 单回调）
+      bridge.on(ACTIONS_CHILD_TO_PARENT.BACK, function() {
+        self.$router.push({ name: 'Desktop' }).catch(function() {});
+      });
+      bridge.on(ACTIONS_CHILD_TO_PARENT.SHARE_REQUEST, function(payload) {
+        if (payload) islandNotify.showShareCapsule(payload);
+      });
+      bridge.on(ACTIONS_CHILD_TO_PARENT.PLAYBACK_STATUS, function(payload) {
+        if (!payload) return;
+        if (payload.ended) islandNotify.hideVideoIsland();
+        else islandNotify.showVideoIsland(payload);
+      });
+      bridge.on(ACTIONS_CHILD_TO_PARENT.PAGE_INFO, function(payload) {
+        if (payload && payload.title) self.pageTitle = payload.title;
+      });
+      // 用户体验：监听桥接错误，通过超能岛给用户友好反馈（避免静默失败）
+      bridge.on('error', function(err) {
+        var msg = (err && err.message) ? err.message : '未知错误';
+        // 避免同源/跨域噪音：仅桥接协议相关错误上岛
+        if (msg.indexOf('通道') !== -1 || msg.indexOf('握手') !== -1 || msg.indexOf('版本') !== -1) {
+          islandNotify.notify({
+            icon: 'fa-solid fa-triangle-exclamation',
+            color: 'rgba(255, 159, 10, 0.25)',
+            title: '联动异常',
+            text: msg,
+            type: 'system',
+            category: 'bridge',
+            priority: 'high'
+          });
+        }
+        // 同时写入控制台，方便开发者排查
+        console.warn('[campusbili-bridge] error:', msg, bridge.getDebugInfo ? bridge.getDebugInfo() : '');
+      });
+      bridge.on('ready', function() {
+        // 握手成功：可在此触发 UI 反馈（当前保持静默，避免噪音）
+      });
     },
-    // 计算 iframe 的 origin（用于 postMessage targetOrigin）
-    _getFrameOrigin: function() {
-      try {
-        var u = new URL(this.currentUrl);
-        return u.origin;
-      } catch (e) {
-        return '*';
+    // 向 iframe 下发视频控制指令（超能岛 → Browser → 桥接 → iframe → CampusBili）
+    sendToIframe: function(action, payload) {
+      var bridge = getCurrentBridge();
+      if (!bridge) return;
+      // 仅支持 video-control（其他动作由桥接内部封装）
+      if (action === 'video-control' && payload) {
+        bridge.sendVideoControl(payload.command, payload.value);
       }
     },
     navigateTo: function(url) {
@@ -514,48 +491,58 @@ export default {
   z-index: 9999;
 }
 
-/* ========== 顶部工具栏 ========== */
+/* ========== iPadOS 顶部工具栏（毛玻璃 + 44pt 高度 + 0.5px 分隔） ========== */
 .browser-toolbar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
+  gap: 6px;
+  padding: calc(env(safe-area-inset-top, 0px) + 6px) 12px 6px;
   background: var(--nav-bg);
+  -webkit-backdrop-filter: var(--glass-blur-nav);
+  backdrop-filter: var(--glass-blur-nav);
+  border-bottom: 0.5px solid var(--nav-border);
   flex-shrink: 0;
-  height: 48px;
+  min-height: 52px;  /* 44pt 内容 + 上下 padding */
 }
 
+/* 浏览器内 .browser-btn 复用全局 .icon-btn：仅在此处覆盖浏览器特定样式 */
 .browser-btn {
-  width: 36px; height: 36px;
-  border-radius: var(--radius-md);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 16px;
-  color: var(--primary-color);
-  cursor: pointer;
-  flex-shrink: 0;
-  border: none;
-  background: transparent;
-  transition: background 0.15s, transform 0.15s, opacity 0.15s;
+  /* toolbar 内按钮密度更紧（toolbar 高度有限），用 --sm 尺寸 */
+  width: 36px;
+  height: 36px;
+  font-size: 15px;
 }
-.browser-btn:hover { background: var(--primary-light); }
-.browser-btn:active { transform: scale(0.92); opacity: 0.7; }
-.browser-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.browser-btn:active {
+  transform: scale(0.94);  /* emil-design：图标按钮按压至 0.94-0.95 */
+}
 
+/* 转到按钮：胶囊形主色按钮（capsule-btn 已处理大部分样式，仅覆盖尺寸） */
 .browser-go-btn {
-  background: var(--primary-color);
-  color: #fff;
-  width: 34px; height: 34px;
-  border-radius: var(--radius-pill);
+  width: 36px;
+  height: 32px;
+  padding: 0;
   font-size: 13px;
 }
-.browser-go-btn:hover { background: var(--primary-hover); opacity: 1; }
 
-.browser-bookmark-btn { margin-left: auto; color: var(--text-tertiary); font-size: 15px; }
-.browser-bookmark-btn.bookmarked { color: #f59e0b; }
+/* 收藏按钮 */
+.browser-bookmark-btn {
+  margin-left: auto;  /* 推到右侧 */
+  color: var(--text-tertiary);
+}
+.browser-bookmark-btn.bookmarked {
+  color: var(--warning, #FF9500);
+}
 
-/* URL 输入框 */
+/* 分享按钮 */
+.browser-share-btn {
+  color: var(--text-tertiary);
+}
+.browser-share-btn.active {
+  color: var(--primary-color);
+  background: var(--primary-light);
+}
+
+/* ========== 地址栏（capsule + focus 光晕） ========== */
 .browser-url-wrap {
   flex: 1;
   display: flex;
@@ -567,9 +554,15 @@ export default {
   height: 36px;
   min-width: 0;
   border: 1px solid transparent;
-  transition: border-color 0.15s;
+  transition: border-color 0.18s var(--ease-standard, cubic-bezier(0.25, 0.1, 0.25, 1)),
+              box-shadow 0.2s var(--ease-standard, cubic-bezier(0.25, 0.1, 0.25, 1)),
+              background-color 0.15s var(--ease-standard, cubic-bezier(0.25, 0.1, 0.25, 1));
 }
-.browser-url-wrap:focus-within { border-color: var(--primary-color); }
+.browser-url-wrap:focus-within {
+  border-color: var(--primary-color);
+  background: var(--card-bg);
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb, 0, 122, 255), 0.12);
+}
 
 .browser-url-icon {
   color: var(--text-tertiary);
@@ -584,10 +577,15 @@ export default {
   color: var(--text-primary);
   outline: none;
   min-width: 0;
+  font-feature-settings: 'tnum';  /* URL 等宽数字观感 */
 }
-.browser-url-input::placeholder { color: var(--text-tertiary); font-size: 13px; }
+.browser-url-input::placeholder {
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
 .browser-url-clear {
-  width: 20px; height: 20px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   background: var(--text-tertiary);
   color: #fff;
@@ -599,9 +597,17 @@ export default {
   cursor: pointer;
   flex-shrink: 0;
   opacity: 0.5;
-  transition: opacity 0.15s;
+  transition: opacity 0.15s var(--ease-standard, cubic-bezier(0.25, 0.1, 0.25, 1)),
+              transform 0.16s var(--ease-emphasized);
 }
-.browser-url-clear:hover { opacity: 0.8; }
+.browser-url-clear:hover {
+  opacity: 0.8;
+  transform: scale(1.05);
+}
+.browser-url-clear:active {
+  transform: scale(0.9);
+  transition-duration: 0.08s;
+}
 
 /* ========== 浏览区 (iframe) ========== */
 .browser-content {
@@ -629,38 +635,37 @@ export default {
   overflow: hidden;
 }
 
+/* Segmented Control 容器 */
 .browser-tabs {
   display: flex;
-  gap: 0;
-  padding: 0 16px;
-  border-bottom: 0.5px solid var(--separator-color);
+  padding: 12px 16px;
   flex-shrink: 0;
+  border-bottom: 0.5px solid var(--separator-color);
 }
-.browser-tab {
-  padding: 12px 20px;
-  font-size: 14px;
-  color: var(--text-secondary);
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  transition: color 0.15s, border-color 0.15s;
-  display: flex;
+.browser-segmented {
+  width: 100%;
+  justify-content: stretch;
+}
+.browser-segmented .segmented-control-item {
+  flex: 1;
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
 }
-.browser-tab:hover { color: var(--text-primary); }
-.browser-tab.active { color: var(--primary-color); border-bottom-color: var(--primary-color); }
-.browser-tab i { font-size: 13px; }
+.browser-segmented .segmented-control-item i {
+  font-size: 13px;
+}
 
 /* ========== 列表区 ========== */
 .browser-list {
   flex: 1;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  padding: 8px 12px;
 }
 .browser-list-content {
-  padding: 8px 0;
+  padding: 4px 0;
 }
 
 .browser-empty {
@@ -668,27 +673,47 @@ export default {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  padding: 48px 24px;
+  gap: 12px;
+  padding: 56px 24px;
   color: var(--text-tertiary);
   font-size: 14px;
 }
-.browser-empty i { font-size: 36px; opacity: 0.4; }
+.browser-empty i {
+  font-size: 40px;
+  opacity: 0.35;
+}
 
+/* 列表项：iPadOS list 风格（毛玻璃卡片分组 + 0.5px 内分隔 + 圆角） */
 .browser-list-item {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 16px;
+  padding: 12px var(--spacing-md);
   cursor: pointer;
-  transition: background 0.1s;
-  border-radius: 0;
+  background: var(--card-bg);
+  border-bottom: 0.5px solid var(--separator-color);
 }
-.browser-list-item:hover { background: var(--bg-color); }
-.browser-list-item:active { opacity: 0.7; }
+.browser-list-item:first-child {
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+}
+.browser-list-item:last-child {
+  border-bottom: none;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+}
+.browser-list-item:only-child {
+  border-radius: var(--radius-md);
+}
+.browser-list-item:hover {
+  background: var(--bg-color);
+}
+.browser-list-item:active {
+  /* .pressable 已处理 scale(0.97)，此处仅强调背景 */
+  background: var(--primary-lighter);
+}
 
 .browser-item-icon {
-  width: 36px; height: 36px;
+  width: 36px;
+  height: 36px;
   border-radius: var(--radius-md);
   background: var(--bg-color);
   display: flex;
@@ -698,7 +723,10 @@ export default {
   color: var(--text-tertiary);
   flex-shrink: 0;
 }
-.browser-item-icon--star { background: rgba(245,158,11,0.1); color: #f59e0b; }
+.browser-item-icon--star {
+  background: rgba(255, 149, 0, 0.12);
+  color: var(--warning, #FF9500);
+}
 
 .browser-item-info {
   flex: 1;
@@ -710,6 +738,7 @@ export default {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  font-weight: var(--font-weight-medium, 500);
 }
 .browser-item-url {
   font-size: 12px;
@@ -718,44 +747,39 @@ export default {
   overflow: hidden;
   text-overflow: ellipsis;
   margin-top: 2px;
+  font-feature-settings: 'tnum';
 }
 .browser-item-del {
-  width: 28px; height: 28px;
-  border-radius: 50%;
-  border: none;
-  background: transparent;
-  color: var(--text-tertiary);
+  /* 复用全局 .icon-btn.icon-btn--sm，此处仅覆盖大小 */
+  width: 28px;
+  height: 28px;
   font-size: 11px;
-  cursor: pointer;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.15s, color 0.15s;
+  margin-right: -4px;  /* 视觉对齐右侧 */
 }
-.browser-item-del:hover { background: var(--bg-color); color: #ef4444; }
 
 .browser-clear-btn {
   display: block;
-  width: calc(100% - 32px);
-  margin: 12px 16px;
-  padding: 10px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-color);
+  width: calc(100% - 24px);
+  margin: 16px auto 8px;
+  padding: 0 14px;
+  height: 36px;
   background: transparent;
-  color: var(--text-tertiary);
+  color: var(--danger, #FF3B30);
+  border: 1px solid var(--border-color);
   font-size: 13px;
-  cursor: pointer;
-  transition: color 0.15s, border-color 0.15s;
+  font-weight: var(--font-weight-medium, 500);
 }
-.browser-clear-btn:hover { color: #ef4444; border-color: #ef4444; }
+.browser-clear-btn:hover {
+  background: rgba(255, 59, 48, 0.06);
+  border-color: var(--danger, #FF3B30);
+}
 
 /* ========== 首页设置栏 ========== */
 .browser-homepage-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 16px;
+  padding: var(--spacing-sm) var(--spacing-md);
   background: var(--bg-color);
   border-bottom: 0.5px solid var(--separator-color);
   flex-shrink: 0;
@@ -778,6 +802,7 @@ export default {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  font-feature-settings: 'tnum';
 }
 .homepage-hint {
   font-size: 13px;
@@ -785,25 +810,15 @@ export default {
 }
 .homepage-actions {
   display: flex;
-  gap: 4px;
+  gap: 2px;
   flex-shrink: 0;
   margin-left: 8px;
 }
 .homepage-btn {
-  width: 30px; height: 30px;
-  border-radius: var(--radius-md);
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
+  width: 30px;
+  height: 30px;
   font-size: 12px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.15s, color 0.15s;
 }
-.homepage-btn:hover { background: var(--border-color); color: var(--primary-color); }
-.homepage-btn--del:hover { color: #ef4444; }
 
 .homepage-input-row {
   display: flex;
@@ -815,28 +830,15 @@ export default {
 }
 .homepage-input {
   flex: 1;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-pill);
-  padding: 6px 12px;
+  border-radius: var(--radius-md);
   font-size: 13px;
-  background: var(--card-bg);
-  color: var(--text-primary);
-  outline: none;
   min-width: 0;
 }
-.homepage-input:focus { border-color: var(--primary-color); }
 .homepage-save-btn {
-  padding: 6px 14px;
-  border-radius: var(--radius-pill);
-  border: none;
-  background: var(--primary-color);
-  color: #fff;
-  font-size: 13px;
-  cursor: pointer;
   white-space: nowrap;
-  transition: background 0.15s;
+  height: 36px;
+  padding: 0 16px;
 }
-.homepage-save-btn:hover { background: var(--primary-hover); }
 
 /* ========== CSS 全屏模式 ========== */
 .browser-fullscreen .browser-content {
@@ -850,35 +852,41 @@ export default {
   height: 100%;
 }
 
-/* ========== 分享胶囊（需求9）========== */
-.browser-share-btn { color: var(--text-tertiary); font-size: 15px; }
-.browser-share-btn.active { color: var(--primary-color); background: var(--primary-light); }
-
+/* ========== 分享胶囊（iPadOS Sheet 风格） ========== */
 .share-capsule {
   position: fixed;
-  top: 48px;
+  top: 52px;
   right: 0;
   bottom: 0;
   width: 100%;
-  max-width: 320px;
+  max-width: 340px;
   background: rgba(0, 0, 0, 0.25);
   z-index: 9998;
-  -webkit-backdrop-filter: blur(2px);
-  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(4px) saturate(150%);
+  backdrop-filter: blur(4px) saturate(150%);
 }
 
 .capsule-inner {
   margin: 12px;
   padding: 16px;
-  background: var(--card-bg);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
-  animation: capsule-pop 0.22s cubic-bezier(0.32, 0.72, 0, 1);
+  background: var(--surface-elevated, var(--card-bg));
+  -webkit-backdrop-filter: var(--glass-blur-thick);
+  backdrop-filter: var(--glass-blur-thick);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.28), 0 4px 12px rgba(0, 0, 0, 0.12);
+  animation: capsule-pop 0.32s var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
+  transform-origin: top right;
 }
 
 @keyframes capsule-pop {
-  from { opacity: 0; transform: translateY(-8px) scale(0.96); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.95);  /* emil-design: never from scale(0)，从 0.95 起步 */
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .capsule-url {
@@ -891,7 +899,8 @@ export default {
   background: var(--bg-color);
   border-radius: var(--radius-md);
   margin-bottom: 12px;
-  font-family: -apple-system, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  font-feature-settings: 'tnum';
 }
 
 .capsule-actions {
@@ -900,33 +909,91 @@ export default {
   gap: 8px;
 }
 
+/* 分享胶囊内的动作按钮（覆盖全局 .capsule-btn 的主色，使用各自语义色） */
 .capsule-btn {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
   padding: 12px;
-  border: none;
+  height: auto;
   border-radius: var(--radius-md);
   font-size: 14px;
-  cursor: pointer;
-  transition: -webkit-transform 0.15s, transform 0.15s, opacity 0.15s;
+  font-weight: var(--font-weight-medium, 500);
   color: #fff;
-  font-weight: 500;
+  box-shadow: none;
+}
+.capsule-btn:hover {
+  transform: none;  /* 分享按钮是动作按钮，不需要 lift 效果 */
+  box-shadow: none;
+}
+.capsule-btn:active {
+  transform: scale(0.97);
+  opacity: 0.85;
+  transition-duration: 0.08s;
+}
+.capsule-btn i {
+  font-size: 15px;
 }
 
-.capsule-btn:active { -webkit-transform: scale(0.96); transform: scale(0.96); opacity: 0.85; }
-.capsule-btn i { font-size: 15px; }
-
-.capsule-to-chat { background: var(--primary-color); }
-.capsule-to-chat:hover { background: var(--primary-hover); }
-.capsule-to-community { background: #34c759; }
-.capsule-to-community:hover { opacity: 0.9; }
-
-/* 胶囊入场过渡 */
-.capsule-slide-enter-active, .capsule-slide-leave-active {
-  transition: opacity 0.2s ease;
+.capsule-to-chat {
+  background: var(--primary-color);
 }
-.capsule-slide-enter, .capsule-slide-leave-to {
+.capsule-to-chat:hover {
+  background: var(--primary-hover);
+}
+.capsule-to-community {
+  background: var(--success, #34C759);
+}
+.capsule-to-community:hover {
+  background: var(--success-color);
+  opacity: 1;
+}
+
+/* 胶囊入场过渡（v-if 切换） */
+.capsule-slide-enter-active,
+.capsule-slide-leave-active {
+  transition: opacity 0.22s var(--ease-decelerate, cubic-bezier(0, 0, 0.2, 1));
+}
+.capsule-slide-enter,
+.capsule-slide-leave-to {
   opacity: 0;
-}</style>
+}
+
+/* ========== Reduced motion 降级 ========== */
+@media (prefers-reduced-motion: reduce) {
+  .capsule-inner {
+    animation-duration: 0.01ms !important;
+  }
+  .capsule-slide-enter-active,
+  .capsule-slide-leave-active {
+    transition-duration: 0.01ms !important;
+  }
+  .browser-url-clear:hover,
+  .browser-url-clear:active,
+  .browser-btn:active,
+  .browser-list-item:active,
+  .capsule-btn:active {
+    transform: none !important;
+  }
+}
+
+/* ========== 触摸设备 hover 降级（避免悬停残留） ========== */
+@media (hover: none) {
+  .browser-list-item:hover {
+    background: var(--card-bg);
+  }
+  .browser-url-clear:hover {
+    transform: none;
+    opacity: 0.5;
+  }
+  .browser-clear-btn:hover {
+    background: transparent;
+    border-color: var(--border-color);
+  }
+  .capsule-to-chat:hover,
+  .capsule-to-community:hover {
+    transform: none;
+  }
+}
+</style>

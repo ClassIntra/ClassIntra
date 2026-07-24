@@ -6,7 +6,7 @@
 var DRAG_THRESHOLD = 5;        // 移动超过 5px 才正式开始拖拽
 var FOLDER_HOVER_MS = 500;     // 拖拽悬停 500ms 创建文件夹
 var FLIP_DURATION = 300;       // FLIP 动画时长
-var FLIP_EASING = 'cubic-bezier(0.32, 0.72, 0, 1)';  // iOS 弹性曲线
+var FLIP_EASING = 'cubic-bezier(0.32, 0.72, 0, 1)';  // iOS 强调曲线（镜像 --ease-emphasized，Web Animations API 不支持 CSS var）
 var PAGE_EDGE_THRESHOLD = 36;  // 距屏幕左/右边缘多少像素触发跨页切换
 var PAGE_SWITCH_DELAY = 450;   // 边缘停留多久后切页（ms）
 var PAGE_SWITCH_COOLDOWN = 600; // 切页后冷却（ms），避免连续切页过快

@@ -1,15 +1,32 @@
 {
   "name": "campusbili-bridge",
   "type": "plugin",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "label": "CampusBili 桥接",
   "category": "hidden",
   "order": 99,
   "defaultEnabled": true,
   "canDisable": false,
-  "description": "ClassIntra 与 CampusBili 网站的桥接插件：通过超能岛浏览器访问 CampusBili 时注入用户身份，CampusBili 左上角显示返回 ClassIntra 按钮",
+  "description": "ClassIntra 与 CampusBili 的统一联动插件（v1.1 协议）：提供 postMessage 通信契约、前端桥接模块、后端身份验证。支持完整 HELLO/WELCOME/READY 握手流程、版本协商、通道白名单。所有联动消息通过此插件的契约规范，确保通信安全可维护。",
   "backend": {
     "mountPath": "/api/campusbili-bridge",
     "entry": "./backend/routes.js"
+  },
+  "integration": {
+    "contract": "./shared/contract.js",
+    "frontendBridge": "./frontend/bridge.js",
+    "clientEntry": "client/src/integrations/campusbili-bridge-client.js",
+    "protocolVersion": "1.1",
+    "channels": [
+      "handshake",
+      "identity-injection",
+      "request-mute",
+      "video-control",
+      "playback-status",
+      "share-request",
+      "back-button",
+      "page-info",
+      "ping"
+    ]
   }
 }

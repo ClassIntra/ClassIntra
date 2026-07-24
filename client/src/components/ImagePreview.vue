@@ -247,7 +247,7 @@ export default {
   cursor: pointer; transition: background 0.15s, transform 0.15s;
   z-index: 10; -webkit-tap-highlight-color: transparent;
 }
-.preview-action-btn:active { background: rgba(255,255,255,0.35); transform: scale(0.92); }
+.preview-action-btn:active { background: rgba(255,255,255,0.35); transform: scale(0.94); }
 .preview-close-btn { right: 16px; }
 .preview-save-btn { right: 64px; }
 </style>

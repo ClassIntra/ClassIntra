@@ -191,7 +191,7 @@ export default {
 }
 
 .desktop-folder-tile:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
 }
 
 .desktop-folder-tile--editing {
@@ -261,7 +261,7 @@ export default {
   left: -6px;
   width: 20px;
   height: 20px;
-  border-radius: 9999px;
+  border-radius: var(--radius-pill);
   background: var(--danger-color);
   color: #fff;
   border: 2px solid #fff;
@@ -359,13 +359,13 @@ export default {
   transition: transform 0.15s var(--ease-standard);
 }
 .folder-rename-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
 }
 
 .folder-close-btn {
   width: 28px;
   height: 28px;
-  border-radius: 9999px;
+  border-radius: var(--radius-pill);
   border: none;
   background: rgba(0, 0, 0, 0.08);
   color: var(--text-secondary);

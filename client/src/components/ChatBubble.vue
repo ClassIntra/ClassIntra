@@ -610,7 +610,7 @@ export default {
   padding: 6px 10px;
   margin-bottom: 8px;
   background: rgba(0, 0, 0, 0.03);
-  border-radius: 0 6px 6px 0;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 /* 深色模式下对方气泡(深灰底)用半透明白，避免与气泡融为一片 */
 [data-theme="dark"] .forward-card {
@@ -958,7 +958,7 @@ export default {
   bottom: 100%;
   right: 0;
   background: var(--card-bg);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
   border: 1px solid var(--border-color);
   padding: 4px 0;
@@ -1053,7 +1053,7 @@ export default {
   max-width: 240px;
   height: 40px;
   padding: 0 12px;
-  border-radius: 20px;
+  border-radius: var(--radius-xl);
   background: var(--bg-elevated, #f5f5f7);
   cursor: pointer;
   -webkit-touch-callout: none;

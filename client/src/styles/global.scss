@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 // ClassIntra 全局样式
 // 主题策略（阶段 2 起，双写清理后）：
 //   1. :root + [data-theme="dark"] 中的主题相关变量定义为 --ci-* 的别名
@@ -59,8 +59,8 @@
   --dock-bg: var(--ci-color-glass-dock, rgba(255, 255, 255, 0.65));
   --nav-bg: var(--ci-color-glass-nav, rgba(249, 249, 249, 0.70));
   --nav-border: var(--ci-color-glass-nav-border, rgba(60, 60, 67, 0.12));
-  --island-bg: var(--ci-color-glass-island, rgba(28, 28, 30, 0.72));
-  --island-text: var(--ci-color-glass-island-text, #FFFFFF);
+  --island-bg: #000000; /* Apple Dynamic Island: 纯黑实心 OLED-friendly，不透明 */
+  --island-text: #FFFFFF;
   --sidebar-bg: var(--ci-color-glass-sidebar, rgba(242, 242, 247, 0.60));
   --glass-bg: var(--ci-color-glass-bg, rgba(255, 255, 255, 0.55));
   --glass-border: var(--ci-color-glass-border, rgba(255, 255, 255, 0.18));
@@ -93,16 +93,17 @@
   --shadow-lg: var(--ci-shadow-lg, 0 12px 40px rgba(0,0,0,0.12), 0 4px 12px rgba(0,0,0,0.06));
   --shadow-xl: var(--ci-shadow-xl, 0 24px 80px rgba(0,0,0,0.16));
 
-  /* 圆角 - iPadOS HIG 标准（静态，与主题无关）
-     梯度：xs(4) → sm(8) → md(12) → lg(16) → xl(20) → 2xl(24) → 3xl(28) */
-  --radius-xs: 4px;
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --radius-xl: 20px;
-  --radius-2xl: 24px;
-  --radius-3xl: 28px;
-  --radius-pill: 9999px;
+  /* 圆角 - iPadOS HIG 标准（别名指向 --ci-shape-*，可被主题覆盖）
+     梯度：xs(4) → sm(8) → md(12) → lg(16) → xl(20) → 2xl(24) → 3xl(28)
+     主题可通过覆盖 --ci-shape-* 实现形态变化（如 Material You 更大圆角） */
+  --radius-xs: var(--ci-shape-xs, 4px);
+  --radius-sm: var(--ci-shape-sm, 8px);
+  --radius-md: var(--ci-shape-md, 12px);
+  --radius-lg: var(--ci-shape-lg, 16px);
+  --radius-xl: var(--ci-shape-xl, 20px);
+  --radius-2xl: var(--ci-shape-2xl, 24px);
+  --radius-3xl: var(--ci-shape-3xl, 28px);
+  --radius-pill: var(--ci-shape-pill, 9999px);
 
   /* 字体（静态，与主题无关） */
   --font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'PingFang SC', 'Noto Sans CJK SC', 'Helvetica Neue', 'Microsoft YaHei', sans-serif;
@@ -152,6 +153,8 @@
   --ease-decelerate: var(--ci-motion-ease-decelerate, cubic-bezier(0, 0, 0.2, 1));
   --ease-accelerate: var(--ci-motion-ease-accelerate, cubic-bezier(0.4, 0, 1, 1));
   --ease-spring: var(--ci-motion-ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
+  /* emphasized：Apple 风格"强调"曲线，用于 transform 缩放/位移反馈（比 standard 更有力度） */
+  --ease-emphasized: var(--ci-motion-ease-emphasized, cubic-bezier(0.32, 0.72, 0, 1));
 
   /* 动画时长（别名指向 --ci-motion-duration-*） */
   --duration-fast: var(--ci-motion-duration-fast, 0.15s);
@@ -196,7 +199,8 @@
   --dock-bg: var(--ci-color-glass-dock, rgba(28, 28, 30, 0.65));
   --nav-bg: var(--ci-color-glass-nav, rgba(20, 20, 22, 0.70));
   --nav-border: var(--ci-color-glass-nav-border, rgba(84, 84, 88, 0.65));
-  --island-bg: var(--ci-color-glass-island, rgba(18, 18, 20, 0.75));
+  --island-bg: #000000; /* Apple Dynamic Island: 纯黑实心 OLED-friendly，不透明 */
+  --island-text: #FFFFFF;
   --sidebar-bg: var(--ci-color-glass-sidebar, rgba(18, 18, 20, 0.60));
   --glass-bg: var(--ci-color-glass-bg, rgba(28, 28, 30, 0.55));
   --glass-border: var(--ci-color-glass-border, rgba(255, 255, 255, 0.08));
@@ -256,12 +260,18 @@ button {
   background: none;
   font-family: inherit;
   font-size: var(--font-size-base);
-  transition: opacity var(--transition-fast), transform 0.15s cubic-bezier(0.32, 0.72, 0, 1), background var(--transition-fast);
+  /* emil-design：transform 过渡时间 160ms ease-out（按键即时反馈） */
+  transition: opacity 0.15s var(--ease-standard, cubic-bezier(0.25, 0.1, 0.25, 1)),
+              transform 0.16s var(--ease-emphasized),
+              background-color 0.15s var(--ease-standard, cubic-bezier(0.25, 0.1, 0.25, 1)),
+              box-shadow 0.15s var(--ease-standard, cubic-bezier(0.25, 0.1, 0.25, 1));
 }
 
+/* 按下反馈：scale(0.97)（emil-design 推荐值，比 0.92 更细腻自然）
+   同时压低不透明度，模拟物理按下的暗化效果 */
 button:active {
-  transform: scale(0.92);
-  opacity: 0.7;
+  transform: scale(0.97);
+  opacity: 0.85;
 }
 
 button:disabled {
@@ -374,16 +384,21 @@ a:focus-visible {
   font-weight: var(--font-weight-semibold);
   border: none;
   cursor: pointer;
-  transition: background var(--transition-fast), transform 0.15s cubic-bezier(0.32, 0.72, 0, 1), box-shadow var(--transition-fast);
+  transition: background-color 0.15s var(--ease-standard, cubic-bezier(0.25, 0.1, 0.25, 1)),
+              transform 0.16s var(--ease-emphasized),
+              box-shadow 0.2s var(--ease-standard, cubic-bezier(0.25, 0.1, 0.25, 1));
   box-shadow: 0 1px 3px rgba(var(--primary-rgb), 0.25);
 }
 .btn-primary:hover {
   background: var(--primary-hover);
-  box-shadow: 0 2px 8px rgba(var(--primary-rgb), 0.35);
+  /* hover 时微微抬升 + 阴影加深，提供层级感（apple-design：feedback 持续） */
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.35);
 }
 .btn-primary:active {
-  transform: scale(0.92);
-  opacity: 0.7;
+  /* scale(0.97) 而非 0.92：emil-design 推荐值，更细腻 */
+  transform: scale(0.97);
+  opacity: 0.92;
   box-shadow: 0 1px 2px rgba(var(--primary-rgb), 0.2);
 }
 .btn-primary:disabled {
@@ -408,14 +423,16 @@ a:focus-visible {
   font-weight: var(--font-weight-semibold);
   border: none;
   cursor: pointer;
-  transition: background var(--transition-fast), transform 0.15s cubic-bezier(0.32, 0.72, 0, 1);
+  transition: background-color 0.15s var(--ease-standard, cubic-bezier(0.25, 0.1, 0.25, 1)),
+              transform 0.16s var(--ease-emphasized);
 }
 .btn-secondary:hover {
   background: rgba(var(--primary-rgb), 0.18);
+  transform: translateY(-1px);
 }
 .btn-secondary:active {
-  transform: scale(0.92);
-  opacity: 0.7;
+  transform: scale(0.97);
+  opacity: 0.92;
 }
 .btn-secondary > * + * {
   margin-left: var(--spacing-sm);
@@ -434,16 +451,19 @@ a:focus-visible {
   font-weight: var(--font-weight-semibold);
   border: none;
   cursor: pointer;
-  transition: background var(--transition-fast), transform 0.15s cubic-bezier(0.32, 0.72, 0, 1), box-shadow var(--transition-fast);
+  transition: background-color 0.15s var(--ease-standard, cubic-bezier(0.25, 0.1, 0.25, 1)),
+              transform 0.16s var(--ease-emphasized),
+              box-shadow 0.2s var(--ease-standard, cubic-bezier(0.25, 0.1, 0.25, 1));
   box-shadow: 0 1px 3px rgba(var(--danger-rgb), 0.25);
 }
 .btn-danger:hover {
   background: var(--danger-pressed);
-  box-shadow: 0 2px 8px rgba(var(--danger-rgb), 0.35);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(var(--danger-rgb), 0.35);
 }
 .btn-danger:active {
-  transform: scale(0.92);
-  opacity: 0.7;
+  transform: scale(0.97);
+  opacity: 0.92;
 }
 .btn-danger > * + * {
   margin-left: var(--spacing-sm);
@@ -453,7 +473,7 @@ a:focus-visible {
   background: var(--card-bg);
   border-radius: var(--radius-lg);
   border: none;
-  transition: box-shadow 0.25s cubic-bezier(0.32, 0.72, 0, 1), transform 0.25s cubic-bezier(0.32, 0.72, 0, 1);
+  transition: box-shadow 0.25s var(--ease-emphasized), transform 0.25s var(--ease-emphasized);
 }
 .card:hover {
   box-shadow: var(--shadow-md);
@@ -493,7 +513,7 @@ a:focus-visible {
 
 .fade-up-enter-active,
 .fade-up-leave-active {
-  transition: opacity 0.25s cubic-bezier(0.32, 0.72, 0, 1), transform 0.25s cubic-bezier(0.32, 0.72, 0, 1);
+  transition: opacity 0.25s var(--ease-emphasized), transform 0.25s var(--ease-emphasized);
 }
 .fade-up-enter,
 .fade-up-leave-to {
@@ -503,7 +523,7 @@ a:focus-visible {
 
 .fade-slide-enter-active,
 .fade-slide-leave-active {
-  transition: opacity 0.2s cubic-bezier(0.32, 0.72, 0, 1), transform 0.2s cubic-bezier(0.32, 0.72, 0, 1);
+  transition: opacity 0.2s var(--ease-emphasized), transform 0.2s var(--ease-emphasized);
 }
 .fade-slide-enter {
   opacity: 0;
@@ -523,15 +543,19 @@ a:focus-visible {
   opacity: 0;
 }
 
+/* iPadOS 风格 modal 入场：scale(0.95) + opacity 弹簧曲线
+   emil-design：never animate from scale(0)，从 0.95 起步更自然 */
 .modal-fade-enter-active {
-  transition: opacity 0.25s var(--ease-standard), transform 0.3s var(--ease-spring);
+  transition: opacity 0.25s var(--ease-decelerate, cubic-bezier(0, 0, 0.2, 1)),
+              transform 0.35s var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
 }
 .modal-fade-leave-active {
-  transition: opacity 0.15s var(--ease-accelerate), transform 0.15s var(--ease-accelerate);
+  transition: opacity 0.15s var(--ease-accelerate, cubic-bezier(0.4, 0, 1, 1)),
+              transform 0.15s var(--ease-accelerate, cubic-bezier(0.4, 0, 1, 1));
 }
 .modal-fade-enter {
   opacity: 0;
-  transform: scale(0.92) translateY(8px);
+  transform: scale(0.95) translateY(8px);
 }
 .modal-fade-leave-to {
   opacity: 0;
@@ -763,7 +787,7 @@ input[type="radio"]:checked::after {
 }
 
 [data-perf="low"] {
-  --island-bg: rgba(28, 28, 30, 0.95);
+  --island-bg: #000000; /* Dynamic Island 在低性能下仍保持纯黑实心 */
   --dock-bg: rgba(255, 255, 255, 0.95);
   --nav-bg: rgba(249, 249, 249, 0.95);
   --sidebar-bg: rgba(242, 242, 247, 0.95);
@@ -1025,6 +1049,195 @@ input[type="radio"]:checked::after {
   transform: scale(0.98);
 }
 
+// ========== iPadOS 动效辅助工具类 ==========
+// 来自 Apple Fluid Interfaces + emil-design-eng：响应即时性、可中断、scale(0.97) 按压、弹簧曲线
+// 用于任何需要 iPadOS 质感的元素，可叠加在 .btn-* / .card 等之上
+
+// 可按压反馈：pointer-down 即时反馈（response 原则），CSS transitions 保证可中断
+// hover 微抬 1px + 阴影加深（emil-design 推荐数值），active scale(0.97) + 阴影收缩
+.pressable {
+  transition: transform 0.16s var(--ease-emphasized),
+              box-shadow 0.2s var(--ease-standard, cubic-bezier(0.25, 0.1, 0.25, 1)),
+              background-color 0.15s var(--ease-standard, cubic-bezier(0.25, 0.1, 0.25, 1)),
+              opacity 0.15s var(--ease-standard, cubic-bezier(0.25, 0.1, 0.25, 1));
+  will-change: transform;
+  -webkit-tap-highlight-color: transparent;
+  cursor: pointer;
+}
+.pressable:hover {
+  transform: translateY(-1px);
+}
+.pressable:active {
+  transform: scale(0.97);
+  transition-duration: 0.08s;  // 按下时即时反馈，无延迟感
+}
+.pressable:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+  transform: none;
+}
+@media (hover: none) {
+  // 触摸设备无 hover，禁用 translateY 避免悬停残留
+  .pressable:hover { transform: none; }
+}
+
+// 悬浮卡片：hover 抬起 2px + 阴影加深 + active 微缩
+// 适用于 .ios-card / 列表项 / 通知卡片等需强调交互性的容器
+.lifted-card {
+  transition: transform 0.25s var(--ease-decelerate, cubic-bezier(0, 0, 0.2, 1)),
+              box-shadow 0.25s var(--ease-standard, cubic-bezier(0.25, 0.1, 0.25, 1));
+  will-change: transform;
+}
+.lifted-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+.lifted-card:active {
+  transform: scale(0.99);  // 容器级按压更轻，避免过度变形
+  transition-duration: 0.1s;
+}
+@media (hover: none) {
+  .lifted-card:hover { transform: none; box-shadow: var(--shadow-sm); }
+}
+
+// iPadOS 图标按钮：44×44 触摸目标 + 圆形 hover 背景（HIG 最小可点击区域）
+// 用于工具栏、导航条、行内操作按钮
+.icon-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-pill);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;  // iPadOS SF Symbols 默认 size
+  color: var(--primary-color);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s var(--ease-standard, cubic-bezier(0.25, 0.1, 0.25, 1)),
+              transform 0.16s var(--ease-emphasized),
+              color 0.15s var(--ease-standard, cubic-bezier(0.25, 0.1, 0.25, 1));
+  -webkit-tap-highlight-color: transparent;
+  will-change: transform;
+}
+.icon-btn:hover {
+  background: var(--primary-light);
+}
+.icon-btn:active {
+  transform: scale(0.94);  // 图标按钮略大按压，强调"按下感"
+  background: var(--primary-lighter);
+  transition-duration: 0.08s;
+}
+.icon-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.icon-btn.icon-btn--sm {
+  width: 36px;
+  height: 36px;
+  font-size: 14px;
+}
+.icon-btn.icon-btn--lg {
+  width: 50px;
+  height: 50px;
+  font-size: 20px;
+}
+// 危险态（删除/移除按钮）
+.icon-btn.icon-btn--danger {
+  color: var(--danger, #FF3B30);
+}
+.icon-btn.icon-btn--danger:hover {
+  background: rgba(255, 59, 48, 0.12);
+}
+
+// 胶囊按钮：用于工具栏内强调动作（如"转到"）
+.capsule-btn {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: var(--radius-pill);
+  background: var(--primary-color);
+  color: #fff;
+  border: none;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  cursor: pointer;
+  transition: transform 0.16s var(--ease-emphasized),
+              background-color 0.15s var(--ease-standard, cubic-bezier(0.25, 0.1, 0.25, 1)),
+              box-shadow 0.2s var(--ease-standard, cubic-bezier(0.25, 0.1, 0.25, 1));
+  will-change: transform;
+  -webkit-tap-highlight-color: transparent;
+}
+.capsule-btn:hover {
+  background: var(--primary-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(var(--primary-rgb, 0, 122, 255), 0.35);
+}
+.capsule-btn:active {
+  transform: scale(0.97);
+  box-shadow: 0 1px 2px rgba(var(--primary-rgb, 0, 122, 255), 0.2);
+  transition-duration: 0.08s;
+}
+.capsule-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+// iPadOS 输入框：圆角胶囊 + focus 时主色光晕
+// 适用于地址栏、搜索框、Sheet 内输入
+.ios-input {
+  width: 100%;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  background: var(--bg-color);
+  color: var(--text-primary);
+  font-size: var(--font-size-body);
+  outline: none;
+  transition: border-color 0.18s var(--ease-standard, cubic-bezier(0.25, 0.1, 0.25, 1)),
+              background-color 0.15s var(--ease-standard, cubic-bezier(0.25, 0.1, 0.25, 1)),
+              box-shadow 0.2s var(--ease-standard, cubic-bezier(0.25, 0.1, 0.25, 1));
+}
+.ios-input::placeholder {
+  color: var(--text-tertiary);
+}
+.ios-input:focus {
+  border-color: var(--primary-color);
+  background: var(--card-bg);
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb, 0, 122, 255), 0.12);
+}
+
+// 状态指示色：用于收藏按钮、激活态等
+.state-active {
+  color: var(--warning, #FF9500);  // iPadOS 黄色用于收藏（star）
+}
+
+// Reduced motion 降级：所有动效辅助类移除 transform
+@media (prefers-reduced-motion: reduce) {
+  .pressable,
+  .lifted-card,
+  .icon-btn,
+  .capsule-btn {
+    transition-duration: 0.01ms !important;
+  }
+  .pressable:hover,
+  .pressable:active,
+  .lifted-card:hover,
+  .lifted-card:active,
+  .icon-btn:active,
+  .capsule-btn:hover,
+  .capsule-btn:active {
+    transform: none !important;
+  }
+}
+
 // ========== LaTeX 文档渲染样式 ==========
 
 // LaTeX 文档容器
@@ -1095,7 +1308,7 @@ input[type="radio"]:checked::after {
 .latex-verbatim {
   background: rgba(127, 127, 127, 0.08);
   padding: 8px 12px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   overflow-x: auto;
   font-family: 'Menlo', 'Consolas', 'Courier New', monospace;
   font-size: 0.9em;

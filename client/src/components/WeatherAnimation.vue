@@ -1095,7 +1095,7 @@ export default {
 
 .cloud {
   position: absolute;
-  border-radius: 100px;
+  border-radius: var(--radius-pill);
   will-change: transform;
 }
 

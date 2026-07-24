@@ -41,7 +41,7 @@
       <span class="music-time-label">{{ formattedTime }}</span>
       <div class="music-expanded-progress" @click.stop="$emit('seek', $event)">
         <div class="music-progress-track">
-          <div class="music-progress-fill" :style="{ width: progressPercent + '%' }"></div>
+          <div class="music-progress-fill" :style="{ transform: 'scaleX(' + (progressPercent / 100) + ')' }"></div>
           <div class="music-progress-dot" :style="{ left: progressPercent + '%' }"></div>
         </div>
       </div>
@@ -148,10 +148,13 @@ export default {
 
 .wave-bar {
   width: 2.5px;
-  height: 3px;
+  height: 13px; /* base = max，用 scaleY 缩放避免动画 height 触发 layout 回流（apple-design §11） */
   border-radius: 1.5px;
   background: rgba(255, 255, 255, 0.5);
-  transition: height 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transform: scaleY(0.231); /* 3px / 13px，非播放态静止高度 */
+  transform-origin: center;
+  transition: transform 0.3s var(--ease-spring);
+  will-change: transform;
 }
 
 .wave-bar.wave-playing {
@@ -162,11 +165,12 @@ export default {
 .wave-bar.wave-playing:nth-child(2) { animation-duration: 0.9s; animation-delay: 0.1s; }
 .wave-bar.wave-playing:nth-child(3) { animation-duration: 0.6s; animation-delay: 0.2s; }
 
+/* 只动画 transform（合成层），不动画 height（布局属性） */
 @keyframes waveAnim {
-  0% { height: 3px; }
-  30% { height: 10px; }
-  60% { height: 5px; }
-  100% { height: 13px; }
+  0%   { transform: scaleY(0.231); } /* 3px */
+  30%  { transform: scaleY(0.769); } /* 10px */
+  60%  { transform: scaleY(0.385); } /* 5px */
+  100% { transform: scaleY(1); }     /* 13px */
 }
 
 /* ===== Expanded ===== */
@@ -194,7 +198,7 @@ export default {
 }
 
 .music-expanded-cover:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -330,22 +334,29 @@ export default {
 
 .music-progress-track {
   width: 100%;
-  height: 3px;
+  height: 5px; /* base = max，用 scaleY 缩放避免动画 height 触发 layout 回流（apple-design §11） */
   border-radius: 2px;
   background: rgba(255, 255, 255, 0.1);
   position: relative;
-  transition: height 0.12s var(--ease-standard);
+  transform: scaleY(0.6); /* 3px / 5px，静止态高度 */
+  transform-origin: center;
+  transition: transform 0.12s var(--ease-standard);
+  will-change: transform;
 }
 
 .music-expanded-progress:hover .music-progress-track {
-  height: 5px;
+  transform: scaleY(1);
 }
 
 .music-progress-fill {
+  width: 100%;
   height: 100%;
   border-radius: 2px;
   background: rgba(255, 255, 255, 0.65);
-  transition: width 0.2s var(--ease-standard);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 0.2s var(--ease-standard);
+  will-change: transform;
 }
 
 .music-progress-dot {
@@ -393,7 +404,7 @@ export default {
 }
 
 .music-ctrl-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 

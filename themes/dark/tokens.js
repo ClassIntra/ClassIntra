@@ -1,6 +1,6 @@
 // Dark 主题 Token 定义
 // 值与 client/src/styles/global.scss [data-theme="dark"] 保持同步
-// 仅提取主题相关 token（color/shadow/motion），不提取静态变量（font/spacing/z/radius）
+// 提取主题相关 token（color/shape/shadow/motion），不提取静态变量（font/spacing/z）
 
 var TOKENS = {
   color: {
@@ -63,6 +63,16 @@ var TOKENS = {
       dotActive: '#FFFFFF'
     }
   },
+  shape: {
+    xs: '4px',
+    sm: '8px',
+    md: '12px',
+    lg: '16px',
+    xl: '20px',
+    '2xl': '24px',
+    '3xl': '28px',
+    pill: '9999px'
+  },
   shadow: {
     sm: '0 1px 3px rgba(0,0,0,0.3)',
     md: '0 4px 12px rgba(0,0,0,0.3)',
@@ -74,6 +84,7 @@ var TOKENS = {
     easeDecelerate: 'cubic-bezier(0, 0, 0.2, 1)',
     easeAccelerate: 'cubic-bezier(0.4, 0, 1, 1)',
     easeSpring: 'cubic-bezier(0.34, 1.56, 0.64, 1)',
+    easeEmphasized: 'cubic-bezier(0.32, 0.72, 0, 1)',
     durationFast: '0.15s',
     durationNormal: '0.25s',
     durationSlow: '0.35s'

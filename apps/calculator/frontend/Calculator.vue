@@ -809,7 +809,7 @@ export default {
   justify-content: center;
 }
 .nav-action:hover { background: rgba(var(--primary-rgb), 0.08); }
-.nav-action:active { transform: scale(0.92); }
+.nav-action:active { transform: scale(0.94); }
 
 /* 主容器：左侧计算区 + 右侧历史抽屉 */
 .calc-container {
