@@ -61,25 +61,25 @@ export default {
   padding: 0 20px; border-radius: 0; border: none;
   border-top: 0.5px solid var(--separator-color);
   background: transparent; color: var(--primary-color); font-size: var(--font-size-callout);
-  cursor: pointer; transition: background var(--transition-fast), transform 0.15s cubic-bezier(0.32, 0.72, 0, 1);
+  cursor: pointer; transition: background var(--transition-fast), transform 0.15s var(--ease-emphasized);
   min-height: 44px; font-weight: var(--font-weight-regular);
 }
 .btn-secondary:hover { background: var(--primary-lighter); }
-.btn-secondary:active { transform: scale(0.92); opacity: 0.7; }
+.btn-secondary:active { transform: scale(0.94); opacity: 0.7; }
 .btn-confirm {
   display: flex; align-items: center; justify-content: center;
   padding: 0 20px; border-radius: 0; border: none;
   border-top: 0.5px solid var(--separator-color);
   font-size: var(--font-size-callout); font-weight: var(--font-weight-semibold); cursor: pointer;
-  transition: background var(--transition-fast), transform 0.15s cubic-bezier(0.32, 0.72, 0, 1);
+  transition: background var(--transition-fast), transform 0.15s var(--ease-emphasized);
   min-height: 44px;
 }
-.btn-confirm:active { transform: scale(0.92); opacity: 0.7; }
+.btn-confirm:active { transform: scale(0.94); opacity: 0.7; }
 .btn-danger { background: transparent; color: var(--danger-color); }
 .btn-danger:hover { background: var(--danger-lighter, rgba(255, 59, 48, 0.08)); }
 .btn-primary-confirm { background: transparent; color: var(--primary-color); }
 .btn-primary-confirm:hover { background: var(--primary-lighter); }
-.modal-fade-enter-active { transition: opacity 0.25s var(--ease-standard, cubic-bezier(0.32, 0.72, 0, 1)), transform 0.3s var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1)); }
+.modal-fade-enter-active { transition: opacity 0.25s var(--ease-emphasized), transform 0.3s var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1)); }
 .modal-fade-leave-active { transition: opacity 0.15s var(--ease-accelerate), transform 0.15s var(--ease-accelerate); }
 .modal-fade-enter { opacity: 0; transform: scale(0.92) translateY(8px); }
 .modal-fade-leave-to { opacity: 0; transform: scale(0.97) translateY(-4px); }

@@ -9,6 +9,10 @@
 // 5. loadExternalTheme 加载远程主题包 JSON
 // 6. 单例模式 getThemeEngine()
 // 7. 内置主题从 themes/ 顶级目录动态加载（通过 theme-loader）
+// 8. 扩展主题：通过 theme-extension-loader 扫描 theme-extensions/ 目录，
+//    调用扩展包的 apply(engine, manifest) 注册到 _themes
+// 9. 动态色注入：setDynamicColor(seedColor) 重新生成扩展主题的 color token，
+//    如果当前主题是该扩展主题，则立即重新写入 --ci-color-* 变量
 
 import { flattenTokens, applyToElement, removeFromElement } from '@shared/theme-adapter';
 import { LIGHT_TOKENS } from '@shared/theme-tokens';
@@ -22,6 +26,8 @@ function ThemeEngine() {
   this._subscribers = []; // 主题变化订阅者
   this._motionEnabled = true; // 动画是否启用
   this._motionInitialized = false;
+  // 扩展主题状态：{ extensionId: { seedColor, lightId, darkId, manifest, applyFn, buildTokensFn } }
+  this._extensionState = {};
 }
 
 // 注册主题
@@ -251,6 +257,118 @@ ThemeEngine.prototype.loadExternalTheme = function(url, options) {
     });
 };
 
+// ========== 扩展主题 API ==========
+
+// 注册扩展主题状态
+// 由扩展包 apply.js 在注册主题后调用，保存 buildTokens 函数和种子色
+// extensionId: 扩展 id（如 'material-you'）
+// state: { seedColor, lightId, darkId, manifest, buildTokens }
+//   buildTokens: function(isDark, seedColor) → 结构化 tokens 对象
+ThemeEngine.prototype.registerExtension = function(extensionId, state) {
+  if (!extensionId || !state) return;
+  this._extensionState[extensionId] = {
+    seedColor: state.seedColor,
+    lightId: state.lightId,
+    darkId: state.darkId,
+    manifest: state.manifest,
+    buildTokens: typeof state.buildTokens === 'function' ? state.buildTokens : null
+  };
+};
+
+// 获取扩展状态
+ThemeEngine.prototype.getExtension = function(extensionId) {
+  return this._extensionState[extensionId] || null;
+};
+
+// 列出所有已注册的扩展主题
+ThemeEngine.prototype.listExtensions = function() {
+  var self = this;
+  return Object.keys(this._extensionState).map(function(id) {
+    var s = self._extensionState[id];
+    return {
+      id: id,
+      seedColor: s.seedColor,
+      lightId: s.lightId,
+      darkId: s.darkId,
+      name: s.manifest ? s.manifest.name : id,
+      type: s.manifest ? s.manifest.type : 'static',
+      hasDynamicColor: !!s.buildTokens
+    };
+  });
+};
+
+// 设置扩展主题的种子色（动态色注入）
+// extensionId: 扩展 id（如 'material-you'）
+// seedColor: 新种子色（'#RRGGBB' 或 '#RGB'）
+// 返回 boolean 是否成功
+// 副作用：如果当前主题是该扩展的 light/dark 变体，立即重新写入 --ci-* 变量
+ThemeEngine.prototype.setDynamicColor = function(extensionId, seedColor) {
+  var state = this._extensionState[extensionId];
+  if (!state || !state.buildTokens) {
+    console.warn('[ThemeEngine] 扩展主题 "' + extensionId + '" 不存在或不支持动态色');
+    return false;
+  }
+  if (!seedColor || typeof seedColor !== 'string' || !/^#([a-f\d]{6}|[a-f\d]{3})$/i.test(seedColor)) {
+    console.warn('[ThemeEngine] 种子色 "' + seedColor + '" 不是合法 HEX');
+    return false;
+  }
+
+  // 重算并更新 light/dark 主题的 tokens
+  var newLightTokens = state.buildTokens(false, seedColor);
+  var newDarkTokens = state.buildTokens(true, seedColor);
+
+  // 更新已注册主题的 tokens
+  if (this._themes[state.lightId]) {
+    this._themes[state.lightId].tokens = newLightTokens;
+  }
+  if (this._themes[state.darkId]) {
+    this._themes[state.darkId].tokens = newDarkTokens;
+  }
+
+  // 更新种子色记录
+  state.seedColor = seedColor;
+
+  // 如果当前主题是该扩展的变体，立即应用新 tokens
+  if (this._currentTheme === state.lightId || this._currentTheme === state.darkId) {
+    // 重新调用 setTheme 触发 --ci-* 变量重写
+    this.setTheme(this._currentTheme);
+  }
+
+  // 通过 EventBus 广播动态色变化
+  try {
+    var bus = getEventBus();
+    bus.emit('theme:dynamic-color-changed', {
+      extensionId: extensionId,
+      seedColor: seedColor
+    });
+  } catch (e) { /* EventBus 未初始化时忽略 */ }
+
+  return true;
+};
+
+// 获取当前主题所属的扩展 id（如果不是扩展主题，返回 null）
+ThemeEngine.prototype.getCurrentExtensionId = function() {
+  var current = this._currentTheme;
+  if (!current) return null;
+  var self = this;
+  var ids = Object.keys(this._extensionState);
+  for (var i = 0; i < ids.length; i++) {
+    var s = self._extensionState[ids[i]];
+    if (s.lightId === current || s.darkId === current) {
+      return ids[i];
+    }
+  }
+  return null;
+};
+
+// 获取当前扩展主题的种子色（如果不是扩展主题，返回 null）
+ThemeEngine.prototype.getCurrentSeedColor = function() {
+  var extId = this.getCurrentExtensionId();
+  if (!extId) return null;
+  var state = this._extensionState[extId];
+  return state ? state.seedColor : null;
+};
+
 // ========== 单例 ==========
 var _instance = null;
 function getThemeEngine() {
@@ -310,10 +428,23 @@ function getTheme(id) {
   return { id: theme.id, name: theme.name, type: theme.type, icons: theme.icons };
 }
 
+// 加载所有扩展主题（延迟加载，避免与内置主题耦合）
+// 应在 App.vue mounted 中调用一次，或由 Settings 页"启用扩展主题"按钮调用
+// 返回 Promise<appliedIds[]>
+function loadThemeExtensions(options) {
+  // 动态 import 避免影响首屏（扩展主题是可选功能）
+  return import('./theme-extension-loader').then(function(mod) {
+    var loadExtensions = mod.loadExtensions;
+    var engine = getThemeEngine();
+    return loadExtensions(engine, options || {});
+  });
+}
+
 export {
   ThemeEngine,
   getThemeEngine,
   THEME_REGISTRY,
   listThemes,
-  getTheme
+  getTheme,
+  loadThemeExtensions
 };

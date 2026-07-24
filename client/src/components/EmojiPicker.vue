@@ -67,7 +67,7 @@ export default {
   right: 0;
   width: 360px;
   background: var(--card-bg);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   border: 1px solid var(--border-color);
   padding: 12px;
@@ -86,7 +86,7 @@ export default {
 .emoji-tab {
   font-size: 20px;
   padding: 4px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: transparent;
   transition: background 0.2s;
 }
@@ -110,7 +110,7 @@ export default {
 .emoji-btn {
   font-size: 22px;
   padding: 6px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;

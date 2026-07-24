@@ -70,7 +70,7 @@ export default {
 }
 
 .app-icon:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -117,7 +117,7 @@ export default {
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
-  border-radius: 9999px;
+  border-radius: var(--radius-pill);
   background: var(--danger-color);
   color: #fff;
   font-size: 10px;
@@ -165,7 +165,7 @@ export default {
   right: -2px;
   width: 18px;
   height: 18px;
-  border-radius: 9999px;
+  border-radius: var(--radius-pill);
   background: rgba(0, 0, 0, 0.6);
   color: #fff;
   font-size: 9px;

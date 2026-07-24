@@ -330,7 +330,7 @@ export default {
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.05);
   display: flex;
   flex-direction: column;
@@ -363,12 +363,12 @@ export default {
 
 .search-icon {
   font-size: 18px;
-  color: #999;
+  color: var(--text-secondary);
   flex-shrink: 0;
 }
 
 .is-dark .search-icon {
-  color: #888;
+  color: var(--text-secondary);
 }
 
 .search-input {
@@ -377,20 +377,20 @@ export default {
   outline: none;
   background: transparent;
   font-size: 17px;
-  color: #1d1d1f;
+  color: var(--text-primary);
   font-family: inherit;
 }
 
 .is-dark .search-input {
-  color: #f5f5f7;
+  color: var(--text-primary);
 }
 
 .search-input::placeholder {
-  color: #aaa;
+  color: var(--text-tertiary);
 }
 
 .is-dark .search-input::placeholder {
-  color: #777;
+  color: var(--text-tertiary);
 }
 
 .clear-btn {
@@ -403,14 +403,14 @@ export default {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  color: #666;
+  color: var(--text-tertiary);
   font-size: 11px;
   transition: background 0.15s, transform 0.15s;
 }
 
 .is-dark .clear-btn {
   background: rgba(255, 255, 255, 0.1);
-  color: #aaa;
+  color: var(--text-secondary);
 }
 
 .clear-btn:hover {
@@ -427,14 +427,14 @@ export default {
   padding: 3px 7px;
   border-radius: 5px;
   background: rgba(0, 0, 0, 0.06);
-  color: #888;
+  color: var(--text-secondary);
   font-family: ui-monospace, monospace;
   flex-shrink: 0;
 }
 
 .is-dark .esc-hint {
   background: rgba(255, 255, 255, 0.1);
-  color: #999;
+  color: var(--text-secondary);
 }
 
 /* ========== 搜索主体 ========== */
@@ -450,7 +450,7 @@ export default {
   justify-content: center;
   gap: 10px;
   padding: 32px;
-  color: #888;
+  color: var(--text-secondary);
   font-size: 14px;
 }
 
@@ -470,23 +470,23 @@ export default {
 .section-title {
   font-size: 12px;
   font-weight: 600;
-  color: #888;
+  color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
 .is-dark .section-title {
-  color: #888;
+  color: var(--text-secondary);
 }
 
 .clear-recent-btn {
   border: none;
   background: transparent;
-  color: #007aff;
+  color: var(--primary-color);
   font-size: 12px;
   cursor: pointer;
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   transition: background 0.15s;
 }
 
@@ -507,9 +507,9 @@ export default {
   padding: 8px 12px;
   border: none;
   background: transparent;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  color: #1d1d1f;
+  color: var(--text-primary);
   font-size: 14px;
   text-align: left;
   width: 100%;
@@ -517,7 +517,7 @@ export default {
 }
 
 .is-dark .recent-item {
-  color: #f5f5f7;
+  color: var(--text-primary);
 }
 
 .recent-item.active,
@@ -531,14 +531,14 @@ export default {
 }
 
 .recent-icon {
-  color: #999;
+  color: var(--text-secondary);
   font-size: 13px;
   width: 16px;
   text-align: center;
 }
 
 .is-dark .recent-icon {
-  color: #777;
+  color: var(--text-tertiary);
 }
 
 .recent-text {
@@ -560,14 +560,14 @@ export default {
 .group-header {
   font-size: 12px;
   font-weight: 600;
-  color: #888;
+  color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   padding: 6px 8px 4px;
 }
 
 .is-dark .group-header {
-  color: #888;
+  color: var(--text-secondary);
 }
 
 .result-item {
@@ -577,16 +577,16 @@ export default {
   padding: 8px 12px;
   border: none;
   background: transparent;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  color: #1d1d1f;
+  color: var(--text-primary);
   text-align: left;
   width: 100%;
   transition: background 0.12s;
 }
 
 .is-dark .result-item {
-  color: #f5f5f7;
+  color: var(--text-primary);
 }
 
 .result-item.active,
@@ -602,7 +602,7 @@ export default {
 .result-icon-wrap {
   width: 32px;
   height: 32px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: rgba(0, 0, 0, 0.06);
   display: flex;
   align-items: center;
@@ -619,16 +619,16 @@ export default {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 
 .result-icon-fa {
   font-size: 14px;
-  color: #555;
+  color: var(--text-tertiary);
 }
 
 .is-dark .result-icon-fa {
-  color: #ccc;
+  color: var(--text-secondary);
 }
 
 .result-content {
@@ -646,7 +646,7 @@ export default {
 
 .result-desc {
   font-size: 12px;
-  color: #999;
+  color: var(--text-secondary);
   margin-top: 2px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -654,7 +654,7 @@ export default {
 }
 
 .is-dark .result-desc {
-  color: #888;
+  color: var(--text-secondary);
 }
 
 /* ========== 空状态 ========== */
@@ -665,12 +665,12 @@ export default {
   justify-content: center;
   gap: 12px;
   padding: 48px 20px;
-  color: #aaa;
+  color: var(--text-secondary);
   font-size: 14px;
 }
 
 .is-dark .empty-hint {
-  color: #666;
+  color: var(--text-tertiary);
 }
 
 .hint-icon {
@@ -686,12 +686,12 @@ export default {
   padding: 8px 20px;
   border-top: 1px solid rgba(0, 0, 0, 0.06);
   font-size: 11px;
-  color: #999;
+  color: var(--text-secondary);
 }
 
 .is-dark .search-footer {
   border-top-color: rgba(255, 255, 255, 0.06);
-  color: #777;
+  color: var(--text-tertiary);
 }
 
 .footer-hint {
@@ -703,7 +703,7 @@ export default {
 .footer-hint kbd {
   display: inline-block;
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   background: rgba(0, 0, 0, 0.06);
   font-family: ui-monospace, monospace;
   font-size: 10px;

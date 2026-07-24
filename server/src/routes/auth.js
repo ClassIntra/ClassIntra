@@ -354,6 +354,9 @@ router.post('/relay-verify', function(req, res) {
       net_name: user.net_name,
       real_name: user.real_name,
       gender: user.gender,
+      // 必须返回 password_hash：tryRelayLogin 在 INSERT/UPDATE 时需要此字段
+      // （NOT NULL 约束；undefined 会被 better-sqlite3 绑定为 NULL 导致约束失败）
+      password_hash: user.password_hash,
       is_admin: user.is_admin,
       status: user.status
     }
@@ -421,6 +424,11 @@ function tryRelayLogin(account, password, res) {
         pending--;
         if (userData) {
           completed = true;
+          // 防御：旧版中继服务器未返回 password_hash 时无法落库（NOT NULL 约束）
+          if (!userData.password_hash) {
+            console.warn('[Relay Login] 中继服务器未返回 password_hash，请升级对端版本；user_id=' + userData.user_id);
+            return res.json({ code: 500, message: '中继登录暂不可用，请联系管理员升级中继服务器', data: null });
+          }
           var existingUser = db.prepare('SELECT user_id FROM users WHERE user_id = ?').get(userData.user_id);
           if (!existingUser) {
             db.prepare(

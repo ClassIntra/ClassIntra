@@ -84,7 +84,7 @@ export default {
 .nav-left {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--spacing-sm);
   min-width: 80px;
 }
 
@@ -100,7 +100,7 @@ export default {
   background: transparent;
   border: none;
   cursor: pointer;
-  transition: opacity var(--transition-fast), transform 0.15s cubic-bezier(0.32, 0.72, 0, 1);
+  transition: opacity var(--transition-fast), transform 0.15s var(--ease-emphasized);
   padding: 0;
 }
 
@@ -120,7 +120,7 @@ export default {
 .nav-center {
   flex: 1;
   text-align: left;
-  padding-left: 8px;
+  padding-left: var(--spacing-sm);
   overflow: hidden;
 }
 

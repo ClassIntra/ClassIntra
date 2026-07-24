@@ -1398,7 +1398,7 @@ export default {
 }
 
 .btn-primary:active:not(:disabled) {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -1430,7 +1430,7 @@ export default {
 }
 
 .btn-outline:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -1452,7 +1452,7 @@ export default {
 }
 
 .btn-danger-outline:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -1480,7 +1480,7 @@ export default {
 }
 
 .toggle-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -1505,7 +1505,7 @@ export default {
   -webkit-tap-highlight-color: transparent;
 }
 .reset-desktop-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -1553,7 +1553,7 @@ export default {
 }
 
 .wp-tab:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -1626,7 +1626,7 @@ export default {
 }
 
 .wp-card:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -2043,7 +2043,7 @@ export default {
 }
 
 .privacy-toggle:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -2186,7 +2186,7 @@ export default {
 }
 
 .color-swatch:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -2243,7 +2243,7 @@ export default {
 }
 
 .color-reset-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 

@@ -288,7 +288,7 @@ export default {
   min-width: 44px;
 }
 .ubw-btn i { font-size: 14px; }
-.ubw-btn:active { transform: scale(0.92); }
+.ubw-btn:active { transform: scale(0.94); }
 .ubw-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .ubw-btn--ban {
   background: linear-gradient(135deg, #FF3B30, #FF6B6B);

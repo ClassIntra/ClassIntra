@@ -3109,7 +3109,7 @@ export default {
 }
 
 .admin-tab:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -3394,7 +3394,7 @@ export default {
 }
 
 .table-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -3500,7 +3500,7 @@ export default {
 }
 
 .load-more-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -3661,7 +3661,7 @@ export default {
 }
 
 .action-btn:active:not(:disabled) {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -4062,7 +4062,7 @@ export default {
 }
 
 .btn-primary:active:not(:disabled) {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -4525,7 +4525,7 @@ export default {
 }
 
 .move-browser-back:active:not(:disabled) {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -4685,7 +4685,7 @@ export default {
 }
 
 .btn-cancel:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -4710,7 +4710,7 @@ export default {
 }
 
 .btn-confirm:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -5221,7 +5221,7 @@ export default {
 }
 
 .admin-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 

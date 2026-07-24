@@ -3104,7 +3104,7 @@ export default {
 }
 
 .nav-action-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -3378,7 +3378,7 @@ export default {
 }
 
 .header-action-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -3532,7 +3532,7 @@ export default {
 }
 
 .reply-preview-cancel:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -3562,7 +3562,7 @@ export default {
 }
 
 .emoji-toggle:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -3585,7 +3585,7 @@ export default {
 }
 
 .cloud-toggle:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -3628,7 +3628,7 @@ export default {
 }
 
 .send-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -3725,7 +3725,7 @@ export default {
 }
 
 .reaction-pick-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -3806,7 +3806,7 @@ export default {
 }
 
 .btn-cancel:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -3826,7 +3826,7 @@ export default {
 }
 
 .btn-confirm:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -3854,7 +3854,7 @@ export default {
 
 .btn-cancel-sm:active,
 .btn-confirm-sm:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -4011,7 +4011,7 @@ export default {
 }
 
 .settings-close:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -4135,7 +4135,7 @@ export default {
 }
 
 .member-kick-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -4384,7 +4384,7 @@ export default {
 }
 
 .settings-action-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -4408,7 +4408,7 @@ export default {
 }
 
 .settings-danger-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -4557,7 +4557,7 @@ export default {
 }
 
 .search-clear:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -4571,7 +4571,7 @@ export default {
 }
 
 .search-close-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 

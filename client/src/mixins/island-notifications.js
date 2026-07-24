@@ -352,7 +352,7 @@ export default {
       }
 
       self.isBouncing = true;
-      self._bounceTimer = setTimeout(function() { self.isBouncing = false; }, 500);
+      self._bounceTimer = setTimeout(function() { self.isBouncing = false; }, 420);
 
       self.startProgressBar();
       self.startTimestampUpdate();

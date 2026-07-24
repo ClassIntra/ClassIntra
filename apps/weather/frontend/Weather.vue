@@ -420,7 +420,7 @@ export default {
 }
 .nav-btn:hover { background: rgba(255,255,255,0.15); }
 .nav-btn:disabled { opacity: 0.4; }
-.nav-btn:active { transform: scale(0.92); opacity: 0.7; }
+.nav-btn:active { transform: scale(0.94); opacity: 0.7; }
 .spin { animation: spin 0.8s var(--ease-standard) infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -460,7 +460,7 @@ export default {
   transition: background 0.2s, transform 0.15s, opacity 0.15s;
 }
 .btn-retry:hover { background: rgba(255,255,255,0.25); }
-.btn-retry:active { transform: scale(0.92); opacity: 0.7; }
+.btn-retry:active { transform: scale(0.94); opacity: 0.7; }
 
 .weather-main {
   flex: 1;

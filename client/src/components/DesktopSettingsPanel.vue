@@ -388,7 +388,7 @@ export default {
   flex-shrink: 0;
 }
 .action-icon--blue {
-  background: #007AFF;
+  background: var(--primary-color);
 }
 
 .action-text {
@@ -480,7 +480,7 @@ export default {
   width: 100%;
   max-width: 640px;
   max-height: 70%;
-  border-radius: 20px 20px 0 0;
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -539,9 +539,9 @@ export default {
 .widget-picker-icon {
   width: 44px;
   height: 44px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: rgba(0, 122, 255, 0.12);
-  color: #007AFF;
+  color: var(--primary-color);
   display: flex;
   align-items: center;
   justify-content: center;

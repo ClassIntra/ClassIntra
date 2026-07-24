@@ -35,7 +35,7 @@
       </div>
       <!-- 进度条 -->
       <div class="video-progress" @click.stop="onSeek">
-        <div class="video-progress-bar" :style="{ width: progressPercent + '%' }"></div>
+        <div class="video-progress-bar" :style="{ transform: 'scaleX(' + (progressPercent / 100) + ')' }"></div>
       </div>
       <div class="video-time">
         <span>{{ formattedTime }}</span>
@@ -253,10 +253,14 @@ export default {
   margin-bottom: 6px;
 }
 .video-progress-bar {
+  width: 100%;
   height: 100%;
   background: linear-gradient(90deg, #f43f5e, #fb923c);
   border-radius: 2px;
-  transition: width 0.3s ease;
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 0.3s ease;
+  will-change: transform;
 }
 .video-time {
   display: flex;

@@ -1599,7 +1599,7 @@ export default {
 }
 
 .nav-action-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -1655,7 +1655,7 @@ export default {
 }
 
 .sidebar-header-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -1684,7 +1684,7 @@ export default {
   background: var(--card-bg); color: var(--text-primary); font-size: var(--font-size-sm); cursor: pointer;
   transition: background 0.15s, transform 0.15s, opacity 0.15s;
 }
-.panel-close:active { transform: scale(0.92); opacity: 0.7; }
+.panel-close:active { transform: scale(0.94); opacity: 0.7; }
 
 .system-prompt-input {
   width: 100%; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-color);
@@ -1701,14 +1701,14 @@ export default {
   background: var(--card-bg); color: var(--text-primary); font-size: var(--font-size-sm); cursor: pointer;
   transition: background 0.15s, transform 0.15s, opacity 0.15s;
 }
-.btn-reset:active { transform: scale(0.92); opacity: 0.7; }
+.btn-reset:active { transform: scale(0.94); opacity: 0.7; }
 
 .btn-save-prompt {
   padding: 8px 16px; min-height: 44px; border-radius: var(--radius-sm); border: none;
   background: var(--primary-color); color: #fff; font-size: var(--font-size-sm); font-weight: 600; cursor: pointer;
   transition: background 0.15s, transform 0.15s, opacity 0.15s;
 }
-.btn-save-prompt:active { transform: scale(0.92); opacity: 0.7; }
+.btn-save-prompt:active { transform: scale(0.94); opacity: 0.7; }
 
 .user-markdown >>> .inline-code {
   background: rgba(0,0,0,0.06); padding: 1px 5px; border-radius: var(--radius-xs);
@@ -1983,7 +1983,7 @@ export default {
 }
 
 .sidebar-toggle:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -2170,7 +2170,7 @@ export default {
 }
 
 .header-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -2192,7 +2192,7 @@ export default {
 }
 
 .stop-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -2497,7 +2497,7 @@ export default {
 }
 
 .msg-action-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -2956,7 +2956,7 @@ export default {
 }
 
 .send-btn:active:not(:disabled) {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -3023,7 +3023,7 @@ export default {
 }
 
 .confirm-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -3191,7 +3191,7 @@ export default {
 }
 
 .header-icon-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 

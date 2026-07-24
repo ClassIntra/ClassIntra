@@ -246,7 +246,7 @@ export default {
   transition: background 0.15s;
 }
 .nav-action-btn:hover { background: var(--primary-light); }
-.nav-action-btn:active { transform: scale(0.92); opacity: 0.7; }
+.nav-action-btn:active { transform: scale(0.94); opacity: 0.7; }
 
 /* 搜索栏 */
 .picker-search-bar {

@@ -173,7 +173,7 @@ export default {
   left: 0;
   width: 100%;
   height: 2px;
-  border-radius: 0 0 26px 26px;
+  border-radius: 0 0 28px 28px;
   transform-origin: left center;
   transform: scaleX(0);
   transition: transform 30ms var(--ease-standard);

@@ -3570,7 +3570,7 @@ export default {
 }
 
 .mode-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -3714,7 +3714,7 @@ export default {
 }
 
 .tag-filter-clear:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -3962,7 +3962,7 @@ export default {
 }
 
 .editor-tag-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -4007,7 +4007,7 @@ export default {
 }
 
 .toolbar-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -4253,7 +4253,7 @@ export default {
 }
 
 .modal-close:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -4815,7 +4815,7 @@ export default {
 
 .mermaid-edit-btn:active,
 .mermaid-zoom-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -4889,7 +4889,7 @@ export default {
 }
 
 .zoom-ctrl-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -5227,7 +5227,7 @@ export default {
 }
 
 .folder-add-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 
@@ -5760,7 +5760,7 @@ export default {
 }
 
 .cloud-action-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.94);
   opacity: 0.7;
 }
 

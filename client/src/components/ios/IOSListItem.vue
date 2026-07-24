@@ -65,7 +65,7 @@ export default {
   width: 29px;
   height: 29px;
   border-radius: var(--radius-sm);
-  font-size: 15px;
+  font-size: var(--font-size-body);
   color: #FFFFFF;
   flex-shrink: 0;
 }

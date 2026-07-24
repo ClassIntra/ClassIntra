@@ -450,7 +450,7 @@ export default {
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border-radius: 24px;
+  border-radius: var(--radius-2xl);
   padding: 32px 40px;
   text-align: center;
   box-shadow:

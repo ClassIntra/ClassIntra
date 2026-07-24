@@ -198,7 +198,7 @@ export default {
   background: var(--card-bg);
   width: 100%;
   max-height: 85vh;
-  border-radius: 16px 16px 0 0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   display: flex;
   flex-direction: column;
   animation: slideUp 0.3s ease;

@@ -1614,8 +1614,8 @@ export default {
   cursor: pointer;
   position: relative;
   margin: 0 9px;
-  -webkit-transition: -webkit-transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  -webkit-transition: -webkit-transform 0.3s var(--ease-spring);
+  transition: transform 0.3s var(--ease-spring);
   border-radius: var(--radius-xl);
 }
 
@@ -1625,20 +1625,20 @@ export default {
 }
 
 .dock-slot:active {
-  -webkit-transform: scale(0.92) translateY(0);
-  transform: scale(0.92) translateY(0);
+  -webkit-transform: scale(0.94) translateY(0);
+  transform: scale(0.94) translateY(0);
   transition-duration: 0.12s;
 }
 
 /* transition-group：Dock 图标进出动画（自动扩展/缩减） */
 .dock-slot-move {
-  -webkit-transition: -webkit-transform 0.35s var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
-  transition: transform 0.35s var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
+  -webkit-transition: -webkit-transform 0.35s var(--ease-spring, var(--ease-spring));
+  transition: transform 0.35s var(--ease-spring, var(--ease-spring));
 }
 
 .dock-slot-enter-active {
-  -webkit-transition: opacity 0.3s var(--ease-standard), -webkit-transform 0.3s var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
-  transition: opacity 0.3s var(--ease-standard), transform 0.3s var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
+  -webkit-transition: opacity 0.3s var(--ease-standard), -webkit-transform 0.3s var(--ease-spring, var(--ease-spring));
+  transition: opacity 0.3s var(--ease-standard), transform 0.3s var(--ease-spring, var(--ease-spring));
 }
 
 .dock-slot-leave-active {
@@ -1660,8 +1660,8 @@ export default {
 }
 
 .dock-slot.dock-slot--launching {
-  -webkit-animation: dockLaunch 0.3s cubic-bezier(0.32, 0.72, 0, 1) forwards;
-  animation: dockLaunch 0.3s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  -webkit-animation: dockLaunch 0.3s var(--ease-emphasized) forwards;
+  animation: dockLaunch 0.3s var(--ease-emphasized) forwards;
 }
 
 @-webkit-keyframes dockLaunch {
@@ -1747,7 +1747,7 @@ export default {
   }
   .desktop-widget {
     min-height: 0;
-    border-radius: 18px;
+    border-radius: var(--radius-xl);
   }
   .dock-bar {
     bottom: 8px;
@@ -1846,7 +1846,7 @@ export default {
 .announcement-float-close {
   width: 28px;
   height: 28px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   border: none;
   background: rgba(255, 255, 255, 0.08);
   color: var(--text-primary, #e0e0e0);
@@ -1914,7 +1914,7 @@ export default {
 
 .announcement-float-btn {
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   padding: 6px 12px;
   font-size: var(--font-size-caption1);
   font-weight: 500;
@@ -2008,7 +2008,7 @@ export default {
   max-width: 92vw;
   max-height: 80vh;
   background: var(--card-bg, #fff);
-  border-radius: 18px;
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
@@ -2023,7 +2023,7 @@ export default {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px 20px;
+  padding: var(--spacing-md) var(--spacing-lg);
   border-bottom: 1px solid var(--separator-color, rgba(0,0,0,0.06));
 }
 .wc-title {
@@ -2038,14 +2038,14 @@ export default {
   font-size: 18px;
   cursor: pointer;
   padding: 4px 8px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   transition: background 0.15s;
 }
 .wc-close:hover {
   background: var(--separator-color, rgba(0,0,0,0.06));
 }
 .wc-body {
-  padding: 16px 20px;
+  padding: var(--spacing-md) var(--spacing-lg);
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
@@ -2115,17 +2115,17 @@ export default {
   text-align: center;
   color: var(--text-tertiary);
   font-size: 14px;
-  padding: 20px 0;
+  padding: var(--spacing-lg) 0;
 }
 .wc-actions {
   display: flex;
   gap: 10px;
-  padding: 14px 20px;
+  padding: var(--spacing-md) var(--spacing-lg);
   border-top: 1px solid var(--separator-color, rgba(0,0,0,0.06));
   justify-content: flex-end;
 }
 .wc-btn {
-  padding: 8px 20px;
+  padding: var(--spacing-sm) var(--spacing-lg);
   border-radius: 12px;
   border: none;
   font-size: 14px;
