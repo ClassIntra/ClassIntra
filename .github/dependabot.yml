@@ -1,0 +1,40 @@
+version: 2
+updates:
+  # 后端依赖（server/package.json + apps/*/package.json + plugins/*/package.json 通过 pnpm-workspace 管理）
+  - package-ecosystem: "npm"
+    directory: "/server"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "server"
+    commit-message:
+      prefix: "chore(deps)"
+
+  # 前端依赖（client/package.json）
+  - package-ecosystem: "npm"
+    directory: "/client"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "client"
+    commit-message:
+      prefix: "chore(deps)"
+
+  # GitHub Actions 版本更新
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "chore(ci)"
