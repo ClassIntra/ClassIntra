@@ -7,10 +7,10 @@
 
 <div align="center">
 
-[![星标](https://img.shields.io/github/stars/Nevino2333/ClassIntra?style=for-the-badge&color=orange&label=%E6%98%9F%E6%A0%87)](https://github.com/Nevino2333/ClassIntra)
+[![星标](https://img.shields.io/github/stars/ClassIntra/ClassIntra?style=for-the-badge&color=orange&label=%E6%98%9F%E6%A0%87)](https://github.com/ClassIntra/ClassIntra)
 [![开源许可](https://img.shields.io/badge/license-MIT-blue.svg?label=%E5%BC%80%E6%BA%90%E8%AE%B8%E5%8F%AF%E8%AF%81&style=for-the-badge)](LICENSE)
-[![Vibe Coding](https://img.shields.io/badge/Vibe_Coding-AI_%2B_%E4%BA%BA%E5%B7%A5-ff6b6b?style=for-the-badge)](https://github.com/Nevino2333/ClassIntra)
-[![平台](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-blue?style=for-the-badge)](https://github.com/Nevino2333/ClassIntra)
+[![Vibe Coding](https://img.shields.io/badge/Vibe_Coding-AI_%2B_%E4%BA%BA%E5%B7%A5-ff6b6b?style=for-the-badge)](https://github.com/ClassIntra/ClassIntra)
+[![平台](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-blue?style=for-the-badge)](https://github.com/ClassIntra/ClassIntra)
 [![Node](https://img.shields.io/badge/node-18%2B-brightgreen?style=for-the-badge&logo=nodedotjs)](https://nodejs.org/)
 
 </div>
@@ -284,9 +284,9 @@ pnpm build         # 生产构建
 ## 📈 星标历史
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Nevino2333/ClassIntra&type=Date&theme=dark" />
-  <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Nevino2333/ClassIntra&type=Date" />
-  <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Nevino2333/ClassIntra&type=Date" />
+  <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=ClassIntra/ClassIntra&type=Date&theme=dark" />
+  <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=ClassIntra/ClassIntra&type=Date" />
+  <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=ClassIntra/ClassIntra&type=Date" />
 </picture>
 
 ---
