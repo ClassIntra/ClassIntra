@@ -16,7 +16,7 @@
     "dotenv": "^16.4.1",
     "express": "^4.18.2",
     "helmet": "^7.1.0",
-    "jose": "^6.2.3",
+    "jose": "^6.2.9",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
     "multer": "^2.2.0",
