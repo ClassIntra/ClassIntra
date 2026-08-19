@@ -114,7 +114,7 @@ SemVer 的 PATCH 号构建时自动 +1，日常完全不碰版本号。新功能
 
 [size=18][b]仓库地址[/b][/size]
 
-[cloud type=github title=ClassIntra url=https://github.com/Nevino2333/ClassIntra]GitHub 仓库[/cloud]
+[cloud type=github title=ClassIntra url=https://github.com/ClassIntra/ClassIntra]GitHub 仓库[/cloud]
 
 [size=18][b]后续计划[/b][/size]
 
