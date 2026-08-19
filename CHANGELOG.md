@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.1.64] - 2026-08-19
+
+【安全】
+- 分级限流：登录/注册/刷新 token 60/min，状态查询 300/min，解决前端 2 秒轮询触发 429
+
+【修复】
+- 重新配置时 user_id 与 users 表同步：已注册学生保留原 ID（防止账号失效与 ID 冲突），新学生自动跳过已占用 ID
+- 班级群成员更新改为 UPSERT，避免删除行破坏群消息外键
+- 配置页对已注册场景增加警告横幅与确认提示
+
+【优化】
+- 移除 build.bat 冗余 xcopy 步骤（app.js 直接从 client/dist/ 提供前端产物）
+- 删除陈旧构建产物 server/public/index.html
+- .gitignore 收敛 server/public 仅保留 setup.html/icons/xgplayer
+
+【文档】
+- README/CLAUDE/DEPLOY 统一反映 apps/+plugins/+themes 结构
+- 修正班管账号创建流程说明（预注册 + ADMIN_USER_IDS，非 ADMIN_PASSWORD）
+
+## [1.1.63] - 2026-08-04
+版本更新
+
 ## [1.1.28] - 2026-07-21
 版本更新
 

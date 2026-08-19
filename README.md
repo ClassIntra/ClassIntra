@@ -144,23 +144,29 @@ Windows 用户也可用 `start.bat`（开发）或 `start-prod.bat`（生产）�
 
 ```
 ClassIntra/
+├── apps/                    # 应用（前端页面 + 可选后端 + 小组件）
+│   ├── ai-chat/frontend/    # AI 对话
+│   ├── calendar/frontend/   # 日历 + 小组件
+│   ├── calculator/frontend/ # 计算器
+│   ├── chat/frontend/       # 即时通讯
+│   ├── community/frontend/  # 社区论坛
+│   ├── countdown/frontend/  # 倒数日 + 小组件
+│   ├── music/frontend/      # 音乐播放
+│   ├── notes/frontend/      # Markdown 笔记
+│   ├── resource/frontend/  # 资源仓库 + 云盘
+│   ├── settings/frontend/   # 个人设置
+│   ├── timetable/frontend/  # 课程表 + 小组件
+│   ├── weather/frontend/    # 天气系统
+│   ├── admin/frontend/      # 管理后台
+│   └── integration/frontend/ # 第三方应用集成入口
 ├── client/src/
-│   ├── views/                # 15 个页面
+│   ├── views/                # 核心页面
 │   │   ├── Desktop.vue       # 桌面主页（应用启动台）
-│   │   ├── Chat.vue          # 即时通讯
-│   │   ├── Weather.vue       # 天气系统
-│   │   ├── AIChat.vue        # AI 对话
-│   │   ├── Community.vue     # 社区论坛
-│   │   ├── Resource.vue      # 资源仓库
-│   │   ├── Music.vue         # 音乐播放
-│   │   ├── Notes.vue         # Markdown 笔记
-│   │   ├── Settings.vue      # 个人设置
-│   │   ├── Admin.vue         # 管理后台
+│   │   ├── Login.vue         # 登录
+│   │   ├── Register.vue      # 注册
 │   │   ├── Announcements.vue # 公告列表
 │   │   ├── Browser.vue       # 内置浏览器
-│   │   ├── Banned.vue        # 封禁提示
-│   │   ├── Login.vue         # 登录
-│   │   └── Register.vue      # 注册
+│   │   └── Banned.vue        # 封禁提示
 │   ├── components/           # 通用组件
 │   │   ├── ios/              # iOS 风格组件库（NavBar, List, Card, Switch…）
 │   │   ├── island/           # 超能岛面板（通知/操作/历史/音乐/浏览器）
@@ -198,7 +204,7 @@ ClassIntra/
 │   ├── middleware/            # 中间件（认证、限流）
 │   ├── services/             # 业务服务（转码、中继总线）
 │   └── utils/                # 工具（init-db, db, jwt, cache, crash-logger…）
-├── server/public/            # 构建产物 + setup.html
+├── server/public/            # 静态资源（setup.html + icons/，前端产物在 client/dist/）
 ├── server/database/          # SQLite 数据库（自动创建）
 ├── Resources/                # 🔒 用户自行管理的静态资源
 │   └── public/               # 壁纸、音乐、视频、字体、PDF 预览器…

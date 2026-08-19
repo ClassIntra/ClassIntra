@@ -58,7 +58,12 @@ app.use(compression({
     return compression.filter(req, res);
   }
 }));
-app.use('/api/auth', rateLimit({ max: 60, windowMs: 60000, message: '登录请求过于频繁，请稍后再试' }));
+// 敏感认证操作（登录/注册/刷新token）严格限流：60/min
+app.use('/api/auth/login', rateLimit({ max: 60, windowMs: 60000, message: '登录请求过于频繁，请稍后再试' }));
+app.use('/api/auth/register', rateLimit({ max: 60, windowMs: 60000, message: '注册请求过于频繁，请稍后再试' }));
+app.use('/api/auth/refresh-token', rateLimit({ max: 60, windowMs: 60000, message: '请求过于频繁，请稍后再试' }));
+// 心跳/状态查询（check-status/ban-info）宽松限流：300/min（前端2秒轮询=30/min/标签页，多标签页容错）
+app.use('/api/auth', rateLimit({ max: 300, windowMs: 60000, message: '请求过于频繁，请稍后再试' }));
 app.use('/api/admin', rateLimit({ max: 200, windowMs: 60000 }));
 // ai-chat/community/chat 的 rateLimit 由 manifest.backend.rateLimit 声明，route-aggregator 自动应用
 
