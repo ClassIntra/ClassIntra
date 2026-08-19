@@ -55,7 +55,7 @@ ClassIntra/
 │   ├── utils/            # 工具（db, init-db, jwt, cache, crash-logger…）
 │   └── config/           # 配置模块
 ├── shared/src/           # 前后端共享层（manifest-schema, theme-adapter, theme-tokens 兼容层...）
-├── server/public/        # 构建产物（前端 dist + setup.html）
+├── server/public/        # 静态资源（setup.html + icons/ + xgplayer/，前端产物由 app.js 从 client/dist/ 直接提供）
 ├── server/database/      # SQLite 数据库文件目录
 ├── Resources/            # 资源目录（图标、壁纸、等级图标等静态资源）
 └── .git/                 # Git 仓库（含 hooks 和修复脚本）
@@ -235,9 +235,9 @@ MAJOR 极少变动，只有架构重写时才改。
 | 文件 | 用途 |
 |------|------|
 | `client/src/utils/latex-renderer.js` | LaTeX 渲染核心（完整文档 + 数学公式 + 声明式命令 + 分组作用域） |
-| `client/src/views/AIChat.vue` | AI 聊天页面（LaTeX 渲染的主要使用方） |
-| `client/src/views/Notes.vue` | 笔记（Markdown + LaTeX + Mermaid） |
-| `client/src/views/Community.vue` | 社区论坛（Markdown + LaTeX 渲染） |
+| `apps/ai-chat/frontend/AIChat.vue` | AI 聊天页面（LaTeX 渲染的主要使用方） |
+| `apps/notes/frontend/Notes.vue` | 笔记（Markdown + LaTeX + Mermaid） |
+| `apps/community/frontend/Community.vue` | 社区论坛（Markdown + LaTeX 渲染） |
 | `client/src/utils/api.js` | API 请求封装 |
 | `client/src/core/manifest-loader.js` | 前端应用 manifest 加载器（扫描 `apps/`） |
 | `client/src/core/theme-loader.js` | 主题加载器（扫描 `themes/`） |

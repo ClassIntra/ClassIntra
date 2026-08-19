@@ -375,7 +375,14 @@ function loadStatus() {
       banner.id = 'existingDataBanner';
       banner.className = 'alert alert-warning';
       banner.style.marginBottom = '18px';
-      banner.innerHTML = '<span>&#9888;</span><div><b>检测到已有配置</b>：已配置 ' + Object.keys(classes).length + ' 个班级、共 ' + totalExisting + ' 人。<br>修改班级配置将清空所有已录入数据，如仅需调整请直接在对应步骤修改后保存。</div>';
+      var bannerHtml = '<span>&#9888;</span><div><b>检测到已有配置</b>：已配置 ' + Object.keys(classes).length + ' 个班级、共 ' + totalExisting + ' 人。';
+      if (data.dbUserCount > 2) {
+        bannerHtml += '<br><b style="color:var(--danger-color)">已有 ' + (data.dbUserCount - 2) + ' 名学生注册</b>。重新保存时，已注册学生将<b>保留原有 user_id</b>（防止账号失效），新学生自动分配可用 ID。修改班级号不影响已注册学生的 user_id。';
+      } else {
+        bannerHtml += '<br>修改班级配置将清空已录入数据后重新生成，如仅需调整名单顺序请直接修改后保存。';
+      }
+      bannerHtml += '</div>';
+      banner.innerHTML = bannerHtml;
       var bodyEl = document.querySelector('.body');
       if (bodyEl) bodyEl.insertBefore(banner, bodyEl.firstChild);
     }
@@ -488,10 +495,13 @@ function confirmClass() {
   if (hasExistingData) {
     var totalCount = 0;
     Object.keys(records).forEach(function(k) { totalCount += (records[k]||[]).length; });
-    showConfirm(
-      '<b>检测到已有配置数据</b>（' + Object.keys(classes).length + ' 个班级，共 ' + totalCount + ' 人）。<br><br>修改班级配置将<b>清空所有已录入的预注册名单和班管设置</b>，确定继续吗？',
-      doConfirm
-    );
+    var msg = '<b>检测到已有配置数据</b>（' + Object.keys(classes).length + ' 个班级，共 ' + totalCount + ' 人）。<br><br>修改班级配置将<b>清空所有已录入的预注册名单和班管设置</b>。';
+    var banner = document.getElementById('existingDataBanner');
+    if (banner && banner.innerHTML.indexOf('名学生注册') > -1) {
+      msg += '<br><br><span style="color:var(--danger-color)"><b>注意</b>：已有学生注册。清空后需重新录入全部名单，已注册学生将保留原有账号（user_id 不变）。</span>';
+    }
+    msg += '<br><br>确定继续吗？';
+    showConfirm(msg, doConfirm);
   } else {
     doConfirm();
   }
@@ -849,6 +859,15 @@ function saveConfig() {
       document.getElementById('panel-' + i).classList.remove('active');
       document.getElementById('step-ind-' + i).className = 'step done';
       if (i < 5) document.getElementById('step-line-' + i).className = 'step-line done';
+    }
+    // 显示同步警告（如有）
+    var stats = data.stats || {};
+    if (stats.adminIdChanged) {
+      var warnEl = document.createElement('div');
+      warnEl.className = 'alert alert-warning';
+      warnEl.style.marginTop = '12px';
+      warnEl.innerHTML = '<span>&#9888;</span><div><b>班管 ID 已调整</b>：原班管已注册并保留了 YYCC00 格式 ID，新班管使用了下一个可用 ID（非 00 格式）。新班管仍拥有管理员权限（通过 ADMIN_USER_IDS），但"班管"标识（isClassAdmin）仅在 user_id 末两位为 00 时生效。</div>';
+      document.querySelector('.success-desc').appendChild(warnEl);
     }
     document.getElementById('panel-success').classList.add('active');
   }).catch(function(e) { btn.disabled=false; btn.textContent='保存配置并初始化'; showToast('保存失败: '+e.message); });

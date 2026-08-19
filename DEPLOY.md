@@ -41,28 +41,48 @@ cd ClassIntra
 
 ```
 ClassIntra/
+├── apps/                 # 应用（前端页面 + 可选后端 + 小组件）
+│   ├── <app-name>/
+│   │   ├── frontend/     # 前端页面（.vue）
+│   │   ├── backend/      # 可选后端路由（routes.js）
+│   │   ├── widgets/      # 可选桌面小组件
+│   │   └── manifest.json # 应用清单（type/name/icon）
+│   └── package.json      # 应用后端依赖
+├── plugins/              # 插件（独立后端扩展，无前端页面）
+│   ├── <plugin-name>/
+│   │   ├── backend/      # 后端路由
+│   │   ├── shared/       # 前后端共享契约
+│   │   └── manifest.json # 插件清单
+│   └── package.json      # 插件后端依赖
 ├── server/                # 后端服务（Express + SQLite + WebSocket）
 │   ├── src/
 │   │   ├── app.js         # Express 入口
 │   │   ├── ws/            # WebSocket 服务
 │   │   ├── routes/        # REST API 路由
+│   │   ├── core/          # 核心（manifest-loader, route-aggregator）
 │   │   ├── utils/         # 工具函数（数据库初始化、经验系统等）
 │   │   ├── services/      # 业务服务（天气、AI等）
 │   │   ├── config/        # 配置模块
-│   │   └── middleware/    # 中间件（认证等）
+│   │   └── middleware/    # 中间件（认证、限流）
 │   ├── config/
 │   │   └── pre-records.example.json  # 预注册名单模板
+│   ├── public/            # 静态资源（setup.html + icons/，不存放前端产物）
 │   ├── database/          # SQLite 数据库（自动创建，已 gitignore）
 │   └── .env.example       # 环境变量模板
 ├── client/                # 前端项目（Vue 2 + Vite）
 │   ├── src/
-│   │   ├── views/         # 页面组件
-│   │   ├── components/    # 通用组件
+│   │   ├── views/         # 核心页面（Desktop, Login, Register...）
+│   │   ├── components/    # 通用组件（ios/, island/, ...）
+│   │   ├── core/          # 核心模块（manifest-loader, theme-engine...）
 │   │   ├── store/         # Vuex 状态管理
 │   │   ├── router/        # 路由配置
 │   │   ├── utils/         # 工具函数
 │   │   └── styles/        # 全局样式
-│   └── vite.config.js
+│   ├── dist/              # 构建产物（pnpm build 生成，app.js 直接读取）
+│   └── vite.config.mjs
+├── themes/               # 内置主题（light/dark）
+├── theme-extensions/     # 可选扩展主题（如 material-you）
+├── shared/               # 前后端共享层（manifest-schema, theme-tokens...）
 ├── Resources/             # 资源文件（已 gitignore，需自行准备）
 │   └── public/
 │       ├── level/         # 等级图标
@@ -70,11 +90,12 @@ ClassIntra/
 │       ├── weather-icons/ # 天气图标
 │       ├── pdfjs/         # PDF 预览
 │       └── music/         # 音乐文件
-├── start.bat              # Windows 启动脚本
-├── start.sh               # Linux 启动脚本
-├── build.bat              # 生产构建脚本
-├── pnpm-workspace.yaml    # pnpm monorepo 配置
-└── package.json           # monorepo 根配置
+├── ecosystem.config.js   # PM2 进程配置
+├── start.bat             # Windows 启动脚本
+├── start.sh              # Linux 启动脚本
+├── build.bat             # 生产构建脚本
+├── pnpm-workspace.yaml   # pnpm monorepo 配置
+└── package.json          # monorepo 根配置
 ```
 
 ### 2.2 安装依赖
@@ -167,13 +188,11 @@ chmod +x start.sh && ./start.sh
 ### 2.7 生产构建与部署
 
 ```bash
-# 方式一：使用构建脚本
+# 方式一：使用构建脚本（Windows）
 build.bat
 
 # 方式二：手动构建
-pnpm build                    # 构建前端
-mkdir -p server/public
-cp -r client/dist/* server/public/
+pnpm build                    # 构建前端（产物输出到 client/dist/）
 
 # 启动生产服务
 cd server
@@ -181,6 +200,8 @@ NODE_ENV=production node src/app.js
 ```
 
 生产环境下，Express 同时提供 API 和前端静态文件，只需暴露一个端口。
+app.js 直接从 `client/dist/` 提供前端产物（无需拷贝到 `server/public/`），
+`server/public/` 仅保留 `setup.html`（初始化向导页）与静态图标资源。
 
 ***
 
@@ -236,7 +257,7 @@ NODE_ENV=production node src/app.js
 
 **班干（班级干部）**：由班管在"系统管理"面板中从注册用户中指定，可分配具体权限（如管理用户、管理广播等），并设置头衔（如"班长""学习委员"）。班干的权限由班管灵活配置。
 
-首次启动时，系统自动创建班管账号，初始密码由 `ADMIN_PASSWORD` 环境变量指定。
+班管账号**不预创建**：学生通过预注册名单中的真实姓名注册后，若其 user_id 匹配 `ADMIN_USER_IDS`，自动获得 `is_admin=1` 管理员权限。因此配置流程为：先在 `.env` 中设置 `ADMIN_USER_IDS`，再在 `/setup` 向导中导入名单并勾选对应学生为班管（ID 末两位为 00）。
 
 ***
 
@@ -318,7 +339,7 @@ A: 必须在 `server/.env` 中设置 `JWT_SECRET`，值为32位以上的随机�
 A: 运行 `pnpm install` 重新安装依赖。better-sqlite3 需要原生编译，确保已安装 Node.js 构建工具。
 
 **Q: 前端页面空白**
-A: 检查是否已执行 `pnpm build` 并将 `dist` 目录复制到 `server/public`。
+A: 检查是否已执行 `pnpm build`，确认 `client/dist/index.html` 存在。app.js 直接从 `client/dist/` 提供前端产物。
 
 **Q: WebSocket 连接失败**
 A: 检查 `WS_PORT`（默认10001）是否被占用，确认防火墙允许该端口。

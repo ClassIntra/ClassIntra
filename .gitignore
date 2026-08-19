@@ -28,9 +28,11 @@ logs/
 *.pfx
 *.p12
 
-# 构建产物
-server/public/assets/
-!server/public/index.html
+# 构建产物（前端 dist 由 app.js 直接从 client/dist/ 提供，server/public/ 仅保留 setup.html）
+server/public/*
+!server/public/setup.html
+!server/public/icons/
+!server/public/xgplayer/
 
 # Resources 目录（含音乐、视频、启动器等版权/私有内容）
 # 忽略所有直接子项，再按需保留

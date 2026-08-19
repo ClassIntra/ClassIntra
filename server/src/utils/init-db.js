@@ -46,7 +46,8 @@ function _initData() {
     console.warn('[init-db] pre-records.json not found, skipping pre-records import');
   }
 
-  // 清除旧的预注册名单后重新导入，避免多次 setup 导致 ID 冲突
+  // 清除旧的预注册名单后重新导入
+  // 注意：user_id 已由 setup.js /save 路由与 users 表同步（已注册学生保留原 ID）
   db.exec('DELETE FROM pre_records');
 
   var insertPreRecord = db.prepare(
@@ -133,14 +134,16 @@ function _initData() {
     }
   }
 
-  var insertClassGroup = db.prepare(
-    'INSERT OR IGNORE INTO groups (id, name, creator_id, members_json) VALUES (?, ?, ?, ?)'
+  // UPSERT：班级群已存在时更新成员列表（不删除行，保留群消息外键）
+  var upsertClassGroup = db.prepare(
+    'INSERT INTO groups (id, name, creator_id, members_json) VALUES (?, ?, ?, ?) ' +
+    'ON CONFLICT(id) DO UPDATE SET name = excluded.name, members_json = excluded.members_json'
   );
   for (var gi = 0; gi < classKeys.length; gi++) {
     var classNum = classKeys[gi];
     var groupId = 'class_' + classNum;
     var groupName = parseInt(classNum, 10) + '班群';
-    insertClassGroup.run(groupId, groupName, adminIds[0] || '000001', JSON.stringify(classMembers[classNum]));
+    upsertClassGroup.run(groupId, groupName, adminIds[0] || '000001', JSON.stringify(classMembers[classNum]));
   }
 
   // 清理旧的 cross_class 跨班群

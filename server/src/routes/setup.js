@@ -155,17 +155,41 @@ router.post('/save', requireSetupAuth, function(req, res) {
       return res.status(400).json({ code: 400, message: '至少需要一个管理员ID' });
     }
 
+    // ========== 同步已注册学生的 user_id（核心：防止重新配置导致 user_id 冲突） ==========
+    // 场景：学生 A 以 user_id=250801 注册后，管理员重新配置调整名单顺序，
+    // A 变成 250802，新学生 B 被分配 250801 → B 注册时 INSERT INTO users 失败（250801 已被 A 占用）
+    // 修复：已注册学生保留其现有 user_id，新学生跳过已占用 ID
+    var registeredMap = {}; // { real_name: user_id } — 已注册学生
+    var takenUserIds = {};  // { user_id: real_name } — 已被占用的 user_id
+    var registeredCount = 0;
+    try {
+      var regRows = db.prepare('SELECT real_name, user_id FROM users').all();
+      for (var tri = 0; tri < regRows.length; tri++) {
+        var rn = regRows[tri].real_name;
+        var uid = regRows[tri].user_id;
+        if (rn) {
+          registeredMap[rn] = uid;
+          registeredCount++;
+        }
+        if (uid) takenUserIds[uid] = rn || '(unknown)';
+      }
+    } catch (e) {
+      // 数据库可能尚未初始化（首次运行），跳过同步
+    }
+
     // 构建 pre-records.json
     var preRecordsData = {};
     var allUserIds = {};
     var allRealNames = {};
+    var syncedAdminIds = [];
+    var adminIdChanged = false;
 
     for (var ci = 0; ci < classKeys.length; ci++) {
       var classNum = classKeys[ci];
       var classKey = 'class' + classNum;
       var classRecords = records[classKey] || [];
 
-      // 验证并生成 user_id
+      // 验证并生成 user_id（与 users 表同步）
       var seqCounter = 0;
       for (var ri = 0; ri < classRecords.length; ri++) {
         var rec = classRecords[ri];
@@ -183,13 +207,36 @@ router.post('/save', requireSetupAuth, function(req, res) {
         // 检查该学生是否被选为班管（前端通过 is_class_admin 标记）
         var isAdmin = rec.is_class_admin === true;
         var userId;
-        if (isAdmin) {
-          userId = cohort + classNum + '00'; // 班管ID: YYCC00
+
+        if (registeredMap[realName]) {
+          // 已注册学生：保留现有 user_id（防止账号失效和 ID 冲突）
+          userId = registeredMap[realName];
+          if (isAdmin && userId.substring(4, 6) !== '00') {
+            // 班管已注册但 user_id 非 00 格式（可能是更换班管后的旧班管）
+            adminIdChanged = true;
+          }
+        } else if (isAdmin) {
+          // 新班管：YYCC00
+          userId = cohort + classNum + '00';
+          // 如果 00 已被占用（旧班管已注册保留了该 ID），寻找下一个可用 ID
+          while (takenUserIds[userId]) {
+            seqCounter++;
+            userId = cohort + classNum + String(seqCounter).padStart(2, '0');
+            adminIdChanged = true; // 班管 ID 非 00 格式，isClassAdmin 会返回 false
+          }
         } else {
-          seqCounter++;
-          // 跳过00序号（预留给班管）
-          var seq = String(seqCounter).padStart(2, '0');
-          userId = cohort + classNum + seq;
+          // 新学生：寻找可用 user_id（跳过已注册学生占用的 ID）
+          do {
+            seqCounter++;
+            var seq = String(seqCounter).padStart(2, '0');
+            userId = cohort + classNum + seq;
+          } while (takenUserIds[userId]);
+        }
+
+        takenUserIds[userId] = realName;
+
+        if (isAdmin) {
+          syncedAdminIds.push(userId);
         }
 
         if (allUserIds[userId]) {
@@ -205,6 +252,11 @@ router.post('/save', requireSetupAuth, function(req, res) {
       }
 
       preRecordsData[classKey] = classRecords;
+    }
+
+    // 使用同步后的 adminIds（保留已注册班管的现有 ID）
+    if (syncedAdminIds.length > 0) {
+      adminIds = syncedAdminIds;
     }
 
     // 写入 pre-records.json
@@ -278,7 +330,9 @@ router.post('/save', requireSetupAuth, function(req, res) {
         cohort: cohort,
         classes: classKeys.length,
         totalRecords: Object.keys(allUserIds).length,
-        adminIds: adminIds
+        adminIds: adminIds,
+        registeredUsers: registeredCount,
+        adminIdChanged: adminIdChanged
       }
     });
   } catch (e) {
