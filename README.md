@@ -1,5 +1,5 @@
 <p align="center">
-  <img width="12%" align="center" src="https://img.icons8.com/fluency/240/classroom.png" alt="logo">
+  <img src="top.png" alt="ClassIntra" width="100%">
 </p>
 
 <h1 align="center">📱 ClassIntra</h1>
