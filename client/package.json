@@ -13,7 +13,7 @@
     "@meteocons/svg": "^0.1.0",
     "@videojs/http-streaming": "^3.17.4",
     "axios": "^1.16.0",
-    "dompurify": "^3.4.11",
+    "dompurify": "^3.4.13",
     "highlight.js": "^11.9.0",
     "katex": "^0.16.9",
     "marked": "^4.3.0",
