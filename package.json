@@ -2,6 +2,8 @@
   "name": "classintra",
   "version": "1.0.0",
   "private": true,
+  "license": "MIT",
+  "author": "ClassIntra",
   "scripts": {
     "dev": "pnpm --parallel --filter server --filter client run dev",
     "dev:server": "pnpm --filter server run dev",
