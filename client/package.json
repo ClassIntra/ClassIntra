@@ -18,7 +18,7 @@
     "katex": "^0.16.9",
     "marked": "^4.3.0",
     "lunar-javascript": "^1.6.12",
-    "mermaid": "^11.15.0",
+    "mermaid": "^11.16.1",
     "video.js": "^8.23.7",
     "videojs-mobile-ui": "^1.2.5",
     "vue": "^2.7.16",
