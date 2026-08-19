@@ -2,7 +2,7 @@
   <img src="https://cdn.jsdelivr.net/gh/ClassIntra/ClassIntra@main/top.png" alt="ClassIntra" width="100%">
 </p>
 
-<h1 align="center">📱 ClassIntra</h1>
+<h1 align="center">ClassIntra</h1>
 <p align="center"><strong>校园内网 WebOS 平台</strong> · 类 iOS 设计 · 横屏平板优化</p>
 
 <div align="center">
