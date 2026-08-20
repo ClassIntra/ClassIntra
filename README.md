@@ -283,11 +283,11 @@ pnpm build         # 生产构建
 
 ## 📈 星标历史
 
-<a href="https://www.star-history.com/?repos=ClassIntra%2FClassIntra&type=date&legend=top-left">
+<a href="https://www.star-history.com/?repos=ClassIntra%2FClassIntra&type=date&legend=bottom-right">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=ClassIntra/ClassIntra&type=date&legend=top-left&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=ClassIntra/ClassIntra&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=ClassIntra/ClassIntra&type=date&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=ClassIntra/ClassIntra&type=date&theme=dark&legend=bottom-right&sealed_token=UfqxQfhMscW7b16YCW6YdsblxvtPtywvLgwbZeQYlGzVgJizQ_X5GjnYfixgpZnu9iIKp5Hsj2FCeQ" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=ClassIntra/ClassIntra&type=date&legend=bottom-right&sealed_token=UfqxQfhMscW7b16YCW6YdsblxvtPtywvLgwbZeQYlGzVgJizQ_X5GjnYfixgpZnu9iIKp5Hsj2FCeQ" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=ClassIntra/ClassIntra&type=date&legend=bottom-right&sealed_token=UfqxQfhMscW7b16YCW6YdsblxvtPtywvLgwbZeQYlGzVgJizQ_X5GjnYfixgpZnu9iIKp5Hsj2FCeQ" />
  </picture>
 </a>
 
