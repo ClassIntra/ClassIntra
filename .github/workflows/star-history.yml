@@ -1,0 +1,39 @@
+name: Star History
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # 每 6 小时刷新
+  watch:
+    types: [started]        # 收到新 star 时刷新
+  workflow_dispatch:        # 手动触发
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/star-history.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: star-history
+  cancel-in-progress: true
+
+jobs:
+  star-history:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: narayann7/star-history-action@v1
+        id: chart
+        continue-on-error: true
+        with:
+          repos: ${{ github.repository }}
+          token: ${{ secrets.STAR_HISTORY_TOKEN }}
+          themes: light,dark
+          type: Date
+          width: 800
+
+      - name: Warn on failure
+        if: ${{ steps.chart.outcome == 'failure' }}
+        run: echo "::warning::Star history chart update failed (likely GitHub API rate-limit); will retry next run"
