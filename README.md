@@ -283,11 +283,8 @@ pnpm build         # 生产构建
 
 ## 📈 星标历史
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=ClassIntra/ClassIntra&type=Date&theme=dark" />
-  <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=ClassIntra/ClassIntra&type=Date" />
-  <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=ClassIntra/ClassIntra&type=Date" />
-</picture>
+<!-- star-history:start -->
+<!-- star-history:end -->
 
 ---
 
