@@ -148,6 +148,7 @@ router.post('/set-version', function(req, res) {
 
 // GET /api/system/app-control - 获取启用的应用列表（需登录）
 // 返回启用的应用名数组，桌面据此过滤禁用应用
+// 同时返回系统功能开关（lock_screen），客户端据此决定是否启用锁屏
 router.get('/app-control', function(req, res) {
   var auth = require('../middleware/auth');
   auth.requireAuth(req, res, function() {
@@ -158,11 +159,13 @@ router.get('/app-control', function(req, res) {
       for (var i = 0; i < rows.length; i++) {
         if (rows[i].enabled) enabledApps.push(rows[i].app_name);
       }
-      res.json({ code: 200, data: { enabled_apps: enabledApps } });
+      var lockRow = db.prepare("SELECT value FROM system_settings WHERE key = 'lock_screen'").get();
+      var lockScreenEnabled = lockRow ? lockRow.value !== '0' : true;
+      res.json({ code: 200, data: { enabled_apps: enabledApps, lock_screen: lockScreenEnabled } });
     } catch (e) {
       // 数据库异常时返回全部启用（降级处理，不影响用户使用）
       // admin 仍由前端 Desktop.vue 的 visibleRoles 过滤，普通用户不可见
-      res.json({ code: 200, data: { enabled_apps: ['chat', 'community', 'ai-chat', 'notes', 'resource', 'weather', 'music', 'settings', 'timetable', 'calendar', 'countdown', 'admin', 'calculator', 'browser'] } });
+      res.json({ code: 200, data: { enabled_apps: ['chat', 'community', 'ai-chat', 'notes', 'resource', 'weather', 'music', 'settings', 'timetable', 'calendar', 'countdown', 'admin', 'calculator', 'browser'], lock_screen: true } });
     }
   });
 });

@@ -41,7 +41,8 @@ export default {
   data: function() {
     return {
       isLocked: localStorage.getItem('app_locked') === 'true',
-      lockTapTimes: []
+      lockTapTimes: [],
+      lockScreenEnabled: true
     };
   },
   computed: {
@@ -67,6 +68,8 @@ export default {
   methods: {
     handleGlobalTap: function() {
       if (this.isLocked) return;
+      // 管理员在管控中心关闭锁屏功能后，锁屏手势不再生效
+      if (!this.lockScreenEnabled) return;
       var now = Date.now();
       this.lockTapTimes.push(now);
       if (this.lockTapTimes.length > 5) {
@@ -101,6 +104,18 @@ export default {
       if (this._wasPlayingBeforeLock) {
         audioManager.resume();
       }
+    },
+    // 加载锁屏功能开关（由管理员在管控中心配置）
+    loadLockScreenState: function() {
+      var self = this;
+      api.get('/system/app-control').then(function(res) {
+        var data = res.data.data || {};
+        if (typeof data.lock_screen !== 'undefined') {
+          self.lockScreenEnabled = !!data.lock_screen;
+        }
+      }).catch(function() {
+        // 拉取失败保持默认开启
+      });
     },
     // 断网时立即锁屏并隐藏敏感信息（同步执行，零延迟，不删除本地数据）
     lockForOffline: function() {
@@ -177,6 +192,8 @@ export default {
     try { getThemeEngine().initMotion(); } catch (e) {}
     var storedUser = (function() { try { return JSON.parse(localStorage.getItem('user') || 'null'); } catch(e) { localStorage.removeItem('user'); return null; } })();
     if (storedUser && self.$store.state.auth.token) {
+      // 加载锁屏功能开关（管理员管控中心配置）
+      self.loadLockScreenState();
       api.get('/auth/check-status').then(function(response) {
         if (response.data.code === 200 && response.data.data && response.data.data.user_info) {
           self.$store.commit('auth/SET_USER', response.data.data.user_info);
@@ -265,6 +282,14 @@ export default {
           }
         }
       }
+      if (data.type === 'lock_screen_changed') {
+        // 管理员切换锁屏开关，实时生效
+        self.lockScreenEnabled = !!data.enabled;
+        // 关闭开关时，若当前处于手动锁屏状态则自动解锁（断网保护锁除外）
+        if (!data.enabled && self.isLocked && !self._offlineLocked) {
+          self.unlockScreen();
+        }
+      }
     };
     wsManager.on('_message', self._banWsHandler);
 
@@ -299,8 +324,12 @@ export default {
     self._unwatchToken = self.$store.watch(function(state) { return state.auth.token; }, function(token) {
       if (token) {
         updateChecker.startPeriodicCheck();
+        // 登录成功后拉取锁屏功能开关
+        self.loadLockScreenState();
       } else {
         updateChecker.stopPeriodicCheck();
+        // 退出登录后恢复默认开启，避免影响下一次登录
+        self.lockScreenEnabled = true;
       }
     });
 

@@ -986,26 +986,50 @@
           <p class="perm-desc">控制每个桌面应用的启用与禁用。禁用的应用不会在用户桌面显示，用户也无法通过路由直接访问。</p>
 
           <div v-if="appControlLoading" class="admin-empty">加载中...</div>
-          <div v-else-if="appControlApps.length === 0" class="admin-empty">暂无应用数据</div>
-          <div v-else class="app-control-grid">
-            <div v-for="app in appControlApps" :key="app.name" class="app-control-card" :class="{ disabled: !app.enabled }">
-              <div class="app-control-icon" :style="{ backgroundColor: app.color }">
-                <i :class="app.icon"></i>
-              </div>
-              <div class="app-control-info">
-                <div class="app-control-name">{{ app.label }}</div>
-                <div class="app-control-status">
-                  <span v-if="app.enabled" class="status-enabled">已启用</span>
-                  <span v-else class="status-disabled">已禁用</span>
-                  <span v-if="app.protected" class="status-locked">（不可禁用）</span>
+          <template v-else>
+            <h4 class="control-group-title"><i class="fa-solid fa-lock" style="margin-right:6px"></i>系统功能</h4>
+            <p class="perm-desc">开启后，用户连续快速点击屏幕 5 次即可锁屏；锁屏后连续点击屏幕右上角 10 次解锁。关闭后锁屏手势不再生效。</p>
+            <div class="app-control-grid">
+              <div class="app-control-card" :class="{ disabled: !lockScreenEnabled }">
+                <div class="app-control-icon" style="background-color:#5856d6">
+                  <i class="fa-solid fa-lock"></i>
                 </div>
+                <div class="app-control-info">
+                  <div class="app-control-name">锁屏</div>
+                  <div class="app-control-status">
+                    <span v-if="lockScreenEnabled" class="status-enabled">已开启</span>
+                    <span v-else class="status-disabled">已关闭</span>
+                  </div>
+                </div>
+                <label class="toggle-switch" @click.stop>
+                  <input type="checkbox" :checked="lockScreenEnabled" @change="toggleLockScreen">
+                  <span class="toggle-slider"></span>
+                </label>
               </div>
-              <label class="toggle-switch" @click.stop>
-                <input type="checkbox" :checked="app.enabled" :disabled="app.protected" @change="toggleAppControl(app)">
-                <span class="toggle-slider"></span>
-              </label>
             </div>
-          </div>
+
+            <h4 class="control-group-title" style="margin-top:24px">应用列表</h4>
+            <div v-if="appControlApps.length === 0" class="admin-empty">暂无应用数据</div>
+            <div v-else class="app-control-grid">
+              <div v-for="app in appControlApps" :key="app.name" class="app-control-card" :class="{ disabled: !app.enabled }">
+                <div class="app-control-icon" :style="{ backgroundColor: app.color }">
+                  <i :class="app.icon"></i>
+                </div>
+                <div class="app-control-info">
+                  <div class="app-control-name">{{ app.label }}</div>
+                  <div class="app-control-status">
+                    <span v-if="app.enabled" class="status-enabled">已启用</span>
+                    <span v-else class="status-disabled">已禁用</span>
+                    <span v-if="app.protected" class="status-locked">（不可禁用）</span>
+                  </div>
+                </div>
+                <label class="toggle-switch" @click.stop>
+                  <input type="checkbox" :checked="app.enabled" :disabled="app.protected" @change="toggleAppControl(app)">
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+          </template>
         </div>
 
       </transition>
@@ -1404,7 +1428,8 @@ export default {
       weatherCheckResult: null,
       // App Control
       appControlApps: [],
-      appControlLoading: false
+      appControlLoading: false,
+      lockScreenEnabled: true
     };
   },
   computed: {
@@ -3029,6 +3054,29 @@ export default {
         self.$store.commit('toast/SHOW_TOAST', { message: '加载应用管控状态失败', type: 'error' });
       }).finally(function() {
         self.appControlLoading = false;
+      });
+      self.loadLockScreen();
+    },
+    loadLockScreen: function() {
+      var self = this;
+      api.get('/admin/lock-screen').then(function(res) {
+        self.lockScreenEnabled = res.data.data.enabled !== false;
+      }).catch(function() {
+        // 加载失败时保持默认开启，不打扰管理员
+      });
+    },
+    toggleLockScreen: function() {
+      var self = this;
+      var newEnabled = !self.lockScreenEnabled;
+      api.put('/admin/lock-screen', { enabled: newEnabled }).then(function() {
+        self.lockScreenEnabled = newEnabled;
+        self.$store.commit('toast/SHOW_TOAST', {
+          message: newEnabled ? '锁屏功能已开启' : '锁屏功能已关闭',
+          type: 'success'
+        });
+      }).catch(function(err) {
+        var msg = (err.response && err.response.data && err.response.data.message) || '操作失败';
+        self.$store.commit('toast/SHOW_TOAST', { message: msg, type: 'error' });
       });
     },
     toggleAppControl: function(app) {
@@ -5380,6 +5428,12 @@ export default {
 }
 
 /* ====== App Control ====== */
+.control-group-title {
+  font-size: var(--font-size-headline);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-color);
+  margin: 16px 0 4px;
+}
 .app-control-grid {
   display: flex;
   flex-wrap: wrap;
