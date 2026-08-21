@@ -1921,6 +1921,36 @@ router.put('/app-control/:appName', auth.requirePermission('manage_app_control')
   }
 });
 
+// ===== 系统功能开关 =====
+
+// GET /api/admin/lock-screen - 获取锁屏功能开关状态
+router.get('/lock-screen', auth.requirePermission('manage_app_control'), function(req, res) {
+  try {
+    var row = db.prepare("SELECT value FROM system_settings WHERE key = 'lock_screen'").get();
+    var enabled = row ? row.value !== '0' : true;
+    res.json({ code: 200, data: { enabled: enabled } });
+  } catch (e) {
+    console.error('[Admin] Get lock-screen failed:', e.message);
+    res.status(500).json({ code: 500, message: '获取锁屏开关状态失败' });
+  }
+});
+
+// PUT /api/admin/lock-screen - 更新锁屏功能开关
+router.put('/lock-screen', auth.requirePermission('manage_app_control'), function(req, res) {
+  var enabled = req.body.enabled ? '1' : '0';
+  try {
+    db.prepare("INSERT OR REPLACE INTO system_settings (key, value, updated_at) VALUES ('lock_screen', ?, datetime('now'))").run(enabled);
+    logAction(req.user.user_id, 'set_lock_screen', 'lock_screen', enabled);
+    // 广播给在线客户端，实时生效（无需刷新）
+    var chatServer = require('../ws/chat-server');
+    chatServer.broadcast({ type: 'lock_screen_changed', enabled: enabled === '1' });
+    res.json({ code: 200, message: enabled === '1' ? '锁屏功能已开启' : '锁屏功能已关闭', data: { enabled: enabled === '1' } });
+  } catch (e) {
+    console.error('[Admin] Update lock-screen failed:', e.message);
+    res.status(500).json({ code: 500, message: '更新锁屏开关失败' });
+  }
+});
+
 // ===== 远程管理代理 =====
 // 班管通过中继通道管理本班在其他服务器上的数据
 
