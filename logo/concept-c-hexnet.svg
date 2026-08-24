@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+  <defs>
+    <linearGradient id="bgC" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#007AFF"/>
+      <stop offset="100%" stop-color="#5856D6"/>
+    </linearGradient>
+  </defs>
+  <!-- 圆角矩形背景：教室 -->
+  <rect width="120" height="120" rx="26" ry="26" fill="url(#bgC)"/>
+  <!-- 六边形网络边框 -->
+  <polygon points="60,28 86,43 86,77 60,92 34,77 34,43"
+           fill="none" stroke="#FFFFFF" stroke-width="2.5" opacity="0.55" stroke-linejoin="round"/>
+  <!-- 中心到各顶点的辐射连接 -->
+  <g stroke="#FFFFFF" stroke-width="2.5" opacity="0.5" stroke-linecap="round">
+    <line x1="60" y1="60" x2="60" y2="28"/>
+    <line x1="60" y1="60" x2="86" y2="43"/>
+    <line x1="60" y1="60" x2="86" y2="77"/>
+    <line x1="60" y1="60" x2="60" y2="92"/>
+    <line x1="60" y1="60" x2="34" y2="77"/>
+    <line x1="60" y1="60" x2="34" y2="43"/>
+  </g>
+  <!-- 中心节点 -->
+  <circle cx="60" cy="60" r="9" fill="#FFFFFF"/>
+  <!-- 六个顶点节点 -->
+  <g fill="#FFFFFF">
+    <circle cx="60" cy="28" r="6"/>
+    <circle cx="86" cy="43" r="6"/>
+    <circle cx="86" cy="77" r="6"/>
+    <circle cx="60" cy="92" r="6"/>
+    <circle cx="34" cy="77" r="6"/>
+    <circle cx="34" cy="43" r="6"/>
+  </g>
+</svg>

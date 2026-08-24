@@ -41,12 +41,19 @@ function _mountOne(app, m, backend) {
 
 // 挂载所有应用/插件的后端路由到 express app
 // 支持 manifest.backend（主）和 manifest.extraBackends（数组，附加挂载点）
+// 注意：market 来源（market-apps/ 第三方应用）不在此挂载，由 market-service 热挂载（支持安装/卸载/更新不重启）
 function mountAppRoutes(app) {
   var manifests = manifestLoader.loadManifests();
   var mounted = 0;
   var appCount = 0;
   var pluginCount = 0;
+  var marketCount = 0;
   manifests.forEach(function(m) {
+    // market 应用仅统计，挂载交给 market-service.init()
+    if (m._sourceType === 'market') {
+      if (m.backend && m.backend.mountPath) marketCount++;
+      return;
+    }
     // 主 backend
     if (_mountOne(app, m, m.backend)) {
       mounted++;
@@ -62,7 +69,8 @@ function mountAppRoutes(app) {
       });
     }
   });
-  console.log('[route-aggregator] 共挂载 ' + mounted + ' 个路由（应用 ' + appCount + ' + 插件 ' + pluginCount + '）');
+  console.log('[route-aggregator] 共挂载 ' + mounted + ' 个路由（应用 ' + appCount + ' + 插件 ' + pluginCount + '）' +
+    (marketCount > 0 ? '，市场应用 ' + marketCount + ' 个待 market-service 热挂载' : ''));
 }
 
 // 获取所有已声明 backend 的应用列表（供管理后台展示）

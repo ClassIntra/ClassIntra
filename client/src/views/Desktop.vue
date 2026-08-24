@@ -311,6 +311,8 @@ import BirthdayCelebration from '@/components/BirthdayCelebration.vue';
 import desktopDrag from '@/mixins/desktop-drag.js';
 import desktopGestures from '@/mixins/desktop-gestures.js';
 import { APP_REGISTRY } from '@/store/modules/desktop.js';
+import { mergeMarketApps } from '@/core/app-registry';
+import { marketRegistry } from '@/core/market-registry';
 import { getWidget } from '@/core/widget-aggregator';
 
 var WALLPAPER_MAP = {
@@ -571,6 +573,14 @@ export default {
       self.playVideoWallpaper();
     });
     self.loadUnreadAnnouncements();
+    mergeMarketApps(marketRegistry.getInstalledApps());
+    self.dockApps = APP_REGISTRY.slice();
+    self._marketUnsubscribe = marketRegistry.onChange(function(apps) {
+      mergeMarketApps(apps);
+      self.dockApps = APP_REGISTRY.slice();
+      if (self.$router && self.$router.registerMarketApps) self.$router.registerMarketApps(apps);
+      self.loadEnabledApps();
+    });
     self.loadEnabledApps();
     self.checkBirthday();
     self.checkVersionUpdate();
@@ -583,6 +593,10 @@ export default {
     window.addEventListener('focus', self._focusHandler);
   },
   beforeDestroy: function() {
+    if (this._marketUnsubscribe) {
+      this._marketUnsubscribe();
+      this._marketUnsubscribe = null;
+    }
     if (this._updateUnsubscribe) {
       this._updateUnsubscribe();
       this._updateUnsubscribe = null;

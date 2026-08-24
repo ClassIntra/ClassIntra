@@ -152,6 +152,25 @@ try {
   console.warn('[app] apps-static 静态路由初始化失败（apps/ 目录可能不存在）:', e.message);
 }
 
+// 第三方市场应用静态资源（entry.js / style.css / icon）
+// 访问路径：/market-static/{appName}/frontend/entry.js → market-apps/{appName}/frontend/entry.js
+var marketService = require('./core/market-service');
+try {
+  fs.mkdirSync(marketService.marketAppsDir, { recursive: true });
+  app.use('/market-static', express.static(marketService.marketAppsDir, {
+      maxAge: '0',
+      immutable: false,
+      setHeaders: function(res) {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+      }
+    }));
+} catch (e) {
+  console.warn('[app] market-static 静态路由初始化失败:', e.message);
+}
+
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/user', require('./routes/user'));
 app.use('/api/admin', require('./routes/admin'));
@@ -161,10 +180,15 @@ app.use('/api/level', require('./routes/level'));
 app.use('/api/cdn', require('./routes/cdn-proxy'));
 app.use('/api/system', require('./routes/system'));
 app.use('/api/integrations', require('./routes/integrations'));
+app.use('/api/market', require('./routes/market'));
 
 // 应用路由（从 apps/*/manifest.json 聚合挂载，rateLimit 由 manifest 声明）
 var routeAggregator = require('./core/route-aggregator');
 routeAggregator.mountAppRoutes(app);
+
+// 第三方市场应用路由热挂载调度器（安装/卸载/更新不重启服务器）
+marketService.init();
+app.use(marketService.dispatcher());
 
 // 阶段 3：ServiceRegistry 注册后端核心服务（阶段 4 集成系统会扩展）
 var serviceRegistry = require('./core/service-registry').getServiceRegistry();

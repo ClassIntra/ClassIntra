@@ -19,7 +19,8 @@ var FIELD_DEFS = {
   canDisable: { type: 'boolean', required: false, default: true, description: '是否允许用户禁用' },
   type: { type: 'string', required: false, default: 'app', enum: ['app', 'system', 'widget', 'plugin'], description: '应用类型（app=应用，plugin=插件，system=系统，widget=小组件）' },
   version: { type: 'string', required: false, default: '0.0.0', description: '语义化版本号' },
-  frontend: { type: 'object', required: false, description: '前端配置' },
+  frontend: {
+    type: 'object', required: false, description: '前端配置' },
   backend: { type: 'object', required: false, description: '后端配置' },
   extraBackends: { type: 'array', required: false, description: '额外后端路由（阶段 0 引入）' },
   integration: { type: 'object', required: false, description: '插件联动配置（type=plugin 时使用）：contract/frontendBridge/clientEntry/channels' }
@@ -86,8 +87,15 @@ function validateManifest(m) {
     if (!m.frontend.route || typeof m.frontend.route !== 'string') {
       warnings.push('frontend.route 缺失或非字符串');
     }
-    if (!m.frontend.component || typeof m.frontend.component !== 'string') {
+    if (m.frontend.entry) {
+      if (typeof m.frontend.entry !== 'string') {
+        warnings.push('frontend.entry 应为字符串');
+      }
+    } else if (!m.frontend.component || typeof m.frontend.component !== 'string') {
       warnings.push('frontend.component 缺失或非字符串');
+    }
+    if (m.frontend.style && typeof m.frontend.style !== 'string') {
+      warnings.push('frontend.style 应为字符串');
     }
   }
 
