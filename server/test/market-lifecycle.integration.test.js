@@ -123,7 +123,8 @@ test('市场应用生命周期应在真实 HTTP 服务中完成', async function
     body: JSON.stringify({ name: 'gomoku', source: 'local' })
   });
   assert.equal(install.response.status, 200, JSON.stringify(install.body));
-  assert.equal(install.body.data.version, '1.0.0');
+  var manifest = JSON.parse(fs.readFileSync(path.join(marketSourceDir, 'apps', 'gomoku', 'manifest.json'), 'utf8'));
+  assert.equal(install.body.data.version, manifest.version);
 
   var installed = await request('/api/market/installed', { headers: adminHeaders() });
   assert.equal(installed.body.data.apps.length, 1);
@@ -136,6 +137,40 @@ test('市场应用生命周期应在真实 HTTP 服务中完成', async function
   var state = await request('/api/gomoku/state', { headers: adminHeaders() });
   assert.equal(state.response.status, 200);
   assert.equal(state.body.data.turn, 'black');
+
+  var createRoom = await request('/api/gomoku/rooms', {
+    method: 'POST',
+    headers: adminHeaders(),
+    body: JSON.stringify({ size: 19 })
+  });
+  assert.equal(createRoom.response.status, 201);
+  assert.equal(createRoom.body.data.size, 19);
+  assert.match(createRoom.body.data.roomCode, /^[A-Z0-9]{6}$/);
+
+  var roomCode = createRoom.body.data.roomCode;
+  var room = await request('/api/gomoku/rooms/' + roomCode, { headers: adminHeaders() });
+  assert.equal(room.response.status, 200);
+  assert.equal(room.body.data.members.length, 1);
+
+  var joinRoom = await request('/api/gomoku/rooms/' + roomCode + '/join', {
+    method: 'POST',
+    headers: memberHeaders(),
+    body: JSON.stringify({})
+  });
+  assert.equal(joinRoom.response.status, 200);
+  assert.equal(joinRoom.body.data.members.length, 2);
+
+  var roomMove = await request('/api/gomoku/rooms/' + roomCode + '/move', {
+    method: 'POST',
+    headers: adminHeaders(),
+    body: JSON.stringify({ row: 9, col: 9 })
+  });
+  assert.equal(roomMove.response.status, 200);
+  assert.equal(roomMove.body.data.board[9][9], 'black');
+
+  var history = await request('/api/gomoku/rooms/' + roomCode + '/history', { headers: memberHeaders() });
+  assert.equal(history.response.status, 200);
+  assert.equal(history.body.data.moves.length, 1);
 
   var move = await request('/api/gomoku/move', {
     method: 'POST',
@@ -194,7 +229,7 @@ test('市场应用生命周期应在真实 HTTP 服务中完成', async function
     body: JSON.stringify({ name: 'gomoku', source: 'local' })
   });
   assert.equal(update.response.status, 200);
-  assert.equal(update.body.data.version, '1.0.0');
+  assert.equal(update.body.data.version, manifest.version);
 
   var uninstall = await request('/api/market/uninstall', {
     method: 'POST',

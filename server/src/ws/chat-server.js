@@ -399,6 +399,9 @@ function broadcastToClients(message) {
 }
 
 function handleDisconnect(userId) {
+  for (var roomCode in gomokuSubscriptions) {
+    delete gomokuSubscriptions[roomCode][userId];
+  }
   if (clients[userId]) {
     delete clients[userId];
   }
@@ -2566,6 +2569,88 @@ function handleGetGroupHistory(ws, data) {
   }));
 }
 
+var gomokuSubscriptions = {};
+var gomokuDb = require('../utils/db');
+
+function gomokuState(roomCode) {
+  var room = gomokuDb.prepare('SELECT * FROM gomoku_rooms WHERE room_code = ? AND status = \'open\'').get(roomCode);
+  if (!room) return null;
+  var game = gomokuDb.prepare('SELECT * FROM gomoku_games WHERE room_code = ? AND status = \'active\' ORDER BY id DESC LIMIT 1').get(roomCode);
+  if (!game) {
+    var inserted = gomokuDb.prepare('INSERT INTO gomoku_games (room_code, size, board) VALUES (?, ?, ?)').run(roomCode, room.size, JSON.stringify(Array.from({ length: room.size }, function() { return Array(room.size).fill(null); })));
+    game = gomokuDb.prepare('SELECT * FROM gomoku_games WHERE id = ?').get(inserted.lastInsertRowid);
+  }
+  return {
+    roomCode: roomCode,
+    size: game.size,
+    board: JSON.parse(game.board),
+    turn: game.turn,
+    winner: game.winner,
+    status: game.status,
+    gameId: game.id,
+    members: gomokuDb.prepare('SELECT user_id, role, color, joined_at, last_seen_at FROM gomoku_members WHERE room_code = ? ORDER BY joined_at').all(roomCode)
+  };
+}
+
+function gomokuSend(ws, type, roomCode, data) {
+  var message = Object.assign({ type: type, room_code: roomCode }, data || {});
+  try { ws.send(JSON.stringify(message)); } catch (e) {}
+}
+
+function gomokuBroadcast(roomCode, type, data) {
+  var subscribers = gomokuSubscriptions[roomCode] || {};
+  for (var userId in subscribers) {
+    if (clients[userId]) gomokuSend(clients[userId], type, roomCode, data);
+  }
+}
+
+function gomokuMember(ws, roomCode) {
+  return gomokuDb.prepare('SELECT * FROM gomoku_members WHERE room_code = ? AND user_id = ?').get(roomCode, ws.userId);
+}
+
+function handleGomokuSubscribe(ws, data) {
+  var roomCode = String(data.room_code || '');
+  var state = gomokuState(roomCode);
+  if (!state) return gomokuSend(ws, 'gomoku_move_rejected', roomCode, { reason: '房间不存在或已关闭' });
+  if (!gomokuMember(ws, roomCode)) return gomokuSend(ws, 'gomoku_move_rejected', roomCode, { reason: '不在房间中' });
+  gomokuSubscriptions[roomCode] = gomokuSubscriptions[roomCode] || {};
+  gomokuSubscriptions[roomCode][ws.userId] = true;
+  gomokuSend(ws, 'gomoku_room_state', roomCode, { state: state });
+}
+
+function handleGomokuUnsubscribe(ws, data) {
+  var roomCode = String(data.room_code || '');
+  if (gomokuSubscriptions[roomCode]) delete gomokuSubscriptions[roomCode][ws.userId];
+}
+
+function handleGomokuMove(ws, data) {
+  var roomCode = String(data.room_code || ''), row = Number(data.row), col = Number(data.col);
+  var state = gomokuState(roomCode), member = gomokuMember(ws, roomCode);
+  if (!state || !member || !member.color || !Number.isInteger(row) || !Number.isInteger(col) || row < 0 || col < 0 || row >= state.size || col >= state.size || state.board[row][col] || state.turn !== member.color) {
+    return gomokuSend(ws, 'gomoku_move_rejected', roomCode, { reason: !state ? '房间不存在或已关闭' : '落子不合法', state: state });
+  }
+  state.board[row][col] = member.color;
+  var winner = [[1, 0], [0, 1], [1, 1], [1, -1]].some(function(direction) {
+    var count = 1;
+    [[1, 1], [-1, -1]].forEach(function(sign) {
+      var r = row + direction[0] * sign[0], c = col + direction[1] * sign[1];
+      while (r >= 0 && c >= 0 && r < state.size && c < state.size && state.board[r][c] === member.color) { count++; r += direction[0] * sign[0]; c += direction[1] * sign[1]; }
+    });
+    return count >= 5;
+  }) ? member.color : null;
+  var nextTurn = winner ? member.color : member.color === 'black' ? 'white' : 'black';
+  gomokuDb.prepare('UPDATE gomoku_games SET board = ?, turn = ?, winner = ?, status = ?, ended_at = CASE WHEN ? IS NULL THEN ended_at ELSE datetime(\'now\') END WHERE id = ?').run(JSON.stringify(state.board), nextTurn, winner, winner ? 'finished' : 'active', winner, state.gameId);
+  gomokuDb.prepare('INSERT INTO gomoku_moves (game_id, user_id, color, row, col) VALUES (?, ?, ?, ?, ?)').run(state.gameId, ws.userId, member.color, row, col);
+  gomokuBroadcast(roomCode, 'gomoku_room_changed', { state: gomokuState(roomCode), move: { user_id: ws.userId, color: member.color, row: row, col: col } });
+}
+
+function handleGomokuContinue(ws, data) {
+  var roomCode = String(data.room_code || ''), state = gomokuState(roomCode), member = gomokuMember(ws, roomCode);
+  if (!state || !member) return gomokuSend(ws, 'gomoku_move_rejected', roomCode, { reason: '无权继续对局' });
+  gomokuDb.prepare('UPDATE gomoku_games SET status = \'finished\', ended_at = datetime(\'now\') WHERE id = ?').run(state.gameId);
+  gomokuBroadcast(roomCode, 'gomoku_game_continued', { state: gomokuState(roomCode) });
+}
+
 // ===== Main connection handler =====
 
 wss.on('connection', function connection(ws, req) {
@@ -2656,6 +2741,18 @@ wss.on('connection', function connection(ws, req) {
           break;
         case 'mark_read':
           handleMarkRead(ws, data);
+          break;
+        case 'gomoku_subscribe':
+          handleGomokuSubscribe(ws, data);
+          break;
+        case 'gomoku_unsubscribe':
+          handleGomokuUnsubscribe(ws, data);
+          break;
+        case 'gomoku_move':
+          handleGomokuMove(ws, data);
+          break;
+        case 'gomoku_continue':
+          handleGomokuContinue(ws, data);
           break;
         case 'ping':
           ws.send(JSON.stringify({ type: 'pong' }));
