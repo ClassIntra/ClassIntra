@@ -24,9 +24,18 @@
         <button type="button" @click="loadMarket">重试</button>
       </div>
 
-      <div v-if="loading" class="market-loading">
+      <div v-if="loading" class="market-loading" role="status" aria-live="polite">
         <div class="spinner"></div>
         <p>正在加载市场目录...</p>
+        <small v-if="activeSource">当前尝试：{{ sourceLabel(activeSource) }}</small>
+      </div>
+      <div v-if="actionStatus" class="market-progress" role="status" aria-live="polite">
+        <span class="mini-spinner"></span>
+        <span>{{ actionStatus }}</span>
+      </div>
+      <div v-if="activeSource && !loading" class="market-source-status" role="status">
+        <i class="fa-solid fa-cloud-check"></i>
+        <span>当前下载源：{{ sourceLabel(activeSource) }}</span>
       </div>
 
       <template v-else>
@@ -119,12 +128,14 @@ export default {
   data: function() {
     return {
       sources: [],
-      selectedSource: 'local',
+      selectedSource: 'gitee',
       catalogApps: [],
       installedApps: [],
       catalogUpdatedAt: '',
+      activeSource: '',
       loading: true,
       actionLoading: '',
+      actionStatus: '',
       error: ''
     };
   },
@@ -169,6 +180,7 @@ export default {
       return api.get('/market/catalog?source=' + encodeURIComponent(self.selectedSource || 'local')).then(function(response) {
         var data = response.data && response.data.data;
         var catalog = data && data.catalog;
+        self.activeSource = data && data.source ? data.source : self.selectedSource;
         self.catalogApps = catalog && Array.isArray(catalog.apps) ? catalog.apps : [];
         self.catalogUpdatedAt = catalog && catalog.updated_at ? self.formatDate(catalog.updated_at) : '';
       });
@@ -222,15 +234,19 @@ export default {
       var self = this;
       if (self.actionLoading) return;
       self.actionLoading = app.name;
+      self.actionStatus = endpoint.indexOf('/update') !== -1 ? '正在检查更新并准备安装…' : '正在下载并校验应用…';
       self.error = '';
-      api.post(endpoint, { name: app.name, source: self.selectedSource || 'local' }).then(function() {
-        return self.refreshMarketRuntime();
-      }).then(function() {
-        self.$store.commit('toast/SHOW_TOAST', { message: successMessage, type: 'success' });
+      api.post(endpoint, { name: app.name, source: self.selectedSource || 'gitee' }).then(function(response) {
+        var result = response.data && response.data.data;
+        var source = result && result.source ? self.sourceLabel(result.source) : '';
+        return self.refreshMarketRuntime().then(function() {
+          self.$store.commit('toast/SHOW_TOAST', { message: source ? successMessage + '（使用' + source + '）' : successMessage, type: 'success' });
+        });
       }).catch(function(error) {
         self.error = self.getErrorMessage(error, successMessage.replace('成功', '失败'));
       }).finally(function() {
         self.actionLoading = '';
+        self.actionStatus = '';
       });
     },
     refreshMarketRuntime: function() {
@@ -242,6 +258,10 @@ export default {
         window.dispatchEvent(new CustomEvent('classintra-market-refresh', { detail: apps }));
         return Promise.all([self.loadInstalled(), self.loadCatalog()]);
       });
+    },
+    sourceLabel: function(sourceId) {
+      var source = this.sources.find(function(item) { return item.id === sourceId; });
+      return source ? source.label.replace('官方市场（', '').replace('）', '') : sourceId;
     },
     getErrorMessage: function(error, fallback) {
       var response = error && error.response && error.response.data;
@@ -276,6 +296,8 @@ h3 { color: var(--text-primary); font-size: 16px; }
 button:disabled { opacity: .55; cursor: not-allowed; }
 .market-error { display: flex; align-items: center; gap: 10px; padding: 14px 16px; margin-bottom: 24px; border-radius: var(--radius-md); background: rgba(255, 59, 48, .1); color: #ff3b30; }
 .market-error button { margin-left: auto; color: #ff3b30; background: transparent; border-color: currentColor; }
+.market-progress, .market-source-status { display: flex; align-items: center; gap: 8px; padding: 10px 14px; margin-bottom: 16px; border-radius: var(--radius-md); background: var(--secondary-bg); color: var(--text-secondary); font-size: 13px; }
+.market-source-status { color: #248a3d; }
 .market-loading, .empty-state { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 12px; min-height: 180px; color: var(--text-secondary); }
 .market-section { margin-bottom: 34px; }
 .section-heading { margin-bottom: 14px; }

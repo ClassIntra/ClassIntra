@@ -5,9 +5,12 @@
       <ErrorBoundary><router-view></router-view></ErrorBoundary>
     </transition>
     <transition name="toast-fade">
-      <div v-if="toast.show" class="global-toast" :class="toast.type">
-        <i :class="toastIconClass" class="toast-icon"></i>
+      <div v-if="toast.show" class="global-toast" :class="toast.type" role="status" aria-live="polite">
+        <i :class="toastIconClass" class="toast-icon" aria-hidden="true"></i>
         <span class="toast-text">{{ toast.message }}</span>
+        <button type="button" class="toast-close" aria-label="关闭提示" @click.stop="$store.commit('toast/HIDE_TOAST')">
+          <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+        </button>
       </div>
     </transition>
     <ModalDialog ref="modalDialog" />
@@ -626,7 +629,16 @@ export default {
   font-size: 16px;
 }
 .toast-text {
-  white-space: nowrap;
+  white-space: normal;
+  max-width: min(70vw, 420px);
+}
+.toast-close { border: 0; padding: 2px; color: inherit; background: transparent; opacity: .8; cursor: pointer; }
+.toast-close:hover { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .toast-fade-enter-active,
+  .toast-fade-leave-active { transition: opacity .2s ease; }
+  .toast-fade-enter,
+  .toast-fade-leave-to { transform: translateX(-50%); }
 }
 .toast-fade-enter-active {
   transition: opacity 0.3s var(--ease-emphasized), transform 0.4s var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
