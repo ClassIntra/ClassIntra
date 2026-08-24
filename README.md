@@ -36,6 +36,7 @@ ClassIntra 为班级教室场景而生 —— 一台服务器 + 一台平板 = �
 | 🎵 | **音乐播放** | 在线播放列表、LRC 歌词同步、背景播放 |
 | 📒 | **笔记系统** | Markdown 编辑器、代码高亮、Mermaid 流程图、KaTeX 数学公式 |
 | ⚙️ | **管理后台** | 用户管理、广播通知、班干委任、应用管控、操作日志 |
+| ⚫ | **联机五子棋** | 市场应用安装、房间对战、观战、WebSocket 实时同步与断线恢复 |
 
 ### 🔗 高级特性
 
@@ -79,6 +80,12 @@ cd server && NODE_ENV=production node src/app.js
 Windows 用户也可用 `start.bat`（开发）或 `start-prod.bat`（生产）一键启动。`cn.bat` 提供 PM2 进程管理。
 
 > 📖 完整部署指南（多机中继、Tailscale 组网、HTTPS 配置）→ [DEPLOY.md](./DEPLOY.md)
+
+### 📚 相关文档
+
+- [账号与 API 教程](./docs/account-and-api-guide.md)
+- [联机五子棋开发](./docs/gomoku-online.md)
+- [第三方市场与应用生命周期](./docs/third-party-market.md)
 
 ---
 

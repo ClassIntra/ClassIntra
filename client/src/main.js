@@ -197,6 +197,7 @@ window.ClassIntraMarket = {
     return {
       appName: appName,
       api: api,
+      websocket: require('./utils/websocket').default,
       router: router,
       store: store,
       user: store.state.auth && store.state.auth.user,
