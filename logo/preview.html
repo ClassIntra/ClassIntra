@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ClassIntra Logo 候选方案</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 40px 20px;
+      color: #1C1C1E;
+    }
+    .container { max-width: 1000px; margin: 0 auto; }
+    .header { text-align: center; color: white; margin-bottom: 40px; }
+    .header h1 { font-size: 32px; font-weight: 700; margin-bottom: 8px; }
+    .header p { font-size: 16px; opacity: 0.9; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 24px;
+    }
+    .card {
+      background: #FFFFFF;
+      border-radius: 20px;
+      padding: 32px 24px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+      text-align: center;
+      transition: transform 0.2s;
+    }
+    .card:hover { transform: translateY(-4px); }
+    .logo-wrap {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 12px;
+    }
+    .logo-wrap img { width: 160px; height: 160px; border-radius: 36px; }
+    .logo-wrap img.small { width: 48px; height: 48px; border-radius: 11px; }
+    .logo-wrap img.tiny { width: 24px; height: 24px; border-radius: 5px; }
+    .card h2 { font-size: 20px; font-weight: 700; margin-bottom: 4px; color: #1C1C1E; }
+    .card .subtitle { font-size: 13px; color: #8E8E93; margin-bottom: 16px; }
+    .card .desc {
+      font-size: 14px;
+      color: #3C3C43;
+      line-height: 1.6;
+      text-align: left;
+      background: #F2F2F7;
+      padding: 16px;
+      border-radius: 12px;
+    }
+    .card .desc strong { color: #007AFF; }
+    .sizes-label { display: flex; justify-content: center; gap: 16px; margin-bottom: 16px; }
+    .sizes-label span { font-size: 11px; color: #8E8E93; }
+    .badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-top: 12px;
+    }
+    .badge.a { background: rgba(0, 122, 255, 0.1); color: #007AFF; }
+    .badge.b { background: rgba(94, 92, 230, 0.1); color: #5E5CE6; }
+    .badge.c { background: rgba(88, 86, 214, 0.1); color: #5856D6; }
+    .footer {
+      text-align: center;
+      color: rgba(255,255,255,0.8);
+      margin-top: 40px;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .section-title {
+      color: white;
+      font-size: 14px;
+      text-align: center;
+      margin: 32px 0 16px;
+      opacity: 0.7;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>📱 ClassIntra Logo 候选方案</h1>
+      <p>纯几何抽象 · 无字母 · 体现「教室 + 同学 + 网络连接」</p>
+    </div>
+    <div class="grid">
+      <!-- 方案 A -->
+      <div class="card">
+        <div class="logo-wrap">
+          <img src="concept-a-cohesion.jpg" alt="A" />
+          <img class="small" src="concept-a-cohesion.jpg" alt="A-48" />
+          <img class="tiny" src="concept-a-cohesion.jpg" alt="A-24" />
+        </div>
+        <div class="sizes-label">
+          <span>160px</span>
+          <span>48px</span>
+          <span>24px</span>
+        </div>
+        <h2>方案 A · 凝聚</h2>
+        <div class="subtitle">Cohesion</div>
+        <div class="desc">
+          四个同学节点（圆）以 <strong>X 形对角线 + 方框</strong> 连接，形成紧密网络结构。<br><br>
+          <strong>意象：</strong>方框 = 教室 · 四圆 = 同学 · 交叉线 = 网络互联<br>
+          <strong>特点：</strong>最简洁均衡，4 节点在小尺寸下仍清晰可辨，对称美学。
+        </div>
+        <span class="badge a">极简对称</span>
+      </div>
+      <!-- 方案 B -->
+      <div class="card">
+        <div class="logo-wrap">
+          <img src="concept-b-hub.jpg" alt="B" />
+          <img class="small" src="concept-b-hub.jpg" alt="B-48" />
+          <img class="tiny" src="concept-b-hub.jpg" alt="B-24" />
+        </div>
+        <div class="sizes-label">
+          <span>160px</span>
+          <span>48px</span>
+          <span>24px</span>
+        </div>
+        <h2>方案 B · 枢纽</h2>
+        <div class="subtitle">Hub</div>
+        <div class="desc">
+          中心枢纽节点 + 六个外围节点辐射连接，中心节点带内圈强调。<br><br>
+          <strong>意象：</strong>中心 = 服务器/平台 · 六节点 = 同学 · 辐射线 = 网络分发<br>
+          <strong>特点：</strong>体现 <strong>客户端-服务器架构</strong>，中心实心圆突出"平台"定位。
+        </div>
+        <span class="badge b">中心辐射</span>
+      </div>
+      <!-- 方案 C -->
+      <div class="card">
+        <div class="logo-wrap">
+          <img src="concept-c-hexnet.jpg" alt="C" />
+          <img class="small" src="concept-c-hexnet.jpg" alt="C-48" />
+          <img class="tiny" src="concept-c-hexnet.jpg" alt="C-24" />
+        </div>
+        <div class="sizes-label">
+          <span>160px</span>
+          <span>48px</span>
+          <span>24px</span>
+        </div>
+        <h2>方案 C · 六边</h2>
+        <div class="subtitle">HexNet</div>
+        <div class="desc">
+          六边形蜂窝网络：六个顶点节点 + 中心节点，以六边形边框 + 中心辐射线连接。<br><br>
+          <strong>意象：</strong>六边形 = 高效网络拓扑 · 蜂窝 = 班级群组 · 中心 = 平台核心<br>
+          <strong>特点：</strong>六边形是 <strong>网络/通信领域经典符号</strong>，形态独特辨识度高。
+        </div>
+        <span class="badge c">蜂窝网络</span>
+      </div>
+    </div>
+    <div class="section-title">— 同时提供 SVG 矢量版本（可任意缩放）—</div>
+    <div class="grid">
+      <div class="card">
+        <div class="logo-wrap">
+          <img style="border-radius: 36px;" src="concept-a-cohesion.svg" alt="A-svg" />
+        </div>
+        <h2>方案 A · SVG</h2>
+      </div>
+      <div class="card">
+        <div class="logo-wrap">
+          <img style="border-radius: 36px;" src="concept-b-hub.svg" alt="B-svg" />
+        </div>
+        <h2>方案 B · SVG</h2>
+      </div>
+      <div class="card">
+        <div class="logo-wrap">
+          <img style="border-radius: 36px;" src="concept-c-hexnet.svg" alt="C-svg" />
+        </div>
+        <h2>方案 C · SVG</h2>
+      </div>
+    </div>
+    <div class="footer">
+      所有方案使用 iOS 蓝→紫渐变（#007AFF → #5856D6），与项目设计语言一致<br>
+      上方为 AI 生成图（JPG），下方为 SVG 矢量版（可编辑、可任意缩放）<br>
+      告诉我你偏好哪个方向，我可以进一步细化调整
+    </div>
+  </div>
+</body>
+</html>

@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.1.66] - 2026-08-23
+版本更新
+
+## [1.1.65] - 2026-08-23
+【其他】
+assets: switch to horizontal logo-d and new Banner.png
+assets: add new logo, white-bg logo and banner
+feat(lock-screen): add admin toggle for lock screen feature
+fix(docs): add sealed_token to star-history chart for public display
+revert(ci): remove star-history action, switching to sealed_token approach
+feat(ci): add self-hosted star-history action to replace broken star-history.com embed
+Update README title by removing emoji
+fix(docs): use jsDelivr CDN for logo image to resolve raw.githubusercontent DNS issue
+feat(docs): add project logo banner to README top
+fix(docs): correct repo URL from Nevino2333/ClassIntra to ClassIntra/ClassIntra
+chore(ci): optimize GitHub workflows and prefer prebuilt native binaries
+release: v1.1.64 production hardening
+
+
+
 ## [1.1.64] - 2026-08-19
 
 【安全】

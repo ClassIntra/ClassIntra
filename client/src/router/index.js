@@ -2,6 +2,7 @@ import Vue from 'vue';
 import VueRouter from 'vue-router';
 import api from '@/utils/api';
 import { appRoutes, ROUTE_APP_MAP } from '@/core/router-aggregator';
+import MarketRuntime from '@/components/MarketRuntime.vue';
 
 Vue.use(VueRouter);
 
@@ -175,5 +176,35 @@ function proceedWithAdminCheck(to, next) {
 
 // 导出缓存清除函数，供管理页面调用
 router.clearAppControlCache = clearAppControlCache;
+var marketRoutes = {};
+router.registerMarketApps = function(apps) {
+  var nextRoutes = {};
+  (Array.isArray(apps) ? apps : []).forEach(function(app) {
+    if (!app || !app.name || !app.route) return;
+    nextRoutes[app.name] = app;
+    var existing = marketRoutes[app.name];
+    if (existing && existing.route === app.route) {
+      existing.app = app;
+      return;
+    }
+    if (ROUTE_APP_MAP[app.route] && ROUTE_APP_MAP[app.route] !== app.name) return;
+    ROUTE_APP_MAP[app.route] = app.name;
+    marketRoutes[app.name] = { route: app.route };
+    router.addRoutes([{
+      path: app.route,
+      name: 'Market_' + app.name,
+      component: MarketRuntime,
+      props: { appName: app.name },
+      meta: { requiresAuth: true, appName: app.name, market: true }
+    }]);
+  });
+  Object.keys(marketRoutes).forEach(function(name) {
+    if (!nextRoutes[name]) {
+      var route = marketRoutes[name].route;
+      delete ROUTE_APP_MAP[route];
+      delete marketRoutes[name];
+    }
+  });
+};
 
 export default router;

@@ -70,8 +70,15 @@ function validateManifest(m) {
     if (!m.frontend.route || typeof m.frontend.route !== 'string') {
       warnings.push('frontend.route 缺失或非字符串');
     }
-    if (!m.frontend.component || typeof m.frontend.component !== 'string') {
+    if (m.frontend.entry) {
+      if (typeof m.frontend.entry !== 'string') {
+        warnings.push('frontend.entry 应为字符串');
+      }
+    } else if (!m.frontend.component || typeof m.frontend.component !== 'string') {
       warnings.push('frontend.component 缺失或非字符串');
+    }
+    if (m.frontend.style && typeof m.frontend.style !== 'string') {
+      warnings.push('frontend.style 应为字符串');
     }
   }
 

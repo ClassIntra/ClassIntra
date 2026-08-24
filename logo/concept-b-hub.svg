@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+  <defs>
+    <linearGradient id="bgB" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#5E5CE6"/>
+      <stop offset="100%" stop-color="#3634A3"/>
+    </linearGradient>
+  </defs>
+  <!-- 圆角矩形背景：教室 -->
+  <rect width="120" height="120" rx="26" ry="26" fill="url(#bgB)"/>
+  <!-- 中心辐射连接线 -->
+  <g stroke="#FFFFFF" stroke-width="2.5" opacity="0.5" stroke-linecap="round">
+    <line x1="60" y1="60" x2="36" y2="36"/>
+    <line x1="60" y1="60" x2="84" y2="36"/>
+    <line x1="60" y1="60" x2="36" y2="84"/>
+    <line x1="60" y1="60" x2="84" y2="84"/>
+    <line x1="60" y1="60" x2="60" y2="26"/>
+    <line x1="60" y1="60" x2="60" y2="94"/>
+  </g>
+  <!-- 中心枢纽（服务器） -->
+  <circle cx="60" cy="60" r="12" fill="#FFFFFF"/>
+  <circle cx="60" cy="60" r="5" fill="#5E5CE6"/>
+  <!-- 周围同学节点 -->
+  <g fill="#FFFFFF">
+    <circle cx="36" cy="36" r="7.5"/>
+    <circle cx="84" cy="36" r="7.5"/>
+    <circle cx="36" cy="84" r="7.5"/>
+    <circle cx="84" cy="84" r="7.5"/>
+    <circle cx="60" cy="26" r="7.5"/>
+    <circle cx="60" cy="94" r="7.5"/>
+  </g>
+</svg>

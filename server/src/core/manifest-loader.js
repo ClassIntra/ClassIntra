@@ -1,7 +1,8 @@
 // 后端聚合层：manifest 加载器
-// 扫描 apps/ 与 plugins/ 两个相互独立的顶级目录
-// apps/    —— 应用（含前端页面 + 可选后端）
-// plugins/ —— 插件（仅后端，无前端页面）
+// 扫描 apps/、plugins/、market-apps/ 三个相互独立的顶级目录
+// apps/        —— 应用（含前端页面 + 可选后端）
+// plugins/     —— 插件（仅后端，无前端页面）
+// market-apps/ —— 第三方市场应用（运行时安装，支持热插拔）
 //
 // 加载的 manifest 上附带 _sourceDir 元数据，供 route-aggregator 解析入口路径
 // 此文件位于 server/src/core/，到根目录的相对路径为 ../../../
@@ -13,11 +14,13 @@ var validateManifest = require('./manifest-schema').validateManifest;
 var rootDir = path.resolve(__dirname, '../../../');
 var appsDir = path.join(rootDir, 'apps');
 var pluginsDir = path.join(rootDir, 'plugins');
+var marketAppsDir = path.join(rootDir, 'market-apps');
 
 // 扫描源定义：type 用于日志区分，dir 为绝对路径
 var SOURCE_DIRS = [
   { type: 'app', dir: appsDir },
-  { type: 'plugin', dir: pluginsDir }
+  { type: 'plugin', dir: pluginsDir },
+  { type: 'market', dir: marketAppsDir }
 ];
 
 // 缓存（每次启动加载一次，开发时如需热加载可调用 clearCache）
@@ -93,5 +96,6 @@ module.exports = {
   getAppEntryPath: getAppEntryPath,
   clearCache: clearCache,
   appsDir: appsDir,
-  pluginsDir: pluginsDir
+  pluginsDir: pluginsDir,
+  marketAppsDir: marketAppsDir
 };

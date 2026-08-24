@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+  <defs>
+    <linearGradient id="bgA" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#007AFF"/>
+      <stop offset="100%" stop-color="#5856D6"/>
+    </linearGradient>
+  </defs>
+  <!-- 圆角矩形背景：教室 -->
+  <rect width="120" height="120" rx="26" ry="26" fill="url(#bgA)"/>
+  <!-- 网络连接线 -->
+  <g stroke="#FFFFFF" stroke-width="2.5" opacity="0.55" stroke-linecap="round" fill="none">
+    <line x1="40" y1="40" x2="80" y2="40"/>
+    <line x1="80" y1="40" x2="80" y2="80"/>
+    <line x1="80" y1="80" x2="40" y2="80"/>
+    <line x1="40" y1="80" x2="40" y2="40"/>
+    <line x1="40" y1="40" x2="80" y2="80"/>
+    <line x1="80" y1="40" x2="40" y2="80"/>
+  </g>
+  <!-- 四个同学节点 -->
+  <g fill="#FFFFFF">
+    <circle cx="40" cy="40" r="9"/>
+    <circle cx="80" cy="40" r="9"/>
+    <circle cx="80" cy="80" r="9"/>
+    <circle cx="40" cy="80" r="9"/>
+  </g>
+</svg>

@@ -1,6 +1,6 @@
 import api from '@/utils/api';
 import { getWidget as getWidgetDef } from '@/core/widget-aggregator';
-import { APP_REGISTRY } from '@/core/app-registry';
+import { APP_REGISTRY as APP_REGISTRY } from '@/core/app-registry';
 
 // APP_REGISTRY 现由 @/core/app-registry 从 apps/*/manifest.json 聚合产生
 // 保留 export 供其他模块引用（如 Desktop.vue 中的 defaultApps）

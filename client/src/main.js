@@ -95,6 +95,9 @@ import { getThemeEngine } from '@/core/theme-engine';
 import { getHotkeyManager } from '@/core/hotkey-manager';
 import { getSearchRegistry } from '@/core/search-registry';
 import { getIntegrationManager } from '@/integrations';
+import api from '@/utils/api';
+import { marketRegistry, define } from '@/core/market-registry';
+import { ROUTE_APP_MAP } from '@/core/router-aggregator';
 import '@fortawesome/fontawesome-free/css/all.min.css';
 import './styles/global.scss';
 
@@ -181,6 +184,33 @@ Vue.prototype.$services = serviceRegistry;
 // ========== 阶段 5：全局搜索 ==========
 // 设置 window.__router 供 SearchRegistry 的应用搜索使用（点击应用结果跳转路由）
 window.__router = router;
+
+window.ClassIntraMarket = {
+  version: '1',
+  apps: {},
+  define: function(definition) {
+    var result = define(definition);
+    this.apps[result.name] = result;
+    return result;
+  },
+  createContext: function(appName) {
+    return {
+      appName: appName,
+      api: api,
+      router: router,
+      store: store,
+      user: store.state.auth && store.state.auth.user,
+      theme: getThemeEngine(),
+      eventBus: getEventBus(),
+      toast: { alert: function(options) { return Vue.prototype.$modal.alert(options); } },
+      modal: Vue.prototype.$modal
+    };
+  }
+};
+
+marketRegistry.refresh().then(function(apps) {
+  router.registerMarketApps(apps);
+}).catch(function() {});
 
 new Vue({
   router: router,
