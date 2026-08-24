@@ -13,6 +13,30 @@ ClassIntra 主仓库：
 
 - [ClassIntra/ClassIntra](https://github.com/ClassIntra/ClassIntra)
 
+## 用户如何获取应用
+
+用户不需要把整个 `market` 仓库下载到本地，也不需要拥有 ClassIntra 官方服务器。ClassIntra 运行所在的班级服务器会作为安装客户端，直接从 GitHub 获取单个应用需要的文件：
+
+1. 请求 GitHub Raw 上的 `index.json`，获得应用目录和文件清单。
+2. 管理员选择应用，例如 `gomoku`。
+3. ClassIntra 只下载该应用 manifest、图标、前端入口、样式和后端入口。
+4. 文件写入 ClassIntra 本地的 `market-apps/<app-name>/` 目录。
+5. 下载完成后在本地运行，用户不需要访问 GitHub 仓库页面。
+
+当前官方市场源使用：
+
+```text
+https://raw.githubusercontent.com/ClassIntra/market/main/
+```
+
+因此实际下载的是类似下面的单文件地址，而不是整个仓库：
+
+```text
+https://raw.githubusercontent.com/ClassIntra/market/main/apps/gomoku/frontend/entry.js
+```
+
+`market` 仓库只负责托管应用包和目录索引；班级服务器负责缓存、安装、运行、更新和卸载。后续如果应用包增长较大，可以将 catalog 的 `source` 扩展为 GitHub Release 压缩包或对象存储，但用户体验仍保持为“在应用市场点击安装”。
+
 ## 设计目标
 
 第三方应用生命周期遵循桌面操作系统式体验：
