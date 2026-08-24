@@ -183,6 +183,10 @@ export default defineConfig({
       '/resources': {
         target: 'http://localhost:9001',
         changeOrigin: true
+      },
+      '/market-static': {
+        target: 'http://localhost:9001',
+        changeOrigin: true
       }
     }
   },

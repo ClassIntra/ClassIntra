@@ -208,8 +208,14 @@ window.ClassIntraMarket = {
   }
 };
 
+var initialPath = window.location.pathname + window.location.search + window.location.hash;
+
 marketRegistry.refresh().then(function(apps) {
   router.registerMarketApps(apps);
+  if (initialPath !== '/' && router.currentRoute && router.currentRoute.path !== initialPath) {
+    return router.replace(initialPath).catch(function() {});
+  }
+  return null;
 }).catch(function() {});
 
 new Vue({

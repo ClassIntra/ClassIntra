@@ -61,6 +61,7 @@ function getSource(sourceId) {
 // dispatcher 在 app.js 启动时 app.use 一次（位于官方应用路由之后、catch-all 之前），
 // 之后安装/卸载/更新只改 mounts 表，无需再次 app.use → 支持真正的运行时插拔
 var _mounts = {};
+var _removedMountPaths = {};
 
 function _clearRequireCache(appDir) {
   Object.keys(require.cache).forEach(function(k) {
@@ -76,6 +77,14 @@ function _loadRouter(manifest) {
   if (!fs.existsSync(entryPath)) return null;
   var appDir = path.join(marketAppsDir, manifest.name);
   _clearRequireCache(appDir);
+  var moduleLib = require('module');
+  var dependencyPath = path.join(rootDir, 'server', 'node_modules');
+  var nodePaths = (process.env.NODE_PATH || '').split(path.delimiter).filter(function(item) {
+    return item;
+  });
+  if (nodePaths.indexOf(dependencyPath) === -1) nodePaths.push(dependencyPath);
+  process.env.NODE_PATH = nodePaths.join(path.delimiter);
+  moduleLib.Module._initPaths();
   return require(entryPath);
 }
 
@@ -99,6 +108,7 @@ function _setMount(manifest) {
     appName: manifest.name,
     layers: layers
   };
+  delete _removedMountPaths[manifest.backend.mountPath];
   console.log('[market] 热挂载后端路由:', manifest.name, '->', manifest.backend.mountPath);
   return true;
 }
@@ -107,11 +117,22 @@ function _setMount(manifest) {
 function _removeMount(manifest) {
   if (manifest.backend && manifest.backend.mountPath && _mounts[manifest.backend.mountPath]) {
     delete _mounts[manifest.backend.mountPath];
+    _removedMountPaths[manifest.backend.mountPath] = true;
     console.log('[market] 卸载后端路由:', manifest.name, '->', manifest.backend.mountPath);
   }
 }
 
 // 调度器中间件：按最长前缀匹配分发给对应市场应用
+function isAppEnabled(appName) {
+  try {
+    var db = require('../utils/db');
+    var row = db.prepare('SELECT enabled FROM app_control WHERE app_name = ?').get(appName);
+    return !row || !!row.enabled;
+  } catch (e) {
+    return true;
+  }
+}
+
 function dispatcher() {
   return function(req, res, next) {
     var keys = Object.keys(_mounts);
@@ -122,8 +143,19 @@ function dispatcher() {
         if (!matched || mp.length > matched.length) matched = mp;
       }
     }
-    if (!matched) return next();
+    if (!matched) {
+      var removedPaths = Object.keys(_removedMountPaths);
+      for (var r = 0; r < removedPaths.length; r++) {
+        if (req.path === removedPaths[r] || req.path.indexOf(removedPaths[r] + '/') === 0) {
+          return res.status(404).json({ code: 404, message: '应用不存在' });
+        }
+      }
+      return next();
+    }
     var mount = _mounts[matched];
+    if (!isAppEnabled(mount.appName)) {
+      return res.status(404).json({ code: 404, message: '应用未启用' });
+    }
     var originalUrl = req.url;
     var originalBaseUrl = req.baseUrl;
     var relativeUrl = req.url.substring(matched.length);
@@ -216,6 +248,8 @@ function listInstalled() {
       frontendEntry: m.frontend && m.frontend.entry ? m.frontend.entry : '',
       frontendStyle: m.frontend && m.frontend.style ? m.frontend.style : '',
       hasBackend: !!(m.backend && m.backend.mountPath),
+      enabled: isAppEnabled(m.name),
+      source: 'market',
       installedAt: stat ? stat.mtimeMs : 0
     };
   });

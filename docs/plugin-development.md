@@ -750,7 +750,19 @@ export default {
 
 ---
 
-## 14. 常见问题
+## 14. 第三方市场应用
+
+需要独立分发、动态安装和运行时插拔的应用，应使用第三方市场应用协议，而不是直接写入内置 `apps/` 目录。市场应用支持班管统一安装、更新、启用、禁用和卸载。
+
+首个完整示例是市场仓库中的五子棋：
+
+- [ClassIntra/market](https://github.com/ClassIntra/market)
+- [市场应用生命周期](./third-party-market.md)
+- [五子棋应用目录](https://github.com/ClassIntra/market/tree/main/apps/gomoku)
+
+市场应用前端通过 `window.ClassIntraMarket.define()` 注册 `mount` / `unmount` 生命周期，后端通过 manifest 的 `backend.mountPath` 动态挂载。完整流程、API、实时同步和验收清单见市场应用文档。
+
+## 15. 常见问题
 
 ### Q: 插件图标不显示？
 
