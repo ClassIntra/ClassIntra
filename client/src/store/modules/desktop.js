@@ -1,6 +1,6 @@
 import api from '@/utils/api';
 import { getWidget as getWidgetDef } from '@/core/widget-aggregator';
-import { APP_REGISTRY as APP_REGISTRY } from '@/core/app-registry';
+import { APP_REGISTRY } from '@/core/app-registry';
 
 // APP_REGISTRY 现由 @/core/app-registry 从 apps/*/manifest.json 聚合产生
 // 保留 export 供其他模块引用（如 Desktop.vue 中的 defaultApps）
@@ -11,6 +11,10 @@ var SLOTS_PER_PAGE = 24;
 
 // localStorage 缓存键
 var LS_CACHE_KEY = 'classintra_desktop_layout';
+
+function getAppRegistry() {
+  return APP_REGISTRY;
+}
 
 // 深拷贝布局（避免直接修改 state）
 function cloneLayout(layout) {
@@ -64,7 +68,31 @@ function buildDefaultLayout(enabledAppNames) {
   };
 }
 
-// 合并服务端布局与默认布局，确保结构完整
+function cleanLayoutApps(layout, enabledAppNames) {
+  if (!layout || !Array.isArray(enabledAppNames)) return layout;
+  var enabled = {};
+  enabledAppNames.forEach(function(name) { enabled[name] = true; });
+  layout.pages.forEach(function(page) {
+    page.slots = page.slots.map(function(slot) {
+      if (slot && slot.type === 'app' && !enabled[slot.name]) return null;
+      return slot;
+    });
+  });
+  layout.dock = layout.dock.filter(function(name) { return enabled[name]; });
+  layout.pinnedApps = layout.pinnedApps.filter(function(name) { return enabled[name]; });
+  Object.keys(layout.folders).forEach(function(folderId) {
+    var folder = layout.folders[folderId];
+    folder.apps = (folder.apps || []).filter(function(name) { return enabled[name]; });
+    if (!folder.apps.length) delete layout.folders[folderId];
+  });
+  Object.keys(layout.widgets).forEach(function(pageId) {
+    layout.widgets[pageId] = (layout.widgets[pageId] || []).filter(function(widget) {
+      return !widget.appName || enabled[widget.appName];
+    });
+  });
+  return layout;
+}
+
 function normalizeLayout(serverLayout, enabledAppNames) {
   if (!serverLayout || typeof serverLayout !== 'object') {
     return buildDefaultLayout(enabledAppNames);
@@ -93,6 +121,8 @@ function normalizeLayout(serverLayout, enabledAppNames) {
   var settingsIdx = pinnedApps.indexOf('settings');
   if (settingsIdx !== -1) pinnedApps.splice(settingsIdx, 1);
   var folders = (serverLayout.folders && typeof serverLayout.folders === 'object') ? serverLayout.folders : {};
+
+  cleanLayoutApps({ pages: pages, dock: dock, pinnedApps: pinnedApps, folders: folders, widgets: (serverLayout.widgets && typeof serverLayout.widgets === 'object') ? serverLayout.widgets : {} }, enabledAppNames);
 
   // 补全 enabledAppNames 中缺失的应用（新启用应用自动出现在桌面）
   if (Array.isArray(enabledAppNames) && enabledAppNames.length > 0) {
@@ -149,12 +179,13 @@ var state = {
 
 var getters = {
   // 应用元数据注册表
-  appRegistry: function() { return APP_REGISTRY; },
+  appRegistry: function() { return getAppRegistry(); },
   // 根据 name 查应用元数据
   appByName: function() {
     return function(name) {
-      for (var i = 0; i < APP_REGISTRY.length; i++) {
-        if (APP_REGISTRY[i].name === name) return APP_REGISTRY[i];
+      var appRegistry = getAppRegistry();
+      for (var i = 0; i < appRegistry.length; i++) {
+        if (appRegistry[i].name === name) return appRegistry[i];
       }
       return null;
     };

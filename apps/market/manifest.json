@@ -1,0 +1,21 @@
+{
+  "name": "market",
+  "type": "system",
+  "version": "1.0.0",
+  "label": "应用市场",
+  "icon": "/resources/public/icons/ToolBox.svg",
+  "color": "#5856D6",
+  "category": "desktop",
+  "order": 7,
+  "defaultEnabled": true,
+  "canDisable": false,
+  "visibleRoles": ["admin", "officer"],
+  "frontend": {
+    "route": "/market",
+    "routeName": "Market",
+    "component": "./frontend/Market.vue",
+    "meta": {
+      "requiresAdmin": true
+    }
+  }
+}

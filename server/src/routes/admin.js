@@ -7,6 +7,7 @@ var db = require('../utils/db');
 var auth = require('../middleware/auth');
 var time = require('../utils/time');
 var constants = require('../utils/constants');
+var marketService = require('../core/market-service');
 
 // 获取管理员的班级号（班管返回CC，班干也返回对应班级）
 function getUserAdminClass(userId) {
@@ -1883,10 +1884,34 @@ router.get('/app-control', auth.requirePermission('manage_app_control'), functio
         color: app.color,
         enabled: status.enabled,
         protected: !!app.protected,
+        source: 'builtin',
         updated_by: status.updated_by,
         updated_at: status.updated_at
       };
     });
+    var installedMarketApps = marketService.listInstalled();
+    for (var mi = 0; mi < installedMarketApps.length; mi++) {
+      var marketApp = installedMarketApps[mi];
+      var marketStatus = statusMap[marketApp.name] || {
+        enabled: marketApp.enabled !== false,
+        updated_by: '',
+        updated_at: ''
+      };
+      apps.push({
+        name: marketApp.name,
+        label: marketApp.label,
+        icon: marketApp.icon,
+        color: marketApp.color,
+        version: marketApp.version,
+        route: marketApp.route,
+        enabled: marketStatus.enabled,
+        protected: false,
+        source: marketApp.source || 'market',
+        installedAt: marketApp.installedAt,
+        updated_by: marketStatus.updated_by,
+        updated_at: marketStatus.updated_at
+      });
+    }
     res.json({ code: 200, data: { apps: apps } });
   } catch (e) {
     console.error('[Admin] Get app-control failed:', e.message);
@@ -1903,6 +1928,15 @@ router.put('/app-control/:appName', auth.requirePermission('manage_app_control')
     if (DESKTOP_APPS[i].name === appName) { validApp = DESKTOP_APPS[i]; break; }
   }
   if (!validApp) {
+    var installedMarketApps = marketService.listInstalled();
+    for (var mi = 0; mi < installedMarketApps.length; mi++) {
+      if (installedMarketApps[mi].name === appName) {
+        validApp = installedMarketApps[mi];
+        break;
+      }
+    }
+  }
+  if (!validApp) {
     return res.status(400).json({ code: 400, message: '无效的应用名称' });
   }
   // protected 应用不允许禁用（settings 永远可用；admin 仅管理员/班干可见，禁用会锁死管理入口）
@@ -1914,6 +1948,15 @@ router.put('/app-control/:appName', auth.requirePermission('manage_app_control')
     db.prepare("INSERT INTO app_control (app_name, enabled, updated_by, updated_at) VALUES (?, ?, ?, datetime('now')) ON CONFLICT(app_name) DO UPDATE SET enabled = excluded.enabled, updated_by = excluded.updated_by, updated_at = excluded.updated_at")
       .run(appName, enabled, req.user.user_id || '');
     logAction(req.user.user_id, enabled ? 'enable_app' : 'disable_app', appName, validApp.label);
+    try {
+      var chatServer = require('../ws/chat-server');
+      chatServer.broadcast({
+        type: 'market_app_control_changed',
+        appName: appName,
+        enabled: enabled === 1,
+        updatedBy: req.user.user_id || ''
+      });
+    } catch (broadcastError) {}
     res.json({ code: 200, message: enabled ? '应用已启用' : '应用已禁用', data: { app_name: appName, enabled: enabled ? true : false } });
   } catch (e) {
     console.error('[Admin] Update app-control failed:', e.message);

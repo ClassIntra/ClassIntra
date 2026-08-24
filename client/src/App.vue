@@ -30,6 +30,8 @@ import islandNotify from '@/utils/island-notify';
 import reminderChecker from '@/utils/reminder-checker';
 import { getThemeEngine } from '@/core/theme-engine';
 import { getHotkeyManager } from '@/core/hotkey-manager';
+import router from '@/router';
+import { marketRegistry } from '@/core/market-registry';
 
 export default {
   name: 'App',
@@ -42,7 +44,9 @@ export default {
     return {
       isLocked: localStorage.getItem('app_locked') === 'true',
       lockTapTimes: [],
-      lockScreenEnabled: true
+      lockScreenEnabled: true,
+      marketSyncPromise: null,
+      marketSyncEventKey: ''
     };
   },
   computed: {
@@ -114,8 +118,51 @@ export default {
           self.lockScreenEnabled = !!data.lock_screen;
         }
       }).catch(function() {
-        // 拉取失败保持默认开启
       });
+    },
+    syncMarketAppControl: function(appName, enabled, action) {
+      var self = this;
+      var eventKey = [appName || '', enabled ? 'enabled' : 'disabled', action || 'control'].join(':');
+      if (self.marketSyncEventKey === eventKey && self.marketSyncPromise) {
+        return self.marketSyncPromise;
+      }
+      self.marketSyncEventKey = eventKey;
+      if (router.clearAppControlCache) router.clearAppControlCache();
+      self.marketSyncPromise = api.get('/system/app-control').then(function(response) {
+        var data = response.data.data || {};
+        var enabledApps = Array.isArray(data.enabled_apps) ? data.enabled_apps : [];
+        self.$store.commit('desktop/SET_ENABLED_APPS', enabledApps);
+        return marketRegistry.refresh().then(function(apps) {
+          if (router.registerMarketApps) router.registerMarketApps(apps);
+          return self.$store.dispatch('desktop/loadDesktopLayout', enabledApps).then(function() {
+            var currentApp = self.$route.meta && self.$route.meta.appName;
+            if ((!enabled || action === 'uninstalled') && currentApp === appName) {
+              return self.$router.push({ name: 'Desktop' }).then(function() {
+                self.$store.commit('toast/SHOW_TOAST', {
+                  message: action === 'uninstalled' ? '应用已卸载，已返回桌面' : '应用已被班管暂停，已返回桌面',
+                  type: 'info'
+                });
+                return apps;
+              });
+            }
+            if (action === 'installed') {
+              self.$store.commit('toast/SHOW_TOAST', { message: '班管已安装新应用，桌面已更新', type: 'info' });
+            } else if (action === 'updated') {
+              self.$store.commit('toast/SHOW_TOAST', { message: '应用已更新', type: 'success' });
+            }
+            return apps;
+          });
+        });
+      }).catch(function(error) {
+        self.$store.commit('toast/SHOW_TOAST', {
+          message: error && error.message ? '应用状态同步失败，请刷新重试' : '应用状态同步失败，请刷新重试',
+          type: 'error'
+        });
+        throw error;
+      }).finally(function() {
+        self.marketSyncPromise = null;
+      });
+      return self.marketSyncPromise;
     },
     // 断网时立即锁屏并隐藏敏感信息（同步执行，零延迟，不删除本地数据）
     lockForOffline: function() {
@@ -281,6 +328,12 @@ export default {
             });
           }
         }
+      }
+      if (data.type === 'market_app_control_changed') {
+        self.syncMarketAppControl(data.appName, !!data.enabled, 'control').catch(function() {});
+      }
+      if (data.type === 'market_app_changed') {
+        self.syncMarketAppControl(data.appName, true, data.action).catch(function() {});
       }
       if (data.type === 'lock_screen_changed') {
         // 管理员切换锁屏开关，实时生效

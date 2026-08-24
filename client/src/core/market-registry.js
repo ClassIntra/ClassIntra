@@ -6,6 +6,8 @@ var loadedScripts = {};
 var loadedStyles = {};
 var loading = {};
 var loadedVersions = {};
+var mountedRuntimes = {};
+var loadGeneration = {};
 var listeners = [];
 
 function getEntry(app) {
@@ -35,6 +37,9 @@ function define(definition) {
   if (!definition || !definition.name || typeof definition.mount !== 'function') {
     throw new Error('市场应用入口定义无效');
   }
+  if (definitions[definition.name] && definitions[definition.name] !== definition) {
+    unmount(definition.name);
+  }
   definitions[definition.name] = definition;
   return definition;
 }
@@ -50,11 +55,16 @@ function styleUrl(app) {
 
 function loadScript(app) {
   if (loadedScripts[app.name]) return Promise.resolve();
+  var generation = loadGeneration[app.name] || 0;
   return new Promise(function(resolve, reject) {
     var script = document.createElement('script');
     script.src = scriptUrl(app) + '?v=' + encodeURIComponent(app.version || '');
     script.async = true;
     script.onload = function() {
+      if (generation !== (loadGeneration[app.name] || 0) || getInstalled(app.name) !== app) {
+        reject(new Error('应用已卸载'));
+        return;
+      }
       loadedScripts[app.name] = script;
       resolve();
     };
@@ -74,7 +84,19 @@ function loadStyle(app) {
   document.head.appendChild(link);
 }
 
+function unmount(appName, container) {
+  var runtime = mountedRuntimes[appName];
+  if (!runtime || (container && runtime.container !== container)) return;
+  if (runtime.definition && typeof runtime.definition.unmount === 'function') {
+    try { runtime.definition.unmount(runtime.container); } catch (e) {}
+  }
+  delete mountedRuntimes[appName];
+}
+
 function unloadAssets(appName) {
+  unmount(appName);
+  loadGeneration[appName] = (loadGeneration[appName] || 0) + 1;
+  delete loading[appName];
   var script = loadedScripts[appName];
   if (script && script.parentNode) script.parentNode.removeChild(script);
   var style = loadedStyles[appName];
@@ -93,12 +115,19 @@ function reload(name) {
 }
 
 function syncInstalled(apps) {
-  var next = Array.isArray(apps) ? apps : [];
+  var next = (Array.isArray(apps) ? apps : []).filter(function(app) {
+    return app && app.name && app.enabled !== false;
+  });
   var active = {};
   next.forEach(function(app) {
     if (app && app.name) active[app.name] = app;
   });
-  Object.keys(loadedScripts).forEach(function(name) {
+  var resources = {};
+  Object.keys(loadedScripts).forEach(function(name) { resources[name] = true; });
+  Object.keys(loadedStyles).forEach(function(name) { resources[name] = true; });
+  Object.keys(loading).forEach(function(name) { resources[name] = true; });
+  Object.keys(mountedRuntimes).forEach(function(name) { resources[name] = true; });
+  Object.keys(resources).forEach(function(name) {
     if (!active[name]) unloadAssets(name);
   });
   installedApps = next.slice();
@@ -126,16 +155,28 @@ function ensureLoaded(name) {
     unloadAssets(name);
   }
   if (loading[name]) return loading[name];
+  var generation = loadGeneration[name] || 0;
   loading[name] = loadScript(app).then(function() {
     loadStyle(app);
     loadedVersions[name] = app.version || '';
     var definition = definitions[name] || (window.ClassIntraMarket && window.ClassIntraMarket.apps && window.ClassIntraMarket.apps[name]);
     if (!definition) throw new Error('应用未注册运行时入口');
+    if (generation !== (loadGeneration[name] || 0) || getInstalled(name) !== app) {
+      throw new Error('应用已卸载');
+    }
     return { app: app, definition: definition };
   }).finally(function() {
-    delete loading[name];
+    if (loading[name]) delete loading[name];
   });
   return loading[name];
+}
+
+function mount(name, container, definition) {
+  if (!container || !definition || typeof definition.mount !== 'function') return false;
+  if (getInstalled(name) === null) return false;
+  definition.mount(container, window.ClassIntraMarket.createContext(name));
+  mountedRuntimes[name] = { container: container, definition: definition };
+  return true;
 }
 
 function refresh() {
@@ -148,6 +189,8 @@ var registry = {
   refresh: refresh,
   getInstalled: getInstalled,
   ensureLoaded: ensureLoaded,
+  mount: mount,
+  unmount: unmount,
   unloadAssets: unloadAssets,
   reload: reload,
   syncInstalled: syncInstalled,

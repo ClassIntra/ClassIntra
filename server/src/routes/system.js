@@ -159,6 +159,19 @@ router.get('/app-control', function(req, res) {
       for (var i = 0; i < rows.length; i++) {
         if (rows[i].enabled) enabledApps.push(rows[i].app_name);
       }
+      try {
+        var marketService = require('../core/market-service');
+        var installedApps = marketService.listInstalled();
+        var installedNames = {};
+        for (var mi = 0; mi < installedApps.length; mi++) {
+          installedNames[installedApps[mi].name] = true;
+        }
+        enabledApps = enabledApps.filter(function(name) {
+          return !installedNames[name] || installedApps.some(function(app) {
+            return app.name === name && app.enabled;
+          });
+        });
+      } catch (marketError) {}
       var lockRow = db.prepare("SELECT value FROM system_settings WHERE key = 'lock_screen'").get();
       var lockScreenEnabled = lockRow ? lockRow.value !== '0' : true;
       res.json({ code: 200, data: { enabled_apps: enabledApps, lock_screen: lockScreenEnabled } });

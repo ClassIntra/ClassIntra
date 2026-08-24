@@ -107,12 +107,17 @@ router.beforeEach(function(to, from, next) {
     return;
   }
 
+  if (unloadedMarketRoutes[to.path]) {
+    next({ name: 'Desktop' });
+    return;
+  }
+
   // 应用管控：检查目标路由对应的应用是否启用
   var appName = ROUTE_APP_MAP[to.path];
   if (appName && to.meta.requiresAuth && token) {
     // 管理员/班干不受应用管控限制（确保能管理）
-    var isAdminUser = user && (user.is_admin === 1 || user.is_admin === true || user.role === 'officer');
-    if (isAdminUser) {
+    var isAdminUser = user && (user.is_admin === 1 || user.is_admin === true || user.is_class_admin === true || user.role === 'officer');
+    if (isAdminUser && !to.meta.market) {
       proceedWithAdminCheck(to, next);
       return;
     }
@@ -146,7 +151,7 @@ function proceedWithAdminCheck(to, next) {
   if (to.meta.requiresAdmin) {
     var token = localStorage.getItem('token');
     var user = (function() { try { return JSON.parse(localStorage.getItem('user') || 'null'); } catch(e) { return null; } })();
-    if (user && (user.is_admin === 1 || user.is_admin === true || user.role === 'officer')) {
+    if (user && (user.is_admin === 1 || user.is_admin === true || user.is_class_admin === true || user.role === 'officer')) {
       next();
     } else if (token) {
       api.get('/auth/check-status').then(function(response) {
@@ -155,7 +160,7 @@ function proceedWithAdminCheck(to, next) {
           var userInfo = data.data.user_info;
           localStorage.setItem('user', JSON.stringify(userInfo));
           try { router.app.$store.commit('auth/SET_USER', userInfo); } catch (e) {}
-          if (userInfo.is_admin === 1 || userInfo.is_admin === true || userInfo.role === 'officer') {
+          if (userInfo.is_admin === 1 || userInfo.is_admin === true || userInfo.is_class_admin === true || userInfo.role === 'officer') {
             next();
           } else {
             next({ name: 'Desktop' });
@@ -177,11 +182,13 @@ function proceedWithAdminCheck(to, next) {
 // 导出缓存清除函数，供管理页面调用
 router.clearAppControlCache = clearAppControlCache;
 var marketRoutes = {};
+var unloadedMarketRoutes = {};
 router.registerMarketApps = function(apps) {
   var nextRoutes = {};
   (Array.isArray(apps) ? apps : []).forEach(function(app) {
     if (!app || !app.name || !app.route) return;
     nextRoutes[app.name] = app;
+    delete unloadedMarketRoutes[app.route];
     var existing = marketRoutes[app.name];
     if (existing && existing.route === app.route) {
       existing.app = app;
@@ -201,6 +208,7 @@ router.registerMarketApps = function(apps) {
   Object.keys(marketRoutes).forEach(function(name) {
     if (!nextRoutes[name]) {
       var route = marketRoutes[name].route;
+      unloadedMarketRoutes[route] = true;
       delete ROUTE_APP_MAP[route];
       delete marketRoutes[name];
     }
