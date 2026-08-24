@@ -5,8 +5,11 @@
         <i class="fa-solid fa-triangle-exclamation error-icon"></i>
         <h3 class="error-title">页面加载异常</h3>
         <p class="error-message">{{ errorMessage }}</p>
-        <button class="error-retry-btn" @click="handleRetry">重新加载</button>
-        <button class="error-back-btn" @click="goBack">返回</button>
+        <div class="error-actions">
+          <button class="error-retry-btn" @click="handleRetry">重新加载</button>
+          <button class="error-back-btn" @click="goBack">返回</button>
+        </div>
+        <p class="error-help">如果问题持续存在，请检查网络后再试。</p>
       </div>
     </div>
     <slot v-else></slot>
@@ -93,6 +96,8 @@ export default {
   word-break: break-word;
 }
 
+.error-actions { display: flex; justify-content: center; gap: 8px; }
+.error-help { margin: 12px 0 0; color: var(--text-tertiary, var(--text-secondary)); font-size: var(--font-size-xs); }
 .error-retry-btn {
   padding: 10px 24px;
   background: var(--primary-color);

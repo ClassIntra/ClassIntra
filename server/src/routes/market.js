@@ -49,12 +49,12 @@ router.get('/installed', auth.requireAuth, function(req, res) {
   }
 });
 
-// 市场目录（支持 ?source=github|local，默认 github）
+// 市场目录（支持 ?source=gitee|github|local，默认 gitee）
 router.get('/catalog', function(req, res) {
-  var sourceId = req.query.source || 'github';
-  marketService.getCatalog(sourceId).then(function(catalog) {
+  var sourceId = req.query.source || 'gitee';
+  marketService.getCatalogWithFallback(sourceId).then(function(result) {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.json({ code: 200, data: { source: sourceId, catalog: catalog } });
+    res.json({ code: 200, data: { source: result.source.id, catalog: result.catalog } });
   }).catch(function(e) {
     res.status(502).json({ code: 502, message: e.message || '获取市场目录失败' });
   });

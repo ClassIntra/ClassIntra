@@ -7,7 +7,8 @@
 //   4. 安装后写入 app_control 表（默认启用），重启后由 manifest-loader 持久扫描
 //
 // 市场源定义：
-//   github —— 官方市场（https://github.com/ClassIntra/market，走 raw.githubusercontent.com）
+//   gitee  —— 官方市场镜像（https://gitee.com/classintra/market，走 Gitee Raw）
+//   github  —— 官方市场备用源（https://github.com/ClassIntra/market，走 GitHub Raw）
 //   local  —— 本地目录市场（默认 <项目根>/../market，便于私有部署与开发调试）
 //
 // 安全约束：
@@ -36,8 +37,14 @@ var CATALOG_CACHE_MS = 60000; // 目录缓存 60s
 // ========== 市场源 ==========
 var DEFAULT_SOURCES = [
   {
+    id: 'gitee',
+    label: '官方市场（Gitee）',
+    type: 'http',
+    base: 'https://gitee.com/classintra/market/raw/main/'
+  },
+  {
     id: 'github',
-    label: '官方市场',
+    label: '官方市场（GitHub）',
     type: 'http',
     base: 'https://raw.githubusercontent.com/ClassIntra/market/main/'
   },
@@ -54,6 +61,23 @@ function getSource(sourceId) {
     if (DEFAULT_SOURCES[i].id === sourceId) return DEFAULT_SOURCES[i];
   }
   return null;
+}
+
+function getSourceFallbacks(sourceId) {
+  var preferred = getSource(sourceId);
+  if (!preferred) return [];
+
+  var fallbackIds = preferred.id === 'gitee'
+    ? ['github', 'local']
+    : preferred.id === 'github'
+      ? ['gitee', 'local']
+      : [];
+
+  return [preferred].concat(fallbackIds.map(function(id) {
+    return getSource(id);
+  }).filter(function(source) {
+    return source;
+  }));
 }
 
 // ========== 热挂载调度器 ==========
@@ -308,6 +332,26 @@ function getCatalog(sourceId) {
   });
 }
 
+function getCatalogWithFallback(sourceId) {
+  var sources = getSourceFallbacks(sourceId);
+  if (!sources.length) return Promise.reject(new Error('未知市场源: ' + sourceId));
+
+  function attempt(index, errors) {
+    var source = sources[index];
+    return getCatalog(source.id).then(function(catalog) {
+      return { source: source, catalog: catalog };
+    }).catch(function(error) {
+      errors.push(source.id + ': ' + error.message);
+      if (index + 1 >= sources.length) {
+        throw new Error('所有市场源均不可用：' + errors.join('；'));
+      }
+      return attempt(index + 1, errors);
+    });
+  }
+
+  return attempt(0, []);
+}
+
 function clearCatalogCache(sourceId) {
   if (sourceId) delete _catalogCache[sourceId];
   else _catalogCache = {};
@@ -359,10 +403,10 @@ function _detectConflicts(manifest) {
 
 // ========== 安装 / 更新 ==========
 // installApp: 下载 → 校验 → 原子写入 → app_control 注册 → 热挂载
-function installApp(appName, sourceId) {
+function installAppFromSource(appName, sourceId) {
   return Promise.resolve().then(function() {
     if (!/^[a-z][a-z0-9-]*$/.test(appName || '')) throw new Error('应用名非法（kebab-case）');
-    var source = getSource(sourceId) || getSource('github');
+    var source = getSource(sourceId) || getSource('gitee');
     return getCatalog(source.id).then(function(catalog) {
       var entry = null;
       for (var i = 0; i < catalog.apps.length; i++) {
@@ -394,7 +438,7 @@ function installApp(appName, sourceId) {
         });
       }
       return next(0).then(function() {
-        return { entry: entry, downloads: downloads };
+        return { entry: entry, downloads: downloads, source: source };
       });
     });
   }).then(function(ctx) {
@@ -461,9 +505,27 @@ function installApp(appName, sourceId) {
     return {
       name: ctx.manifest.name,
       label: ctx.manifest.label,
-      version: ctx.manifest.version || '0.0.0'
+      version: ctx.manifest.version || '0.0.0',
+      source: ctx.source.id
     };
   });
+}
+
+function installApp(appName, sourceId) {
+  var sources = getSourceFallbacks(sourceId || 'gitee');
+  if (!sources.length) return Promise.reject(new Error('未知市场源: ' + sourceId));
+
+  function attempt(index, errors) {
+    return installAppFromSource(appName, sources[index].id).catch(function(error) {
+      errors.push(sources[index].id + ': ' + error.message);
+      if (index + 1 >= sources.length) {
+        throw new Error('所有市场源均不可用：' + errors.join('；'));
+      }
+      return attempt(index + 1, errors);
+    });
+  }
+
+  return attempt(0, []);
 }
 
 function prefix0(appName) { return 'apps/' + appName + '/'; }
@@ -497,7 +559,7 @@ function uninstallApp(appName) {
 
 // 更新 = 重新安装最新版（保留启用状态）
 function updateApp(appName, sourceId) {
-  return installApp(appName, sourceId || 'github');
+  return installApp(appName, sourceId || 'gitee');
 }
 
 // 获取已安装应用的 manifest（供路由/API 使用）
@@ -514,6 +576,7 @@ module.exports = {
   dispatcher: dispatcher,
   listInstalled: listInstalled,
   getCatalog: getCatalog,
+  getCatalogWithFallback: getCatalogWithFallback,
   clearCatalogCache: clearCatalogCache,
   installApp: installApp,
   uninstallApp: uninstallApp,
