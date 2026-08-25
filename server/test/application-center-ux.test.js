@@ -9,6 +9,11 @@ var adminRoute = fs.readFileSync(path.join(routesDir, 'admin.js'), 'utf8');
 var marketService = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'market-service.js'), 'utf8');
 var resourceVue = fs.readFileSync(path.join(__dirname, '..', '..', 'apps', 'resource', 'frontend', 'Resource.vue'), 'utf8');
 var marketVue = fs.readFileSync(path.join(__dirname, '..', '..', 'apps', 'market', 'frontend', 'Market.vue'), 'utf8');
+var marketManifest = fs.readFileSync(path.join(__dirname, '..', '..', 'apps', 'market', 'manifest.json'), 'utf8');
+
+test('应用市场应使用专用图标', function() {
+  assert.match(marketManifest, /"icon"\s*:\s*"\/resources\/public\/icons\/Market\.png"/);
+});
 
 test('资源页面不得给 template 节点设置 key', function() {
   assert.doesNotMatch(resourceVue, /<template[^>]+:key=/);
