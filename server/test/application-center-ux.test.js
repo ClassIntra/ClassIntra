@@ -7,6 +7,17 @@ var routesDir = path.join(__dirname, '..', 'src', 'routes');
 var marketRoute = fs.readFileSync(path.join(routesDir, 'market.js'), 'utf8');
 var adminRoute = fs.readFileSync(path.join(routesDir, 'admin.js'), 'utf8');
 var marketService = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'market-service.js'), 'utf8');
+var resourceVue = fs.readFileSync(path.join(__dirname, '..', '..', 'apps', 'resource', 'frontend', 'Resource.vue'), 'utf8');
+var marketVue = fs.readFileSync(path.join(__dirname, '..', '..', 'apps', 'market', 'frontend', 'Market.vue'), 'utf8');
+
+test('资源页面不得给 template 节点设置 key', function() {
+  assert.doesNotMatch(resourceVue, /<template[^>]+:key=/);
+});
+
+test('应用商店内容区域应有独立的加载条件', function() {
+  assert.match(marketVue, /<template v-if="!loading">/);
+  assert.doesNotMatch(marketVue, /<template v-else>\s*<section class="market-section">/);
+});
 
 test('市场源应优先使用 Gitee 并保留 GitHub 备用源', function() {
   assert.match(marketService, /id:\s*'gitee'/);

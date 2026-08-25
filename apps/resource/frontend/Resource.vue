@@ -48,14 +48,14 @@
         <button class="breadcrumb-crumb" @click="navigateTo('')">
           <i class="fa-solid fa-house"></i>
         </button>
-        <template v-for="(crumb, idx) in breadcrumbs" :key="'crumb-' + idx">
+        <span v-for="(crumb, idx) in breadcrumbs" :key="'crumb-' + idx" class="breadcrumb-group">
           <span class="breadcrumb-sep"><i class="fa-solid fa-chevron-right"></i></span>
           <button
             class="breadcrumb-crumb"
             :class="{ active: idx === breadcrumbs.length - 1 }"
             @click="navigateTo(crumb.path)"
           >{{ crumb.name }}</button>
-        </template>
+        </span>
       </div>
 
       <div v-if="loading" class="loading-area">

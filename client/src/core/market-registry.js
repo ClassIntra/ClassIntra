@@ -174,7 +174,14 @@ function ensureLoaded(name) {
 function mount(name, container, definition) {
   if (!container || !definition || typeof definition.mount !== 'function') return false;
   if (getInstalled(name) === null) return false;
-  definition.mount(container, window.ClassIntraMarket.createContext(name));
+  var context = window.ClassIntraMarket.createContext(name);
+  if (!context || !context.api) return false;
+  try {
+    definition.mount(container, context);
+  } catch (error) {
+    console.error('[MarketRuntime] 应用挂载失败:', name, error);
+    throw error;
+  }
   mountedRuntimes[name] = { container: container, definition: definition };
   return true;
 }

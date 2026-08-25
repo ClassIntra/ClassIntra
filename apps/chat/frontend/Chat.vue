@@ -1078,6 +1078,8 @@ export default {
     // 浏览器分享胶囊预填：从超能岛浏览器分享链接到聊天，预填输入框（用户选择会话后发送）
     // 支持 title query 时生成 markdown 链接格式，更友好
     var prefillText = self.$route.query.prefill;
+    var composeText = self.$route.query.compose;
+    if (composeText && !prefillText) prefillText = encodeURIComponent(composeText);
     if (prefillText) {
       try {
         var prefillUrl = decodeURIComponent(prefillText);

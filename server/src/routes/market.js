@@ -63,7 +63,7 @@ router.get('/catalog', function(req, res) {
 // 安装应用
 router.post('/install', auth.requireAuth, auth.requireAdmin, function(req, res) {
   var name = req.body && req.body.name;
-  var source = (req.body && req.body.source) || 'github';
+  var source = (req.body && req.body.source) || 'gitee';
   if (!name) return res.status(400).json({ code: 400, message: '缺少应用名' });
   marketService.installApp(name, source).then(function(result) {
     broadcastMarketChange('installed', name, result);
@@ -77,7 +77,7 @@ router.post('/install', auth.requireAuth, auth.requireAdmin, function(req, res) 
 // 更新应用
 router.post('/update', auth.requireAuth, auth.requireAdmin, function(req, res) {
   var name = req.body && req.body.name;
-  var source = (req.body && req.body.source) || 'github';
+  var source = (req.body && req.body.source) || 'gitee';
   if (!name) return res.status(400).json({ code: 400, message: '缺少应用名' });
   marketService.updateApp(name, source).then(function(result) {
     broadcastMarketChange('updated', name, result);
