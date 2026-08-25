@@ -1450,6 +1450,15 @@ export default {
     // 浏览器分享胶囊预填：从超能岛浏览器分享视频到社区，打开发帖弹窗并预填富文本内容
     // 支持 title/pic/owner query 时生成带标题、封面、作者的视频卡片 markdown
     var shareLink = self.$route.query.shareLink;
+    var prefillText = self.$route.query.prefill;
+    if (prefillText) {
+      try {
+        self.newPost.content = decodeURIComponent(prefillText);
+        self.showPostModal = true;
+        self.showPostPreview = false;
+        self.$router.replace({ query: {} }).catch(function() {});
+      } catch (e) {}
+    }
     if (shareLink) {
       try {
         var linkUrl = decodeURIComponent(shareLink);

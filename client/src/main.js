@@ -96,6 +96,7 @@ import { getHotkeyManager } from '@/core/hotkey-manager';
 import { getSearchRegistry } from '@/core/search-registry';
 import { getIntegrationManager } from '@/integrations';
 import api from '@/utils/api';
+import wsManager from '@/utils/websocket';
 import { marketRegistry, define } from '@/core/market-registry';
 import { ROUTE_APP_MAP } from '@/core/router-aggregator';
 import '@fortawesome/fontawesome-free/css/all.min.css';
@@ -197,7 +198,8 @@ window.ClassIntraMarket = {
     return {
       appName: appName,
       api: api,
-      websocket: require('./utils/websocket').default,
+      websocket: wsManager,
+      route: router.currentRoute,
       router: router,
       store: store,
       user: store.state.auth && store.state.auth.user,

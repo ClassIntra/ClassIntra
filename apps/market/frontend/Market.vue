@@ -38,7 +38,7 @@
         <span>当前下载源：{{ sourceLabel(activeSource) }}</span>
       </div>
 
-      <template v-else>
+      <template v-if="!loading">
         <section class="market-section">
           <div class="section-heading">
             <div>

@@ -90,7 +90,13 @@ export default {
 .market-runtime,
 .market-runtime-container {
   width: 100%;
-  min-height: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+.market-runtime-container > * {
+  height: 100%;
+  min-height: 0;
 }
 .market-runtime-state {
   display: flex;
