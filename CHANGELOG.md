@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.1.91] - 2026-08-25
+版本更新
+
+## [1.1.90] - 2026-08-25
+【其他】
+fix(gomoku): fix room sharing and viewport layout
+
+
+
+## [1.1.89] - 2026-08-25
+版本更新
+
+## [1.1.88] - 2026-08-25
+版本更新
+
+## [1.1.87] - 2026-08-25
+版本更新
+
+## [1.1.86] - 2026-08-25
+版本更新
+
+## [1.1.85] - 2026-08-25
+【其他】
+chore(release): prepare 1.2.0 release
+feat(gomoku): add online room and websocket sync
+
+
+
 ## [1.2.0] - 2026-08-25
 【新增】
 - 联机 Gomoku：支持在线对局与市场应用接入
