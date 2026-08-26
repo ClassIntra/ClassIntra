@@ -9,9 +9,19 @@ onlyBuiltDependencies:
   - core-js
   - es5-ext
   - esbuild
+# 安全补丁覆盖：强制使用无漏洞版本（解决 Dependabot/audit 上报的传递依赖漏洞）
 overrides:
   form-data: ">=4.0.6"
   qs: ">=6.15.2"
   ws: ">=8.21.0"
-  js-yaml: ">=4.1.2"
+  js-yaml: "5.2.2"
   follow-redirects: ">=1.15.12"
+  immutable: "5.1.8"
+  ip-address: "10.3.1"
+  "@babel/core": "7.29.7"
+  "@babel/preset-env": "7.29.7"
+  body-parser: ">=1.20.6"
+auditConfig:
+  ignoreGhsas:
+    # vue@2（EOL）parseHTML ReDoS（low），仅影响服务端渲染场景，升级需跨大版本到 Vue 3，暂缓
+    - GHSA-5j4c-8p2g-v4jx

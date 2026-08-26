@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.1.93] - 2026-08-26
+【安全】
+- 修复 33 个 Dependabot 依赖漏洞（11 high）：升级 client 端 postcss/dompurify/sass/mermaid/highlight.js/video.js/axios/vite（5→6）+ 插件链（plugin-legacy 5→6、plugin-vue2→2.3.4），升级 server 端 pm2/morgan/ws/jose/uuid/sharp
+- 通过 pnpm overrides 强制升级传递依赖到安全版本（immutable/js-yaml/ip-address/@babel/core/@babel/preset-env/qs/body-parser/form-data/follow-redirects）
+- 剩余 1 个 low 漏洞（vue@2 EOL parseHTML ReDoS）显式忽略，待跨大版本升级 Vue 3 时解决
+- 测试脚本改为串行执行（--test-concurrency=1），避免集成测试并行竞争 market-apps 目录导致的偶发失败
+
+## [1.1.92] - 2026-08-26
+【其他】
+fix(market): use dedicated application market icon
+
+
+
 ## [1.1.91] - 2026-08-25
 版本更新
 
