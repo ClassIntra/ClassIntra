@@ -1,11 +1,12 @@
 /**
- * prebuild.js — 构建前版本号自动管理
+ * prebuild.js — 构建前构建元信息刷新（版本号管理已移交给 scripts/version.js）
  *
  * 功能：
- * 1. PATCH 版本号自动 +1（用户手动改 MAJOR/MINOR 时归零）
- * 2. 从 git log 自动生成 changelog
- * 3. 更新 version.json 的 buildTime、buildHash、changelog
- * 4. 写入 CHANGELOG.md
+ * 1. 从 git log 自动生成本次构建的变更摘要（供客户端"更新日志"展示）
+ * 2. 更新 version.json 的 buildTime、buildHash、changelog
+ *
+ * 注意：本脚本不再自动递增版本号、不再写 CHANGELOG.md。
+ *       版本号变更统一走 `node scripts/version.js`（唯一入口）。
  */
 
 var fs = require('fs');
@@ -15,7 +16,6 @@ var childProcess = require('child_process');
 
 var ROOT = path.resolve(__dirname, '../..');
 var VERSION_FILE = path.join(ROOT, 'server/version.json');
-var CHANGELOG_FILE = path.join(ROOT, 'CHANGELOG.md');
 
 // ============================================================
 // 工具函数
@@ -27,16 +27,6 @@ function exec(cmd) {
   } catch (e) {
     return '';
   }
-}
-
-function parseVersion(v) {
-  var parts = String(v).split('.').map(Number);
-  return {
-    major: parts[0] || 1,
-    minor: parts[1] || 0,
-    patch: parts[2] || 0,
-    string: (parts[0] || 1) + '.' + (parts[1] || 0) + '.' + (parts[2] || 0)
-  };
 }
 
 function readVersionFile() {
@@ -60,38 +50,20 @@ function readVersionFile() {
 // 主流程
 // ============================================================
 
-console.log('[prebuild] 版本号管理...');
+console.log('[prebuild] 构建元信息刷新...');
 
 var data = readVersionFile();
 var currentVersion = data.version || '1.0.0';
-var lastBuiltVersion = data.lastBuiltVersion || '0.0.0';
-
-var cur = parseVersion(currentVersion);
-var last = parseVersion(lastBuiltVersion);
-
-// 判断用户是否手动修改了 MAJOR 或 MINOR
-var manualMajorMinorChange = (cur.major !== last.major) || (cur.minor !== last.minor);
-
-var newVersion;
-if (manualMajorMinorChange) {
-  // 用户手动改了 MAJOR/MINOR → PATCH 归零
-  newVersion = cur.major + '.' + cur.minor + '.0';
-  console.log('[prebuild] 检测到 MAJOR/MINOR 手动变更，PATCH 归零: ' + currentVersion + ' → ' + newVersion);
-} else {
-  // 自动递增 PATCH
-  newVersion = cur.major + '.' + cur.minor + '.' + (cur.patch + 1);
-  console.log('[prebuild] PATCH 自动递增: ' + currentVersion + ' → ' + newVersion);
-}
+console.log('[prebuild] 当前版本: ' + currentVersion + '（版本号由 scripts/version.js 管理，本脚本不递增）');
 
 // ============================================================
-// 生成 Changelog（从 git log 提取，分类展示）
+// 生成变更摘要（从 git log 提取，分类展示，供客户端运行期展示）
 // ============================================================
 
 var lastBuildTime = data.buildTime || '';
 var gitRange = lastBuildTime ? '--since="' + lastBuildTime + '"' : '--max-count=50';
 var gitLog = exec('git log ' + gitRange + ' --pretty=format:"%s" --no-merges');
 
-// 解析并分类提交，过滤无意义的 savepoint
 var features = [];
 var fixes = [];
 var others = [];
@@ -101,12 +73,9 @@ if (gitLog) {
   for (var i = 0; i < lines.length; i++) {
     var line = lines[i].trim();
     if (!line) continue;
-    // 跳过备份点
     if (line.indexOf('savepoint') !== -1 || line.indexOf('💾') !== -1) continue;
-    // 跳过 chore/docs 类
     if (/^(chore|docs):/.test(line)) continue;
 
-    // 分类
     if (/^feat:/.test(line)) {
       features.push(line.replace(/^feat:\s*/, ''));
     } else if (/^fix:/.test(line)) {
@@ -116,7 +85,6 @@ if (gitLog) {
     } else if (/^style:/.test(line)) {
       features.push(line.replace(/^style:\s*/, ''));
     } else {
-      // 非规范格式但可能是重要提交，放其他
       others.push(line);
     }
   }
@@ -148,47 +116,15 @@ if (!changelogEntry) {
   changelogEntry = '版本更新';
 }
 
-var now = new Date();
-var buildTime = now.toISOString();
-var buildHash = crypto.randomBytes(8).toString('hex');
-var dateStr = now.getFullYear() + '-' +
-  String(now.getMonth() + 1).padStart(2, '0') + '-' +
-  String(now.getDate()).padStart(2, '0');
-
 // ============================================================
-// 写入 CHANGELOG.md（幂等：同版本不重复）
+// 更新 version.json（版本号不变，仅刷新构建元信息）
 // ============================================================
 
-var existingChangelog = '';
-if (fs.existsSync(CHANGELOG_FILE)) {
-  existingChangelog = fs.readFileSync(CHANGELOG_FILE, 'utf8');
-  // 移除文件头部的 "# Changelog" 行（如果存在）
-  existingChangelog = existingChangelog.replace(/^# Changelog\s*\n+/i, '');
-}
-
-var versionHeader = '## [' + newVersion + '] - ' + dateStr;
-// 如果该版本已存在于 changelog 中，移除旧条目（避免重复）
-var versionRegex = new RegExp('## \\[' + newVersion.replace(/\./g, '\\.') + '\\][^\\n]*\\n(?:[-*].*\\n)*', 'g');
-existingChangelog = existingChangelog.replace(versionRegex, '');
-
-var newChangelogContent = '# Changelog\n\n' +
-  versionHeader + '\n' +
-  (changelogEntry || '*此版本无提交记录*') + '\n\n' +
-  existingChangelog;
-
-fs.writeFileSync(CHANGELOG_FILE, newChangelogContent, 'utf8');
-console.log('[prebuild] CHANGELOG.md 已更新');
-
-// ============================================================
-// 更新 version.json
-// ============================================================
-
-data.version = newVersion;
-data.lastBuiltVersion = newVersion;
-data.buildHash = buildHash;
-data.buildTime = buildTime;
+data.buildHash = crypto.randomBytes(8).toString('hex');
+data.buildTime = new Date().toISOString();
 data.changelog = changelogEntry.trim();
 data.minClientVersion = data.minClientVersion || '1.0.0';
 
 fs.writeFileSync(VERSION_FILE, JSON.stringify(data, null, 2) + '\n', 'utf8');
-console.log('[prebuild] version.json 已更新: ' + newVersion + ' (build ' + buildHash + ')');
+console.log('[prebuild] version.json 已更新: ' + currentVersion + ' (build ' + data.buildHash + ')');
+console.log('[prebuild] 变更摘要长度: ' + data.changelog.length + ' 字符');
