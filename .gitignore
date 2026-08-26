@@ -34,6 +34,10 @@ server/public/*
 !server/public/icons/
 !server/public/xgplayer/
 
+# 第三方市场应用（运行时安装的热插拔目录，同 node_modules 性质，不提交）
+# 安装源：官方市场 gitee/github + 本地 ../market；应用内容以市场仓库为准
+market-apps/
+
 # Resources 目录（含音乐、视频、启动器等版权/私有内容）
 # 忽略所有直接子项，再按需保留
 Resources/*
