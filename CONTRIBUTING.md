@@ -5,9 +5,9 @@
 ## 开发约定
 
 - 使用 Node.js 18+、pnpm 8+，遵循仓库现有的 Vue 2 Options API、JavaScript、单引号和 2 空格风格。
-- 联机 Gomoku 的房间 API、棋盘规则、WebSocket 事件和断线恢复约定见 [docs/gomoku-online.md](./docs/gomoku-online.md)。
-- 账号、Token、Cookie、权限字段和 API 调用约定见 [docs/account-and-api-guide.md](./docs/account-and-api-guide.md)。
-- 第三方市场源、应用生命周期和应用包结构见 [docs/third-party-market.md](./docs/third-party-market.md)。默认市场源为 ClassIntra/market 的 Raw 地址。
+- 联机 Gomoku 的房间 API、棋盘规则、WebSocket 事件和断线恢复约定见 [联机五子棋开发](https://classintra.github.io/development/gomoku-online)。
+- 账号、Token、Cookie、权限字段和 API 调用约定见 [账号与 API 教程](https://classintra.github.io/quick-start/account-and-api)。
+- 第三方市场源、应用生命周期和应用包结构见 [第三方市场与应用生命周期](https://classintra.github.io/development/market-apps)。默认市场源为 ClassIntra/market 的 Raw 地址。
 - 不要提交真实密码、Token、Cookie、API Key、JWT 密钥或其他敏感信息。
 
 ## 验证

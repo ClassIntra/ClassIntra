@@ -83,9 +83,11 @@ Windows 用户也可用 `start.bat`（开发）或 `start-prod.bat`（生产）�
 
 ### 📚 相关文档
 
-- [账号与 API 教程](./docs/account-and-api-guide.md)
-- [联机五子棋开发](./docs/gomoku-online.md)
-- [第三方市场与应用生命周期](./docs/third-party-market.md)
+完整文档请访问官方文档站 [classintra.github.io](https://classintra.github.io/)（含账号 API、开发指南、部署运维、API 参考等）。常用入口：
+
+- [账号与 API 教程](https://classintra.github.io/quick-start/account-and-api)
+- [联机五子棋开发](https://classintra.github.io/development/gomoku-online)
+- [第三方市场与应用生命周期](https://classintra.github.io/development/market-apps)
 
 ---
 
