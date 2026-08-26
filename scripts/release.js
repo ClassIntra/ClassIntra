@@ -78,13 +78,50 @@ try {
 
 var execOpts = ghExtraPath ? { extPath: ghExtraPath } : {};
 
+// 从 Windows 凭据管理器 / git credential helper 提取 github.com 凭据（不打印明文）
+function readStoredCredential() {
+  try {
+    var out = childProcess.execSync('git credential fill', {
+      input: 'protocol=https\nhost=github.com\n\n',
+      encoding: 'utf8', cwd: ROOT, windowsHide: true, timeout: 15000
+    });
+    var m = String(out).match(/password=(\S+)/);
+    return m ? m[1] : '';
+  } catch (e) { return ''; }
+}
+
+// 探测当前 GH_TOKEN 是否对远程仓库真正拥有 push 权限
+// （gh auth status 只报"已认证"，陈旧/无权限 token 也会误报 → 必须实际探测）
+function probeGhToken(repo) {
+  var candidates = [];
+  var stored = readStoredCredential();
+  if (stored) candidates.push({ label: '系统凭据', token: stored });
+  if (process.env.GH_TOKEN) candidates.push({ label: 'GH_TOKEN', token: process.env.GH_TOKEN });
+  for (var i = 0; i < candidates.length; i++) {
+    var c = candidates[i];
+    try {
+      var env = Object.assign({}, process.env);
+      if (ghExtraPath) { env.Path = (env.Path || '') + ';' + ghExtraPath; env.PATH = env.Path; }
+      env.GH_TOKEN = c.token;
+      env.GITHUB_TOKEN = '';
+      var probe = 'gh api repos/' + repo + ' --jq .permissions.push';
+      var out = childProcess.execSync(probe, { env: env, encoding: 'utf8', windowsHide: true, timeout: 15000 }).trim();
+      if (out === 'true') return { label: c.label, token: c.token };
+    } catch (e) { /* 尝试下一个候选 */ }
+  }
+  return null;
+}
+
 function exec(cmd, opts) {
   opts = opts || {};
   var env = process.env;
-  if (opts.extPath) {
+  if (opts.extPath || opts.ghToken) {
     env = Object.assign({}, process.env);
-    env.Path = env.Path + (env.Path ? ';' : '') + opts.extPath;
-    env.PATH = env.Path;
+    if (opts.extPath) {
+      env.Path = env.Path + (env.Path ? ';' : '') + opts.extPath;
+      env.PATH = env.Path;
+    }
+    if (opts.ghToken) { env.GH_TOKEN = opts.ghToken; env.GITHUB_TOKEN = ''; }
   }
   var options = { cwd: opts.cwd || ROOT, encoding: 'utf8', stdio: opts.stdio || 'pipe', env: env };
   if (!opts.ignoreFail) options.stdio = 'inherit';
@@ -191,6 +228,7 @@ console.log('[release] === ClassIntra 发布流程 ===');
 console.log('[release] bump 类型: ' + bumpType + (dryRun ? ' （dry-run 预览模式）' : ''));
 
 var ghAvailable = false;
+var ghToken = null;
 try {
   var ghVersion = exec('gh --version', Object.assign({ ignoreFail: true }, execOpts));
   ghAvailable = !!ghVersion;
@@ -199,11 +237,19 @@ if (ghAvailable) console.log('[release] gh CLI: 可用');
 else console.log('[release] gh CLI: 未安装（跳过 GitHub Release 创建，仅本地提交+tag）');
 
 if (ghAvailable) {
-  var ghAuth = exec('gh auth status', Object.assign({ ignoreFail: true }, execOpts));
-  if (ghAuth) console.log('[release] gh 认证: 已认证');
-  else {
+  // 获取远程仓库 owner/name，用于权限探测
+  var ghRepo = exec('git config --get remote.origin.url', { ignoreFail: true })
+    .replace(/^.*github\.com[:/](.+?)(\.git)?$/, '$1').replace(/\.git$/, '');
+  if (!ghRepo) {
+    console.warn('[release] 无法解析远程仓库 → 跳过 GitHub Release');
     ghAvailable = false;
-    console.warn('[release] gh 未认证 → 跳过 GitHub Release，请先运行 gh auth login');
+  } else {
+    ghToken = probeGhToken(ghRepo);
+    if (ghToken) console.log('[release] gh 认证: ' + ghToken.label + '（已实际探测 push 权限）');
+    else {
+      ghAvailable = false;
+      console.warn('[release] 无有效 GH_TOKEN（GH_TOKEN 无 push 权限且系统凭据不可用）→ 跳过 GitHub Release');
+    }
   }
 }
 
@@ -325,7 +371,9 @@ if (push && !dryRun) {
 
 if (ghAvailable && !dryRun) {
   console.log('\n[release] 创建 GitHub Release...');
-  exec('gh release create ' + tagName + ' --title "' + tagName + '" --notes "' + releaseChangelog.replace(/"/g, "'") + '"', execOpts);
+  var ghReleaseArgs = 'gh release create ' + tagName + ' --title "' + tagName + '" --notes "' + releaseChangelog.replace(/"/g, "'") + '"';
+  if (ghToken) exec(ghReleaseArgs, Object.assign({}, execOpts, { ghToken: ghToken.token }));
+  else exec(ghReleaseArgs, execOpts);
   console.log('[release] GitHub Release 已创建: https://github.com/ClassIntra/ClassIntra/releases/tag/' + tagName);
 } else if (dryRun) {
   console.log('\n[release] dry-run: gh release create ' + tagName + ' --title "' + tagName + '" --notes "<changelog>"');
