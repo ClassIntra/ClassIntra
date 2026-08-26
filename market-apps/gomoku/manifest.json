@@ -1,0 +1,24 @@
+{
+  "name": "gomoku",
+  "type": "app",
+  "version": "1.1.0",
+  "label": "五子棋",
+  "description": "支持房间联机、观战、实时同步与断线恢复的原生 DOM 五子棋",
+  "author": "ClassIntra",
+  "icon": "./icon.svg",
+  "color": "#2563eb",
+  "category": "desktop",
+  "order": 20,
+  "defaultEnabled": true,
+  "canDisable": true,
+  "frontend": {
+    "route": "/gomoku",
+    "routeName": "Gomoku",
+    "entry": "./frontend/entry.js",
+    "style": "./frontend/style.css"
+  },
+  "backend": {
+    "mountPath": "/api/gomoku",
+    "entry": "./backend/routes.js"
+  }
+}
