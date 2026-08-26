@@ -19,43 +19,43 @@ MAJOR.MINOR.PATCH
 
 ---
 
-## 2. 版本号升级规则
+## 2. 版本号升级规则（统一入口：scripts/version.js）
 
-### 2.1 日常开发（自动）
+**所有版本号变更（含 PATCH 自增）只能通过 `scripts/version.js`，禁止手改 version.json / package.json / CHANGELOG。**
 
-每次运行 `npm run build`（根目录）时，由 `client/scripts/prebuild.js` 自动处理：
+### 2.1 查看当前版本与一致性
 
-- 若 `version.json` 中 MAJOR/MINOR 未变化 → PATCH 自动 +1
-- 若 MAJOR/MINOR 已手动修改 → PATCH 归零
-
-```
-1.0.0 → 1.0.1 → 1.0.2 → 1.0.3 ...
-```
-
-> 日常开发中**不需要手动管版本号**，构建即自动递增。
-
-### 2.2 功能发布（手动）
-
-完成一个功能模块后，手动修改 `server/version.json` 的 MINOR，下次构建 PATCH 自动归零：
-
-```
-1.0.27 → 手动改为 1.1.0 → 构建后 1.1.0
-1.1.5  → 手动改为 1.2.0 → 构建后 1.2.0
+```bash
+node scripts/version.js show       # 显示所有版本文件 + 一致性体检
+node scripts/version.js check      # 只做体检（CI 可用，不一致时退出码非 0）
+# 等价 npm 命令:
+npm run version:show
+npm run version:check
 ```
 
-### 2.3 重大升级（手动）
+### 2.2 升级版本（一次命令写齐所有文件）
 
-发生不兼容架构变更时，手动修改 MAJOR：
-
+```bash
+node scripts/version.js patch "修复 xxx"        # PATCH +1，如 1.2.1 → 1.2.2
+node scripts/version.js minor "新增功能 xxx"    # MINOR +1，PATCH 归零
+node scripts/version.js major "重大变更 xxx"    # MAJOR +1，MINOR/PATCH 归零
+node scripts/version.js set 2.0.0 "说明"        # 直接指定版本
+node scripts/version.js patch --dry-run         # 预览将要变更的内容（不落盘）
 ```
-1.9.3 → 手动改为 2.0.0 → 构建后 2.0.0
-```
 
-| 操作 | 版本号变更 |
-|------|-----------|
-| 日常开发（修 bug、加小功能） | PATCH 自动 +1，不用管 |
-| 感觉积累了不少新功能，想标记一下 | 手动改 MINOR +1（PATCH 自动归零） |
-| 重大架构变更（极少发生） | 手动改 MAJOR +1 |
+每次 bump 会**一次写齐**：`server/version.json` + CHANGELOG.md 顶部 + 全部 5 个 package.json。
+
+- CHANGELOG 条目正文优先使用 `"说明"` 参数，省略时自动从 `git log` 提取
+- 同版本条目幂等：已存在该版本条目时保留原内容，不重复插入
+
+### 2.3 升级规则速查
+
+| 场景 | 命令 |
+|------|------|
+| 修 bug、加小功能 | `node scripts/version.js patch` |
+| 积累不少新功能，想标记一下 | `node scripts/version.js minor` |
+| 重大架构变更（极少发生） | `node scripts/version.js major` |
+| 精确指到某版本 | `node scripts/version.js set x.y.z` |
 
 ---
 
@@ -64,16 +64,26 @@ MAJOR.MINOR.PATCH
 ```
 ClassIntra/
 ├── server/version.json          ← 版本号权威数据源（唯一源头）
-├── client/scripts/prebuild.js   ← 构建前自动处理脚本（版本递增 + CHANGELOG 生成）
+├── scripts/version.js           ← 统一版本管理入口（唯一改版本号的地方）
+├── scripts/version-core.js      ← 版本管理核心逻辑（version.js / release.js / prebuild.js 共用）
+├── client/scripts/prebuild.js   ← 构建前刷新 buildTime/buildHash/changelog（不再动版本号）
 ├── client/vite.config.js        ← 读取 version.json 注入全局变量
-├── CHANGELOG.md                 ← 自动生成的变更日志
+├── CHANGELOG.md                 ← 变更日志（由 version.js / release.js 写入）
 ├── scripts/release.js           ← 一键发布脚本（构建 + commit + tag + gh release）
 └── docs/version-management.md   ← 本文档
 ```
 
+### 三脚本职责分工
+
+| 脚本 | 职责 | 何时使用 |
+|------|------|----------|
+| `scripts/version.js` | **唯一改版本号的地方**：bump/指定版本 + 同步全文件 + 一致性体检 | 日常开发升版本 |
+| `scripts/release.js` | 正式发布：测试 → 同步版本 → 构建 → commit/tag → 推送 → GitHub Release | 准备发布 |
+| `client/scripts/prebuild.js` | 构建元信息刷新：buildTime/buildHash/changelog 摘要（**不递增版本号**） | 每次 `npm run build` 自动触发 |
+
 ### 版本号同步机制
 
-`server/version.json` 是**唯一权威数据源**。`scripts/release.js` 发布时会将以下文件的 `version` 字段与 `version.json` 对齐：
+`server/version.json` 是**唯一权威数据源**。`version.js` 或 `release.js` 变更版本时，会一次同步以下文件的 `version` 字段：
 
 ```
 package.json          （根目录）
@@ -84,7 +94,8 @@ plugins/package.json
 ```
 
 > **规则：所有 package.json 的 version 必须与 version.json 一致，否则视为违规。**
-> 日常构建只修改 version.json（及 CHANGELOG.md），package.json 在正式发布时由 release.js 统一同步。
+> 核验命令：`node scripts/version.js check`（不一致时退出码非 0，可接入 CI）。
+> 构建（prebuild.js）不再修改版本号，只刷新 buildTime / buildHash / changelog 运行时摘要。
 
 ---
 
@@ -118,7 +129,7 @@ plugins/package.json
 
 ## 5. CHANGELOG.md 规范
 
-每次构建时由 `prebuild.js` 自动从 `git log` 提取提交记录，**最新版本在最上方**，时间倒序：
+CHANGELOG.md 由 `scripts/version.js`（日常 bump）或 `scripts/release.js`（发布）写入，**最新版本在最上方**，时间倒序：
 
 ```markdown
 # Changelog
@@ -142,7 +153,7 @@ fix(market): use dedicated application market icon
 ### 规范要求
 
 1. **版本顺序必须严格倒序**：新版本永远插在文件顶部（`# Changelog` 之下，最上方）。禁止出现旧版本插到新版本下方或重复条目。
-2. **同版本不重复**：prebuild.js 会幂等去重，同一版本只保留一个条目。
+2. **同版本不重复**：version-core 会幂等去重，同一版本只保留一个条目（已存在时保留原内容，不覆盖手工整理的正文）。
 3. **分类格式**：`【新增】` / `【修复/优化】` / `【其他】` / `【安全】`。无实质内容时写 `版本更新`。
 4. **日期格式**：`YYYY-MM-DD`（版本条目的日期可以不同于创建日期，= 该版本实际发布日）。
 
@@ -181,11 +192,11 @@ node scripts/release.js patch --push
 
 ```
 步骤 1: 运行服务端测试 pnpm test（--skip-tests 可跳过）
-步骤 2: 构建客户端（prebuild 自动递增版本号 + 生成 CHANGELOG 条目）
-步骤 3: 同步 server/version.json 与所有 package.json 的 version
+步骤 2: 计算目标版本 → 调用 version-core 统一同步 version.json / CHANGELOG / package.json
+步骤 3: 构建客户端（npx vite build，不经 prebuild；版本已由步骤 2 确定）
 步骤 4: git add -A → git commit "chore(release): prepare <版本>" → git tag v<版本>
-步骤 5: 若 gh 已安装且已认证 → gh release create（notes 取自 CHANGELOG 顶部条目）
-步骤 6: （可选 --push）git push origin main + git push origin <tag>
+步骤 5: （可选 --push）git push origin main + git push origin <tag>
+步骤 6: 若 gh 已安装且已认证 → gh release create（notes 取自 CHANGELOG 顶部条目）
 ```
 
 ### 6.3 命名规范

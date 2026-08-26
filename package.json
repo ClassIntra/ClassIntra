@@ -8,8 +8,11 @@
     "dev": "pnpm --parallel --filter server --filter client run dev",
     "dev:server": "pnpm --filter server run dev",
     "dev:client": "pnpm --filter client run dev",
-    "build": "node -e \"var fs=require('fs'),p='server/version.json',d=JSON.parse(fs.readFileSync(p,'utf8'));d.buildHash=Date.now().toString(36)+Math.random().toString(36).slice(2,8);d.buildTime=new Date().toISOString();fs.writeFileSync(p,JSON.stringify(d,null,2))\" && cd client && pnpm run build",
-    "start": "pnpm --filter server run start"
+    "build": "cd client && pnpm run build",
+    "start": "pnpm --filter server run start",
+    "version": "node scripts/version.js",
+    "version:show": "node scripts/version.js show",
+    "version:check": "node scripts/version.js check"
   },
   "devDependencies": {
     "sharp": "^0.35.2"

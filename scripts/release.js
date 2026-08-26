@@ -13,13 +13,11 @@
  *
  * 流程:
  *   1. （可选）运行服务端测试 pnpm test
- *   2. 按班次类型计算目标版本 → 更新 server/version.json
- *   3. 生成 CHANGELOG 条目（--message 优先，否则从 git log 提取）
- *   4. 同步所有 package.json 的 version 字段
- *   5. 构建客户端（npx vite build，不经 prebuild，避免二次递增）
- *   6. git add + commit + 打 tag（vX.Y.Z）
- *   7. 若 gh 已安装且已认证 → 创建 GitHub Release（notes 取自 CHANGELOG 顶部条目）
- *   8. （可选 --push）推送 main 与 tag 到 origin
+ *   2. 按 bump 类型计算目标版本 → 调用 version-core 统一同步 version.json / CHANGELOG / package.json
+ *   3. 构建客户端（npx vite build，不经 prebuild；版本已由步骤 2 确定）
+ *   4. git add + commit + 打 tag（vX.Y.Z）
+ *   5. （可选 --push）推送 main 与 tag 到 origin
+ *   6. 若 gh 已安装且已认证 → 创建 GitHub Release（notes 取自 CHANGELOG 顶部条目）
  *
  * 发布制度要求:
  *   - 版本权威数据源 = server/version.json
@@ -31,17 +29,9 @@
 var fs = require('fs');
 var path = require('path');
 var childProcess = require('child_process');
+var core = require('./version-core');
 
-var ROOT = path.resolve(__dirname, '..');
-var VERSION_FILE = path.join(ROOT, 'server/version.json');
-var CHANGELOG_FILE = path.join(ROOT, 'CHANGELOG.md');
-var PKG_FILES = [
-  'package.json',
-  'client/package.json',
-  'server/package.json',
-  'apps/package.json',
-  'plugins/package.json'
-];
+var ROOT = core.ROOT;
 
 // ============================================================
 // 参数解析
@@ -135,91 +125,6 @@ function exec(cmd, opts) {
   }
 }
 
-function parseVersion(v) {
-  var parts = String(v).split('.').map(Number);
-  return { major: parts[0] || 1, minor: parts[1] || 0, patch: parts[2] || 0 };
-}
-
-function bumpVersion(v, type) {
-  var p = parseVersion(v);
-  if (type === 'major') { p.major++; p.minor = 0; p.patch = 0; }
-  else if (type === 'minor') { p.minor++; p.patch = 0; }
-  else { p.patch++; }
-  return p.major + '.' + p.minor + '.' + p.patch;
-}
-
-function readJson(filePath) {
-  return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-}
-
-function writeJson(filePath, data) {
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + '\n', 'utf8');
-}
-
-function stampToday() {
-  var d = new Date();
-  return d.getFullYear() + '-' +
-    String(d.getMonth() + 1).padStart(2, '0') + '-' +
-    String(d.getDate()).padStart(2, '0');
-}
-
-function gitLogSince(tag) {
-  var since = tag ? tag + '..HEAD' : '';
-  return exec('git log ' + since + ' --pretty=format:"%s" --no-merges', { ignoreFail: true });
-}
-
-// 从 git log 提取并分类提交（跳过 savepoint/docs/chore）
-function buildChangelog() {
-  var latestTag = exec('git describe --tags --abbrev=0', { ignoreFail: true });
-  var log = gitLogSince(latestTag);
-  if (!log) return '版本更新';
-
-  var features = [];
-  var fixes = [];
-  var others = [];
-  var seen = {};
-  var lines = log.split('\n');
-  for (var i = 0; i < lines.length; i++) {
-    var line = lines[i].trim();
-    if (!line || seen[line]) continue;
-    seen[line] = true;
-    if (line.indexOf('savepoint') !== -1 || line.indexOf('💾') !== -1) continue;
-    if (/^(chore|docs|release):/.test(line)) continue;
-    if (/^feat:/.test(line)) features.push(line.replace(/^feat:\s*/, ''));
-    else if (/^fix:/.test(line)) fixes.push(line.replace(/^fix:\s*/, ''));
-    else if (/^refactor:/.test(line)) fixes.push(line.replace(/^refactor:\s*/, ''));
-    else if (/^perf:/.test(line)) fixes.push(line.replace(/^perf:\s*/, ''));
-    else others.push(line);
-  }
-
-  var out = '';
-  if (features.length) { out += '【新增】\n' + features.map(function(s) { return '- ' + s; }).join('\n') + '\n\n'; }
-  if (fixes.length) { out += '【修复/优化】\n' + fixes.map(function(s) { return '- ' + s; }).join('\n') + '\n\n'; }
-  if (others.length) { out += '【其他】\n' + others.map(function(s) { return '- ' + s; }).join('\n') + '\n\n'; }
-  return out.trim() || '版本更新';
-}
-
-// 提取 CHANGELOG 顶部第一个 ## [x.y.z] 条目的正文
-function latestChangelogEntry() {
-  if (!fs.existsSync(CHANGELOG_FILE)) return '';
-  var content = fs.readFileSync(CHANGELOG_FILE, 'utf8');
-  var m = content.match(/## \[[^\]]+\][^\n]*\n([\s\S]*?)(?=\n## \[|$)/);
-  return m ? m[1].trim() : '';
-}
-
-// 替换 CHANGELOG 顶部同版本条目：若已存在该版本条目则保留原样（保护手工整理内容），否则顶部插入新条目
-function upsertChangelogEntry(version, body, dateStr) {
-  var content = fs.existsSync(CHANGELOG_FILE) ? fs.readFileSync(CHANGELOG_FILE, 'utf8') : '';
-  content = content.replace(/^# Changelog\s*\n+/i, '');
-  var esc = version.replace(/\./g, '\\.');
-  var existing = new RegExp('## \\[' + esc + '\\]', 'i');
-  if (existing.test(content)) return false; // 同版本条目已存在
-  var header = '## [' + version + '] - ' + dateStr;
-  content = header + '\n' + body + '\n\n' + content;
-  fs.writeFileSync(CHANGELOG_FILE, '# Changelog\n\n' + content, 'utf8');
-  return true;
-}
-
 // ============================================================
 // 检查前置条件
 // ============================================================
@@ -265,62 +170,34 @@ if (!skipTests && !dryRun) {
 }
 
 // ============================================================
-// 2. 计算目标版本并更新 version.json（不经 prebuild，避免二次递增）
+// 2. 计算目标版本并统一同步（version.json + CHANGELOG + package.json）
 // ============================================================
 
-console.log('\n[release] 步骤 2/5: 计算版本并更新 version.json...');
-var ver = readJson(VERSION_FILE);
-var releaseVersion = bumpType === 'current' ? (ver.version || '1.0.0') : bumpVersion(ver.version || '1.0.0', bumpType);
+console.log('\n[release] 步骤 2/5: 计算版本并同步所有版本文件...');
+var ver = core.readVersionFile();
+var releaseVersion = bumpType === 'current' ? (ver.version || '1.0.0') : core.bumpVersion(ver.version || '1.0.0', bumpType);
 // current 模式优先复用已有 CHANGELOG 条目（保护手工整理的安全修复详情），否则从 git log 生成
 var releaseChangelog;
 if (bumpType === 'current') {
-  releaseChangelog = message || latestChangelogEntry() || ver.changelog || '版本更新';
+  releaseChangelog = message || core.latestChangelogEntry() || ver.changelog || '版本更新';
 } else {
-  releaseChangelog = message || buildChangelog();
+  releaseChangelog = message || core.buildChangelog();
 }
-var buildTime = new Date().toISOString();
-var buildHash = require('crypto').randomBytes(8).toString('hex');
-var dateStr = stampToday();
 console.log('[release] 版本: ' + (ver.version || '1.0.0') + ' → ' + releaseVersion);
 
 if (!dryRun) {
-  ver.version = releaseVersion;
-  ver.lastBuiltVersion = releaseVersion;
-  ver.buildHash = buildHash;
-  ver.buildTime = buildTime;
-  ver.changelog = releaseChangelog;
-  writeJson(VERSION_FILE, ver);
-  upsertChangelogEntry(releaseVersion, releaseChangelog, dateStr);
-  console.log('[release] version.json 与 CHANGELOG.md 已更新');
+  var applied = core.applyVersionChange(releaseVersion, releaseChangelog);
+  console.log('[release] version.json / CHANGELOG.md / package.json 已同步' +
+    (applied.changedPkgs.length ? '（' + applied.changedPkgs.join(', ') + '）' : ''));
 } else {
-  console.log('[release] dry-run: 将写入 version=' + releaseVersion + '，CHANGELOG 顶部 ' + dateStr);
+  console.log('[release] dry-run: 将写入 version=' + releaseVersion + '，并同步 CHANGELOG 与 package.json');
 }
 
 // ============================================================
-// 3. 同步所有 package.json 的 version
+// 3. 构建客户端（vite build 直连，不经 prebuild；版本已由步骤 2 确定）
 // ============================================================
 
-console.log('\n[release] 步骤 3/5: 同步 package.json...');
-if (!dryRun) {
-  for (var pi = 0; pi < PKG_FILES.length; pi++) {
-    var pkgPath = path.join(ROOT, PKG_FILES[pi]);
-    if (!fs.existsSync(pkgPath)) continue;
-    var pkg = readJson(pkgPath);
-    if (pkg.version !== releaseVersion) {
-      pkg.version = releaseVersion;
-      writeJson(pkgPath, pkg);
-      console.log('[release]   ' + PKG_FILES[pi] + ' → ' + releaseVersion);
-    }
-  }
-} else {
-  console.log('[release] dry-run: 同步 ' + PKG_FILES.length + ' 个 package.json');
-}
-
-// ============================================================
-// 4. 构建客户端（vite build 直连，不经 prebuild）
-// ============================================================
-
-console.log('\n[release] 步骤 4/5: 构建客户端...');
+console.log('\n[release] 步骤 3/5: 构建客户端...');
 if (!dryRun) {
   exec('npx vite build', { cwd: path.join(ROOT, 'client') });
   console.log('[release] 客户端构建完成');
@@ -331,10 +208,10 @@ if (!dryRun) {
 var tagName = 'v' + releaseVersion;
 
 // ============================================================
-// 5. git commit + tag
+// 4. git commit + tag
 // ============================================================
 
-console.log('\n[release] 步骤 5/5: git commit + tag...');
+console.log('\n[release] 步骤 4/5: git commit + tag...');
 if (dryRun) {
   console.log('[release] dry-run: git add -A && git commit -m "chore(release): prepare ' + releaseVersion + '"');
   console.log('[release] dry-run: git tag ' + tagName);
@@ -353,20 +230,22 @@ if (dryRun) {
 if (!releaseChangelog) releaseChangelog = '版本更新';
 
 // ============================================================
-// 6. 推送（可选，需在 gh release 之前确保 tag 存在于远程）
+// 5. 推送（可选，需在 gh release 之前确保 tag 存在于远程）
 // ============================================================
 
 if (push && !dryRun) {
-  console.log('\n[release] 推送 main 与 tag 到 origin...');
+  console.log('\n[release] 步骤 5/5: 推送 main 与 tag 到 origin...');
   exec('git push origin main');
   exec('git push origin ' + tagName);
   console.log('[release] 推送完成');
 } else if (push && dryRun) {
   console.log('[release] dry-run: git push origin main && git push origin ' + tagName);
+} else {
+  console.log('\n[release] 步骤 5/5: （未指定 --push，跳过推送）');
 }
 
 // ============================================================
-// 7. gh release 创建（可选）
+// 6. gh release 创建（可选）
 // ============================================================
 
 if (ghAvailable && !dryRun) {
