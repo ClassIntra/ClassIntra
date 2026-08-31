@@ -32,9 +32,9 @@ test('gomoku 前端应将落子坐标通过 HTTP 请求发送，并显示已有�
   assert.match(style, /padding: 0/);
 });
 
-test('gomoku 前端应使用独立棋子元素和计算后的网格步长', function() {
+test('gomoku 前端应使用独立棋子元素和统一中心线绘制', function() {
   assert.match(entry, /gomoku-stone/);
-  assert.match(entry, /gomoku-grid-step/);
-  assert.match(style, /gomoku-board::before/);
-  assert.match(style, /background-size: var\(--gomoku-grid-step\)/);
+  assert.match(style, /\.gomoku-cell::before/);
+  assert.match(style, /\.gomoku-cell::after/);
+  assert.match(style, /touch-action: manipulation/);
 });
