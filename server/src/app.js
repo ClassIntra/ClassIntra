@@ -332,7 +332,7 @@ function startWeatherAlertScheduler() {
         if (schedules[i].schedule_time === currentTime && !weatherAlertLastChecked[scheduleKey]) {
           weatherAlertLastChecked[scheduleKey] = true;
           console.log('[WeatherAlert] Scheduled check triggered at ' + currentTime);
-          var weatherRoute = require('../../../apps/weather/backend/routes');
+          var weatherRoute = require('../../apps/weather/backend/routes');
           weatherRoute.checkWeatherAlert().then(function(result) {
             if (result.has_rain || result.has_warning) {
               var alertType = 'both';
