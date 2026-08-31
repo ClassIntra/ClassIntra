@@ -74,7 +74,12 @@ RealtimeClient.prototype._poll = function() {
     for (var i = 0; i < events.length; i++) {
       var item = events[i];
       if (item.ts > self.lastTs) self.lastTs = item.ts;
-      if (item.event) self._emit(item.event.type, item.event, item.event);
+      if (item.event) {
+        self._emit(item.event.type, item.event, item.event);
+        if (item.event.type === 'extension_event') {
+          self._emit('extension_event', item.event, item.event);
+        }
+      }
     }
     if (result.data && result.data.server_time > self.lastTs) self.lastTs = result.data.server_time;
   }).catch(function(error) {
