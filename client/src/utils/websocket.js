@@ -17,8 +17,11 @@ var WebSocketManager = function() {
   this._offlineQueue = [];
   this._maxOfflineQueue = 50;
   this._connectionState = 'disconnected';
+  // 旧版腾讯 X5 / Android WebView 经常暴露 WebSocket 对象，但无法稳定完成握手，直接使用 HTTP 长轮询。
+  var userAgent = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
+  this._x5Browser = /TBS|MQQBrowser|X5|Android.*Version\/4\./i.test(userAgent);
   // HTTP 长轮询回退
-  this._transport = 'ws';     // 'ws' or 'poll'
+  this._transport = this._x5Browser ? 'poll' : 'ws';     // 'ws' or 'poll'
   this._pollTimer = null;
   this._pollLastTs = 0;       // 上次 poll 拉到的事件 ts
   this._pollInFlight = false;
