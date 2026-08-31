@@ -77,6 +77,14 @@ RealtimeClient.prototype.publish = function(event, payload, appName) {
     .then(function(response) { if (!response.ok) throw new Error('realtime publish failed: ' + response.status); return response.json(); });
 };
 
+RealtimeClient.prototype.isReady = function() {
+  return this.connected;
+};
+
+RealtimeClient.prototype.getConnectionState = function() {
+  return this.connected ? 'connected' : (this.stopped ? 'disconnected' : 'connecting');
+};
+
 RealtimeClient.prototype.subscribe = function(event, handler) {
   return this.on('extension_event', function(message) {
     if (message && message.event === event) handler(message.payload, message);
