@@ -2,6 +2,7 @@
 // 注意：本文件以 .mjs 扩展名确保 Vite 以 ESM 方式加载
 import { defineConfig } from 'vite';
 import vue2 from '@vitejs/plugin-vue2';
+import legacy from '@vitejs/plugin-legacy';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -130,6 +131,11 @@ webkitPrefixPlugin.postcss = true;
 export default defineConfig({
   plugins: [
     vue2(),
+    legacy({
+      targets: ['Chrome >= 89', 'Android >= 9'],
+      modernPolyfills: true,
+      renderLegacyChunks: true
+    }),
     cacheBusterPlugin()
   ],
   define: {
