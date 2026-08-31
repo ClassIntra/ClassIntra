@@ -39,7 +39,7 @@ RealtimeClient.prototype._emit = function(event, payload, message) {
 
 RealtimeClient.prototype.connect = function() {
   var self = this;
-  if (!localStorage.getItem('token') || !self.stopped === false) return;
+  if (!localStorage.getItem('token')) return;
   if (!self.stopped) return;
   self.stopped = false;
   fetch('/api/realtime/poll/register', {
