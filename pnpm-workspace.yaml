@@ -25,3 +25,8 @@ auditConfig:
   ignoreGhsas:
     # vue@2（EOL）parseHTML ReDoS（low），仅影响服务端渲染场景，升级需跨大版本到 Vue 3，暂缓
     - GHSA-5j4c-8p2g-v4jx
+allowBuilds:
+  '@parcel/watcher': set this to true or false
+  better-sqlite3: set this to true or false
+  core-js: set this to true or false
+  esbuild: set this to true or false
