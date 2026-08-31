@@ -25,3 +25,9 @@ test('gomoku 前端应支持动态棋盘和结束后房主操作', function() {
   assert.match(entry, /离开房间/);
   assert.match(style, /grid-template-columns: repeat\(var\(--gomoku-size\)/);
 });
+
+test('gomoku 前端应将落子坐标通过 HTTP 请求发送，并显示已有实时连接', function() {
+  assert.match(entry, /actionRequest\('\/move', '落子失败', \{ row: Number\(cell\.dataset\.row\), col: Number\(cell\.dataset\.col\) \}\)/);
+  assert.match(entry, /realtime\.isReady\(\)/);
+  assert.match(style, /padding: 0/);
+});
