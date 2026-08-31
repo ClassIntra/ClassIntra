@@ -3,6 +3,9 @@ var router = express.Router();
 var fs = require('fs');
 var path = require('path');
 var crypto = require('crypto');
+var os = require('os');
+var db = require('../utils/db');
+var constants = require('../utils/constants');
 
 var APP_VERSION = '1.0.0';
 var VERSION_FILE = path.join(__dirname, '../../version.json');
@@ -40,6 +43,45 @@ router.get('/version', function(req, res) {
       forceUpdate: !!info.forceUpdate,
       updateUrl: info.updateUrl || '',
       timestamp: Date.now()
+    }
+  });
+});
+
+// 开发账号诊断信息：不记录 IP/MAC，仅按客户端生成的设备标识归类
+router.post('/diagnostics', function(req, res) {
+  var auth = require('../middleware/auth');
+  auth.requireAuth(req, res, function() {
+    try {
+      var row = db.prepare('SELECT info_json FROM users WHERE user_id = ?').get(req.user.user_id);
+      var info = row && constants.safeJsonParse(row.info_json);
+      if (!info || info.dev !== true) {
+        return res.status(403).json({ code: 403, message: '仅开发账号可上报诊断信息' });
+      }
+      var body = req.body || {};
+      var record = {
+        device_id: String(body.device_id || '').substring(0, 128),
+        user_id: String(req.user.user_id || '').substring(0, 64),
+        retry: !!body.retry,
+        user_agent: String(body.user_agent || '').substring(0, 1000),
+        platform: String(body.platform || '').substring(0, 200),
+        language: String(body.language || '').substring(0, 100),
+        languages: Array.isArray(body.languages) ? body.languages.slice(0, 10) : [],
+        hardware_concurrency: body.hardware_concurrency || null,
+        device_memory: body.device_memory || null,
+        screen: body.screen || null,
+        viewport: body.viewport || null,
+        touch_points: body.touch_points || 0,
+        connection: body.connection || null,
+        url: String(body.url || '').substring(0, 2000),
+        errors: Array.isArray(body.errors) ? body.errors.slice(-20) : [],
+        timestamp: new Date().toISOString()
+      };
+      var logDir = path.join(__dirname, '../../logs');
+      fs.mkdirSync(logDir, { recursive: true });
+      fs.appendFileSync(path.join(logDir, 'diagnostics.ndjson'), JSON.stringify(record) + os.EOL, 'utf8');
+      return res.json({ code: 200, message: '诊断信息已记录' });
+    } catch (e) {
+      return res.status(500).json({ code: 500, message: '诊断信息记录失败' });
     }
   });
 });
