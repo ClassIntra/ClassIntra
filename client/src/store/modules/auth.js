@@ -1,4 +1,5 @@
 import axios from 'axios';
+import realtime from '@/utils/realtime';
 
 var state = {
   token: localStorage.getItem('token') || '',
@@ -66,10 +67,12 @@ var actions = {
       var data = response.data.data;
       context.commit('SET_TOKEN', data.token);
       context.commit('SET_USER', data.user_info);
+      realtime.connect();
       return data;
     });
   },
   logout: function(context) {
+    realtime.disconnect();
     context.commit('LOGOUT');
   }
 };
