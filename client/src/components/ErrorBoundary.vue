@@ -38,6 +38,10 @@ export default {
   errorCaptured: function(err, vm, info) {
     this.error = err;
     console.error('ErrorBoundary caught:', err, info);
+    if (window.__ciDiagError) {
+      window.__ciDiagError(err, 'vue.errorCaptured');
+      if (window.__ciReportError) window.__ciReportError();
+    }
     return false;
   },
   methods: {
