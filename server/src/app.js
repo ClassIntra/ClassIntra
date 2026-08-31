@@ -179,6 +179,7 @@ app.use('/api/setup', require('./routes/setup'));
 app.use('/api/level', require('./routes/level'));
 app.use('/api/cdn', require('./routes/cdn-proxy'));
 app.use('/api/system', require('./routes/system'));
+app.use('/api/realtime', require('./routes/realtime'));
 app.use('/api/integrations', require('./routes/integrations'));
 app.use('/api/market', require('./routes/market'));
 

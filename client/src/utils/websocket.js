@@ -486,6 +486,27 @@ WebSocketManager.prototype._sendViaHttp = function(data) {
   });
 };
 
+// 第三方应用统一使用的全局实时事件 API。
+WebSocketManager.prototype.publish = function(event, payload, appName) {
+  return fetch('/api/realtime/publish', {
+    method: 'POST',
+    headers: this._getPollHeaders(),
+    credentials: 'same-origin',
+    body: JSON.stringify({ event: event, payload: payload, app_name: appName || '' })
+  }).then(function(response) {
+    if (!response.ok) throw new Error('realtime publish failed: ' + response.status);
+    return response.json();
+  });
+};
+
+WebSocketManager.prototype.subscribe = function(event, callback) {
+  var wrapped = function(data) {
+    if (data && data.event === event) callback(data.payload, data);
+  };
+  this.on('extension_event', wrapped);
+  return function() { this.off('extension_event', wrapped); }.bind(this);
+};
+
 var instance = new WebSocketManager();
 
 var autoConnect = function() {
