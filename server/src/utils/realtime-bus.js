@@ -16,9 +16,14 @@ function unregister(userId) {
 }
 
 function publish(event) {
+  publishToUsers(Object.keys(queues), event);
+}
+
+function publishToUsers(userIds, event) {
   var now = Date.now();
-  var ids = Object.keys(queues);
+  var ids = Array.isArray(userIds) ? userIds : [];
   for (var i = 0; i < ids.length; i++) {
+    if (!queues[ids[i]]) continue;
     queues[ids[i]].push({ ts: now, event: event });
     if (queues[ids[i]].length > QUEUE_MAX) queues[ids[i]].splice(0, queues[ids[i]].length - QUEUE_MAX);
   }
@@ -40,4 +45,4 @@ setInterval(function() {
   });
 }, 60000).unref();
 
-module.exports = { register: register, unregister: unregister, publish: publish, consume: consume, isRegistered: function(userId) { return !!queues[userId]; } };
+module.exports = { register: register, unregister: unregister, publish: publish, publishToUsers: publishToUsers, consume: consume, isRegistered: function(userId) { return !!queues[userId]; } };
