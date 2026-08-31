@@ -200,7 +200,7 @@ window.ClassIntraMarket = {
       appName: appName,
       api: api,
       websocket: wsManager,
-      realtime: wsManager,
+      realtime: realtime,
       realtimeEvents: realtime,
       route: router.currentRoute,
       router: router,
