@@ -214,6 +214,9 @@ window.ClassIntraMarket = {
   }
 };
 
+// 全局实时事件通道：第三方应用可直接订阅，不依赖 Chat 应用。
+if (localStorage.getItem('token')) realtime.connect();
+
 var initialPath = window.location.pathname + window.location.search + window.location.hash;
 
 marketRegistry.refresh().then(function(apps) {
