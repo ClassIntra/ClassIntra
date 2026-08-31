@@ -47,6 +47,7 @@ module.exports = {
       autorestart: true,
       max_restarts: 20,                     // 提高重启上限
       restart_delay: 8000,
+      exp_backoff_restart_delay: 100,
       watch: false,
       max_memory_restart: '1G',
       node_args: '--max-old-space-size=768',
