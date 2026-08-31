@@ -97,6 +97,7 @@ import { getSearchRegistry } from '@/core/search-registry';
 import { getIntegrationManager } from '@/integrations';
 import api from '@/utils/api';
 import wsManager from '@/utils/websocket';
+import realtime from '@/utils/realtime';
 import { marketRegistry, define } from '@/core/market-registry';
 import { ROUTE_APP_MAP } from '@/core/router-aggregator';
 import '@fortawesome/fontawesome-free/css/all.min.css';
@@ -200,6 +201,7 @@ window.ClassIntraMarket = {
       api: api,
       websocket: wsManager,
       realtime: wsManager,
+      realtimeEvents: realtime,
       route: router.currentRoute,
       router: router,
       store: store,
