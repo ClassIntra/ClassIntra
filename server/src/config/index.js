@@ -17,13 +17,16 @@ module.exports = {
     sub: process.env.QWEATHER_SUB || '',
     privateKey: process.env.QWEATHER_PRIVATE_KEY || ''
   },
-  ai: {
-    apiKey: process.env.AI_API_KEY || '',
-    apiUrl: process.env.AI_API_URL || '',
-    model: process.env.AI_MODEL || 'gpt-3.5-turbo',
-    // GPT sub-models available for user switching
-    availableModels: (process.env.AI_AVAILABLE_MODELS || 'gpt-4o-mini-2024-07-18,gpt-4o-mini').split(',').map(function(s) { return s.trim(); }).filter(function(s) { return s !== ''; })
-  },
+  ai: (function() {
+    var availableModels = (process.env.AI_AVAILABLE_MODELS || 'gpt-4o-mini-2024-07-18,gpt-4o-mini').split(',').map(function(s) { return s.trim(); }).filter(function(s) { return s !== ''; });
+    var configuredModel = process.env.AI_MODEL || 'gpt-3.5-turbo';
+    return {
+      apiKey: process.env.AI_API_KEY || '',
+      apiUrl: process.env.AI_API_URL || '',
+      model: availableModels.indexOf(configuredModel) >= 0 ? configuredModel : (availableModels[0] || configuredModel),
+      availableModels: availableModels
+    };
+  })(),
   deepseek: {
     apiKey: process.env.DEEPSEEK_API_KEY || '',
     apiUrl: process.env.DEEPSEEK_API_URL || 'https://api.deepseek.com/chat/completions',
