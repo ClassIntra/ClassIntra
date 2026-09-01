@@ -5,7 +5,7 @@
 //
 // 消息流向：
 //   ClassIntra（父） → CampusBili（iframe 子）  ：下发指令（video-control / request-mute / welcome）
-//   CampusBili（子） → ClassIntra（父）         ：上报事件（playback-status / share-request / hello / ready）
+//   CampusBili（子） → ClassIntra（父）         ：上报事件（share-request / hello / ready）
 //
 // 握手流程（v1.1 新增）：
 //   1. 子 mount → 发送 HELLO（携带子端协议版本 + 支持的通道列表）
@@ -53,7 +53,7 @@ var ACTIONS_CHILD_TO_PARENT = {
   BACK: 'classintra-back',
   // 子站点主动 ping 父窗口（兜底：未实现握手的旧子站点通过此触发身份注入）
   PING: 'classintra-ping',
-  // 视频播放状态上报（payload: { isPlaying, ended, currentTime, duration, ... }）
+  // 保留协议常量供旧客户端兼容；ClassIntra 当前不再将播放状态展示到超能岛。
   PLAYBACK_STATUS: 'campusbili-playback-status',
   // 分享请求（payload: { url, title, aid, bvid, pic, owner }）
   SHARE_REQUEST: 'campusbili-share-request',

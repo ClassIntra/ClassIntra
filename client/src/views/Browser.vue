@@ -165,7 +165,7 @@
 
 <script>
 import islandNotify from '@/utils/island-notify';
-import { mountBridge, unmountBridge, getCurrentBridge, ACTIONS_CHILD_TO_PARENT } from '@/integrations/campusbili-bridge-client';
+import { mountBridge, unmountBridge, ACTIONS_CHILD_TO_PARENT } from '@/integrations/campusbili-bridge-client';
 
 var HISTORY_KEY = 'browser_history';
 var BOOKMARKS_KEY = 'browser_bookmarks';
@@ -254,11 +254,8 @@ export default {
     document.addEventListener('touchstart', self._onSwipeStart, { passive: true });
     document.addEventListener('touchmove', self._onSwipeMove, { passive: true });
     document.addEventListener('touchend', self._onSwipeEnd, { passive: true });
-    // 注册 browserRef，让超能岛可通过 island-notify 下发指令到 iframe
-    islandNotify.setBrowserRef(self);
   },
   beforeDestroy: function() {
-    islandNotify.setBrowserRef(null);
     // 卸载桥接实例，移除 message 监听
     unmountBridge();
     if (this._onSwipeStart) {
@@ -294,11 +291,6 @@ export default {
       bridge.on(ACTIONS_CHILD_TO_PARENT.SHARE_REQUEST, function(payload) {
         if (payload) islandNotify.showShareCapsule(payload);
       });
-      bridge.on(ACTIONS_CHILD_TO_PARENT.PLAYBACK_STATUS, function(payload) {
-        if (!payload) return;
-        if (payload.ended) islandNotify.hideVideoIsland();
-        else islandNotify.showVideoIsland(payload);
-      });
       bridge.on(ACTIONS_CHILD_TO_PARENT.PAGE_INFO, function(payload) {
         if (payload && payload.title) self.pageTitle = payload.title;
       });
@@ -324,15 +316,6 @@ export default {
         // 握手成功：可在此触发 UI 反馈（当前保持静默，避免噪音）
       });
     },
-    // 向 iframe 下发视频控制指令（超能岛 → Browser → 桥接 → iframe → CampusBili）
-    sendToIframe: function(action, payload) {
-      var bridge = getCurrentBridge();
-      if (!bridge) return;
-      // 仅支持 video-control（其他动作由桥接内部封装）
-      if (action === 'video-control' && payload) {
-        bridge.sendVideoControl(payload.command, payload.value);
-      }
-    },
     navigateTo: function(url) {
       var self = this;
       var raw = (url || '').trim();
@@ -341,7 +324,16 @@ export default {
       if (!/^https?:\/\//i.test(raw)) {
         raw = 'https://' + raw;
       }
-      self.currentUrl = raw;
+       // 仅为 CampusBili 添加内嵌标记，避免污染其他第三方网站的 URL。
+       try {
+         var embeddedUrl = new URL(raw);
+         var isCampusBili = /campusbili/i.test(embeddedUrl.hostname) || embeddedUrl.port === '9002';
+         if (isCampusBili) {
+           embeddedUrl.searchParams.set('classintra', '1');
+           raw = embeddedUrl.toString();
+         }
+       } catch (e) {}
+       self.currentUrl = raw;
       self.urlText = raw;
       // 添加到历史记录
       self.addHistory(raw);

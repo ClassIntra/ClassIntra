@@ -383,6 +383,17 @@ function _validateMarketManifest(m, expectedName) {
   return errors;
 }
 
+function compareVersions(a, b) {
+  var left = String(a || '0.0.0').split('.');
+  var right = String(b || '0.0.0').split('.');
+  for (var i = 0; i < 3; i++) {
+    var l = parseInt(left[i], 10) || 0;
+    var r = parseInt(right[i], 10) || 0;
+    if (l !== r) return l - r;
+  }
+  return 0;
+}
+
 // 与官方 apps/、plugins/ 及其他已安装市场应用冲突检测
 function _detectConflicts(manifest) {
   var errors = [];
@@ -413,6 +424,10 @@ function installAppFromSource(appName, sourceId) {
         if (catalog.apps[i].name === appName) { entry = catalog.apps[i]; break; }
       }
       if (!entry) throw new Error('市场目录中不存在应用: ' + appName);
+      var installed = _scanInstalledRaw().filter(function(app) { return app.name === appName; })[0];
+      if (installed && compareVersions(entry.version, installed.version) < 0) {
+        throw new Error('拒绝降级: 当前版本 ' + installed.version + ' 高于市场版本 ' + entry.version);
+      }
       if (entry.files.length > MAX_FILES) throw new Error('文件数超过上限 ' + MAX_FILES);
 
       var prefix = 'apps/' + appName + '/';
