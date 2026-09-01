@@ -1,7 +1,7 @@
 # CampusBili 桥接插件
 
 > ClassIntra 与 CampusBili 网站的桥接插件。
-> 当 ClassIntra 用户通过超能岛浏览器访问 CampusBili 时，CampusBili 左上角显示"返回 ClassIntra"按钮。
+> 当 ClassIntra 用户通过超能岛浏览器访问 CampusBili 时，CampusBili 顶部显示"返回 ClassIntra"按钮；视频页返回按钮只返回 CampusBili 内部上一页。
 
 ## 工作原理
 
@@ -64,7 +64,7 @@ ClassIntra 的 `Browser.vue` 监听此消息，执行 `$router.back()` 返回桌
 
 ## 后端验证（可选）
 
-若 CampusBili 后端需要确认 ClassIntra 用户身份（如同步数据），可调用：
+CampusBili 内嵌时通过 URL 参数 `classintra=1` 自动跳过独立访问密码。若 CampusBili 后端需要确认 ClassIntra 用户身份（如同步数据），可调用：
 
 ```
 POST /api/campusbili-bridge/verify

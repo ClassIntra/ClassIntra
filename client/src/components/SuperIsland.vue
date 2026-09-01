@@ -128,24 +128,6 @@
           @share-to-community="shareToCommunity"
         />
 
-        <!-- Video Compact Mode（CampusBili 视频播放中） -->
-        <IslandVideoPanel
-          v-else-if="islandMode === 'video-compact'"
-          key="video-compact"
-          mode="compact"
-          :video-data="videoIslandData"
-        />
-
-        <!-- Video Expanded Mode（CampusBili 视频控制面板） -->
-        <IslandVideoPanel
-          v-else-if="islandMode === 'video-expanded'"
-          key="video-expanded"
-          mode="expanded"
-          :video-data="videoIslandData"
-          @cancel="goCompact"
-          @toggle-play="videoControlToggle"
-          @seek="videoControlSeek"
-        />
       </transition>
     </div>
     </div>
@@ -155,7 +137,6 @@
 
 <script>
 import audioManager from '@/utils/audio-manager';
-import islandNotify from '@/utils/island-notify';
 import islandNotificationsMixin from '@/mixins/island-notifications';
 import islandGesturesMixin from '@/mixins/island-gestures';
 import IslandNotificationPanel from './island/IslandNotificationPanel.vue';
@@ -165,7 +146,6 @@ import IslandBrowserPanel from './island/IslandBrowserPanel.vue';
 import IslandMusicPanel from './island/IslandMusicPanel.vue';
 import IslandWeatherPanel from './island/IslandWeatherPanel.vue';
 import IslandShareCapsulePanel from './island/IslandShareCapsulePanel.vue';
-import IslandVideoPanel from './island/IslandVideoPanel.vue';
 
 export default {
   name: 'SuperIsland',
@@ -177,7 +157,6 @@ export default {
     IslandMusicPanel: IslandMusicPanel,
     IslandWeatherPanel: IslandWeatherPanel,
     IslandShareCapsulePanel: IslandShareCapsulePanel,
-    IslandVideoPanel: IslandVideoPanel
   },
   mixins: [islandNotificationsMixin, islandGesturesMixin],
   data: function() {
@@ -197,9 +176,6 @@ export default {
       weatherAlertStartTime: 0,
       // 分享胶囊数据（由 Browser.vue 转发 Campusbili share-request 触发）
       shareCapsuleData: null,
-      // 视频岛数据（由 CampusBili 视频播放状态同步触发）
-      videoIslandData: null,
-      videoIslandDismissed: false
     };
   },
   computed: {
@@ -223,26 +199,16 @@ export default {
       if (this.isOnDesktop) return true;
       if (this.activeActivities.length > 0) return true;
       if (this.hasMusicPlaying && !this.musicIslandDismissed) return true;
-      if (this.videoIslandData && !this.videoIslandDismissed) return true;
       if (this.currentWeatherAlert) return true;
       return false;
     },
     compactIcon: function() {
-      if (this.videoIslandData && this.islandMode === 'compact' && !this.videoIslandDismissed) {
-        var v = this.videoIslandData;
-        return v.isPlaying ? 'fa-solid fa-play' : 'fa-solid fa-pause';
-      }
       if (this.hasMusicPlaying && this.islandMode === 'compact' && !this.musicIslandDismissed) return 'fa-solid fa-music';
       if (this.isOnDesktop && this.broadcastText && this.activeActivities.length === 0) return 'fa-solid fa-bell';
       if (this.activeActivities.length > 0) return this.activeActivities[0].icon;
       return 'fa-solid fa-circle';
     },
     compactDisplayText: function() {
-      if (this.videoIslandData && this.islandMode === 'compact' && !this.videoIslandDismissed) {
-        var t = this.videoIslandData.title || '';
-        if (t.length > 20) t = t.substring(0, 20) + '...';
-        return t || 'CampusBili 视频';
-      }
       if (this.hasMusicPlaying && this.islandMode === 'compact' && !this.musicIslandDismissed) return this.musicCurrentSong ? this.musicCurrentSong.title : '';
       if (this.isOnDesktop && this.broadcastText && this.activeActivities.length === 0) return this.broadcastText;
       if (this.activeActivities.length > 0) return this.activeActivities[0].compactText;
@@ -322,8 +288,8 @@ export default {
       if (newMode !== oldMode) {
         this.animateIslandHeight();
       }
-      // 展开模式（菜单/音乐/历史/浏览器/分享胶囊）监听 document 点击，点击外部则收起
-      var collapsibleModes = ['actions', 'music-expanded', 'history', 'browser', 'share-capsule', 'video-expanded'];
+       // 展开模式（菜单/音乐/历史/浏览器/分享胶囊）监听 document 点击，点击外部则收起
+      var collapsibleModes = ['actions', 'music-expanded', 'history', 'browser', 'share-capsule'];
       var isNewCollapsible = collapsibleModes.indexOf(newMode) !== -1;
       var wasOldCollapsible = collapsibleModes.indexOf(oldMode) !== -1;
       if (isNewCollapsible && !wasOldCollapsible) {
@@ -381,18 +347,12 @@ export default {
   },
   methods: {
     goCompact: function() {
-      if (this.islandMode === 'video-expanded') {
-        this.islandMode = 'video-compact';
-        return;
-      }
       if (this.islandMode === 'music-expanded') {
         this.islandMode = 'music-compact';
         return;
       }
       if (this.activeActivities.length >= 2) {
         this.islandMode = 'split';
-      } else if (this.videoIslandData && !this.videoIslandDismissed) {
-        this.islandMode = 'video-compact';
       } else if (this.hasMusicPlaying && !this.musicIslandDismissed) {
         this.islandMode = 'music-compact';
       } else {
@@ -401,7 +361,7 @@ export default {
     },
     onDocumentClick: function(e) {
       // 点击 island 外部区域时收起展开的菜单/面板
-      var collapsibleModes = ['actions', 'music-expanded', 'history', 'browser', 'share-capsule', 'video-expanded'];
+      var collapsibleModes = ['actions', 'music-expanded', 'history', 'browser', 'share-capsule'];
       if (collapsibleModes.indexOf(this.islandMode) === -1) return;
       var el = this.$refs.islandEl;
       if (el && !el.contains(e.target)) {
@@ -448,10 +408,7 @@ export default {
         }
         self.dismissNotification();
       } else if (self.islandMode === 'compact' || self.islandMode === 'split') {
-        // 视频岛优先：有视频播放时点击展开视频控制面板
-        if (self.videoIslandData && !self.videoIslandDismissed) {
-          self.islandMode = 'video-expanded';
-        } else if (self.isOnDesktop && self.browserEnabled) {
+        if (self.isOnDesktop && self.browserEnabled) {
           self.islandMode = 'actions';
         } else if (self.isOnDesktop) {
           self.islandMode = 'compact';
@@ -539,42 +496,6 @@ export default {
       if (d.pic) query.pic = encodeURIComponent(d.pic);
       if (d.owner) query.owner = encodeURIComponent(d.owner);
       this.$router.push({ name: 'Community', query: query }).catch(function() {});
-    },
-
-    // ===== 视频岛（CampusBili 视频播放状态同步） =====
-
-    /** 显示视频岛（由 CampusBili 播放状态上报触发） */
-    showVideoIsland: function(data) {
-      if (!data) return;
-      this.videoIslandData = data;
-      // 视频开始播放时重置 dismissed 标记
-      if (data.isPlaying) this.videoIslandDismissed = false;
-      // 当前在其他模式时不强制切换，仅在 compact/split 时显示视频岛
-      if (this.islandMode === 'compact' || this.islandMode === 'split') {
-        if (this.videoIslandData && !this.videoIslandDismissed) {
-          this.islandMode = 'video-compact';
-        }
-      }
-    },
-
-    /** 隐藏视频岛（视频停止播放时触发） */
-    hideVideoIsland: function() {
-      this.videoIslandData = null;
-      if (this.islandMode === 'video-compact' || this.islandMode === 'video-expanded') {
-        this.goCompact();
-      }
-    },
-
-    /** 切换播放/暂停（超能岛 → Browser → iframe → CampusBili） */
-    videoControlToggle: function() {
-      if (!this.videoIslandData) return;
-      var cmd = this.videoIslandData.isPlaying ? 'pause' : 'play';
-      islandNotify.sendVideoControl(cmd);
-    },
-
-    /** 跳转到指定时间（超能岛 → Browser → iframe → CampusBili） */
-    videoControlSeek: function(time) {
-      islandNotify.sendVideoControl('seek', time);
     },
 
     handleHistoryClick: function(item) {
@@ -702,7 +623,6 @@ export default {
 .island.island-mode-history,
 .island.island-mode-browser,
 .island.island-mode-share-capsule,
-.island.island-mode-video-expanded,
 .island.island-mode-music-expanded {
   box-shadow: 0 12px 44px rgba(0, 0, 0, 0.36),
               0 4px 18px rgba(0, 0, 0, 0.24),
@@ -795,27 +715,6 @@ export default {
   width: 280px;
   border-radius: var(--radius-3xl);
   padding: 12px 14px 10px;
-}
-
-/* ===== Video Island Modes ===== */
-.island-mode-video-compact {
-  min-width: 140px;
-  max-width: 280px;
-  height: 40px;
-  border-radius: var(--radius-pill);
-  padding: 0 14px 0 4px;
-  display: inline-flex;
-  align-items: center;
-}
-
-.island-mode-video-compact:hover {
-  transform: translateY(-0.5px);
-}
-
-.island-mode-video-expanded {
-  width: 300px;
-  border-radius: var(--radius-3xl);
-  padding: 10px 12px;
 }
 
 .island-mode-share-capsule {
