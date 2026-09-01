@@ -139,6 +139,9 @@ function getUserAiSettings(userId) {
       settings.gpt_model = parsed.gpt_model || config.ai.model;
     } catch (e) {}
   }
+  if (config.ai.availableModels.indexOf(settings.gpt_model) < 0) {
+    settings.gpt_model = config.ai.model;
+  }
   settings.deepseek_enabled = row && row.deepseek_enabled === 1;
   return settings;
 }
