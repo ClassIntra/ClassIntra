@@ -1,0 +1,15 @@
+{
+  "name": "astrbot-relay",
+  "type": "plugin",
+  "version": "1.0.0",
+  "label": "AstrBot 机器人接入",
+  "category": "hidden",
+  "order": 80,
+  "defaultEnabled": true,
+  "canDisable": true,
+  "description": "将 AstrBot 机器人（独立账号，如\"林晞\"）接入 ClassIntra 私聊：机器人以真实账号登录 WS，收到的私聊经 SSH 隧道转发给 AstrBot HTTP API（完整管线：人设/工具/记忆），回复以机器人身份分段发回，支持图片等富媒体资源代理。",
+  "backend": {
+    "mountPath": "/api/astrbot",
+    "entry": "./backend/routes.js"
+  }
+}

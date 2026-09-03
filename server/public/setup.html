@@ -222,6 +222,20 @@ textarea{resize:vertical;min-height:100px}
         <input type="text" id="cohort" maxlength="2" placeholder="如 25（表示2025届）" value="25" autofocus>
         <div class="hint">2位数字，对应毕业年份后两位，如2025届填 25</div>
       </div>
+      <div class="row">
+        <div class="form-group">
+          <label>默认天气地点（可选）</label>
+          <input type="text" id="weatherLocation" placeholder="如 117.26,31.22">
+          <div class="hint">填写经度,纬度；留空则保留现有配置。可在高德/地图服务中查询坐标。</div>
+        </div>
+        <div class="form-group">
+          <label>默认 AI 模型（可选）</label>
+          <select id="defaultAiModel">
+            <option value="">保留现有配置</option>
+          </select>
+          <div class="hint" id="aiModelHint">可选模型读取自 AI_AVAILABLE_MODELS。</div>
+        </div>
+      </div>
       <div class="actions"><div></div><button class="btn btn-primary" onclick="goStep(2)">下一步 &rarr;</button></div>
     </div>
 
@@ -339,6 +353,14 @@ window.addEventListener('beforeunload', function(e) {
 function loadStatus() {
   fetch('/api/setup/status').then(function(r) { return r.json(); }).then(function(data) {
     if (data.cohorts && data.cohorts.length > 0) document.getElementById('cohort').value = data.cohorts[0];
+    var weatherInput = document.getElementById('weatherLocation');
+    if (weatherInput && data.env && data.env.QWEATHER_LOCATION) weatherInput.value = data.env.QWEATHER_LOCATION;
+    var aiSelect = document.getElementById('defaultAiModel');
+    var aiModels = data.env && data.env.AI_AVAILABLE_MODELS ? data.env.AI_AVAILABLE_MODELS.split(',').map(function(s) { return s.trim(); }).filter(Boolean) : [];
+    if (aiSelect) {
+      aiModels.forEach(function(model) { var option = document.createElement('option'); option.value = model; option.textContent = model; aiSelect.appendChild(option); });
+      if (data.env && data.env.AI_MODEL && aiModels.indexOf(data.env.AI_MODEL) !== -1) aiSelect.value = data.env.AI_MODEL;
+    }
 
     // 从现有 ADMIN_USER_IDS 推断班管分配
     var adminIds = [];
@@ -852,7 +874,7 @@ function saveConfig() {
   fetch('/api/setup/save', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ cohort: cohort, classNames: classNames, adminIds: adminIds, records: recordsCopy })
+     body: JSON.stringify({ cohort: cohort, classNames: classNames, adminIds: adminIds, records: recordsCopy, weatherLocation: document.getElementById('weatherLocation').value.trim(), defaultAiModel: document.getElementById('defaultAiModel').value.trim() })
   }).then(function(r) { return r.json(); }).then(function(data) {
     if (data.code !== 200) { btn.disabled=false; btn.textContent='保存配置并初始化'; showToast(data.message); return; }
     for (var i = 1; i <= 5; i++) {

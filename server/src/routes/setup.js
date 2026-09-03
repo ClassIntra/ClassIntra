@@ -133,6 +133,8 @@ router.post('/save', requireSetupAuth, function(req, res) {
     var classNames = data.classNames || {}; // { '08': '8班', '18': '18班' }
     var adminIds = data.adminIds || [];
     var records = data.records || {}; // { 'class08': [...], 'class18': [...] }
+    var weatherLocation = String(data.weatherLocation || '').trim();
+    var defaultAiModel = String(data.defaultAiModel || '').trim();
 
     // 验证届数
     if (!cohort || !/^\d{2}$/.test(cohort)) {
@@ -153,6 +155,14 @@ router.post('/save', requireSetupAuth, function(req, res) {
     // 验证管理员ID
     if (adminIds.length === 0) {
       return res.status(400).json({ code: 400, message: '至少需要一个管理员ID' });
+    }
+
+    if (weatherLocation && !/^-?\d+(\.\d+)?,-?\d+(\.\d+)?$/.test(weatherLocation)) {
+      return res.status(400).json({ code: 400, message: '天气地点格式应为经度,纬度，例如117.26,31.22' });
+    }
+    var configuredModels = String(process.env.AI_AVAILABLE_MODELS || '').split(',').map(function(model) { return model.trim(); }).filter(function(model) { return model; });
+    if (defaultAiModel && configuredModels.length > 0 && configuredModels.indexOf(defaultAiModel) === -1) {
+      return res.status(400).json({ code: 400, message: '默认 AI 模型必须属于 AI_AVAILABLE_MODELS' });
     }
 
     // ========== 同步已注册学生的 user_id（核心：防止重新配置导致 user_id 冲突） ==========
@@ -279,6 +289,8 @@ router.post('/save', requireSetupAuth, function(req, res) {
     });
 
     envMap['ADMIN_USER_IDS'] = adminIds.join(',');
+    if (weatherLocation) envMap['QWEATHER_LOCATION'] = weatherLocation;
+    if (defaultAiModel) envMap['AI_MODEL'] = defaultAiModel;
 
     // 重建 .env
     var envOutput = [];

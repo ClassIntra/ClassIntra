@@ -1,0 +1,480 @@
+// AstrBot Relay - 机器人 WS 客户端与消息转发核心
+//
+// 链路：用户私聊"林晞" → 本插件以机器人账号登录的 WS 收到 private_message
+//   → POST {ASTRBOT_API}/api/chat（SSH 正向隧道）→ 解析 message_chain
+//   → 以机器人身份分段发回 ClassIntra；图片等资源经 /api/astrbot/resource 代理。
+//
+// 配置全部来自环境变量（server/.env）：
+//   ASTRBOT_API        AstrBot API 地址（隧道），默认 http://localhost:9999
+//   ASTRBOT_TOKEN      共享令牌（可选，与 AstrBot 插件 api_token 一致）
+//   BOT_USER_ID / BOT_PASSWORD / BOT_NET_NAME   机器人账号
+//   AB_API_TIMEOUT     调用 AstrBot 超时 ms，默认 65000
+//   AB_MAX_SEGMENTS    单次回复最多分段数，默认 3
+//   AB_HEAVY_KEYWORDS  触发异步模式的关键词，逗号分隔
+//   AB_ASYNC_ENABLED   是否启用异步模式，默认 false
+//   AB_CALLBACK_BASE   Bot 服务器回调本插件的地址（反向隧道），默认 http://localhost:7000
+
+var WebSocket = require('ws');
+var axios = require('axios');
+var fs = require('fs');
+var path = require('path');
+var botUser = require('./bot-user');
+
+var CFG = {
+  api: process.env.ASTRBOT_API || 'http://localhost:9999',
+  token: process.env.ASTRBOT_TOKEN || '',
+  timeout: parseInt(process.env.AB_API_TIMEOUT, 10) || 65000,
+  maxSegments: parseInt(process.env.AB_MAX_SEGMENTS, 10) || 3,
+  heavyKeywords: (process.env.AB_HEAVY_KEYWORDS || '画图,画一张,生成图,生成图片,海报,写作文,写论文,长文,分析文件,总结文件,大文件').split(',').map(function (s) { return s.trim(); }).filter(Boolean),
+  asyncEnabled: process.env.AB_ASYNC_ENABLED === 'true',
+  callbackBase: process.env.AB_CALLBACK_BASE || 'http://localhost:7000',
+  httpPort: parseInt(process.env.PORT, 10) || 3000,
+  wsPort: parseInt(process.env.WS_PORT, 10) || 10001,
+  resourceDir: process.env.AB_RESOURCE_DIR || path.join(process.cwd(), 'Resources', 'astrbot'),
+  resourceMaxAgeMs: 24 * 3600 * 1000
+};
+
+// ===== 运行状态 =====
+var state = {
+  started: false,
+  ws: null,
+  jwt: null,
+  botCfg: null,
+  connected: false,
+  reconnectTimer: null,
+  heartbeatTimer: null,
+  lastPong: 0,
+  reconnectAttempts: 0,
+  tasks: {},        // task_id -> { userId, createdAt }
+  counters: { received: 0, replied: 0, failed: 0 }
+};
+
+var ALLOWED_RESOURCE_PREFIX = '/classintra_res/';
+
+function log() {
+  var args = Array.prototype.slice.call(arguments);
+  console.log.apply(console, ['[astrbot-relay]'].concat(args));
+}
+
+// ===== 机器人账号 =====
+
+function ensureBotAccount() {
+  state.botCfg = botUser.ensureBotUser();
+  return !!state.botCfg;
+}
+
+// ===== 登录与 WS 连接 =====
+
+function login() {
+  var cfg = state.botCfg;
+  return axios.post('http://localhost:' + CFG.httpPort + '/api/auth/login', {
+    account: cfg.userId,
+    password: cfg.password
+  }, { timeout: 10000 }).then(function (resp) {
+    var data = resp.data;
+    if (!data || data.code !== 200 || !data.data || !data.data.token) {
+      throw new Error('登录失败: ' + ((data && data.message) || '未知错误'));
+    }
+    state.jwt = data.data.token;
+    log('机器人登录成功:', cfg.userId);
+    return state.jwt;
+  });
+}
+
+function connectWs() {
+  if (!state.jwt) {
+    scheduleReconnect();
+    return;
+  }
+  var url = 'ws://localhost:' + CFG.wsPort + '/?token=' + encodeURIComponent(state.jwt);
+  log('连接 WS:', url.replace(/token=[^&]+/, 'token=***'));
+  var ws = new WebSocket(url);
+  state.ws = ws;
+
+  ws.on('open', function () {
+    log('WS 已连接，ClassIntra 机器人上线');
+    state.connected = true;
+    state.reconnectAttempts = 0;
+    state.lastPong = Date.now();
+    // 显式再鉴权一次（幂等），确保 clients 表注册
+    ws.send(JSON.stringify({ type: 'connect', user_id: state.botCfg.userId, token: state.jwt }));
+    startHeartbeat();
+  });
+
+  ws.on('message', function (raw) {
+    var data;
+    try { data = JSON.parse(raw); } catch (e) { return; }
+    handleMessage(data);
+  });
+
+  ws.on('pong', function () { state.lastPong = Date.now(); });
+
+  ws.on('error', function (err) {
+    log('WS 错误:', err.message);
+  });
+
+  ws.on('close', function (code, reason) {
+    log('WS 关闭: code=' + code + (reason ? ' reason=' + reason : ''));
+    state.connected = false;
+    stopHeartbeat();
+    scheduleReconnect();
+  });
+}
+
+function scheduleReconnect() {
+  if (state.reconnectTimer) return;
+  state.reconnectAttempts++;
+  var delay = Math.min(30000, 3000 * state.reconnectAttempts);
+  log(delay / 1000 + ' 秒后重连（第 ' + state.reconnectAttempts + ' 次）');
+  state.reconnectTimer = setTimeout(function () {
+    state.reconnectTimer = null;
+    login().then(connectWs).catch(function (e) {
+      log('重新登录失败:', e.message);
+      scheduleReconnect();
+    });
+  }, delay);
+}
+
+function startHeartbeat() {
+  stopHeartbeat();
+  state.heartbeatTimer = setInterval(function () {
+    if (!state.ws || state.ws.readyState !== WebSocket.OPEN) return;
+    if (Date.now() - state.lastPong > 60000) {
+      log('心跳超时，主动重连');
+      try { state.ws.terminate(); } catch (e) {}
+      return;
+    }
+    try { state.ws.send(JSON.stringify({ type: 'ping' })); } catch (e) {}
+  }, 25000);
+}
+
+function stopHeartbeat() {
+  if (state.heartbeatTimer) {
+    clearInterval(state.heartbeatTimer);
+    state.heartbeatTimer = null;
+  }
+}
+
+// ===== 消息处理 =====
+
+function handleMessage(data) {
+  switch (data.type) {
+    case 'connected':
+      log('连接确认，当前在线 ' + ((data.users && data.users.length) || 0) + ' 人');
+      break;
+    case 'pong':
+      state.lastPong = Date.now();
+      break;
+    case 'private_message':
+      if (data.from_user_id && data.message) {
+        onPrivateMessage(data.from_user_id, data.message);
+      }
+      break;
+    case 'private_message_sent':
+      // 发送回执：成功则静默
+      if (data && data.success === false) {
+        log('消息发送被服务端拒绝: ' + JSON.stringify(data));
+      }
+      break;
+    case 'error':
+      log('服务端错误消息: ' + (data.message || ''));
+      break;
+    default:
+      break;
+  }
+}
+
+function onPrivateMessage(fromUserId, message) {
+  // 防自触发
+  if (fromUserId === state.botCfg.userId || message.sender_id === state.botCfg.userId) return;
+  state.counters.received++;
+
+  var content = message.content || '';
+  var msgType = message.type || 'text';
+  var userText;
+
+  if (msgType === 'text') {
+    userText = content;
+  } else if (msgType === 'ai_forward') {
+    // 用户从 AI 聊天页转发的内容：{content, role}
+    try {
+      var fwd = JSON.parse(content);
+      userText = fwd.content || '';
+    } catch (e) { userText = ''; }
+  } else {
+    sendPrivate(fromUserId, '暂不支持这种消息类型，发文字给我吧～');
+    return;
+  }
+  if (!userText || !userText.trim()) {
+    sendPrivate(fromUserId, '好像没有收到文字内容呢，再发一次？');
+    return;
+  }
+
+  // 用户白名单（AB_ALLOWED_USERS，空=允许所有人）
+  var allowed = (process.env.AB_ALLOWED_USERS || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+  if (allowed.length > 0 && allowed.indexOf(fromUserId) === -1) {
+    log('用户 ' + fromUserId + ' 不在白名单中，忽略');
+    return;
+  }
+
+  processUserMessage(fromUserId, userText, message);
+}
+
+function isHeavyTask(text) {
+  if (text.length > 500) return true;
+  for (var i = 0; i < CFG.heavyKeywords.length; i++) {
+    if (text.indexOf(CFG.heavyKeywords[i]) !== -1) return true;
+  }
+  return false;
+}
+
+function processUserMessage(userId, text, originalMessage) {
+  var payload = {
+    message: text,
+    user_id: userId,
+    session_id: 'private_' + userId,
+    platform: 'classintra',
+    mode: 'sync',
+    images: []
+  };
+
+  // 异步模式：重任务 / 反向隧道可用时
+  if (CFG.asyncEnabled && isHeavyTask(text)) {
+    payload.mode = 'async';
+    payload.callback_url = CFG.callbackBase + '/api/astrbot/callback';
+    callAstrBot(payload).then(function (result) {
+      if (result && result.task_id) {
+        state.tasks[result.task_id] = { userId: userId, createdAt: Date.now() };
+        sendPrivate(userId, '🌿 收到！这个任务有点大，林晞先去处理了，好了叫你～');
+      } else {
+        sendFallback(userId, result);
+      }
+    }).catch(function () {
+      sendFallback(userId, null);
+    });
+    return;
+  }
+
+  callAstrBot(payload).then(function (result) {
+    sendRichMessage(userId, result);
+  }).catch(function (err) {
+    log('调用 AstrBot 失败:', err.message);
+    sendFallback(userId, null);
+  });
+}
+
+function callAstrBot(payload) {
+  var headers = { 'Content-Type': 'application/json' };
+  if (CFG.token) headers['X-ClassIntra-Token'] = CFG.token;
+  return axios.post(CFG.api + '/api/chat', payload, {
+    timeout: CFG.timeout,
+    headers: headers
+  }).then(function (resp) {
+    return resp.data;
+  });
+}
+
+function sendFallback(userId, result) {
+  var text = (result && result.error && result.error.indexOf('超时') !== -1)
+    ? '💤 林晞在发呆，你再叫叫她？'
+    : '😵 林晞好像生病了（Bot 服务不可达），等下再来找她吧。';
+  sendPrivate(userId, text);
+}
+
+// ===== 回复发送 =====
+
+function sendPrivate(targetUserId, content) {
+  if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+    log('WS 未连接，无法发送给 ' + targetUserId);
+    return false;
+  }
+  var tempId = Date.now().toString() + '_' + Math.random().toString(36).substr(2, 6);
+  state.ws.send(JSON.stringify({
+    type: 'private_message',
+    target_user_id: targetUserId,
+    content: content,
+    msg_type: 'text',
+    temp_id: tempId
+  }));
+  return true;
+}
+
+// 将 AstrBot 的 message_chain 拆成适合发送的文本段（含资源链接）
+function segmentsToTexts(result) {
+  var chain = (result && result.message_chain) || [];
+  var resources = (result && result.resources) || [];
+  var resMap = {};
+  for (var i = 0; i < resources.length; i++) resMap[resources[i].path] = resources[i];
+
+  var texts = [];
+  for (var j = 0; j < chain.length; j++) {
+    var seg = chain[j];
+    if (seg.type === 'plain' && seg.text) {
+      texts.push(seg.text);
+    } else if (seg.type === 'image' || seg.type === 'record' || seg.type === 'video' || seg.type === 'file') {
+      var localUrl = resourceLocalUrl(seg);
+      if (localUrl) {
+        texts.push(localUrl);
+      } else if (seg.url) {
+        texts.push(seg.url);
+      } else {
+        texts.push('（' + seg.type + ' 资源生成失败）');
+      }
+    }
+  }
+  if (texts.length === 0 && result && result.reply) texts.push(result.reply);
+  return texts;
+}
+
+// 资源落盘到 Resources/astrbot/，返回站内 /resources/ URL（前端原生渲染图片/音频/视频）
+function resourceLocalUrl(seg) {
+  var rp = seg.resource_path;
+  if (!rp || rp.indexOf(ALLOWED_RESOURCE_PREFIX) !== 0) return '';
+  var token = rp.substring(ALLOWED_RESOURCE_PREFIX.length);
+  if (!/^[0-9a-f]{16,}\.\w{1,8}$/.test(token)) return '';
+  var src = path.join(CFG.resourceDir, 'remote', token);
+  if (!fs.existsSync(src)) return '';
+  // URL 携带 __image/__audio/__video 标记，确保前端 detectMediaType 识别
+  var kind = seg.type === 'image' ? '__image' : seg.type === 'record' ? '__audio' : seg.type === 'video' ? '__video' : '';
+  return '/resources/astrbot/remote/' + token + kind;
+}
+
+function sendRichMessage(userId, result) {
+  if (!result || result.error) {
+    sendFallback(userId, result);
+    return;
+  }
+  var texts = segmentsToTexts(result);
+  if (texts.length === 0) {
+    sendPrivate(userId, '（林晞好像不知道说什么…换个问法试试？）');
+    return;
+  }
+  // 合并超出上限的段
+  if (texts.length > CFG.maxSegments) {
+    texts = texts.slice(0, CFG.maxSegments - 1).concat([texts.slice(CFG.maxSegments - 1).join('\n')]);
+  }
+  sendSegmented(userId, texts, 0);
+}
+
+function sendSegmented(userId, texts, idx) {
+  if (idx >= texts.length) {
+    state.counters.replied++;
+    return;
+  }
+  sendPrivate(userId, texts[idx]);
+  if (idx < texts.length - 1) {
+    var delay = 300 + Math.floor(Math.random() * 500);
+    setTimeout(function () { sendSegmented(userId, texts, idx + 1); }, delay);
+  } else {
+    state.counters.replied++;
+  }
+}
+
+// ===== 资源拉取（AstrBot → 本地 Resources/astrbot/remote）=====
+
+function fetchResource(resourcePath) {
+  // resourcePath 形如 /classintra_res/<token>.png → 下载到本地供 /resources/ 静态服务
+  if (!resourcePath || resourcePath.indexOf(ALLOWED_RESOURCE_PREFIX) !== 0) {
+    return Promise.reject(new Error('非法资源路径'));
+  }
+  var token = resourcePath.substring(ALLOWED_RESOURCE_PREFIX.length);
+  if (!/^[0-9a-f]{16,}\.\w{1,8}$/.test(token)) {
+    return Promise.reject(new Error('非法资源标识'));
+  }
+  var destDir = path.join(CFG.resourceDir, 'remote');
+  var dest = path.join(destDir, token);
+  if (fs.existsSync(dest)) return Promise.resolve(dest);
+
+  var headers = {};
+  if (CFG.token) headers['X-ClassIntra-Token'] = CFG.token;
+  return axios.get(CFG.api + resourcePath, {
+    responseType: 'arraybuffer',
+    timeout: 30000,
+    headers: headers,
+    maxContentLength: 50 * 1024 * 1024
+  }).then(function (resp) {
+    fs.mkdirSync(destDir, { recursive: true });
+    fs.writeFileSync(dest, Buffer.from(resp.data));
+    return dest;
+  });
+}
+
+function cleanupResources() {
+  var dir = path.join(CFG.resourceDir, 'remote');
+  if (!fs.existsSync(dir)) return;
+  var now = Date.now();
+  try {
+    var files = fs.readdirSync(dir);
+    for (var i = 0; i < files.length; i++) {
+      var p = path.join(dir, files[i]);
+      try {
+        var st = fs.statSync(p);
+        if (now - st.mtimeMs > CFG.resourceMaxAgeMs) fs.unlinkSync(p);
+      } catch (e) {}
+    }
+  } catch (e) {}
+}
+
+// ===== 异步任务表清理 =====
+
+function cleanupTasks() {
+  var now = Date.now();
+  var expired = [];
+  for (var tid in state.tasks) {
+    if (now - state.tasks[tid].createdAt > 5 * 60 * 1000) expired.push(tid);
+  }
+  for (var i = 0; i < expired.length; i++) {
+    var t = state.tasks[expired[i]];
+    log('异步任务超时未回调: ' + expired[i]);
+    sendPrivate(t.userId, '🐢 林晞做这个花了好久…要不你再说一遍要求？');
+    delete state.tasks[expired[i]];
+  }
+}
+
+// ===== 启动入口 =====
+
+function start() {
+  if (state.started) return;
+  state.started = true;
+  log('启动中。AstrBot API: ' + CFG.api + '，异步模式: ' + (CFG.asyncEnabled ? '开' : '关'));
+  if (!ensureBotAccount()) {
+    log('机器人账号不可用，插件未启动（请配置 BOT_PASSWORD）');
+    return;
+  }
+  login().then(connectWs).catch(function (e) {
+    log('首次登录失败:', e.message);
+    scheduleReconnect();
+  });
+  setInterval(cleanupResources, 3600 * 1000).unref();
+  setInterval(cleanupTasks, 60 * 1000).unref();
+}
+
+function getStatus() {
+  return {
+    connected: state.connected,
+    bot: state.botCfg ? state.botCfg.userId : null,
+    netName: state.botCfg ? state.botCfg.netName : null,
+    api: CFG.api,
+    asyncEnabled: CFG.asyncEnabled,
+    pendingTasks: Object.keys(state.tasks).length,
+    counters: state.counters
+  };
+}
+
+function completeTask(taskId) {
+  var t = state.tasks[taskId];
+  if (!t) return null;
+  delete state.tasks[taskId];
+  return t;
+}
+
+module.exports = {
+  start: start,
+  getStatus: getStatus,
+  sendPrivate: sendPrivate,
+  sendRichMessage: sendRichMessage,
+  fetchResource: fetchResource,
+  completeTask: completeTask,
+  CFG: CFG,
+  ALLOWED_RESOURCE_PREFIX: ALLOWED_RESOURCE_PREFIX
+};
