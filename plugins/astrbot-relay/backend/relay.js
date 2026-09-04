@@ -21,8 +21,10 @@ var path = require('path');
 var botUser = require('./bot-user');
 
 var CFG = {
+  // AstrBot v4.27+ 内置 OpenAPI：网页后端通过 HTTPS 访问 WebUI 同源 API
   api: process.env.ASTRBOT_API || 'http://localhost:9999',
   token: process.env.ASTRBOT_TOKEN || '',
+  apiKey: process.env.ASTRBOT_API_KEY || '',
   timeout: parseInt(process.env.AB_API_TIMEOUT, 10) || 65000,
   maxSegments: parseInt(process.env.AB_MAX_SEGMENTS, 10) || 3,
   heavyKeywords: (process.env.AB_HEAVY_KEYWORDS || '画图,画一张,生成图,生成图片,海报,写作文,写论文,长文,分析文件,总结文件,大文件').split(',').map(function (s) { return s.trim(); }).filter(Boolean),
@@ -264,13 +266,46 @@ function processUserMessage(userId, text, originalMessage) {
 }
 
 function callAstrBot(payload) {
-  var headers = { 'Content-Type': 'application/json' };
-  if (CFG.token) headers['X-ClassIntra-Token'] = CFG.token;
-  return axios.post(CFG.api + '/api/chat', payload, {
+  var headers = { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' };
+  // 内置 OpenAPI 使用 Authorization Bearer；旧版自定义 API 仍兼容 X-ClassIntra-Token
+  if (CFG.apiKey) headers.Authorization = 'Bearer ' + CFG.apiKey;
+  else if (CFG.token) headers['X-ClassIntra-Token'] = CFG.token;
+  var body = {
+    username: payload.user_id || 'classintra',
+    session_id: payload.session_id || ('private_' + (payload.user_id || 'anonymous')),
+    message: payload.message || ''
+  };
+  return axios.post(CFG.api + '/api/v1/chat', body, {
     timeout: CFG.timeout,
-    headers: headers
+    headers: headers,
+    responseType: 'text',
+    transformResponse: [function (data) { return data; }]
   }).then(function (resp) {
-    return resp.data;
+    var raw = String(resp.data || '');
+    // AstrBot v4.27 SSE：只消费 plain 事件的 data，complete/end 代表结束。
+    var events = [];
+    raw.split(/\r?\n/).forEach(function (line) {
+      if (line.indexOf('data:') !== 0) return;
+      var text = line.substring(5).trim();
+      if (!text || text === '[DONE]') return;
+      try { events.push(JSON.parse(text)); } catch (e) { log('忽略无效 SSE 行'); }
+    });
+    var reply = '';
+    var lastPlain = '';
+    for (var i = 0; i < events.length; i++) {
+      var ev = events[i] || {};
+      if (ev.type === 'plain' && typeof ev.data === 'string') {
+        var chunk = ev.data;
+        // 某些代理/流式模式会重复发送同一段 plain，避免重复拼接。
+        if (chunk && chunk !== lastPlain) {
+          reply += chunk;
+          lastPlain = chunk;
+        }
+      }
+      if (ev.type === 'error') throw new Error(typeof ev.data === 'string' ? ev.data : 'AstrBot API 返回错误');
+    }
+    var chain = reply ? [{ type: 'plain', text: reply }] : [];
+    return { mode: 'sync', status: 'success', reply: reply, message_chain: chain, resources: [], session_id: body.session_id };
   });
 }
 
@@ -344,14 +379,25 @@ function sendRichMessage(userId, result) {
     sendFallback(userId, result);
     return;
   }
-  var texts = segmentsToTexts(result);
+  var rawTexts = segmentsToTexts(result);
+  var texts = [];
+  for (var ti = 0; ti < rawTexts.length; ti++) {
+    // &&……&& 是 AstrBot/QQ 表情包标记，必须保留；仅按换行和句末标点分段。
+    var normalized = String(rawTexts[ti] || '').trim();
+    if (!normalized) continue;
+    // 按中文/英文句末标点分段，保留标点；没有标点的短文本保持单段。
+    var parts = normalized.match(/[^。！？!?；;\\n]+[。！？!?；;]*/g) || [normalized];
+    for (var pi = 0; pi < parts.length; pi++) {
+      if (parts[pi].trim()) texts.push(parts[pi].trim());
+    }
+  }
   if (texts.length === 0) {
     sendPrivate(userId, '（林晞好像不知道说什么…换个问法试试？）');
     return;
   }
-  // 合并超出上限的段
+  // 合并超出上限的段，避免触发 ClassIntra 每分钟发送限制。
   if (texts.length > CFG.maxSegments) {
-    texts = texts.slice(0, CFG.maxSegments - 1).concat([texts.slice(CFG.maxSegments - 1).join('\n')]);
+    texts = texts.slice(0, CFG.maxSegments - 1).concat([texts.slice(CFG.maxSegments - 1).join('')]);
   }
   sendSegmented(userId, texts, 0);
 }
