@@ -45,6 +45,8 @@ AB_MAX_SEGMENTS=3             # 单次回复最多分段数（避免触发发送
 
 ## 消息段映射
 
+**AstrBot → CI（出站）**
+
 | OneBot 段 | ClassIntra 呈现 |
 | --- | --- |
 | text | 文本（按句末标点分段，300-800ms 间隔模拟真人连发，默认上限 3 段） |
@@ -52,15 +54,30 @@ AB_MAX_SEGMENTS=3             # 单次回复最多分段数（避免触发发送
 | file（file:// URI） | 同上落盘发送 |
 | music(custom) | `🎵 标题 链接` 文本 |
 | at | `@昵称` 文本 |
+| reply | `（回复：原文摘要…）` 前缀 |
+| location / share / poke / contact | 对应中文提示文本 |
 | nodes(合并转发) | 展平为多条文本/媒体 |
 | json/xml 卡片 | 提取标题与跳转链接 |
 
-## 支持的 OneBot action
+**CI → AstrBot（入站）**
 
-send_private_msg / send_msg / send_group_msg(忽略) / send_private_forward_msg /
-get_msg(内存缓存回放) / get_login_info / get_stranger_info / get_friend_list /
-get_version_info / get_image / get_record / can_send_* / delete_msg / .handle_quick_operation
-——未识别的 action 一律返回 ok 空数据，保证管线不中断。
+| CI 消息 | OneBot 段 |
+| --- | --- |
+| text / ai_forward | text（ai_forward 提取正文） |
+| `[cloud-img:hash.ext]` | image（base64，多模态模型可直接看图，实测经 zhipu 视觉描述成功） |
+| `[cloud-audio:hash.ext]` | record（base64，可走 ASR） |
+| `[cloud-video:hash.ext]` | video（file:// 本机路径） |
+| 消息撤回 `message_recalled` | notice: friend_recall / group_recall |
+| 连接/心跳 | meta_event: lifecycle(connect) / heartbeat(30s) |
+
+## 支持的 OneBot action（QQ 协议面）
+
+- 消息：send_private_msg / send_msg / send_group_msg / send_private_forward_msg / send_group_forward_msg / delete_msg
+- 信息：get_msg / get_login_info / get_stranger_info / get_friend_list / get_version_info / get_status
+- 群：get_group_list / get_group_info / get_group_member_list / get_group_member_info（查询 CI 数据库实时返回，群成员/群名真实）
+- 媒体：get_image / get_record / can_send_image / can_send_record
+- 群管/文件类（CI 无对应能力）：set_group_* / upload_*_file / get_*_file_url 等——受理返回 ok，不中断管线
+- 未识别 action 一律返回 ok 空数据
 
 ## 验证
 
