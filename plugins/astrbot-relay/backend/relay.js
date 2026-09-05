@@ -26,7 +26,6 @@ var CFG = {
   ciWsPort: parseInt(process.env.WS_PORT, 10) || 10001,
   obUrl: process.env.ASTRBOT_WS_URL || 'ws://127.0.0.1:6199/ws',
   obToken: process.env.ASTRBOT_WS_TOKEN || '',
-  selfId: parseInt(process.env.ASTRBOT_SELF_ID, 10) || 10000,
   maxSegments: parseInt(process.env.AB_MAX_SEGMENTS, 10) || 3,
   resourceDir: process.env.AB_RESOURCE_DIR || path.join(process.cwd(), 'Resources', 'astrbot')
 };
@@ -41,9 +40,13 @@ var state = {
   obWs: null, obConnected: false, obTimer: null, obAttempts: 0,
   msgCache: {},       // message_id(int) -> 上报的 OneBot 事件（供 get_msg）
   msgSeq: Math.floor(Date.now() / 1000) % 1000000000,
-  idMap: {},          // 数字 user_id -> ClassIntra 原始 user_id（非数字 id 兜底）
   counters: { received: 0, replied: 0, failed: 0 }
 };
+
+// CI 原生 ID：self_id = 机器人 CI 账号（如 linxi_ai），user_id = CI 用户 ID 原样传递
+function ciSelfId() {
+  return (state.botCfg && state.botCfg.userId) || 'linxi_ai';
+}
 
 function log() {
   var args = Array.prototype.slice.call(arguments);
@@ -148,7 +151,11 @@ function handleCiMessage(data) {
     case 'private_message':
       if (data.from_user_id && data.message) onPrivateMessage(data.from_user_id, data.message);
       break;
+    case 'group_message':
+      if (data.group_id && data.message) onGroupMessage(data.group_id, data.message);
+      break;
     case 'private_message_sent':
+    case 'group_message_sent':
       if (data && data.success === false) log('消息发送被服务端拒绝: ' + JSON.stringify(data));
       break;
     case 'error': log('CI 服务端错误消息: ' + (data.message || '')); break;
@@ -190,46 +197,68 @@ function onPrivateMessage(fromUserId, message) {
   forwardToOneBot(fromUserId, userText, message);
 }
 
-function ciIdToNum(userId) {
-  var n = parseInt(userId, 10);
-  if (!isNaN(n) && String(n) === String(userId)) return n;
-  // 非数字 id：哈希成稳定正整数并记录映射
-  var h = crypto.createHash('md5').update(String(userId)).digest();
-  n = h.readUInt32LE(0) % 2000000000 + 1;
-  state.idMap[n] = String(userId);
-  return n;
-}
-
-function numToCiId(n) {
-  if (state.idMap[n]) return state.idMap[n];
-  return String(n);
-}
-
 function forwardToOneBot(fromUserId, userText, originalMessage) {
   var msgId = ++state.msgSeq;
   var nickname = (originalMessage && (originalMessage.sender_name || originalMessage.net_name)) || fromUserId;
   var event = {
     time: Math.floor(Date.now() / 1000),
-    self_id: CFG.selfId,
+    self_id: ciSelfId(),
     post_type: 'message',
     message_type: 'private',
     sub_type: 'friend',
     message_id: msgId,
-    user_id: ciIdToNum(fromUserId),
+    user_id: fromUserId,
     message: [{ type: 'text', data: { text: userText } }],
     raw_message: userText,
     font: 0,
-    sender: { user_id: ciIdToNum(fromUserId), nickname: String(nickname), sex: 'unknown', age: 0 }
+    sender: { user_id: fromUserId, nickname: String(nickname), sex: 'unknown', age: 0 }
   };
-  state.msgCache[msgId] = event;
+  cacheAndSendEvent(event, 'user=' + fromUserId);
+}
+
+// CI 群消息 → OneBot 群事件（群 ID / 用户 ID 均为 CI 原生值）
+function onGroupMessage(groupId, message) {
+  if (!obReady()) return;
+  if (message.sender_id === state.botCfg.userId) return;
+  var msgType = message.type || 'text';
+  var text;
+  if (msgType === 'text') text = message.content || '';
+  else if (msgType === 'ai_forward') {
+    try { text = JSON.parse(message.content).content || ''; } catch (e) { text = ''; }
+  } else {
+    return; // 群里非文本消息静默忽略，避免刷屏
+  }
+  if (!text.trim()) return;
+
+  state.counters.received++;
+  var msgId = ++state.msgSeq;
+  var event = {
+    time: Math.floor(Date.now() / 1000),
+    self_id: ciSelfId(),
+    post_type: 'message',
+    message_type: 'group',
+    sub_type: 'normal',
+    message_id: msgId,
+    group_id: groupId,
+    user_id: message.sender_id,
+    message: [{ type: 'text', data: { text: text } }],
+    raw_message: text,
+    font: 0,
+    sender: { user_id: message.sender_id, nickname: String(message.sender_name || message.sender_id), card: String(message.sender_name || ''), role: 'member' }
+  };
+  cacheAndSendEvent(event, 'group=' + groupId + ' user=' + message.sender_id);
+}
+
+function cacheAndSendEvent(event, tag) {
+  state.msgCache[event.message_id] = event;
   var keys = Object.keys(state.msgCache);
   if (keys.length > 200) delete state.msgCache[keys[0]];
   try {
     state.obWs.send(JSON.stringify(event));
-    log('已上报私聊事件 user=' + fromUserId + ' text=' + userText.slice(0, 40));
+    log('已上报事件 ' + tag + ' text=' + event.raw_message.slice(0, 40));
   } catch (e) {
     log('上报 OneBot 失败:', e.message);
-    sendFallback(fromUserId);
+    sendFallback(event.sender && event.sender.user_id);
   }
 }
 
@@ -243,7 +272,7 @@ function obConnect() {
   log('连接 AstrBot OneBot 反向 WS:', CFG.obUrl);
   var ws = new WebSocket(CFG.obUrl, {
     headers: (function () {
-      var h = { 'X-Client-Role': 'universal', 'X-Self-ID': String(CFG.selfId) };
+      var h = { 'X-Client-Role': 'universal', 'X-Self-ID': ciSelfId() };
       if (CFG.obToken) h.Authorization = 'Bearer ' + CFG.obToken;
       return h;
     })()
@@ -305,8 +334,7 @@ function handleObAction(req) {
         handleSendPrivate(p, echo);
         return;
       case 'send_group_msg':
-        log('忽略群消息发送（CI 无群聊对接）');
-        obReply(echo, { message_id: 0 });
+        handleSendGroup(p, echo);
         return;
       case 'send_private_forward_msg':
       case 'send_group_forward_msg':
@@ -316,7 +344,7 @@ function handleObAction(req) {
         obReply(echo, state.msgCache[p.message_id] || null);
         return;
       case 'get_login_info':
-        obReply(echo, { user_id: CFG.selfId, nickname: (state.botCfg && state.botCfg.netName) || '林晞' });
+        obReply(echo, { user_id: ciSelfId(), nickname: (state.botCfg && state.botCfg.netName) || '林晞' });
         return;
       case 'get_stranger_info':
         obReply(echo, { user_id: p.user_id, nickname: 'user_' + p.user_id, sex: 'unknown', age: 0 });
@@ -445,17 +473,24 @@ function mkdirp(dir) {
 }
 
 function handleSendPrivate(p, echo) {
-  var numId = p.user_id;
-  var userId = numToCiId(numId);
+  var userId = p.user_id != null ? String(p.user_id) : '';
   var texts = segmentsToTexts(p.message);
-  if (!texts.length) { obReply(echo, { message_id: 0 }); return; }
+  if (!userId || !texts.length) { obReply(echo, { message_id: 0 }); return; }
   obReply(echo, { message_id: ++state.msgSeq, reserver: null });
-  deliverTexts(userId, texts);
+  deliverTexts(userId, texts, 'private');
+}
+
+function handleSendGroup(p, echo) {
+  var groupId = p.group_id != null ? String(p.group_id) : '';
+  var texts = segmentsToTexts(p.message);
+  if (!groupId || !texts.length) { obReply(echo, { message_id: 0 }); return; }
+  obReply(echo, { message_id: ++state.msgSeq, reserver: null });
+  deliverTexts(groupId, texts, 'group');
 }
 
 function handleForwardMsg(p, echo) {
-  var numId = p.user_id || p.group_id;
-  var userId = numToCiId(numId);
+  var target = (p.user_id || p.group_id) != null ? String(p.user_id || p.group_id) : '';
+  var isGroup = p.user_id == null && p.group_id != null;
   var nodes = (p.params && p.params.messages) || p.messages || p.nodes || [];
   var texts = [];
   for (var i = 0; i < nodes.length; i++) {
@@ -463,26 +498,28 @@ function handleForwardMsg(p, echo) {
     if (content) texts = texts.concat(segmentsToTexts(content));
   }
   obReply(echo, { message_id: ++state.msgSeq, reserver: null });
-  if (texts.length) deliverTexts(userId, texts);
+  if (target && texts.length) deliverTexts(target, texts, isGroup ? 'group' : 'private');
 }
 
 // ===== 回复发送（ClassIntra 侧）=====
 
-function deliverTexts(userId, texts) {
+function deliverTexts(targetId, texts, channel) {
   // 合并超出上限的段，避免触发发送限流
   if (texts.length > CFG.maxSegments) {
     texts = texts.slice(0, CFG.maxSegments - 1).concat([texts.slice(CFG.maxSegments - 1).join('')]);
   }
-  sendSegmented(userId, texts, 0);
+  sendSegmented(targetId, texts, 0, channel || 'private');
 }
 
-function sendSegmented(userId, texts, idx) {
+function sendSegmented(targetId, texts, idx, channel) {
   if (idx >= texts.length) { state.counters.replied++; return; }
-  var ok = sendPrivate(userId, texts[idx]);
+  var ok = channel === 'group'
+    ? sendGroupMessage(targetId, texts[idx])
+    : sendPrivate(targetId, texts[idx]);
   if (!ok) { state.counters.failed++; return; }
   if (idx < texts.length - 1) {
     var delay = 300 + Math.floor(Math.random() * 500);
-    setTimeout(function () { sendSegmented(userId, texts, idx + 1); }, delay);
+    setTimeout(function () { sendSegmented(targetId, texts, idx + 1, channel); }, delay);
   } else {
     state.counters.replied++;
   }
@@ -497,6 +534,22 @@ function sendPrivate(targetUserId, content) {
   state.ws.send(JSON.stringify({
     type: 'private_message',
     target_user_id: targetUserId,
+    content: content,
+    msg_type: 'text',
+    temp_id: tempId
+  }));
+  return true;
+}
+
+function sendGroupMessage(groupId, content) {
+  if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+    log('CI WS 未连接，无法发送到群 ' + groupId);
+    return false;
+  }
+  var tempId = Date.now().toString() + '_' + crypto.randomBytes(3).toString('hex');
+  state.ws.send(JSON.stringify({
+    type: 'group_message',
+    group_id: groupId,
     content: content,
     msg_type: 'text',
     temp_id: tempId
@@ -529,7 +582,7 @@ function start() {
 function getStatus() {
   return {
     connected: state.connected,
-    onebot: { connected: state.obConnected, url: CFG.obUrl, selfId: CFG.selfId },
+    onebot: { connected: state.obConnected, url: CFG.obUrl, selfId: ciSelfId() },
     bot: state.botCfg ? state.botCfg.userId : null,
     netName: state.botCfg ? state.botCfg.netName : null,
     asyncEnabled: false,
