@@ -1,19 +1,78 @@
 # AstrBot Relay — 将 AstrBot 机器人接入 ClassIntra 私聊
 
 机器人（如"林晞"）以**独立真实账号**登录 ClassIntra 的 WebSocket 聊天服务，
-用户私聊机器人后，插件调用 **AstrBot v4.27+ 内置 OpenAPI**（与 WebUI 同端口），
-走完整管线（人设 / 工具调用 / 会话记忆 / 指令系统），再把回复以机器人身份
-按句子分段发回 ClassIntra。
+用户私聊机器人后，插件作为 **OneBot v11 客户端**连入本机 AstrBot 的
+aiocqhttp 反向 WS（6199），走完整管线（人设 / 插件 / 记忆 / 指令系统），
+回复的消息段（文本/图片/语音/视频/文件/音乐）落地为站内资源后发回 ClassIntra。
 
 当前部署为**本机同机运行**，无 SSH / Tunnels / 外网依赖：
 
 ```
 用户私聊"林晞"
   → ClassIntra WS (10001) → 本插件（机器人账号在线）
-  → POST http://127.0.0.1:6185/api/v1/chat（AstrBot 内置 OpenAPI，SSE）
-  ← SSE 事件：session_id → run_started → plain(正文) → complete → end
-  ← 本插件按句末标点分段，以林晞身份发出
+  → OneBot v11 反向 WS（ws://127.0.0.1:6199/ws，X-Client-Role: universal）
+  → AstrBot 管线：parser(B站解析) / music(点歌) / meme_manager(表情包) / LLM…
+  ← AstrBot 下发 send_private_msg（消息段数组）
+  ← base64:// 与 file:// 媒体段 → 复制到 Resources/astrbot/remote/ → 站内 URL
+  ← 按句末标点分段，以林晞身份发出
 ```
+
+## 安装
+
+1. 本目录位于 ClassIntra 仓库 `plugins/astrbot-relay`（聚合器自动扫描挂载）。
+2. 在 `server/.env` 中追加：
+
+```dotenv
+# ===== AstrBot 接入（OneBot v11）=====
+BOT_USER_ID=linxi_ai          # 机器人账号（自动创建）
+BOT_NET_NAME=林晞
+BOT_REAL_NAME=林晞
+BOT_PASSWORD=改成强密码        # 必填（同时用于自动建号与 WS 登录）
+BOT_GENDER=女
+
+ASTRBOT_WS_URL=ws://127.0.0.1:6199/ws   # AstrBot aiocqhttp 反向 WS
+ASTRBOT_WS_TOKEN=                        # 反向 WS 令牌（与适配器配置一致）
+AB_MAX_SEGMENTS=3             # 单次回复最多分段数（避免触发发送限流）
+# AB_ALLOWED_USERS=250800     # 留空=所有人可用
+```
+
+3. AstrBot 侧：WebUI → 机器人 → 新增 `aiocqhttp` 适配器
+   （ws_reverse_host=127.0.0.1，ws_reverse_port=6199）。
+4. 重启 ClassIntra 后端。启动时插件自动：
+   - 在 users 表创建机器人账号（幂等）；
+   - 登录 CI WS 并保持长连接（断线指数退避重连）；
+   - 连入 OneBot 反向 WS（需要 `X-Client-Role: universal` + `X-Self-ID` 头）。
+
+## 消息段映射
+
+| OneBot 段 | ClassIntra 呈现 |
+| --- | --- |
+| text | 文本（按句末标点分段，300-800ms 间隔模拟真人连发，默认上限 3 段） |
+| image / record / video（base64:// 或 file://） | 落盘 `Resources/astrbot/remote/`，以 `/resources/...__image/__audio/__video` 站内 URL 发送 |
+| file（file:// URI） | 同上落盘发送 |
+| music(custom) | `🎵 标题 链接` 文本 |
+| at | `@昵称` 文本 |
+| nodes(合并转发) | 展平为多条文本/媒体 |
+| json/xml 卡片 | 提取标题与跳转链接 |
+
+## 支持的 OneBot action
+
+send_private_msg / send_msg / send_group_msg(忽略) / send_private_forward_msg /
+get_msg(内存缓存回放) / get_login_info / get_stranger_info / get_friend_list /
+get_version_info / get_image / get_record / can_send_* / delete_msg / .handle_quick_operation
+——未识别的 action 一律返回 ok 空数据，保证管线不中断。
+
+## 验证
+
+- `curl http://localhost:9001/api/astrbot/status` → `"onebot": {"connected": true}`
+- 用另一个账号私聊"林晞"：发 B站链接 → parser 自动回视频；`点歌 歌名` → music 回歌曲。
+
+## 故障排查
+
+- `onebot.connected: false`：AstrBot 未启动（`start-astrbot.cmd`）或 6199 未监听；
+  握手需带 `X-Client-Role` 与 `X-Self-ID` 头，缺一即 400。
+- 媒体显示"资源加载失败"：file:// 指向的文件不存在或已清理。
+- LLM 相关回复报 402：聊天模型 Key 余额不足（parser/music 等插件不依赖 LLM，不受影响）。
 
 ## 安装
 
