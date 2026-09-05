@@ -33,7 +33,9 @@ var CFG = {
   httpPort: parseInt(process.env.PORT, 10) || 3000,
   wsPort: parseInt(process.env.WS_PORT, 10) || 10001,
   resourceDir: process.env.AB_RESOURCE_DIR || path.join(process.cwd(), 'Resources', 'astrbot'),
-  resourceMaxAgeMs: 24 * 3600 * 1000
+  resourceMaxAgeMs: 24 * 3600 * 1000,
+  // AstrBot 本机数据目录，用于直读附件（同机零外网）
+  astrbotDataDir: process.env.ASTRBOT_DATA_DIR || 'D:/NetWork/Integration/AstrBot/data'
 };
 
 // ===== 运行状态 =====
@@ -292,6 +294,7 @@ function callAstrBot(payload) {
     });
     var reply = '';
     var lastPlain = '';
+    var media = [];   // {type, filename} 来自 image/record/file/video 事件
     for (var i = 0; i < events.length; i++) {
       var ev = events[i] || {};
       if (ev.type === 'plain' && typeof ev.data === 'string') {
@@ -302,11 +305,60 @@ function callAstrBot(payload) {
           lastPlain = chunk;
         }
       }
+      if ((ev.type === 'image' || ev.type === 'record' || ev.type === 'file' || ev.type === 'video')
+          && typeof ev.data === 'string') {
+        var fname = ev.data.replace(/^\[(IMAGE|RECORD|FILE|VIDEO)\]/, '').split('|')[0];
+        if (fname && media.indexOf(fname) === -1) media.push({ type: ev.type, filename: fname });
+      }
       if (ev.type === 'error') throw new Error(typeof ev.data === 'string' ? ev.data : 'AstrBot API 返回错误');
     }
-    var chain = reply ? [{ type: 'plain', text: reply }] : [];
+    // 媒体文件复制到 CI 本地 Resources（同机直读 AstrBot attachments 目录，零外网依赖）
+    var chain = [];
+    if (reply) chain.push({ type: 'plain', text: reply });
+    for (var m = 0; m < media.length; m++) chain.push(localizeMedia(media[m]));
     return { mode: 'sync', status: 'success', reply: reply, message_chain: chain, resources: [], session_id: body.session_id };
   });
+}
+
+// 把 AstrBot 生成的媒体文件复制进 ClassIntra Resources，返回站内 URL 段
+function localizeMedia(item) {
+  var extMap = { image: '__image', record: '__audio', video: '__video', file: '' };
+  try {
+    var src = path.join(CFG.astrbotDataDir, 'attachments', item.filename);
+    if (!fs.existsSync(src)) src = path.join(CFG.astrbotDataDir, 'webchat', 'imgs', item.filename);
+    if (!fs.existsSync(src)) return { type: 'plain', text: '（' + item.type + ' 资源缺失）' };
+    var token = Date.now().toString(36) + Math.random().toString(36).slice(2, 10) + path.extname(item.filename);
+    mkdirp(CFG.resourceDir + '/remote');
+    fs.copyFileSync(src, path.join(CFG.resourceDir, 'remote', token));
+    return { type: 'plain', text: '/resources/astrbot/remote/' + token + extMap[item.type] };
+  } catch (e) {
+    log('媒体本地化失败:', item.filename, e.message);
+    return { type: 'plain', text: '（' + item.type + ' 资源加载失败）' };
+  }
+}
+
+function mkdirp(dir) {
+  var parts = path.resolve(dir).split(path.sep);
+  var cur = parts[0];
+  for (var i = 1; i < parts.length; i++) {
+    cur = path.join(cur, parts[i]);
+    if (!fs.existsSync(cur)) fs.mkdirSync(cur);
+  }
+}
+
+// &&表情名&& → 本地表情包图片（Resources/astrbot/emoji/<名>.<ext>）
+function mapEmojiTags(text) {
+  return text.split('\n').map(function (line) {
+    var m = line.trim().match(/^&&([^&\s]+)&&$/);
+    if (!m) return line;
+    var tag = m[1];
+    var exts = ['.gif', '.png', '.jpg', '.jpeg', '.webp'];
+    for (var i = 0; i < exts.length; i++) {
+      var p = path.join(CFG.resourceDir, 'emoji', tag + exts[i]);
+      if (fs.existsSync(p)) return '/resources/astrbot/emoji/' + tag + exts[i] + '__image';
+    }
+    return line; // 没有对应图片时保留原文本
+  }).join('\n');
 }
 
 function sendFallback(userId, result) {
@@ -382,8 +434,9 @@ function sendRichMessage(userId, result) {
   var rawTexts = segmentsToTexts(result);
   var texts = [];
   for (var ti = 0; ti < rawTexts.length; ti++) {
-    // &&……&& 是 AstrBot/QQ 表情包标记，必须保留；仅按换行和句末标点分段。
+    // &&……&& 是 AstrBot/QQ 表情包标记；本地映射表情图后独占一行
     var normalized = String(rawTexts[ti] || '').trim();
+    normalized = mapEmojiTags(normalized);
     if (!normalized) continue;
     // 按中文/英文句末标点分段，保留标点；没有标点的短文本保持单段。
     var parts = normalized.match(/[^。！？!?；;\\n]+[。！？!?；;]*/g) || [normalized];
