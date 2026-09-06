@@ -49,6 +49,8 @@ var state = {
   heartbeatTimer: null,
   refReplyTo: null,
   pendingMedia: [],
+  pendingRecall: {},   // temp_id -> { obId, channel, target, groupId }
+  sentCiByOb: {},      // OneBot message_id -> [{channel,target,ciId,groupId}]（撤回用）
   counters: { received: 0, replied: 0, failed: 0 }
 };
 
@@ -93,9 +95,19 @@ function cloudTagToSegment(kind, ident) {
 }
 
 // 用户消息文本 → OneBot 段数组（云盘标签转图片/语音/视频/文件段）
-function buildInboundSegments(text) {
+function buildInboundSegments(text, replyTo) {
+  var segments = [];
+  // 引用消息 → OneBot Reply 段（AstrBot 会经 get_msg 取到被引用原文，作为 LLM 上下文）
+  if (replyTo && replyTo.message_id != null) {
+    var obId = state.ciToOb[String(replyTo.message_id)];
+    if (obId) {
+      segments.push({ type: 'reply', data: { id: obId } });
+    } else if (replyTo.content_preview) {
+      segments.push({ type: 'text', data: { text: '（回复 ' + (replyTo.user_name || '') + '：' + replyTo.content_preview + '）' } });
+    }
+  }
   CLOUD_TAG_RE.lastIndex = 0;
-  var segments = [], last = 0, m, found = false;
+  var last = 0, m, found = false;
   while ((m = CLOUD_TAG_RE.exec(text)) !== null) {
     found = true;
     if (m.index > last) segments.push({ type: 'text', data: { text: text.slice(last, m.index) } });
@@ -216,7 +228,19 @@ function handleCiMessage(data) {
       break;
     case 'private_message_sent':
     case 'group_message_sent':
-      if (data && data.success === false) log('消息发送被服务端拒绝: ' + JSON.stringify(data));
+      if (data && data.success === false) {
+        log('消息发送被服务端拒绝: ' + JSON.stringify(data));
+      } else if (data && data.temp_id && state.pendingRecall[data.temp_id]) {
+        var rec = state.pendingRecall[data.temp_id];
+        delete state.pendingRecall[data.temp_id];
+        rec.ciId = String(data.message_id || '');
+        if (rec.ciId) {
+          if (!state.sentCiByOb[rec.obId]) state.sentCiByOb[rec.obId] = [];
+          state.sentCiByOb[rec.obId].push(rec);
+          var sk = Object.keys(state.sentCiByOb);
+          if (sk.length > 300) delete state.sentCiByOb[sk[0]];
+        }
+      }
       break;
     case 'message_recalled':
       forwardRecallNotice(data);
@@ -246,6 +270,33 @@ function forwardRecallNotice(data) {
 
 // ===== CI 入站 → OneBot 事件上报 =====
 
+// 入站引用对象（{message_id(CI), user_name, content_preview}）→ Reply 段
+// 通过 ciToOb 把被引用的 CI 消息映射回 OneBot message_id，AstrBot 引用解析器
+// 会再调 get_msg 取原文（msgCache 有缓存）
+function inboundReplySegment(message) {
+  try {
+    var rt = message && message.reply_to;
+    if (!rt) return null;
+    var ciId = typeof rt === 'object' ? rt.message_id : rt;
+    if (ciId == null) return null;
+    var obId = state.ciToOb[String(ciId)];
+    if (!obId) return null;
+    return { type: 'reply', data: { id: obId } };
+  } catch (e) { return null; }
+}
+
+// 特殊类型消息 → 可读文本（music_playlist / community_forward 等）
+function extractSpecialText(msgType, content) {
+  try {
+    var d = JSON.parse(content);
+    if (msgType === 'music_playlist') return '🎵 分享了歌单：' + (d.title || d.name || '');
+    if (msgType === 'community_forward') return '📮 分享了社区帖子：' + (d.title || '');
+    if (d && d.content) return String(d.content);
+    if (d && d.title) return String(d.title);
+  } catch (e) {}
+  return content || '';
+}
+
 function onPrivateMessage(fromUserId, message) {
   if (fromUserId === state.botCfg.userId || message.sender_id === state.botCfg.userId) return;
   if (!obReady()) {
@@ -261,8 +312,10 @@ function onPrivateMessage(fromUserId, message) {
     userText = content;
   } else if (msgType === 'ai_forward') {
     try { userText = JSON.parse(content).content || ''; } catch (e) { userText = ''; }
+  } else if (msgType === 'music_playlist' || msgType === 'community_forward') {
+    userText = extractSpecialText(msgType, content);
   } else {
-    sendPrivate(fromUserId, '暂不支持这种消息类型，发文字给我吧～');
+    sendPrivate(fromUserId, '这种类型我收不到啦，截图发文字给我吧～');
     return;
   }
   if (!userText || !userText.trim()) {
@@ -289,11 +342,13 @@ function forwardToOneBot(fromUserId, userText, originalMessage) {
     sub_type: 'friend',
     message_id: msgId,
     user_id: fromUserId,
-    message: buildInboundSegments(userText),
+    message: buildInboundSegments(userText, originalMessage && originalMessage.reply_to),
     raw_message: userText,
     font: 0,
     sender: { user_id: fromUserId, nickname: String(nickname), sex: 'unknown', age: 0 }
   };
+  var replySeg = inboundReplySegment(originalMessage);
+  if (replySeg) event.message.unshift(replySeg);
   if (originalMessage && originalMessage.id != null) {
     state.ciToOb[String(originalMessage.id)] = msgId;
     state.obToCi[msgId] = String(originalMessage.id);
@@ -328,11 +383,13 @@ function onGroupMessage(groupId, message) {
     message_id: msgId,
     group_id: groupId,
     user_id: message.sender_id,
-    message: buildInboundSegments(text),
+    message: buildInboundSegments(text, message && message.reply_to),
     raw_message: text,
     font: 0,
     sender: { user_id: message.sender_id, nickname: String(message.sender_name || message.sender_id), card: String(message.sender_name || ''), role: 'member' }
   };
+  var replySegG = inboundReplySegment(message);
+  if (replySegG) event.message.unshift(replySegG);
   if (message.id != null) {
     state.ciToOb[String(message.id)] = msgId;
     state.obToCi[msgId] = String(message.id);
@@ -501,6 +558,7 @@ async function handleObAction(req) {
         obReply(echo, {});
         return;
       case 'delete_msg':
+        recallCiMessages(p.message_id);
         obReply(echo, {});
         return;
       case 'set_friend_add_request':
@@ -544,6 +602,22 @@ async function handleObAction(req) {
     log('处理 OneBot action 异常:', action, e.message);
     obReply(echo, null, 1200);
   }
+}
+
+// 机器人自撤回：delete_msg(message_id=出站时返回的 OneBot id) → 撤回对应 CI 消息
+function recallCiMessages(obId) {
+  var list = state.sentCiByOb[String(obId)] || [];
+  if (!list.length) { log('撤回请求无对应已发送消息:', obId); return; }
+  for (var i = 0; i < list.length; i++) {
+    var rec = list[i];
+    try {
+      var payload = { type: 'recall_message', message_type: rec.channel, message_id: rec.ciId };
+      if (rec.channel === 'group') payload.group_id = rec.groupId;
+      state.ws.send(JSON.stringify(payload));
+    } catch (e) {}
+  }
+  log('已撤回 bot 消息 ob=' + obId + ' 共 ' + list.length + ' 条');
+  delete state.sentCiByOb[String(obId)];
 }
 
 // ===== CI 数据库支撑的群/用户信息查询（QQ 协议面）=====
@@ -616,7 +690,8 @@ async function segmentsToTexts(segments) {
       texts.push('🎵 ' + (d.title || '音乐分享') + (d.audio ? '' : (d.url ? ' ' + d.url : '')));
       if (d.audio && d.audio.indexOf('http') === 0) state.pendingMedia.push({ segType: 'record', url: d.audio });
     } else if (type === 'at') {
-      texts.push('@' + (d.qq || ''));
+      var nick = d.qq != null ? obStrangerInfo(d.qq).nickname : '';
+      texts.push('@' + (nick || d.qq || ''));
     } else if (type === 'reply') {
       // 引用段：转成 CI 原生 reply_to 对象（前端渲染引用气泡），不占文本
       var orig = state.msgCache[d.id];
@@ -782,18 +857,21 @@ async function handleSendPrivate(p, echo) {
   log('出站 send_private user=' + userId + ' 段=[' + segTypes + ']');
   var texts = await segmentsToTexts(p.message);
   if (!userId || !texts.length) { obReply(echo, { message_id: 0 }); return; }
-  obReply(echo, { message_id: ++state.msgSeq, reserver: null });
-  deliverTexts(userId, texts, 'private', state.refReplyTo);
+  var obId = ++state.msgSeq;
+  obReply(echo, { message_id: obId, reserver: null });
+  deliverTexts(userId, texts, 'private', state.refReplyTo, obId);
   flushPendingMedia(userId, 'private');
 }
 
 async function handleSendGroup(p, echo) {
   var groupId = p.group_id != null ? String(p.group_id) : '';
+  log('出站 send_group group=' + groupId);
   var texts = await segmentsToTexts(p.message);
   if (!groupId || !texts.length) { obReply(echo, { message_id: 0 }); return; }
-  obReply(echo, { message_id: ++state.msgSeq, reserver: null });
-  deliverTexts(groupId, texts, 'group', state.refReplyTo);
-  flushPendingMedia(groupId, 'group');
+  var obIdG = ++state.msgSeq;
+  obReply(echo, { message_id: obIdG, reserver: null });
+  deliverTexts(groupId, texts, 'group', state.refReplyTo, obIdG);
+  flushPendingMedia(groupId, 'group', obIdG);
 }
 
 async function handleForwardMsg(p, echo) {
@@ -829,35 +907,38 @@ function flushPendingMedia(targetId, channel) {
 
 // ===== 回复发送（ClassIntra 侧）=====
 
-function deliverTexts(targetId, texts, channel, replyToCiId) {
+function deliverTexts(targetId, texts, channel, replyToCiId, obId, groupId) {
   // 合并超出上限的段，避免触发发送限流
   if (texts.length > CFG.maxSegments) {
     texts = texts.slice(0, CFG.maxSegments - 1).concat([texts.slice(CFG.maxSegments - 1).join('')]);
   }
-  sendSegmented(targetId, texts, 0, channel || 'private', replyToCiId || null);
+  sendSegmented(targetId, texts, 0, channel || 'private', replyToCiId || null, obId || null, groupId || null);
 }
 
-function sendSegmented(targetId, texts, idx, channel, replyToCiId) {
+function sendSegmented(targetId, texts, idx, channel, replyToCiId, obId, groupId) {
   if (idx >= texts.length) { state.counters.replied++; return; }
-  // CI 原生引用：只挂在第一段上
+  // CI 原生引用：只挂在第一段上；temp_id 关联 obId 供撤回
+  var tempId = obId ? 'ob' + obId + '_' + idx + '_' + crypto.randomBytes(2).toString('hex') : null;
+  if (tempId && channel === 'group') state.pendingRecall[tempId] = { obId: obId, channel: 'group', target: targetId, groupId: groupId };
+  else if (tempId) state.pendingRecall[tempId] = { obId: obId, channel: 'private', target: targetId };
   var ok = channel === 'group'
-    ? sendGroupMessage(targetId, texts[idx], idx === 0 ? replyToCiId : null)
-    : sendPrivate(targetId, texts[idx], idx === 0 ? replyToCiId : null);
+    ? sendGroupMessage(targetId, texts[idx], idx === 0 ? replyToCiId : null, tempId)
+    : sendPrivate(targetId, texts[idx], idx === 0 ? replyToCiId : null, tempId);
   if (!ok) { state.counters.failed++; return; }
   if (idx < texts.length - 1) {
     var delay = 300 + Math.floor(Math.random() * 500);
-    setTimeout(function () { sendSegmented(targetId, texts, idx + 1, channel); }, delay);
+    setTimeout(function () { sendSegmented(targetId, texts, idx + 1, channel, replyToCiId, obId, groupId); }, delay);
   } else {
     state.counters.replied++;
   }
 }
 
-function sendPrivate(targetUserId, content, replyToCiId) {
+function sendPrivate(targetUserId, content, replyToCiId, tempId) {
   if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
     log('CI WS 未连接，无法发送给 ' + targetUserId);
     return false;
   }
-  var tempId = Date.now().toString() + '_' + crypto.randomBytes(3).toString('hex');
+  tempId = tempId || Date.now().toString() + '_' + crypto.randomBytes(3).toString('hex');
   var payload = {
     type: 'private_message',
     target_user_id: targetUserId,
@@ -870,12 +951,12 @@ function sendPrivate(targetUserId, content, replyToCiId) {
   return true;
 }
 
-function sendGroupMessage(groupId, content, replyToCiId) {
+function sendGroupMessage(groupId, content, replyToCiId, tempId) {
   if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
     log('CI WS 未连接，无法发送到群 ' + groupId);
     return false;
   }
-  var tempId = Date.now().toString() + '_' + crypto.randomBytes(3).toString('hex');
+  tempId = tempId || Date.now().toString() + '_' + crypto.randomBytes(3).toString('hex');
   var payload = {
     type: 'group_message',
     group_id: groupId,
