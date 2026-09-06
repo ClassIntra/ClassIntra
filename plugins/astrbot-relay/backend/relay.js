@@ -680,7 +680,8 @@ function localizeMediaFile(segType, fileVal) {
       return '';
     }
     if (!buf && !srcPath) return '';
-    var kindMark = segType === 'image' ? '__image' : segType === 'record' ? '__audio' : segType === 'video' ? '__video' : '';
+    // 注意：URL 不带 __image 等标记后缀——express.static 找不到带后缀的文件名，
+    // 前端 detectMediaType 依赖扩展名识别类型
     if (!ext || ext === '.bin') ext = segType === 'image' ? '.png' : segType === 'record' ? '.mp3' : '.mp4';
     var token = Date.now().toString(36) + crypto.randomBytes(4).toString('hex') + ext;
     var dest = path.join(CFG.resourceDir, 'remote', token);
@@ -692,7 +693,7 @@ function localizeMediaFile(segType, fileVal) {
     } else {
       fs.writeFileSync(dest, buf);
     }
-    return '/resources/astrbot/remote/' + token + kindMark;
+    return '/resources/astrbot/remote/' + token;
   } catch (e) {
     log('媒体本地化异常:', e.message);
     return '';
@@ -726,12 +727,11 @@ async function downloadToLocal(segType, url) {
     var ct = String(resp.headers['content-type'] || '');
     var ext = path.extname(new URL(url).pathname) || '';
     if (!ext || ext.length > 6) ext = ct.indexOf('audio') === 0 ? '.mp3' : ct.indexOf('video') === 0 ? '.mp4' : ct.indexOf('image') === 0 ? '.jpg' : '.bin';
-    var kindMark = segType === 'image' ? '__image' : segType === 'record' ? '__audio' : segType === 'video' ? '__video' : '';
     var token = Date.now().toString(36) + crypto.randomBytes(4).toString('hex') + ext;
     var dest = path.join(CFG.resourceDir, 'remote', token);
     mkdirp(path.dirname(dest));
     fs.writeFileSync(dest, buf);
-    return '/resources/astrbot/remote/' + token + kindMark;
+    return '/resources/astrbot/remote/' + token;
   } catch (e) {
     log('http 媒体下载失败:', url.slice(0, 60), e.message);
     return '';
@@ -759,7 +759,7 @@ function mapEmojiTags(text) {
       var dest = path.join(CFG.resourceDir, 'remote', token);
       mkdirp(path.dirname(dest));
       try { fs.linkSync(src, dest); } catch (e) { fs.copyFileSync(src, dest); }
-      return '/resources/astrbot/remote/' + token + '__image';
+      return '/resources/astrbot/remote/' + token;
     } catch (e) {
       log('表情兜底映射失败:', tag, e.message);
       return line;
