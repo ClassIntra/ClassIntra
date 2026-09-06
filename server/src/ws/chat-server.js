@@ -1664,11 +1664,7 @@ function handleGroupMessage(ws, data) {
     return;
   }
 
-  if (!canUserSeeGroup(userId, groupId)) {
-    ws.send(JSON.stringify({ type: 'error', message: '无权访问该群组' }));
-    return;
-  }
-
+  // 成员身份即发送授权（机器人等特殊账号可能不满足班级可见性规则，但身为成员可发言）
   var members = parseMembersJson(group.members_json);
   if (members.indexOf(userId) === -1) {
     ws.send(JSON.stringify({ type: 'error', message: '你不是该群组成员' }));
