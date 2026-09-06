@@ -28,7 +28,10 @@ var CFG = {
   obUrl: process.env.ASTRBOT_WS_URL || 'ws://127.0.0.1:6199/ws',
   obToken: process.env.ASTRBOT_WS_TOKEN || '',
   maxSegments: parseInt(process.env.AB_MAX_SEGMENTS, 10) || 3,
-  resourceDir: process.env.AB_RESOURCE_DIR || path.join(process.cwd(), 'Resources', 'astrbot')
+  resourceDir: process.env.AB_RESOURCE_DIR || path.join(process.cwd(), 'Resources', 'astrbot'),
+  // &&标签&& 兜底映射源：meme_manager 表情包分类目录
+  packMemesDir: process.env.ASTRBOT_PACK_MEMES_DIR || 'D:/NetWork/Integration/AstrBot/data/plugin_data/meme_manager/packs/ddzs987-semantic-001/memes',
+  maxDownloadBytes: (parseInt(process.env.AB_MAX_DOWNLOAD_MB, 10) || 200) * 1024 * 1024
 };
 
 // ===== 运行状态 =====
@@ -373,7 +376,7 @@ function obConnect() {
   ws.on('message', function (raw) {
     var data;
     try { data = JSON.parse(raw); } catch (e) { return; }
-    if (data.action) handleObAction(data);
+    if (data.action) handleObAction(data).catch(function (e) { log('action 处理异常:', e.message); });
   });
 
   ws.on('error', function (err) { log('OneBot WS 错误:', err.message); });
@@ -425,7 +428,7 @@ function obReply(echo, data, retcode) {
   } catch (e) {}
 }
 
-function handleObAction(req) {
+async function handleObAction(req) {
   var action = req.action || '';
   var p = req.params || {};
   var echo = req.echo;
@@ -434,14 +437,14 @@ function handleObAction(req) {
     switch (action) {
       case 'send_private_msg':
       case 'send_msg':
-        handleSendPrivate(p, echo);
+        await handleSendPrivate(p, echo);
         return;
       case 'send_group_msg':
-        handleSendGroup(p, echo);
+        await handleSendGroup(p, echo);
         return;
       case 'send_private_forward_msg':
       case 'send_group_forward_msg':
-        handleForwardMsg(p, echo);
+        await handleForwardMsg(p, echo);
         return;
       case 'get_msg':
         obReply(echo, state.msgCache[p.message_id] || null);
@@ -576,11 +579,11 @@ function obGroupMemberInfo(groupId, userId) {
   return { user_id: String(userId), nickname: 'user_' + userId, card: '', role: 'member' };
 }
 
-// 段数组 → CI 文本/媒体 URL 列表
-function segmentsToTexts(segments) {
+// 段数组 → CI 文本/媒体 URL 列表（异步：http 媒体需下载落地）
+async function segmentsToTexts(segments) {
   var texts = [];
   if (typeof segments === 'string') {
-    texts.push(segments);
+    texts.push(mapEmojiTags(segments));
     return texts;
   }
   if (!Array.isArray(segments)) segments = [segments];
@@ -589,13 +592,20 @@ function segmentsToTexts(segments) {
     var type = seg.type || '';
     var d = seg.data || {};
     if (type === 'text') {
-      if (d.text) texts.push(String(d.text));
+      if (d.text) texts.push(mapEmojiTags(String(d.text)));
     } else if (type === 'image' || type === 'record' || type === 'video' || type === 'file') {
-      var url = localizeMediaFile(type, d.file || '');
+      var url = await localizeMediaFile(type, d.file || '');
       if (url) texts.push(url);
       else texts.push('（' + type + ' 资源加载失败）');
     } else if (type === 'music') {
-      texts.push('🎵 ' + (d.title || '音乐分享') + (d.url ? ' ' + d.url : ''));
+      // 音乐卡片：音频能落地就原生播放，否则退化为文本链接
+      var audioUrl = d.audio && d.audio.indexOf('http') === 0 ? await downloadToLocal('record', d.audio) : '';
+      if (audioUrl) {
+        texts.push('🎵 ' + (d.title || '音乐分享'));
+        texts.push(audioUrl);
+      } else {
+        texts.push('🎵 ' + (d.title || '音乐分享') + (d.url ? ' ' + d.url : ''));
+      }
     } else if (type === 'at') {
       texts.push('@' + (d.qq || ''));
     } else if (type === 'reply') {
@@ -616,7 +626,7 @@ function segmentsToTexts(segments) {
       var inner = type === 'nodes' ? (d.content || []) : [d];
       for (var j = 0; j < inner.length; j++) {
         var sub = inner[j] && (inner[j].content || inner[j].data && inner[j].data.content);
-        if (sub) texts = texts.concat(segmentsToTexts(sub));
+        if (sub) texts = texts.concat(await segmentsToTexts(sub));
       }
     } else if (type === 'face' || type === 'mface') {
       // QQ 小表情：跳过
@@ -638,32 +648,96 @@ function localizeMediaFile(segType, fileVal) {
   try {
     var buf = null;
     var ext = '.bin';
+    var srcPath = null;
     if (fileVal.indexOf('base64://') === 0) {
       buf = Buffer.from(fileVal.substring(9), 'base64');
     } else if (fileVal.indexOf('file://') === 0) {
       var p = decodeURIComponent(fileVal.substring(7));
       if (/^\/[A-Za-z]:/.test(p)) p = p.substring(1); // file:///D:/... → D:/...
       if (!fs.existsSync(p)) { log('媒体文件不存在:', p); return ''; }
-      buf = fs.readFileSync(p);
+      srcPath = p;
       ext = path.extname(p) || '.bin';
     } else if (fileVal.indexOf('http') === 0) {
-      // http URL：AstrBot 在本机可直接下载
-      return ''; // 极少出现；先跳过，避免阻塞
+      // http(s) URL：由 relay（本机有外网）下载落地，CI 设备无需外网
+      log('http 媒体段请使用 downloadToLocal 异步处理:', fileVal.slice(0, 60));
+      return '';
     } else if (fileVal) {
       log('未知媒体协议:', fileVal.slice(0, 40));
       return '';
     }
-    if (!buf || !buf.length) return '';
+    if (!buf && !srcPath) return '';
     var kindMark = segType === 'image' ? '__image' : segType === 'record' ? '__audio' : segType === 'video' ? '__video' : '';
     if (!ext || ext === '.bin') ext = segType === 'image' ? '.png' : segType === 'record' ? '.mp3' : '.mp4';
     var token = Date.now().toString(36) + crypto.randomBytes(4).toString('hex') + ext;
-    mkdirp(path.join(CFG.resourceDir, 'remote'));
-    fs.writeFileSync(path.join(CFG.resourceDir, 'remote', token), buf);
+    var dest = path.join(CFG.resourceDir, 'remote', token);
+    mkdirp(path.dirname(dest));
+    if (srcPath) {
+      // 同盘优先硬链接（大视频零拷贝），失败再复制
+      try { fs.unlinkSync(dest); } catch (e) {}
+      try { fs.linkSync(srcPath, dest); } catch (e) { fs.copyFileSync(srcPath, dest); }
+    } else {
+      fs.writeFileSync(dest, buf);
+    }
     return '/resources/astrbot/remote/' + token + kindMark;
   } catch (e) {
     log('媒体本地化异常:', e.message);
     return '';
   }
+}
+
+// http(s) 媒体下载落地（relay 本机有外网，CI 设备不用）
+async function downloadToLocal(segType, url) {
+  try {
+    var resp = await axios.get(url, {
+      responseType: 'arraybuffer',
+      timeout: 120000,
+      maxContentLength: CFG.maxDownloadBytes,
+      maxRedirects: 5
+    });
+    var buf = Buffer.from(resp.data);
+    if (!buf.length) return '';
+    var ct = String(resp.headers['content-type'] || '');
+    var ext = path.extname(new URL(url).pathname) || '';
+    if (!ext || ext.length > 6) ext = ct.indexOf('audio') === 0 ? '.mp3' : ct.indexOf('video') === 0 ? '.mp4' : ct.indexOf('image') === 0 ? '.jpg' : '.bin';
+    var kindMark = segType === 'image' ? '__image' : segType === 'record' ? '__audio' : segType === 'video' ? '__video' : '';
+    var token = Date.now().toString(36) + crypto.randomBytes(4).toString('hex') + ext;
+    var dest = path.join(CFG.resourceDir, 'remote', token);
+    mkdirp(path.dirname(dest));
+    fs.writeFileSync(dest, buf);
+    return '/resources/astrbot/remote/' + token + kindMark;
+  } catch (e) {
+    log('http 媒体下载失败:', url.slice(0, 60), e.message);
+    return '';
+  }
+}
+
+// &&标签&& 兜底映射：meme_manager 未转换时，从表情包分类里取真图发站内 URL
+var emojiDirCache = {};
+function mapEmojiTags(text) {
+  if (text.indexOf('&&') === -1) return text;
+  return text.split('\n').map(function (line) {
+    var m = line.trim().match(/^&&([^&\s]{1,24})&&$/);
+    if (!m) return line;
+    var tag = m[1];
+    try {
+      if (!emojiDirCache[tag]) {
+        var dir = path.join(CFG.packMemesDir, tag);
+        emojiDirCache[tag] = fs.existsSync(dir) ? fs.readdirSync(dir).filter(function (f) { return /\.(png|gif|jpe?g|webp|bmp)$/i.test(f); }) : [];
+      }
+      var files = emojiDirCache[tag];
+      if (!files || !files.length) return line; // 没有对应分类，保留原文本
+      var pick = files[Math.floor(Math.random() * files.length)];
+      var src = path.join(CFG.packMemesDir, tag, pick);
+      var token = 'e' + Date.now().toString(36) + crypto.randomBytes(3).toString('hex') + path.extname(pick);
+      var dest = path.join(CFG.resourceDir, 'remote', token);
+      mkdirp(path.dirname(dest));
+      try { fs.linkSync(src, dest); } catch (e) { fs.copyFileSync(src, dest); }
+      return '/resources/astrbot/remote/' + token + '__image';
+    } catch (e) {
+      log('表情兜底映射失败:', tag, e.message);
+      return line;
+    }
+  }).join('\n');
 }
 
 function mkdirp(dir) {
@@ -675,30 +749,30 @@ function mkdirp(dir) {
   }
 }
 
-function handleSendPrivate(p, echo) {
+async function handleSendPrivate(p, echo) {
   var userId = p.user_id != null ? String(p.user_id) : '';
-  var texts = segmentsToTexts(p.message);
+  var texts = await segmentsToTexts(p.message);
   if (!userId || !texts.length) { obReply(echo, { message_id: 0 }); return; }
   obReply(echo, { message_id: ++state.msgSeq, reserver: null });
   deliverTexts(userId, texts, 'private');
 }
 
-function handleSendGroup(p, echo) {
+async function handleSendGroup(p, echo) {
   var groupId = p.group_id != null ? String(p.group_id) : '';
-  var texts = segmentsToTexts(p.message);
+  var texts = await segmentsToTexts(p.message);
   if (!groupId || !texts.length) { obReply(echo, { message_id: 0 }); return; }
   obReply(echo, { message_id: ++state.msgSeq, reserver: null });
   deliverTexts(groupId, texts, 'group');
 }
 
-function handleForwardMsg(p, echo) {
+async function handleForwardMsg(p, echo) {
   var target = (p.user_id || p.group_id) != null ? String(p.user_id || p.group_id) : '';
   var isGroup = p.user_id == null && p.group_id != null;
   var nodes = (p.params && p.params.messages) || p.messages || p.nodes || [];
   var texts = [];
   for (var i = 0; i < nodes.length; i++) {
     var content = nodes[i] && (nodes[i].content || nodes[i].data && nodes[i].data.content);
-    if (content) texts = texts.concat(segmentsToTexts(content));
+    if (content) texts = texts.concat(await segmentsToTexts(content));
   }
   obReply(echo, { message_id: ++state.msgSeq, reserver: null });
   if (target && texts.length) deliverTexts(target, texts, isGroup ? 'group' : 'private');
