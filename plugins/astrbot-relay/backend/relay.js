@@ -44,8 +44,11 @@ var state = {
   obWs: null, obConnected: false, obTimer: null, obAttempts: 0,
   msgCache: {},       // message_id(int) -> 上报的 OneBot 事件（供 get_msg）
   ciToOb: {},         // CI 消息 id -> OneBot message_id（撤回事件映射）
+  obToCi: {},         // OneBot message_id -> CI 消息 id（回复引用还原）
   msgSeq: Math.floor(Date.now() / 1000) % 1000000000,
   heartbeatTimer: null,
+  refReplyTo: null,
+  pendingMedia: [],
   counters: { received: 0, replied: 0, failed: 0 }
 };
 
@@ -291,7 +294,12 @@ function forwardToOneBot(fromUserId, userText, originalMessage) {
     font: 0,
     sender: { user_id: fromUserId, nickname: String(nickname), sex: 'unknown', age: 0 }
   };
-  if (originalMessage && originalMessage.id != null) state.ciToOb[String(originalMessage.id)] = msgId;
+  if (originalMessage && originalMessage.id != null) {
+    state.ciToOb[String(originalMessage.id)] = msgId;
+    state.obToCi[msgId] = String(originalMessage.id);
+    var ok = Object.keys(state.obToCi);
+    if (ok.length > 400) delete state.obToCi[ok[0]];
+  }
   cacheAndSendEvent(event, 'user=' + fromUserId);
 }
 
@@ -325,7 +333,12 @@ function onGroupMessage(groupId, message) {
     font: 0,
     sender: { user_id: message.sender_id, nickname: String(message.sender_name || message.sender_id), card: String(message.sender_name || ''), role: 'member' }
   };
-  if (message.id != null) state.ciToOb[String(message.id)] = msgId;
+  if (message.id != null) {
+    state.ciToOb[String(message.id)] = msgId;
+    state.obToCi[msgId] = String(message.id);
+    var okg = Object.keys(state.obToCi);
+    if (okg.length > 400) delete state.obToCi[okg[0]];
+  }
   cacheAndSendEvent(event, 'group=' + groupId + ' user=' + message.sender_id);
 }
 
@@ -581,6 +594,7 @@ function obGroupMemberInfo(groupId, userId) {
 
 // 段数组 → CI 文本/媒体 URL 列表（异步：http 媒体需下载落地）
 async function segmentsToTexts(segments) {
+  refReplyTo = null;
   var texts = [];
   if (typeof segments === 'string') {
     texts.push(mapEmojiTags(segments));
@@ -598,22 +612,22 @@ async function segmentsToTexts(segments) {
       if (url) texts.push(url);
       else texts.push('（' + type + ' 资源加载失败）');
     } else if (type === 'music') {
-      // 音乐卡片：音频能落地就原生播放，否则退化为文本链接
-      var audioUrl = d.audio && d.audio.indexOf('http') === 0 ? await downloadToLocal('record', d.audio) : '';
-      if (audioUrl) {
-        texts.push('🎵 ' + (d.title || '音乐分享'));
-        texts.push(audioUrl);
-      } else {
-        texts.push('🎵 ' + (d.title || '音乐分享') + (d.url ? ' ' + d.url : ''));
-      }
+      // 音乐卡片：先回标题，音频后台下载后补发（避免阻塞回复）
+      texts.push('🎵 ' + (d.title || '音乐分享') + (d.audio ? '' : (d.url ? ' ' + d.url : '')));
+      if (d.audio && d.audio.indexOf('http') === 0) state.pendingMedia.push({ segType: 'record', url: d.audio });
     } else if (type === 'at') {
       texts.push('@' + (d.qq || ''));
     } else if (type === 'reply') {
-      // 引用段：带上被引用消息的原文摘要
+      // 引用段：转成 CI 原生 reply_to 对象（前端渲染引用气泡），不占文本
       var orig = state.msgCache[d.id];
-      var excerpt = '';
-      if (orig && orig.raw_message) excerpt = String(orig.raw_message).slice(0, 30);
-      texts.push('（回复：' + (excerpt || '…') + '）');
+      var ciId = state.obToCi[d.id];
+      if (ciId) {
+        refReplyTo = {
+          message_id: ciId,
+          user_name: (orig && orig.sender && orig.sender.nickname) || '你',
+          content_preview: String((orig && orig.raw_message) || '').slice(0, 50) || '…'
+        };
+      }
     } else if (type === 'location') {
       texts.push('[位置] ' + (d.title || d.content || ''));
     } else if (type === 'share' || type === 'card') {
@@ -686,14 +700,27 @@ function localizeMediaFile(segType, fileVal) {
 }
 
 // http(s) 媒体下载落地（relay 本机有外网，CI 设备不用）
+function withTimeout(promise, ms, tag) {
+  return Promise.race([
+    promise,
+    new Promise(function (res) { setTimeout(function () { log(tag + ' 硬超时'); res(''); }, ms); })
+  ]);
+}
+
 async function downloadToLocal(segType, url) {
   try {
-    var resp = await axios.get(url, {
+    log('开始下载媒体:', url.slice(0, 80));
+    var u = new URL(url);
+    var resp = await withTimeout(axios.get(url, {
       responseType: 'arraybuffer',
-      timeout: 120000,
+      timeout: 90000,
       maxContentLength: CFG.maxDownloadBytes,
-      maxRedirects: 5
-    });
+      maxRedirects: 5,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
+        'Referer': u.origin + '/'
+      }
+    }), 100000, '媒体下载');
     var buf = Buffer.from(resp.data);
     if (!buf.length) return '';
     var ct = String(resp.headers['content-type'] || '');
@@ -751,10 +778,13 @@ function mkdirp(dir) {
 
 async function handleSendPrivate(p, echo) {
   var userId = p.user_id != null ? String(p.user_id) : '';
+  var segTypes = (Array.isArray(p.message) ? p.message : []).map(function (x) { return x.type; }).join(',') || typeof p.message;
+  log('出站 send_private user=' + userId + ' 段=[' + segTypes + ']');
   var texts = await segmentsToTexts(p.message);
   if (!userId || !texts.length) { obReply(echo, { message_id: 0 }); return; }
   obReply(echo, { message_id: ++state.msgSeq, reserver: null });
-  deliverTexts(userId, texts, 'private');
+  deliverTexts(userId, texts, 'private', state.refReplyTo);
+  flushPendingMedia(userId, 'private');
 }
 
 async function handleSendGroup(p, echo) {
@@ -762,7 +792,8 @@ async function handleSendGroup(p, echo) {
   var texts = await segmentsToTexts(p.message);
   if (!groupId || !texts.length) { obReply(echo, { message_id: 0 }); return; }
   obReply(echo, { message_id: ++state.msgSeq, reserver: null });
-  deliverTexts(groupId, texts, 'group');
+  deliverTexts(groupId, texts, 'group', state.refReplyTo);
+  flushPendingMedia(groupId, 'group');
 }
 
 async function handleForwardMsg(p, echo) {
@@ -778,21 +809,40 @@ async function handleForwardMsg(p, echo) {
   if (target && texts.length) deliverTexts(target, texts, isGroup ? 'group' : 'private');
 }
 
+// 后台补发已落地的媒体（如点歌音频）
+function flushPendingMedia(targetId, channel) {
+  if (!state.pendingMedia.length) return;
+  var items = state.pendingMedia.splice(0);
+  items.forEach(function (item) {
+    downloadToLocal(item.segType, item.url).then(function (url) {
+      if (url) {
+        log('媒体后台补发:', url);
+        if (channel === 'group') sendGroupMessage(targetId, url);
+        else sendPrivate(targetId, url);
+      } else {
+        if (channel === 'group') sendGroupMessage(targetId, '（音乐加载失败，换首试试？）');
+        else sendPrivate(targetId, '（音乐加载失败，换首试试？）');
+      }
+    });
+  });
+}
+
 // ===== 回复发送（ClassIntra 侧）=====
 
-function deliverTexts(targetId, texts, channel) {
+function deliverTexts(targetId, texts, channel, replyToCiId) {
   // 合并超出上限的段，避免触发发送限流
   if (texts.length > CFG.maxSegments) {
     texts = texts.slice(0, CFG.maxSegments - 1).concat([texts.slice(CFG.maxSegments - 1).join('')]);
   }
-  sendSegmented(targetId, texts, 0, channel || 'private');
+  sendSegmented(targetId, texts, 0, channel || 'private', replyToCiId || null);
 }
 
-function sendSegmented(targetId, texts, idx, channel) {
+function sendSegmented(targetId, texts, idx, channel, replyToCiId) {
   if (idx >= texts.length) { state.counters.replied++; return; }
+  // CI 原生引用：只挂在第一段上
   var ok = channel === 'group'
-    ? sendGroupMessage(targetId, texts[idx])
-    : sendPrivate(targetId, texts[idx]);
+    ? sendGroupMessage(targetId, texts[idx], idx === 0 ? replyToCiId : null)
+    : sendPrivate(targetId, texts[idx], idx === 0 ? replyToCiId : null);
   if (!ok) { state.counters.failed++; return; }
   if (idx < texts.length - 1) {
     var delay = 300 + Math.floor(Math.random() * 500);
@@ -802,35 +852,39 @@ function sendSegmented(targetId, texts, idx, channel) {
   }
 }
 
-function sendPrivate(targetUserId, content) {
+function sendPrivate(targetUserId, content, replyToCiId) {
   if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
     log('CI WS 未连接，无法发送给 ' + targetUserId);
     return false;
   }
   var tempId = Date.now().toString() + '_' + crypto.randomBytes(3).toString('hex');
-  state.ws.send(JSON.stringify({
+  var payload = {
     type: 'private_message',
     target_user_id: targetUserId,
     content: content,
     msg_type: 'text',
     temp_id: tempId
-  }));
+  };
+  if (replyToCiId) payload.reply_to = replyToCiId;
+  state.ws.send(JSON.stringify(payload));
   return true;
 }
 
-function sendGroupMessage(groupId, content) {
+function sendGroupMessage(groupId, content, replyToCiId) {
   if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
     log('CI WS 未连接，无法发送到群 ' + groupId);
     return false;
   }
   var tempId = Date.now().toString() + '_' + crypto.randomBytes(3).toString('hex');
-  state.ws.send(JSON.stringify({
+  var payload = {
     type: 'group_message',
     group_id: groupId,
     content: content,
     msg_type: 'text',
     temp_id: tempId
-  }));
+  };
+  if (replyToCiId) payload.reply_to = replyToCiId;
+  state.ws.send(JSON.stringify(payload));
   return true;
 }
 
