@@ -78,6 +78,16 @@ app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: false, limit: '1mb' }));
 app.use(cookieParser());
 
+// Bot 媒体库：物理目录在内部数据区（不进资源仓库页面），URL 保持 /resources/botmedia 不变
+app.use('/resources/botmedia', express.static(path.resolve(__dirname, '..', 'data', 'botmedia'), {
+  maxAge: '0',
+  immutable: false,
+  setHeaders: function(res, filePath) {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+  }
+}));
+
 app.use('/resources', express.static(config.resourcesDir, {
   maxAge: '0',
   immutable: false,
