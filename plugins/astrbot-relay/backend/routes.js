@@ -8,6 +8,10 @@
 var express = require('express');
 var router = express.Router();
 var relay = require('./relay');
+// 隐藏 Bot 后端：状态接口仅管理员可见
+var { requireAuth, requireAdmin } = require('../../../server/src/middleware/auth');
+
+router.use(requireAuth, requireAdmin);
 
 // 启动机器人（幂等；依赖 server/.env 中的 BOT_PASSWORD 等环境变量）
 relay.start();
