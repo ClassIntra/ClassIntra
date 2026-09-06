@@ -555,6 +555,13 @@
             <div class="forward-preview-content">{{ forwardPreviewContent }}</div>
           </div>
           <div class="forward-target-list scrollbar-thin">
+            <div class="sidebar-search-bar" style="position: sticky; top: 0; z-index: 2; background: var(--bg-color, #fff); padding: 8px 10px 4px;">
+              <div class="search-input-wrap">
+                <i class="fa-solid fa-magnifying-glass search-input-icon"></i>
+                <input v-model="forwardSearch" class="search-input" placeholder="搜索联系人、群聊名称或 ID..." aria-label="搜索转发目标" />
+                <button v-if="forwardSearch" class="search-clear" @click="forwardSearch = ''"><i class="fa-solid fa-xmark"></i></button>
+              </div>
+            </div>
             <div class="forward-target-section">聊天</div>
             <div class="forward-target-item" @click="sendForwardTo('public')">
               <div class="forward-target-avatar" style="background: var(--primary-color);"><i class="fa-solid fa-globe"></i></div>
@@ -563,7 +570,7 @@
                 <div class="forward-target-desc">{{ onlineUsers.length }} 人在线</div>
               </div>
             </div>
-            <div v-for="group in classGroups" :key="'fcg-' + group.group_id" class="forward-target-item" @click="sendForwardTo(group.group_id)">
+            <div v-for="group in filteredForwardClassGroups" :key="'fcg-' + group.group_id" class="forward-target-item" @click="sendForwardTo(group.group_id)">
               <div class="forward-target-avatar" :style="{ background: getGroupColor(group.group_id) }">{{ firstChar(group.group_name) }}</div>
               <div class="forward-target-info">
                 <div class="forward-target-name">{{ group.group_name }}</div>
@@ -571,7 +578,7 @@
               </div>
             </div>
             <div v-if="nonClassGroups.length > 0" class="forward-target-section">群聊</div>
-            <div v-for="group in nonClassGroups" :key="'fg-' + group.group_id" class="forward-target-item" @click="sendForwardTo(group.group_id)">
+            <div v-for="group in filteredForwardNonClassGroups" :key="'fg-' + group.group_id" class="forward-target-item" @click="sendForwardTo(group.group_id)">
               <div class="forward-target-avatar" :style="{ background: getGroupColor(group.group_id) }">{{ firstChar(group.group_name) }}</div>
               <div class="forward-target-info">
                 <div class="forward-target-name">{{ group.group_name }}</div>
@@ -579,7 +586,7 @@
               </div>
             </div>
             <div v-if="contacts.length > 0" class="forward-target-section">私聊</div>
-            <div v-for="contact in contacts" :key="'fc-' + contact.user_id" class="forward-target-item" @click="sendForwardTo(contact.user_id)">
+            <div v-for="contact in filteredForwardContacts" :key="'fc-' + contact.user_id" class="forward-target-item" @click="sendForwardTo(contact.user_id)">
               <div class="forward-target-avatar" :style="{ background: getAvatarColor(contact.user_id) }">{{ firstChar(getContactDisplayName(contact)) }}</div>
               <div class="forward-target-info">
                 <div class="forward-target-name">{{ getContactDisplayName(contact) }}</div>
@@ -693,6 +700,7 @@ export default {
       pendingForwardType: 'community_forward',
       showForwardModal: false,
       showForwardSuccess: false,
+      forwardSearch: '',
       forwardSuccessTarget: '',
       // Reply system
       replyingTo: null,
@@ -952,6 +960,29 @@ export default {
     nonClassGroups: function() {
       return this.groups.filter(function(g) {
         return !g.is_class_group;
+      });
+    },
+    filteredForwardClassGroups: function() {
+      var kw = (this.forwardSearch || '').trim().toLowerCase();
+      if (!kw) return this.classGroups;
+      return this.classGroups.filter(function(g) {
+        return (g.group_name || '').toLowerCase().indexOf(kw) > -1 || String(g.group_id || '').toLowerCase().indexOf(kw) > -1;
+      });
+    },
+    filteredForwardNonClassGroups: function() {
+      var kw = (this.forwardSearch || '').trim().toLowerCase();
+      if (!kw) return this.nonClassGroups;
+      return this.nonClassGroups.filter(function(g) {
+        return (g.group_name || '').toLowerCase().indexOf(kw) > -1 || String(g.group_id || '').toLowerCase().indexOf(kw) > -1;
+      });
+    },
+    filteredForwardContacts: function() {
+      var kw = (this.forwardSearch || '').trim().toLowerCase();
+      if (!kw) return this.contacts;
+      var self = this;
+      return this.contacts.filter(function(c) {
+        var name = String(self.getContactDisplayName(c) || '').toLowerCase();
+        return name.indexOf(kw) > -1 || String(c.user_id || '').toLowerCase().indexOf(kw) > -1 || String(c.real_name || '').toLowerCase().indexOf(kw) > -1;
       });
     },
     sortedNonClassGroups: function() {
@@ -2715,6 +2746,7 @@ export default {
     cancelForward: function() {
       this.showForwardModal = false;
       this.pendingForward = null;
+      this.forwardSearch = '';
     },
     stayInChat: function() {
       this.showForwardSuccess = false;
