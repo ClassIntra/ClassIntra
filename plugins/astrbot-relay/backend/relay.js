@@ -768,7 +768,7 @@ function localizeMediaFile(segType, fileVal) {
     } else {
       fs.writeFileSync(dest, buf);
     }
-    return '/resources/astrbot/remote/' + token;
+    return CFG.resourceUrlBase + token;
   } catch (e) {
     log('媒体本地化异常:', e.message);
     return '';
@@ -806,7 +806,7 @@ async function downloadToLocal(segType, url) {
     var dest = path.join(CFG.resourceDir, 'remote', token);
     mkdirp(path.dirname(dest));
     fs.writeFileSync(dest, buf);
-    return '/resources/astrbot/remote/' + token;
+    return CFG.resourceUrlBase + token;
   } catch (e) {
     log('http 媒体下载失败:', url.slice(0, 60), e.message);
     return '';
@@ -834,7 +834,7 @@ function mapEmojiTags(text) {
       var dest = path.join(CFG.resourceDir, 'remote', token);
       mkdirp(path.dirname(dest));
       try { fs.linkSync(src, dest); } catch (e) { fs.copyFileSync(src, dest); }
-      return '/resources/astrbot/remote/' + token;
+      return '/resources/botmedia/emoji/' + token;
     } catch (e) {
       log('表情兜底映射失败:', tag, e.message);
       return line;
