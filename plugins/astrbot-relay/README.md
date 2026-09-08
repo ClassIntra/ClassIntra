@@ -33,6 +33,7 @@ BOT_GENDER=女
 ASTRBOT_WS_URL=ws://127.0.0.1:6199/ws   # AstrBot aiocqhttp 反向 WS
 ASTRBOT_WS_TOKEN=                        # 反向 WS 令牌（与适配器配置一致）
 AB_MAX_SEGMENTS=3             # 单次回复最多分段数（避免触发发送限流）
+ASTRBOT_PUBLISH_KEY=改成长随机串 # 论坛发帖接口共享密钥（与 AstrBot 端 astrbot_plugin_classintra 的 publish_key 一致）
 # AB_ALLOWED_USERS=250800     # 留空=所有人可用
 ```
 
@@ -42,6 +43,13 @@ AB_MAX_SEGMENTS=3             # 单次回复最多分段数（避免触发发送
    - 在 users 表创建机器人账号（幂等）；
    - 登录 CI WS 并保持长连接（断线指数退避重连）；
    - 连入 OneBot 反向 WS（需要 `X-Client-Role: universal` + `X-Self-ID` 头）。
+
+## HTTP 接口
+
+| 端点 | 鉴权 | 说明 |
+| --- | --- | --- |
+| `GET /api/astrbot/status` | 管理员会话 | 机器人连接状态 |
+| `POST /api/astrbot/publish` | 请求头 `x-publish-key` = `ASTRBOT_PUBLISH_KEY` | 以机器人账号在社区论坛发帖（AstrBot 端 LLM 工具 `publish_classintra_post` 回调）；body：`{title?, content, anonymous?, visible_groups?, hidden_groups?, tags?}` |
 
 ## 消息段映射
 
