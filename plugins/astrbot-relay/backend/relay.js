@@ -850,6 +850,53 @@ async function downloadToLocal(segType, url) {
   }
 }
 
+// ===== 论坛发帖附图持久化（base64/http → botmedia/remote 站内 URL）=====
+
+function sniffImageExt(buf) {
+  if (!buf || buf.length < 3) return '.png';
+  if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return '.jpg';
+  if (buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) return '.png';
+  if (buf.length >= 6 && buf.toString('latin1', 0, 4) === 'GIF8') return '.gif';
+  if (buf.length >= 12 && buf.toString('latin1', 0, 4) === 'RIFF' && buf.toString('latin1', 8, 12) === 'WEBP') return '.webp';
+  if (buf.length >= 2 && buf[0] === 0x42 && buf[1] === 0x4D) return '.bmp';
+  return '.png';
+}
+
+function storeImageBytes(buf) {
+  if (!buf || !buf.length) throw new Error('图片内容为空');
+  if (buf.length > 10 * 1024 * 1024) throw new Error('单张图片不能超过 10MB');
+  var token = Date.now().toString(36) + crypto.randomBytes(4).toString('hex') + sniffImageExt(buf);
+  var dest = path.join(CFG.resourceDir, 'remote', token);
+  mkdirp(path.dirname(dest));
+  fs.writeFileSync(dest, buf);
+  return CFG.resourceUrlBase + token;
+}
+
+function persistBase64Image(raw) {
+  var s = String(raw || '').trim();
+  if (s.indexOf('data:') === 0) s = (s.split(',', 2)[1] || '').trim();
+  if (s.indexOf('base64://') === 0) s = s.substring(9).trim();
+  if (!s) throw new Error('图片 base64 为空');
+  var buf = Buffer.from(s, 'base64');
+  if (!buf.length) throw new Error('图片 base64 无效');
+  return storeImageBytes(buf);
+}
+
+// 单个发帖附图 → 站内 URL；item 支持 { base64 } / { url } / 纯 base64 字符串
+async function persistPublishImage(item) {
+  if (typeof item === 'string') return persistBase64Image(item);
+  item = item || {};
+  var b64 = String(item.base64 || '').trim();
+  var url = String(item.url || '').trim();
+  if (b64) return persistBase64Image(b64);
+  if (/^https?:\/\//i.test(url)) {
+    var localized = await downloadToLocal('image', url);
+    if (!localized) throw new Error('网络图片下载失败: ' + url.slice(0, 60));
+    return localized;
+  }
+  throw new Error('不支持的附图格式（需 base64 或 http(s) 图片地址）');
+}
+
 // &&标签&& 兜底映射：meme_manager 未转换时，从表情包分类里取真图发站内 URL
 var emojiDirCache = {};
 function mapEmojiTags(text) {
@@ -1045,5 +1092,6 @@ module.exports = {
   getStatus: getStatus,
   sendPrivate: sendPrivate,
   publishForumPost: publishForumPost,
+  persistPublishImage: persistPublishImage,
   CFG: CFG
 };
