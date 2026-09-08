@@ -152,6 +152,41 @@ function login() {
   });
 }
 
+// ===== 论坛发帖（供 AstrBot 端 LLM 工具回调，复用机器人账号身份）=====
+
+function postCommunityPost(payload) {
+  if (!state.jwt) throw new Error('机器人尚未登录，无法发布帖子');
+  return axios.post('http://localhost:' + CFG.ciHttpPort + '/api/community/posts', payload, {
+    headers: { Authorization: 'Bearer ' + state.jwt },
+    timeout: 15000
+  }).then(function (resp) {
+    var data = resp.data;
+    if (!data || data.code !== 200 || !data.data) {
+      throw new Error((data && data.message) || ('发帖失败 HTTP ' + resp.status));
+    }
+    return data.data;
+  });
+}
+
+// 以机器人（林晞）账号在社区论坛发帖；JWT 失效（401/403）时重新登录后重试一次
+async function publishForumPost(payload) {
+  if (!state.botCfg) {
+    if (!ensureBotAccount()) throw new Error('机器人账号未就绪');
+  }
+  if (!state.jwt) await login();
+  try {
+    return await postCommunityPost(payload);
+  } catch (e) {
+    var status = e && e.response && e.response.status;
+    if (status === 401 || status === 403) {
+      log('发帖鉴权失效，重新登录后重试');
+      await login();
+      return await postCommunityPost(payload);
+    }
+    throw e;
+  }
+}
+
 function connectWs() {
   if (!state.jwt) { scheduleReconnect(); return; }
   var url = 'ws://localhost:' + CFG.ciWsPort + '/?token=' + encodeURIComponent(state.jwt);
@@ -1009,5 +1044,6 @@ module.exports = {
   start: start,
   getStatus: getStatus,
   sendPrivate: sendPrivate,
+  publishForumPost: publishForumPost,
   CFG: CFG
 };
