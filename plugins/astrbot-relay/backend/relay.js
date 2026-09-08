@@ -29,6 +29,8 @@ var CFG = {
   obToken: process.env.ASTRBOT_WS_TOKEN || '',
   maxSegments: parseInt(process.env.AB_MAX_SEGMENTS, 10) || 3,
   resourceDir: process.env.AB_RESOURCE_DIR || path.join(process.cwd(), 'Resources', 'botmedia'),
+  // 站内媒体 URL 前缀：资源落在 resourceDir/remote/ 下，静态挂载为 /resources/botmedia → server/data/botmedia
+  resourceUrlBase: process.env.AB_RESOURCE_URL_BASE || '/resources/botmedia/remote/',
   // &&标签&& 兜底映射源：meme_manager 表情包分类目录
   packMemesDir: process.env.ASTRBOT_PACK_MEMES_DIR || 'D:/NetWork/Integration/AstrBot/data/plugin_data/meme_manager/packs/ddzs987-semantic-001/memes',
   maxDownloadBytes: (parseInt(process.env.AB_MAX_DOWNLOAD_MB, 10) || 200) * 1024 * 1024
@@ -834,7 +836,7 @@ function mapEmojiTags(text) {
       var dest = path.join(CFG.resourceDir, 'remote', token);
       mkdirp(path.dirname(dest));
       try { fs.linkSync(src, dest); } catch (e) { fs.copyFileSync(src, dest); }
-      return '/resources/botmedia/emoji/' + token;
+      return CFG.resourceUrlBase + token;
     } catch (e) {
       log('表情兜底映射失败:', tag, e.message);
       return line;
