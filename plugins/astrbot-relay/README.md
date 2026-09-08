@@ -49,7 +49,7 @@ ASTRBOT_PUBLISH_KEY=改成长随机串 # 论坛发帖接口共享密钥（与 As
 | 端点 | 鉴权 | 说明 |
 | --- | --- | --- |
 | `GET /api/astrbot/status` | 管理员会话 | 机器人连接状态 |
-| `POST /api/astrbot/publish` | 请求头 `x-publish-key` = `ASTRBOT_PUBLISH_KEY` | 以机器人账号在社区论坛发帖（AstrBot 端 LLM 工具 `publish_classintra_post` 回调）；body：`{title?, content, anonymous?, visible_groups?, hidden_groups?, tags?}` |
+| `POST /api/astrbot/publish` | 请求头 `x-publish-key` = `ASTRBOT_PUBLISH_KEY` | 以机器人账号在社区论坛发帖（AstrBot 端 LLM 工具 `publish_classintra_post` 回调）。body（text/plain JSON，附图较大不受 1MB 限制）：`{title?, content, anonymous?, images?: [{base64}\|{url}], visible_groups?, hidden_groups?, tags?}`；`images` 最多 9 张，持久化到 botmedia 后以 Markdown `![](url)` 追加进正文 |
 
 ## 消息段映射
 
