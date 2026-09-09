@@ -78,8 +78,9 @@ app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: false, limit: '1mb' }));
 app.use(cookieParser());
 
-// Bot 媒体库：物理目录在内部数据区（不进资源仓库页面），URL 保持 /resources/botmedia 不变
-app.use('/resources/botmedia', express.static(path.resolve(__dirname, '..', 'data', 'botmedia'), {
+// Bot 媒体库：物理目录迁移至 Resources/cloud/botmedia（用户可查看并可经 /cloud/save-from-url 转存云盘），
+// 保留旧 URL /resources/botmedia 指向同一目录以兼容历史消息
+app.use('/resources/botmedia', express.static(path.join(config.resourcesDir, 'cloud', 'botmedia'), {
   maxAge: '0',
   immutable: false,
   setHeaders: function(res, filePath) {
