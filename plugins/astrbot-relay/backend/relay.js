@@ -1068,7 +1068,7 @@ function flushPendingMedia(targetId, channel) {
     downloadToLocal(item.segType, item.url).then(function (url) {
       var payload = url || '（音乐加载失败，换首试试？）';
       if (url) log('媒体后台补发:', url);
-      if (channel === 'public') sendPublicMessage(targetId, payload);
+      if (channel === 'public') sendPublicMessage(payload);
       else if (channel === 'group') sendGroupMessage(targetId, payload);
       else sendPrivate(targetId, payload);
     });
@@ -1093,7 +1093,7 @@ function sendSegmented(targetId, texts, idx, channel, replyToCiId, obId, groupId
   else if (tempId && channel === 'group') state.pendingRecall[tempId] = { obId: obId, channel: 'group', target: targetId, groupId: groupId };
   else if (tempId) state.pendingRecall[tempId] = { obId: obId, channel: 'private', target: targetId };
   var ok = channel === 'public'
-    ? sendPublicMessage(targetId, texts[idx], idx === 0 ? replyToCiId : null, tempId)
+    ? sendPublicMessage(texts[idx], idx === 0 ? replyToCiId : null, tempId)
     : channel === 'group'
       ? sendGroupMessage(targetId, texts[idx], idx === 0 ? replyToCiId : null, tempId)
       : sendPrivate(targetId, texts[idx], idx === 0 ? replyToCiId : null, tempId);
