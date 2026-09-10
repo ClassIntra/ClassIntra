@@ -356,9 +356,30 @@ function getSyncStmts() {
     settingsInsert: db.prepare('INSERT OR IGNORE INTO user_settings (user_id, theme, wallpaper, notifications_json) VALUES (?, ?, ?, ?)'),
     settingsUpdate: db.prepare('UPDATE user_settings SET theme = ?, wallpaper = ?, notifications_json = ? WHERE user_id = ?'),
     settingsCheck: db.prepare('SELECT user_id FROM user_settings WHERE user_id = ?'),
-    tombstoneInsert: db.prepare('INSERT OR IGNORE INTO sync_tombstones (data_type, record_id, deleted_at) VALUES (?, ?, ?)')
+    tombstoneInsert: db.prepare('INSERT OR IGNORE INTO sync_tombstones (data_type, record_id, deleted_at) VALUES (?, ?, ?)'),
+    chatCheckRecent: db.prepare('SELECT id, recalled, created_at FROM chat_messages WHERE sender_id = ? AND content = ? ORDER BY id DESC LIMIT 5'),
+    pmCheckRecent: db.prepare('SELECT id, recalled, created_at FROM private_messages WHERE sender_id = ? AND receiver_id = ? AND content = ? ORDER BY id DESC LIMIT 5'),
+    gmCheckRecent: db.prepare('SELECT id, recalled, created_at FROM group_messages WHERE group_id = ? AND sender_id = ? AND content = ? ORDER BY id DESC LIMIT 5')
   };
   return syncStmts;
+}
+
+// 时间戳归一化（去非数字取前 14 位），容忍本地格式与 ISO 格式差异
+function normTs(v) {
+  return String(v || '').replace(/[^0-9]/g, '').substring(0, 14);
+}
+
+// catchup 回灌去重：精确 created_at 未命中时，再按 sender+content+归一化时间戳 比对最近几条
+// （本机产生的消息中继到对端后，对端 catchup 会把同一消息以另一种时间格式灌回来）
+function syncDupRecent(recentStmt, values, createdAt) {
+  var recent = recentStmt.all.apply(null, values);
+  var tsKey = normTs(createdAt);
+  for (var i = 0; i < recent.length; i++) {
+    if (createdAt && (recent[i].created_at === createdAt || normTs(recent[i].created_at) === tsKey)) {
+      return recent[i];
+    }
+  }
+  return null;
 }
 
 function applySyncData(syncData) {
@@ -373,6 +394,7 @@ function applySyncData(syncData) {
       var m = syncData.chat_messages[i];
       try {
         var existing = s.chatCheck.get(m.sender_id, m.content, m.created_at);
+        if (!existing) existing = syncDupRecent(s.chatCheckRecent, [m.sender_id, m.content], m.created_at);
         if (existing) {
           if (m.recalled && !existing.recalled) {
             s.chatRecallUpdate.run(existing.id);
@@ -394,6 +416,7 @@ function applySyncData(syncData) {
       var pm = syncData.private_messages[j];
       try {
         var pmExisting = s.pmCheck.get(pm.sender_id, pm.receiver_id, pm.content, pm.created_at);
+        if (!pmExisting) pmExisting = syncDupRecent(s.pmCheckRecent, [pm.sender_id, pm.receiver_id, pm.content], pm.created_at);
         if (pmExisting) {
           if (pm.recalled && !pmExisting.recalled) {
             s.pmRecallUpdate.run(pmExisting.id);
@@ -415,6 +438,7 @@ function applySyncData(syncData) {
       var gm = syncData.group_messages[k];
       try {
         var gmExisting = s.gmCheck.get(gm.group_id, gm.sender_id, gm.content, gm.created_at);
+        if (!gmExisting) gmExisting = syncDupRecent(s.gmCheckRecent, [gm.group_id, gm.sender_id, gm.content], gm.created_at);
         if (gmExisting) {
           if (gm.recalled && !gmExisting.recalled) {
             s.gmRecallUpdate.run(gmExisting.id);
