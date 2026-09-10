@@ -1,4 +1,5 @@
 import api from '@/utils/api';
+import { getRuntimeKernel } from '@/core/runtime-kernel';
 
 var installedApps = [];
 var definitions = {};
@@ -87,9 +88,31 @@ function loadStyle(app) {
 function unmount(appName, container) {
   var runtime = mountedRuntimes[appName];
   if (!runtime || (container && runtime.container !== container)) return;
+
+  // 1. 先执行应用自身注册的清理函数（context.app.onDestroy 契约）
+  //    顺序：先让应用自己收尾（解绑自己的事件/计时器），再做容器级回收
+  try {
+    if (window.ClassIntraMarket && typeof window.ClassIntraMarket.disposeContext === 'function') {
+      window.ClassIntraMarket.disposeContext(appName);
+    }
+  } catch (e) {
+    console.error('[market-registry] disposeContext 失败:', appName, e);
+  }
+
+  // 2. 调用应用定义的 unmount
   if (runtime.definition && typeof runtime.definition.unmount === 'function') {
     try { runtime.definition.unmount(runtime.container); } catch (e) {}
   }
+
+  // 3. 释放资源审计（回收挂载期遗留的计时器与监听器）
+  try {
+    var kernel = getRuntimeKernel();
+    var machine = kernel.getMachine(appName);
+    if (machine && machine.getState() !== 'idle') {
+      machine.unmount();
+    }
+  } catch (e) {}
+
   delete mountedRuntimes[appName];
 }
 
@@ -173,13 +196,24 @@ function ensureLoaded(name) {
 
 function mount(name, container, definition) {
   if (!container || !definition || typeof definition.mount !== 'function') return false;
-  if (getInstalled(name) === null) return false;
-  var context = window.ClassIntraMarket.createContext(name);
-  if (!context || !context.api) return false;
+  var app = getInstalled(name);
+  if (app === null) return false;
+
+  // 构造 SDK 上下文（五大命名空间；manifest 一并传入供 context.app.manifest 使用）
+  var manifest = definition.manifest || app;
+  var context = window.ClassIntraMarket.createContext(name, manifest);
+  if (!context || !context.data) return false;
+
   try {
     definition.mount(container, context);
   } catch (error) {
     console.error('[MarketRuntime] 应用挂载失败:', name, error);
+    // 挂载失败时释放已完成的部分（避免半初始化状态残留）
+    try {
+      if (typeof window.ClassIntraMarket.disposeContext === 'function') {
+        window.ClassIntraMarket.disposeContext(name);
+      }
+    } catch (e) {}
     throw error;
   }
   mountedRuntimes[name] = { container: container, definition: definition };

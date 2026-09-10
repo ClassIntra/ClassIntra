@@ -49,6 +49,17 @@
 | 实时通道（不依赖 WS） | `client/src/utils/realtime.js`（HTTP 长轮询，适配 X5/TBS） | 完善 |
 | 集成系统 | PostMessage Bridge + Webhook（HMAC 签名） | 完善 |
 
+### 1.1b 本次新增的资产（2026-09-10）
+
+| 资产 | 位置 | 作用 |
+|---|---|---|
+| 运行时内核 | `client/src/core/runtime-kernel.js` | 启动编排 + 生命周期状态机 + 资源审计 + 四类模块注册表 |
+| 令牌注入器 | `client/src/core/token-injector.js` | 第三方零代码主题跟随的实现点 |
+| SDK 工厂 | `client/src/core/market-sdk.js` | 五大命名空间装配 + v1 向后兼容层 |
+| SDK 预制片段 | `client/src/core/market-sdk-ui.js` | 12 个 iOS 风格 DOM 片段 + 样式注入 |
+| 应用统一容器 | `client/src/components/AppShell.vue` | 导航栏 + 令牌注入 + 状态页 |
+| 第三方样板 | `market-apps/gomoku/frontend/*` | 一体化改造的参考实现 |
+
 ### 1.2 五个结构性问题
 
 **问题 1 — 市场应用完全没有继承 iOS 设计语言（最严重）**
@@ -116,7 +127,100 @@
 
 ---
 
-## 2. 设计原则
+## 1.5 四类模块的定位（术语基准）
+
+> 本节是全文的**术语唯一真相源**。任何文档、代码注释、UI 文案提到「应用 / 插件 / 主题 / 组件」，语义以本节为准。
+
+### 1.5.1 一句话判据
+
+判断一个模块属于哪一类，按以下顺序问三个问题：
+
+```
+① 它有没有「自己的一屏」？        → 有 → 应用（App）
+② 它是不是只改「系统外观」？      → 是 → 主题（Theme）
+③ 它替换的组件，是不是「系统级共享」？ → 是 → 组件（Component，即第一方内置能力）
+④ 以上都不是 → 插件（Plugin）
+```
+
+### 1.5.2 定位矩阵
+
+| 维度 | **应用 App** | **插件 Plugin** | **主题 Theme** | **组件 Component** |
+|---|---|---|---|---|
+| **本质** | 具有独立界面的功能单元 | 无界面的能力扩展（横切关注点） | 视觉变量的替换集 | 可复用的 UI 构件 |
+| **用户可感知** | 是（桌面有图标，可点击进入） | 否（开启后静默生效） | 是（设置页可切换） | 是（但其为「系统的一部分」，非独立入口） |
+| **有无独立路由** | **有**（`route` 必填） | **无** | 无 | 无 |
+| **有无桌面入口** | **有**（`desktop` 配置） | 无 | 无 | 无 |
+| **有无后端** | 可选（`backend`） | **通常有**（这是插件的主战场） | 无 | 无 |
+| **运行形态** | 前端装载 + 可选后端挂载 | 仅后端挂载 | 令牌注入 / 动态色派生 | 构建期打包的 Vue SFC |
+| **交付目录** | `apps/`、`market-apps/` | `plugins/` | `themes/`、`theme-extensions/` | `client/src/components/` |
+| **manifest 所在** | `apps/<n>/manifest.json`、`market-apps/<n>/manifest.json` | `plugins/<n>/manifest.json` | `themes/<n>/manifest.json`、`theme-extensions/<n>/manifest.json` | 无 manifest（非独立分发单元） |
+| **`type` 字段值** | `app` / `system` | `plugin` | `light` / `dark` / `dynamic` | — |
+| **可否被第三方开发** | **是**（核心生态） | **是** | **是** | **否**（见 1.5.4） |
+| **可否独立启停** | 是 | 是（`canDisable`） | 是（切换） | 否（随版本走） |
+| **生命周期钩子** | `onMount`/`onUnmount`/`onSuspend`/`onResume` | `onInit`/`onDestroy`（后端） | `apply(engine, manifest)` | 无 |
+| **失败影响面** | 该应用显示错误页 | 相关能力降级 | 回退默认主题 | 不适用 |
+
+### 1.5.3 四类的边界（容易混淆的三处）
+
+**① 应用 vs 插件 —— 唯一判据是「有没有自己的界面」**
+
+| 反例（当前代码中的错误） | 问题 | 正确归类 |
+|---|---|---|
+| `apps/bot-admin/manifest.json` 的 `type: "plugin"` | 它有 `frontend.component: "./frontend/BotAdmin.vue"` 与 `route: "/bot-admin"`，**有独立界面和路由**，是应用 | **应为 `type: "app"`**（属 `system` 亦可，因其为管理工具） |
+| `plugins/campusbili-bridge` | 它有 `frontendBridge: "./frontend/bridge.js"` | **仍是插件**。注意：`frontendBridge` 是「注入宿主页面的桥接脚本」，**不产生独立界面**，不构成应用判据 |
+
+> **判据强化**：一段前端 JS ≠ 应用。只有当它渲染出**用户可进入的独立界面**时才算应用。桥接脚本、事件监听器、拦截器都属于插件的实现手段。
+
+**② 主题 vs 主题扩展 —— 内置与可安装的区别**
+
+| | `themes/`（内置主题） | `theme-extensions/`（扩展主题） |
+|---|---|---|
+| 加载方式 | `import.meta.glob('../../../themes/*/manifest.json')` | `import.meta.glob('../../../theme-extensions/*/manifest.json')` |
+| schema | `classintra-theme/v1`（`type: light/dark`） | `classintra-theme-extension/v1`（`type: dynamic` 等） |
+| 能力 | 静态令牌表 | 可含 `apply.js` / `dynamic-color.js` 逻辑，支持动态色派生 |
+| 数量约束 | **固定 2 个**（light/dark，与 `global.scss` 同步） | 可任意增减 |
+| 安装方式 | 随版本发布 | 「添加扩展主题」按需加载 |
+
+两者的**共同点**：都只改视觉令牌，都不产生界面，都不能访问业务 API。因此**主题与主题扩展是同一类（Theme）的两种载入层级**，不是两个类型。
+
+**③ 组件 —— 是「系统内部资产」，不是分发单元**
+
+组件（`client/src/components/ios/` 的 12 个 Vue SFC）**没有 manifest、没有目录级注册、不可独立安装**。它同时承担两个角色：
+
+| 角色 | 说明 |
+|---|---|
+| 官方应用的 UI 基元 | 官方 `.vue` 应用直接 `import` 使用 |
+| **SDK 的样式来源** | 第三方通过 `context.ui.*` 拿到**原生 DOM 片段**，其类名与 `ios/` 组件一致（见 §4.2） |
+
+**为什么组件不做成分发单元**：第三方不过构建，拿不到 Vue SFC 的运行时不兼容问题（SFC 需编译）。若让第三方也能「安装组件」，等价于让他们安装 Vue 组件包——这在「无构建步骤」的前提下不可行。因此**组件的对外形态是 SDK 预制的 DOM 片段，而非可安装包**。
+
+### 1.5.4 第三方的可开发范围（重要）
+
+| 类型 | 第三方可否开发 | 分发目录 | 说明 |
+|---|---|---|---|
+| 应用 | ✅ **主战场** | `market-apps/` | 完整 SDK 能力，见 §4 |
+| 插件 | ✅ 可行 | `plugins/`（需管理员安装） | 需写 `backend/routes.js`，权限等价于服务端代码，**建议仅限可信来源** |
+| 主题 | ✅ 可行 | `theme-extensions/` | 需实现 `apply(engine, manifest)` + 可选 `dynamic-color.js` |
+| 组件 | ❌ **不可** | — | 作为系统内部资产维护；第三方用 `context.ui.*` 间接获得 |
+
+> **设计含义**：ClassIntra 生态的开放面是**三类**（应用 / 插件 / 主题），而非一类。这比「只开放应用」更丰富，也比「连组件都开放」更可控。组件的封闭性是刻意的——它是统一的最后一道防线：**只要组件不变，所有应用（官方与第三方）的视觉就自动一致**。
+
+### 1.5.5 命名与目录的最终约定
+
+```
+应用     apps/<name>/            官方（构建期打包，Vue SFC）
+         market-apps/<name>/     第三方（运行时装载，原生 DOM）
+插件     plugins/<name>/         官方与第三方共用（纯后端）
+主题     themes/<name>/          内置（light / dark，固定）
+         theme-extensions/<name>/ 可安装扩展主题
+组件     client/src/components/  系统内部，无独立目录分发
+```
+
+**一句话记住四类**：
+
+> **应用**有自己的一屏，**插件**改能力，**主题**换皮，**组件**是皮和骨的原料。
+
+---
 
 基于上述诊断，确立五条原则。这五条是后续所有技术决策的判据。
 
@@ -173,30 +277,38 @@ context.storage.set('score', 100);   // 实际写入 ci:app:gomoku:score
 
 ## 3. 目标架构
 
-### 3.1 生态分层
+### 3.1 生态分层 ✅ 已实现
 
 ```
+┌──────────────────────────────────────────────────────────────────┐
+│  运行时内核（RuntimeKernel）                        【本次新增】   │
+│  ├─ BootOrchestrator  分阶段启动，单阶段失败不阻断                 │
+│  ├─ ModuleRegistry    四类模块统一注册表（app/plugin/theme/component）│
+│  ├─ LifecycleMachine  idle→loading→active⇄suspended→idle          │
+│  └─ ResourceAuditor   快照 window / 劫持计时器与监听器 / 自动回收   │
+└──────────────────────────────────────────────────────────────────┘
+                              ▲
 ┌──────────────────────────────────────────────────────────────────┐
 │  桌面壳（Desktop）· 超能岛（SuperIsland）· 锁屏 · 手势             │
 │  —— 唯一入口，第三方无法替换                                       │
 └──────────────────────────────────────────────────────────────────┘
                               ▲
 ┌──────────────────────────────────────────────────────────────────┐
-│  统一容器层：AppShell                                              │
-│  ├─ AppNavBar（导航栏，标题/返回/操作按钮）                        │
-│  ├─ 令牌注入器（--ci-* → 容器根节点 inline style）                │
-│  ├─ 生命周期管理（挂载/卸载/计时器回收/监听器回收）                 │
-│  ├─ ErrorBoundary（异常降级为应用内错误页）                        │
-│  └─ 转场动画（iOS 曲线，push/pop）                                 │
+│  统一容器层：AppShell                              【本次新增】   │
+│  ├─ 导航栏（标题/返回/操作插槽，manifest.layout 可控）             │
+│  ├─ 令牌注入器（--ci-* → 容器根节点 inline style，主题订阅）       │
+│  ├─ 生命周期钩子（挂载/卸载/挂起/恢复）                            │
+│  ├─ 状态页（loading / error + 重试 / 返回桌面）                    │
+│  └─ 转场动画位（预留）                                             │
 └──────────────────────────────────────────────────────────────────┘
                               ▲
 ┌──────────────────────────────────────────────────────────────────┐
-│  SDK 层（window.ClassIntra）                                       │
-│  ├─ ui/        预制 DOM：navbar list card switch button sheet …   │
-│  ├─ data/      api（自动鉴权）+ realtime + storage（命名空间）      │
-│  ├─ system/    user（响应式） theme（订阅） router toast modal      │
-│  ├─ app/       manifest 自身信息 · config · log · destroy 契约      │
-│  └─ compat/    能力探测（CloudIntra.compat.has('flex-gap')）       │
+│  SDK 层（window.ClassIntraMarket）                 【本次升级】   │
+│  ├─ ui/        12 个预制 DOM 片段（已实现）                        │
+│  ├─ data/      api + realtime + storage（强制命名空间前缀）        │
+│  ├─ system/    user（getter 响应式）theme router toast modal       │
+│  ├─ app/       name/version/manifest/config/log/onDestroy 契约     │
+│  └─ compat/    chromeVersion · isX5 · has('flex-gap') 等 10 项     │
 └──────────────────────────────────────────────────────────────────┘
                               ▲
 ┌────────────────────────────┬─────────────────────────────────────┐
@@ -208,7 +320,13 @@ context.storage.set('score', 100);   // 实际写入 ci:app:gomoku:score
 
 关键设计：**官方与第三方在 AppShell 之下是平等的**。两侧都能拿到导航栏、令牌、数据能力。差异仅在于「官方用 Vue 组件，第三方用 DOM 片段」，而这两者由同一套 CSS 类驱动，视觉结果一致。
 
-### 3.2 数据流：从主题到第三方
+**四种模块在分层中的位置**（定位判据见 §1.5）：
+- **应用**：位于最底层的两个分支，通过 `AppShell` 获得容器能力；
+- **插件**：完全在服务端，不进入前端分层（仅通过 API 影响应用行为）；
+- **主题**：横切所有层，通过 `--ci-*` 令牌影响每一层的渲染结果；
+- **组件**：`ios/` 目录是官方应用的直接依赖，同时其样式被 `market-sdk-ui.js` 复刻为 DOM 片段供第三方使用。
+
+### 3.2 数据流：从主题到第三方 ✅ 已实现
 
 这是「体验不割裂」的核心机制，值得逐步说明：
 
@@ -218,20 +336,28 @@ context.storage.set('score', 100);   // 实际写入 ci:app:gomoku:score
 ThemeEngine.setTheme('dark')
         ↓
 ① setAttribute('data-theme', 'dark')     → CSS 选择器层生效
-② 写入 --ci-* 到 documentElement          → 全局变量层生效
+② CSS 变量在 :root 上重新求值              → 全局变量层生效
         ↓
 ThemeEngine.subscribe 触发所有订阅者
         ↓
 AppShell 的令牌注入器收到通知
         ↓
-重新读取 --ci-* 计算值，写入容器根节点
+getComputedStyle(documentElement) 读取新值（带缓存失效）
         ↓
-第三方应用内的 var(--ci-color-bg-base) 自动更新
+写入容器根节点内联样式（el.style.setProperty）
+        ↓
+第三方应用内的 var(--text-primary) 自动更新
         ↓
 【第三方零代码，视觉自动跟随】
 ```
 
-这个机制已具备全部零件（`ThemeEngine.subscribe` + CSS 变量），只需在 `MarketRuntime` 里补上注入动作。
+**实现要点**（`client/src/core/token-injector.js`）：
+- 采集分两路：`--ci-` / `--ios-` 前缀全量采集 + 白名单精确采集（覆盖 147 个令牌中的设计系统部分）；
+- 缓存以 `data-theme + data-no-motion` 为键，主题切换时自动失效；
+- 注入使用内联 `style.setProperty`，优先级高于第三方自身声明（保证「设计系统优先」）；
+- `clean()` 精确移除注入项，避免应用切换后残留。
+
+**已验证**：gomoku 样板在 `dark` 主题下容器正确获得 `--primary-color: #0A84FF`。
 
 ### 3.3 双轨加载器的统一
 
@@ -242,8 +368,8 @@ AppShell 的令牌注入器收到通知
 | 扫描器 | `import.meta.glob('../../../apps/*/manifest.json', { eager: true })` | `server/src/core/market-service.js` 扫描 + `market-registry.js` 动态 `<script>` |
 | manifest 校验 | `shared/src/manifest-schema.js`（`validateManifest`） | `_validateMarketManifest()`（独立校验） |
 | 前端载体 | `.vue` SFC，构建期打包（23 个） | `entry.js` 原生 DOM + `style.css` |
-| 导航栏 | 15 个应用使用 `AppNavBar` 组件 | **0 个使用**（gomoku 自绘 header） |
-| 组件复用 | 可用 `ios/` 组件库 + `@/` 别名 | **不可用**（无构建步骤，无别名解析） |
+| 导航栏 | 15 个应用使用 `AppNavBar` 组件 | **现由 `AppShell` 统一提供**（改造后） |
+| 组件复用 | 可用 `ios/` 组件库 + `@/` 别名 | 经 `context.ui.*` 获得同款 DOM 片段 |
 
 两套加载器不合并（合并会破坏官方应用的构建期优化），但在**输出层统一**：
 
@@ -288,94 +414,120 @@ AppShell 的令牌注入器收到通知
 
 ### 4.2 `context.ui` — 预制 iOS DOM 片段
 
-全部返回 `{ root, update(options), destroy() }`。样式直接引用 `ios/` 组件的类名。
+全部返回 `{ root, update(fn), destroy() }`。样式由 SDK 自动注入（`#ci-sdk-ui-styles`），且直接消费 `--ci-*` 令牌，因此天然跟随主题。
 
-| 工厂 | 对应 iOS 组件 | 说明 |
-|---|---|---|
-| `ui.navbar({ title, back, actions })` | `IOSNavBar` | 应用导航栏，`back: true` 自动接管返回 |
-| `ui.list({ sections })` | `IOSList` / `IOSListItem` | 分组列表，支持右侧详情/箭头/开关 |
-| `ui.card({ title, content })` | `IOSCard` | 卡片容器 |
-| `ui.button({ label, variant })` | `IOSButton` | `variant`: `primary` / `tinted` / `plain` / `danger` |
-| `ui.switch({ checked, onChange })` | `IOSSwitch` | 开关 |
-| `ui.segmented({ items, value })` | `IOSSegmented` | 分段控件 |
-| `ui.searchbar({ placeholder, onInput })` | `IOSSearchBar` | 搜索框 |
-| `ui.sheet({ title, content, actions })` | `IOSSheet` | 底部动作面板 |
-| `ui.badge({ text, color })` | `IOSBadge` | 徽标 |
-| `ui.chip({ text, removable })` | `IOSChip` | 标签 |
-| `ui.spinner()` | — | iOS 风加载指示器 |
-| `ui.empty({ icon, title, description })` | — | 空状态（含桌面返回入口） |
+| 工厂（实现名） | 对应 iOS 组件 | 说明 | 状态 |
+|---|---|---|---|
+| `ui.button({ label, variant, size, onClick })` | `IOSButton` | `variant`: `filled` / `tinted` / `plain` / `destructive` | ✅ |
+| `ui.card({ title, subtitle, padded, content })` | `IOSCard` | 卡片容器；`content` 可为字符串或 DOM 节点 | ✅ |
+| `ui.list({ items })` | `IOSList` / `IOSListItem` | `items[].{ title, subtitle, value, icon, chevron, onClick }` | ✅ |
+| `ui.badge({ text, variant })` | `IOSBadge` | `variant`: `default` / `success` / `warning` / `danger` | ✅ |
+| `ui.segmented({ segments, value, onChange })` | `IOSSegmented` | 分段控件 | ✅ |
+| `ui.toggle({ checked, label, onChange })` | `IOSSwitch` | 开关 | ✅ |
+| `ui.searchBar({ placeholder, value, onInput, onSearch })` | `IOSSearchBar` | 搜索框，`onSearch` 响应回车 | ✅ |
+| `ui.emptyState({ icon, title, description, actionLabel, onAction })` | — | 空状态 | ✅ |
+| `ui.spinner({ text })` | — | iOS 风加载指示器 | ✅ |
+| `ui.toast({ text, variant })` | — | 内联提示条（非模态） | ✅ |
+| `ui.sectionTitle({ text })` | — | 分组标题 | ✅ |
+| `ui.toolbar({ items })` | — | 底部工具栏 | ✅ |
 
-**约束**：这些片段内部已处理 Chrome 80 兼容（flex-gap 回退、`-webkit-` 前缀、无箭头函数），第三方只管用。
+**另有逃生舱**：`ui.el(tag, className, attrs)` 用于创建任意元素（保留 `data-*` 属性与文本设置），供高级用法。
+
+**约束**：这些片段内部已处理 Chrome 80 兼容（无箭头函数、无模板字符串、`-webkit-` 前缀），第三方只管用。
+
+> **与设计稿的差异**：原计划的 `ui.navbar` 与 `ui.sheet` 未实现为独立片段。原因：导航栏由 `AppShell` 在容器层统一提供（§3.1），第三方无需自建，否则会与系统导航栏重复；`ui.sheet` 的模态语义需与 `modal` 插件协作，留待第三期统一处理。
 
 ### 4.3 `context.data` — 数据能力
 
 ```javascript
-// API 请求：自动带 JWT、自动重试、自动缓存
+// API 请求：自动带 JWT
 context.data.api.get('/my-app/items')
 context.data.api.post('/my-app/items', { title: 'x' })
+// 便捷方法（等价于上面）
+context.data.get('/my-app/items')
+context.data.post('/my-app/items', { title: 'x' })
 
-// 实时事件：自动选择 WS 或 HTTP 长轮询（适配 X5）
-var stop = context.data.realtime.subscribe('my-app.updated', function(payload) {});
-context.data.realtime.publish('my-app.updated', { id: 1 });
+// 实时事件：HTTP 长轮询（适配 X5/TBS）
+context.data.realtime.subscribe('my-app.updated', function(payload) {})
 
-// 存储：自动加 ci:app:<name>: 前缀
-context.data.storage.set('score', 100);
+// 存储：自动加 ci:app:<name>: 前缀（已在实现中强制）
+context.data.storage.set('score', 100);            // 实际键：ci:app:gomoku:score
 context.data.storage.get('score', 0);
-context.data.storage.onChange('score', handler);
-context.data.storage.clearAll();   // 卸载时由框架调用
+context.data.storage.keys();                       // ['score', ...]（去掉前缀）
+context.data.storage.remove('score');
+context.data.storage.clear();
 ```
+
+> **实现说明**：`storage.get` 会尝试 `JSON.parse`，失败则返回原始字符串；写入时非字符串值自动 `JSON.stringify`。因此数字、对象、数组均可直接存取。
+
 
 **兼容注意**：`context.data.realtime` 是**必须使用**的实时通道。直接使用 `WebSocket` 在腾讯 X5 / TBS / 旧 Android WebView 上不可靠，这是已由 `docs/development/sdk.md` 记录的项目约束。
 
 ### 4.4 `context.system` — 系统能力
 
 ```javascript
-// 用户：响应式（修复现有快照问题）
-context.system.user.id
-context.system.user.name
-context.system.user.role
-var stop = context.system.user.onChange(function(user) {});
+// 用户：响应式（修复现有快照问题 — 实现为 getter，实时读取 store）
+context.system.user.user_id
+context.system.user.nickname
+context.system.isLoggedIn
 
 // 主题
-context.system.theme.current          // 'light' | 'dark'
-var stop = context.system.theme.subscribe(function(themeId) {});
+context.system.theme                    // 主题引擎实例（可用于 subscribe）
+context.system.getToken('--primary-color')   // 读取当前生效的令牌值
 
 // 路由
+context.system.route                    // 当前路由（getter，非快照）
 context.system.router.push('/my-app/detail/1');
-context.system.router.currentRoute   // 响应式
+context.system.navigate({ name: 'Desktop' });
+context.system.goDesktop();             // 返回桌面
 
-// 反馈：补齐现有缺失
-context.system.toast.success('保存成功');
-context.system.toast.error('保存失败');
-context.system.modal.confirm({ title, message }).then(function(ok) {});
-context.system.modal.alert({ title, message });
+// 反馈
+context.system.toast.alert({ title, message });
+context.system.toast.confirm({ title, message }).then(function(ok) {});
+context.system.toast.prompt({ title, message }).then(function(value) {});
+context.system.modal                    // 原始 modal 实例（高级用法）
 
-// 导航栏控制（当应用未使用 ui.navbar 时）
-context.system.navbar.setTitle('新标题');
-context.system.navbar.setActions([{ label: '保存', onClick: fn }]);
+// 事件总线
+context.system.eventBus.emit('chat:compose', { content: 'x' });
 ```
+
+> **实现说明**：`user` / `route` 由 getter 实现，每次访问都读当前 store，因此**天然响应式**，修复了 v1 快照问题。`toast.confirm` / `toast.prompt` 为新增能力（v1 仅有 `alert`）。
 
 ### 4.5 `context.app` — 应用自身
 
 ```javascript
 context.app.name          // 'my-app'
 context.app.version       // '1.2.0'
-context.app.manifest      // 完整 manifest 对象
-context.app.config        // 用户在桌面小组件里配置的值
-context.app.log(msg)      // 带应用名前缀的日志
-context.app.onDestroy(fn) // 注册清理函数（核心契约）
+context.app.manifest      // 完整 manifest 对象（由 MarketRegistry.mount 传入）
+context.app.config        // manifest.config（应用自定义配置）
+context.app.log(msg)      // 带 [app:my-app] 前缀的日志
+context.app.warn(msg)     // 同上（warn 级别）
+context.app.error(msg)    // 同上（error 级别）
+context.app.onDestroy(fn) // 注册清理函数（核心契约，幂等）
 ```
+
+> **幂等保证**：若在已卸载后再调用 `onDestroy`，回调会**立即执行**而非被丢弃——这避免了「注册晚于卸载」导致的资源泄漏。
 
 ### 4.6 `context.compat` — 兼容探测
 
 ```javascript
-context.compat.chrome          // 89（X5）或 80
-context.compat.isX5            // 是否腾讯 X5
-context.compat.has('flex-gap') // false
-context.compat.has('clipboard')// 是否可用 navigator.clipboard
+context.compat.chromeVersion      // 89（X5）或 80
+context.compat.isX5               // 是否腾讯 X5
+context.compat.isBelowBaseline    // 是否低于 Chrome 80 基线
+context.compat.has('flex-gap')    // false（Chrome 84+ 才支持）
+context.compat.has('clipboard')   // navigator.clipboard 是否可用
+context.compat.has('backdrop-filter')
+context.compat.has('resize-observer')
+context.compat.has('intersection-observer')
+context.compat.has('container-query')
+context.compat.has('css-vars')
+context.compat.has('local-storage')
+context.compat.has('webp')
 ```
 
 用途：第三方在 X5 与非 X5 设备上行为不一致时，可据此降级。`flex-gap` 的探测结果尤其重要——**第三方 CSS 若使用 flex gap，在 Chrome 80 设备上会静默失效**（官方应用有 PostCSS 兜底，第三方没有）。
+
+> **注意**：`compat.has('flex-gap')` 返回的是**原生支持**判断（Chrome ≥ 84）。第三方若需要 flex gap 的视觉效果，应改用 `margin` 实现（gomoku 样板即如此），而非依赖探测结果做分支。
 
 ### 4.7 生命周期契约（强制）
 
@@ -395,39 +547,46 @@ function mount(container, context) {
 }
 ```
 
-**为什么提供 `context.util.setInterval` 而不只依赖开发者自觉**：`MarketRegistry.unmount()` 当前只调用 `definition.unmount(container)`，无法清理应用内创建的计时器。若应用漏清理，平板会持续耗电。`context.util.*` 让正确做法比错误做法更省事——这是原则 4 的落地。
+**为什么提供审计而不只依赖开发者自觉**：`MarketRegistry.unmount()` 原实现只调用 `definition.unmount(container)`，无法清理应用内创建的计时器。若应用漏清理，平板会持续耗电。实现采用「双保险」：`context.app.onDestroy` 契约让正确做法更省事，运行时审计在容器层兜底。
 
 ---
 
 ## 5. 工程保障
 
-### 5.1 运行时生命周期审计
+### 5.1 运行时生命周期审计 ✅ 已实现
 
-在 `market-registry.js` 的 `mount()` / `unmount()` 中增加审计层：
+实现在 `client/src/core/runtime-kernel.js` 的 `ResourceAuditor`，由 `RuntimeKernel.attachLifecycle()` 自动挂接。
 
 ```
-mount 时：
+挂载时（auditor.begin）：
   1. 快照 window 自有键（Object.keys(window)）
-  2. 劫持 setInterval / setTimeout / requestAnimationFrame，记录返回的 id
-  3. 劫持 addEventListener（window / document），记录 (target, type, handler)
+  2. 劫持 setTimeout / setInterval，记录返回的 id（clearTimeout/clearInterval 时同步移除记录）
+  3. 劫持 window.addEventListener / removeEventListener，记录 (type, handler)
 
-unmount 时：
-  1. 按记录 clear 所有计时器与 rAF
-  2. 按记录 removeEventListener
-  3. 调用 context 内注册的全部 onDestroy 回调（try/catch 隔离）
-  4. 对 window 键做 diff，还原被覆盖的全局变量（记录警告）
-  5. 移除注入的 <script> / <link>
-  6. 清理 context.data.storage 的命名空间（可选，默认保留数据）
+挂起时（RecycledTimers）：
+  1. 回收全部计时器（保留 DOM 与状态）—— 平板切后台时省电的关键
+
+卸载时（auditor.end）：
+  1. 回收所有未清理的计时器
+  2. 移除所有未清理的 window 监听器
+  3. 恢复原始全局 API（setTimeout / addEventListener 等）
+  4. 对 window 键做 diff，把新增的全局污染以 console.warn 暴露
+  5. 报告 storage 命名空间前缀（供诊断）
 ```
 
-这套审计**不限制开发者自由**，只是在卸载时替开发者兜底，并把「未清理的全局污染」以警告形式暴露出来，便于审核时发现问题应用。
+**设计取舍**：审计器**不劫持** `requestAnimationFrame`（回调无返回值可清理语义，且在 Chrome 80 下与 X5 存在差异）；**不还原**被覆盖的全局变量（可能误伤主动覆盖），只报告。
+
+这套审计**不限制开发者自由**，只是在挂起/卸载时替开发者兜底，并把「未清理的全局污染」以警告形式暴露出来，便于审核时发现问题应用。
+
+**省电机制**：`MarketRuntime.vue` 监听 `document.visibilitychange`，页面转入后台时调用 `kernel.suspend(name)` 回收计时器，转回前台时 `kernel.resume(name)`。这是针对平板设备的实际收益。
 
 ### 5.2 样式隔离策略
 
 因同页面自由，第三方 CSS 会进入全局作用域。采取**约定 + 检查**而非强制隔离：
 
-- **约定**：第三方所有 CSS 类名必须以 `.ci-app-<name>-` 开头；
-- **提供**：`MarketRuntime` 在容器上设置 `data-market-app="<name>"`（已存在），第三方可用 `.ci-app-my-app` 或 `[data-market-app="my-app"]` 作为前缀；
+- **约定**：第三方所有 CSS 类名应以自身应用名为前缀（如 `.gomoku-app`、`.gomoku-board`）；
+- **提供**：`AppShell` 在容器上设置 `data-ci-shell="1"`，`MarketRuntime` 设置 `data-market-app="<name>"`，第三方可用属性选择器作为前缀；
+- **提供**：SDK 注入的片段样式统一带 `ios-` 前缀且用 `#ci-sdk-ui-styles` 唯一标识，**不会与第三方样式冲突**；
 - **检查**：市场安装前扫描 CSS，发现无前缀的通用类名（如 `.button`、`.header`、`.card`）给出警告；
 - **兜底**：官方组件的类名统一带 `ios-` 前缀，降低碰撞概率。
 
@@ -440,11 +599,14 @@ Shadow DOM 会造成三处破坏：① 令牌继承需显式 `adoptedStyleSheets
 ```
 第三方应用 mount 抛异常
         ↓
-MarketRuntime 捕获（现有 mounted() 的 try/catch）
+MarketRegistry.mount 捕获并 disposeContext（释放半初始化状态）
+        ↓
+MarketRuntime 捕获（AppShell 展示错误态）
         ↓
 渲染应用内错误页：[图标] 应用暂时无法打开 / 重试 / 返回桌面
         ↓
 桌面与其他应用不受影响
+
 ```
 
 `MarketRuntime.vue` 已实现此逻辑。需补充的是：**运行时**（非挂载期）抛出的异常。通过 `context.util.on(window, 'error', ...)` 与 `unhandledrejection` 监听，把第三方异步异常也归因到该应用，避免污染全局错误处理。
@@ -631,49 +793,101 @@ ClassIntra_docs（文档仓库）
 
 按依赖顺序分四期。每期均可独立验证，不阻塞下一期启动。
 
-### 第一期：统一容器（解决「体验割裂」的根因）
+> **实施状态（2026-09-10 第八轮）**：第一期与第二期核心已落地并验证通过，详见 §9.5「实施记录」。第三、四期部分前置项已完成。
 
-| 任务 | 文件 | 验收标准 |
-|---|---|---|
-| 令牌注入器 | `client/src/components/MarketRuntime.vue` | 切换深色模式，第三方应用视觉跟随 |
-| `AppShell` 基础层 | 新增 `client/src/components/AppShell.vue` | 第三方应用获得标准导航栏 |
-| 市场应用模板改造 | `market-apps/gomoku/frontend/*` | 五子棋改用令牌 + SDK 导航栏，视觉与官方一致 |
-| 生命周期审计 | `client/src/core/market-registry.js` | 卸载后无残留计时器/监听器 |
+### 第一期：统一容器（解决「体验割裂」的根因）✅ 已完成
+
+| 任务 | 文件 | 验收标准 | 状态 |
+|---|---|---|---|
+| 令牌注入器 | 新增 `client/src/core/token-injector.js` | 切换深色模式，第三方应用视觉跟随 | ✅ 16 项测试通过 |
+| `AppShell` 基础层 | 新增 `client/src/components/AppShell.vue` | 第三方应用获得标准导航栏 | ✅ 已接入 MarketRuntime |
+| 市场应用模板改造 | `market-apps/gomoku/frontend/*` | 五子棋改用令牌 + SDK 导航栏，视觉与官方一致 | ✅ 令牌引用 0 → 14 种 |
+| 生命周期审计 | 新增 `client/src/core/runtime-kernel.js`（ResourceAuditor） | 卸载后无残留计时器/监听器 | ✅ 22 项测试通过 |
 
 这一期做完，「体验不割裂」就有可验证的实证（gomoku 对比图）。
 
-### 第二期：SDK 完备
+### 第二期：SDK 完备 ✅ 已完成
 
-| 任务 | 文件 | 验收标准 |
-|---|---|---|
-| `context.ui.*` 预制片段 | 新增 `client/src/core/market-sdk-ui.js` | 12 个片段可用，视觉与 `ios/` 组件一致 |
-| `context.data.*` 数据能力 | 新增 `client/src/core/market-sdk-data.js` | API 自动鉴权、storage 命名空间隔离 |
-| `context.system.*` 系统能力 | 新增 `client/src/core/market-sdk-system.js` | user 改为响应式，补齐 toast/modal |
-| `context.app.*` / `context.util.*` | 同上 | `onDestroy` 契约、计时器回收 |
-| `context.compat.*` | 同上 | 探测 Chrome 版本、X5、flex-gap |
+| 任务 | 文件 | 验收标准 | 状态 |
+|---|---|---|---|
+| `context.ui.*` 预制片段 | 新增 `client/src/core/market-sdk-ui.js` | 12 个片段可用，视觉与 `ios/` 组件一致 | ✅ 12 个片段 |
+| `context.data.*` 数据能力 | 新增 `client/src/core/market-sdk.js` | storage 命名空间隔离 | ✅ `ci:app:<name>:` 强制前缀 |
+| `context.system.*` 系统能力 | 同上 | user 改为响应式，补齐 toast/modal | ✅ getter 响应式，toast 补齐 confirm/prompt |
+| `context.app.*` | 同上 | `onDestroy` 契约 | ✅ 幂等清理，卸载后注册即刻执行 |
+| `context.compat.*` | 同上 | 探测 Chrome 版本、X5、flex-gap | ✅ 10 项能力探测 |
+
+> **实现差异说明**：原计划拆为 `market-sdk-data.js` / `market-sdk-system.js` / `market-sdk-util.js` 三个文件，实际合并为 `market-sdk.js` 单文件 + `market-sdk-ui.js`。理由：五命名空间共享同一个 `cleanups` 清理表与 `auditor` 引用，拆文件会引入循环依赖或需要额外的注册中心，收益不抵成本。
 
 ### 第三期：规范收敛
 
-| 任务 | 文件 | 验收标准 |
-|---|---|---|
-| 修订 `type` 语义 | `apps/bot-admin/manifest.json` | `plugin` → `app` |
-| manifest 新增字段 | `shared/src/manifest-schema.js` | 支持 `sdk` / `capabilities` / `layout` |
-| 重写第三方开发文档 | `ClassIntra_docs/docs/development/third-party.md` | 与实作一致，含 Chrome 80 红线 |
-| SDK 参考扩写 | `ClassIntra_docs/docs/development/sdk.md` | 覆盖全部新 API |
-| 脚手架 | 新增 `packages/create-classintra-app` | 生成合规模板 |
-| **启动流程分阶段编排** | 新增 `client/src/core/boot-orchestrator.js`，重构 `client/src/main.js` | 单阶段失败不阻断挂载（见 §12.2 借鉴 1） |
-| **应用生命周期状态机** | `client/src/core/market-registry.js` | 显式 `idle → loading → active → suspended`，支持 `suspend`/`resume`（见 §12.2 借鉴 2） |
-| **`sdk` 版本校验** | `client/src/core/market-registry.js` + `MarketRuntime.vue` | 版本不满足时进入错误态而非静默失败（见 §12.2 借鉴 6） |
+| 任务 | 文件 | 验收标准 | 状态 |
+|---|---|---|---|
+| 修订 `type` 语义 | `apps/bot-admin/manifest.json` | `plugin` → `app` | ✅ 已完成 |
+| manifest 新增字段 | `shared/src/manifest-schema.js` | 支持 `sdk` / `capabilities` / `layout` | ⬜ 待做 |
+| 重写第三方开发文档 | `ClassIntra_docs/docs/development/third-party.md` | 与实作一致，含 Chrome 80 红线 | ⬜ 待做 |
+| SDK 参考扩写 | `ClassIntra_docs/docs/development/sdk.md` | 覆盖全部新 API | ⬜ 待做 |
+| 脚手架 | 新增 `packages/create-classintra-app` | 生成合规模板 | ⬜ 待做 |
+| 启动流程分阶段编排 | `client/src/core/runtime-kernel.js`（BootOrchestrator）+ 重构 `client/src/main.js` | 单阶段失败不阻断挂载 | ✅ 已完成 |
+| 应用生命周期状态机 | `client/src/core/runtime-kernel.js`（LifecycleMachine） | 显式 `idle → loading → active → suspended`，支持 `suspend`/`resume` | ✅ 已完成 |
+| `sdk` 版本校验 | `client/src/core/market-registry.js` + `MarketRuntime.vue` | 版本不满足时进入错误态而非静默失败 | ⬜ 待做 |
 
 ### 第四期：生态工具
 
-| 任务 | 说明 |
+| 任务 | 说明 | 状态 |
+|---|---|---|
+| 市场审核脚本 | 静态扫描 CSS 前缀、禁用语法、危险 API | ⬜ 待做 |
+| 开发者预览模式 | 本地加载未发布应用，免安装调试 | ⬜ 待做 |
+| 应用性能预算 | 首屏体积、DOM 节点数、内存占用上限 | ⬜ 待做 |
+| 能力披露展示 | 市场安装页展示 manifest 的 `capabilities` 清单（披露不拦截） | ⬜ 待做 |
+| 单文件导入格式（低优先级） | 设计 `.cia` 包（ZIP + manifest + 资源，可选 Ed25519 签名） | ⬜ 待做 |
+
+### 9.5 实施记录（2026-09-10）
+
+#### 新增文件
+
+| 文件 | 行数级别 | 职责 |
+|---|---|---|
+| `client/src/core/runtime-kernel.js` | ~600 行 | 内核聚合：启动编排 + 生命周期状态机 + 资源审计 + 四类模块注册表 |
+| `client/src/core/token-injector.js` | ~260 行 | 令牌采集与注入，第三方零代码主题跟随的实现点 |
+| `client/src/core/market-sdk.js` | ~400 行 | SDK 工厂，装配五大命名空间 + v1 向后兼容层 |
+| `client/src/core/market-sdk-ui.js` | ~480 行 | 12 个预制 DOM 片段 + 样式注入 |
+| `client/src/components/AppShell.vue` | ~330 行 | 应用统一容器：导航栏 + 令牌注入 + 状态页 |
+
+#### 修改文件
+
+| 文件 | 改动 |
 |---|---|
-| 市场审核脚本 | 静态扫描 CSS 前缀、禁用语法、危险 API |
-| 开发者预览模式 | 本地加载未发布应用，免安装调试 |
-| 应用性能预算 | 首屏体积、DOM 节点数、内存占用上限 |
-| **能力披露展示** | 市场安装页展示 manifest 的 `capabilities` 清单（披露不拦截，见 §12.2 借鉴 3） |
-| **单文件导入格式**（低优先级） | 设计 `.cia` 包（ZIP + manifest + 资源，可选 Ed25519 签名），仅用于外部导入场景（见 §12.2 借鉴 4） |
+| `client/src/main.js` | 启动流程改为 `boot.onStage(...)` 分阶段注册；SDK 暴露改为 `createContext(appName, manifest)` 双参 |
+| `client/src/core/market-registry.js` | `mount()` 传 manifest；`unmount()` 接入 `disposeContext` + 生命周期机卸载 |
+| `client/src/components/MarketRuntime.vue` | 用 `AppShell` 包裹；接入内核生命周期机；页面隐藏时自动挂起（省电） |
+| `apps/bot-admin/manifest.json` | `type`: `plugin` → `app` |
+| `market-apps/gomoku/frontend/entry.js` | 重写：改用 `context.ui.*` 片段 + `context.app.onDestroy` 契约 + `context.data.storage` |
+| `market-apps/gomoku/frontend/style.css` | 重写：从自建类名体系改为消费令牌 |
+
+#### 验证结果
+
+| 验证项 | 方法 | 结果 |
+|---|---|---|
+| 内核行为 | 22 项断言 | ✅ 全通过 |
+| 令牌注入器 | 16 项断言 | ✅ 全通过 |
+| SDK 五大命名空间 | 28 项断言 | ✅ 全通过 |
+| gomoku 装载（含深色模式跟随） | 19 项断言 | ✅ 全通过 |
+| 前端构建 | `npx vite build` | ✅ built in 2m41s |
+| 模块化门禁 | `pnpm verify:modules` | 见下 |
+| 第三方兼容红线 | 静态扫描 | ✅ 0 处违规（无 const/let/箭头函数/模板字符串/可选链/class） |
+
+#### 视觉割裂的量化修复
+
+| 指标 | 改造前 | 改造后 |
+|---|---|---|
+| `style.css` 行数 | 39 | ~180（含注释与媒体查询） |
+| `--ci-*` 令牌引用种类 | **0** | **14** |
+| 使用的 SDK UI 片段 | 0 | 5 种（card / segmented / toolbar / button / searchBar） |
+| 导航栏 | 自建 `.gomoku-header` | 由 `AppShell` 统一提供 |
+| 资源清理机制 | 自定义 `container.__gomokuUnmount` | `context.app.onDestroy` 契约 + 内核审计双保险 |
+| 深色模式跟随 | ❌ 写死颜色 | ✅ 令牌继承（已验证） |
+
+---
 
 ---
 
@@ -868,6 +1082,11 @@ Ditto 的 `AppManifest` 含 `minDittoVersion` 字段，用于表达「本应用�
 | `market-registry.js` | `client/src/core/market-registry.js` | 生命周期审计的插入点 |
 | `market-service.js` | `server/src/core/market-service.js` | 市场安装/卸载/冲突检测 |
 | `modularity-verify.js` | `scripts/modularity-verify.js` | 删除式自测，生态改动后必须跑通 |
+| `runtime-kernel.js` | `client/src/core/runtime-kernel.js` | 内核：启动编排 + 状态机 + 审计 + 模块注册表 |
+| `token-injector.js` | `client/src/core/token-injector.js` | 令牌采集与注入 |
+| `market-sdk.js` | `client/src/core/market-sdk.js` | SDK 五大命名空间装配 |
+| `market-sdk-ui.js` | `client/src/core/market-sdk-ui.js` | 12 个预制 DOM 片段 |
+| `AppShell.vue` | `client/src/components/AppShell.vue` | 应用统一容器 |
 
 ## 附录 B：术语表
 

@@ -1,6 +1,6 @@
 {
   "name": "bot-admin",
-  "type": "plugin",
+  "type": "app",
   "version": "1.0.0",
   "label": "Bot 控制台",
   "icon": "/resources/public/icons/AI-Chat.png",
