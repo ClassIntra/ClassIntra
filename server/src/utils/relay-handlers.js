@@ -145,17 +145,27 @@ function normalizeSqliteTime(ts) {
 // 聊天消息
 // ===================================================================
 
+// 时间戳归一化（去非数字取前 14 位），容忍本地格式与 ISO 格式差异，用于回环去重
+function normTs(v) {
+  return String(v || '').replace(/[^0-9]/g, '').substring(0, 14);
+}
+
 bus.register('new_message', function(payload, ctx) {
   if (!payload.message) return;
   var msg = payload.message;
   preFetchCloudFiles(msg.content, ctx.sourceServer);
   try {
-    var existingMsg = ctx.db.prepare(
-      'SELECT id FROM chat_messages WHERE sender_id = ? AND content = ? AND (created_at = ? OR (created_at IS NULL AND ? IS NULL)) LIMIT 1'
-    ).get(msg.sender_id, msg.content, msg.created_at, msg.created_at);
-    if (existingMsg) {
-      console.log('[Relay-Dedup] Duplicate new_message, skipping: id=' + existingMsg.id);
-      return;
+    // 回环去重：对端会把消息再中继回来（ctx.broadcast 曾触发再中继），
+    // 按 sender+content+归一化时间戳 匹配最近 5 条，命中即丢弃
+    var recent = ctx.db.prepare(
+      'SELECT id, created_at FROM chat_messages WHERE sender_id = ? AND content = ? ORDER BY id DESC LIMIT 5'
+    ).all(msg.sender_id, msg.content);
+    var tsKey = normTs(msg.created_at);
+    for (var ri = 0; ri < recent.length; ri++) {
+      if (msg.created_at && (recent[ri].created_at === msg.created_at || normTs(recent[ri].created_at) === tsKey)) {
+        console.log('[Relay-Dedup] Duplicate new_message, skipping: id=' + recent[ri].id);
+        return;
+      }
     }
     var extraJson = JSON.stringify({
       relayed_from: ctx.sourceServer,
@@ -172,6 +182,7 @@ bus.register('new_message', function(payload, ctx) {
       extraObj.original_id = msg.id;
       ctx.db.prepare('UPDATE chat_messages SET extra_json = ? WHERE id = ?').run(JSON.stringify(extraObj), result.lastInsertRowid);
     }
+    // 第三参 skipRelay=true：对端已入库，本地广播给本端客户端即可，禁止再次中继（否则回环成对重复）
     ctx.broadcast({
       type: 'new_message',
       message: {
@@ -183,7 +194,7 @@ bus.register('new_message', function(payload, ctx) {
         reply_to: msg.reply_to || null,
         created_at: msg.created_at || null
       }
-    });
+    }, null, true);
   } catch (e) { console.error('[RelayBus] new_message error:', e.message); }
 });
 
