@@ -47,7 +47,7 @@ export default {
   font-weight: 600;
   flex-shrink: 0;
   cursor: pointer;
-  transition: opacity 0.15s;
+  transition: opacity var(--duration-fast) var(--ease-standard);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI Symbol', 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif;
 }
 .user-avatar:hover {

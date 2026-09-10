@@ -187,7 +187,7 @@ export default {
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
-  transition: transform 0.15s var(--ease-standard);
+  transition: transform var(--duration-fast) var(--ease-standard);
 }
 
 .desktop-folder-tile:active {
@@ -356,7 +356,7 @@ export default {
   font-size: 12px;
   margin-left: 4px;
   -webkit-tap-highlight-color: transparent;
-  transition: transform 0.15s var(--ease-standard);
+  transition: transform var(--duration-fast) var(--ease-standard);
 }
 .folder-rename-btn:active {
   transform: scale(0.94);
@@ -375,7 +375,7 @@ export default {
   align-items: center;
   justify-content: center;
   -webkit-tap-highlight-color: transparent;
-  transition: background 0.15s var(--ease-standard);
+  transition: background var(--duration-fast) var(--ease-standard);
 }
 
 .folder-close-btn:active {

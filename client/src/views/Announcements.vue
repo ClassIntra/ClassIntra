@@ -173,7 +173,7 @@ export default {
   font-size: var(--font-size-body);
   font-weight: var(--font-weight-semibold);
   cursor: pointer;
-  transition: opacity 0.15s var(--ease-standard, ease), transform 0.15s var(--ease-standard, ease);
+  transition: opacity var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
 }
 
 .ann-back:hover {
@@ -202,7 +202,7 @@ export default {
   text-align: center;
   /* 大标题可见时，nav 标题隐藏 */
   opacity: 0;
-  transition: opacity 0.2s var(--ease-standard, ease);
+  transition: opacity var(--duration-fast) var(--ease-standard);
 }
 
 /* ========== 大标题区（iPadOS Large Title pattern） ========== */
@@ -246,7 +246,7 @@ export default {
   background: var(--card-bg, #fff);
   border-radius: 7px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 1px rgba(0, 0, 0, 0.04);
-  transition: transform 0.3s var(--ease-decelerate, cubic-bezier(0, 0, 0.2, 1));
+  transition: transform var(--duration-normal) var(--ease-decelerate);
   z-index: 0;
 }
 
@@ -266,7 +266,7 @@ export default {
   font-size: var(--font-size-footnote, 13px);
   font-weight: var(--font-weight-medium);
   cursor: pointer;
-  transition: color 0.2s var(--ease-standard, ease);
+  transition: color var(--duration-fast) var(--ease-standard);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -345,8 +345,8 @@ export default {
   border-radius: var(--radius-lg, 14px);
   padding: var(--spacing-md);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
-  transition: transform 0.15s var(--ease-standard, ease),
-              box-shadow 0.15s var(--ease-standard, ease);
+  transition: transform var(--duration-fast) var(--ease-standard),
+              box-shadow var(--duration-fast) var(--ease-standard);
 }
 
 .ann-card:hover {
@@ -458,12 +458,12 @@ export default {
 
 /* ========== Stagger 入场动画（每条卡片错峰 30ms） ========== */
 .list-stagger-enter-active {
-  transition: opacity 0.35s var(--ease-decelerate, cubic-bezier(0, 0, 0.2, 1)),
-              transform 0.35s var(--ease-decelerate, cubic-bezier(0, 0, 0.2, 1));
+  transition: opacity var(--duration-normal) var(--ease-decelerate),
+              transform var(--duration-normal) var(--ease-decelerate);
   transition-delay: calc(var(--stagger-index, 0) * 30ms);
 }
 .list-stagger-leave-active {
-  transition: opacity 0.2s var(--ease-accelerate, ease-in);
+  transition: opacity var(--duration-fast) var(--ease-accelerate);
   position: absolute;
   width: 100%;
 }
@@ -476,7 +476,7 @@ export default {
   transform: translateY(-4px);
 }
 .list-stagger-move {
-  transition: transform 0.3s var(--ease-standard, ease);
+  transition: transform var(--duration-normal) var(--ease-standard);
 }
 
 /* ========== Reduced motion ========== */
@@ -486,7 +486,7 @@ export default {
   .list-stagger-enter-active,
   .list-stagger-leave-active,
   .list-stagger-move {
-    transition: opacity 0.15s ease;
+    transition: opacity var(--duration-fast) var(--ease-standard);
     transform: none !important;
   }
 }

@@ -153,7 +153,7 @@ export default {
   background: rgba(255, 255, 255, 0.5);
   transform: scaleY(0.231); /* 3px / 13px，非播放态静止高度 */
   transform-origin: center;
-  transition: transform 0.3s var(--ease-spring);
+  transition: transform var(--duration-normal) var(--ease-spring);
   will-change: transform;
 }
 
@@ -163,7 +163,7 @@ export default {
 
 .wave-bar.wave-playing:nth-child(1) { animation-duration: 0.7s; }
 .wave-bar.wave-playing:nth-child(2) { animation-duration: 0.9s; animation-delay: 0.1s; }
-.wave-bar.wave-playing:nth-child(3) { animation-duration: 0.6s; animation-delay: 0.2s; }
+.wave-bar.wave-playing:nth-child(3) { animation-duration: 0.6s; animation-delay: var(--duration-fast); }
 
 /* 只动画 transform（合成层），不动画 height（布局属性） */
 @keyframes waveAnim {
@@ -189,7 +189,7 @@ export default {
   cursor: pointer;
   background: rgba(255, 255, 255, 0.08);
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2), 0 0 0 0.5px rgba(255, 255, 255, 0.06) inset;
-  transition: box-shadow 0.2s var(--ease-standard), transform 0.15s var(--ease-standard);
+  transition: box-shadow var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
 }
 
 .music-expanded-cover:hover {
@@ -258,7 +258,8 @@ export default {
   cursor: pointer;
   font-size: 9px;
   color: rgba(255, 255, 255, 0.35);
-  transition: background 0.15s, color 0.15s;
+  transition: background var(--duration-fast) var(--ease-standard),
+              color var(--duration-fast) var(--ease-standard);
 }
 
 .music-expanded-mode:hover {
@@ -290,11 +291,13 @@ export default {
 }
 
 .lyric-fade-enter-active {
-  transition: opacity 0.25s var(--ease-standard), transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* 回弹反馈（§5.5.1 第 8 项）：cubic-bezier(0.34,1.56,0.64,1) 即 --ease-spring */
+  transition: opacity var(--duration-normal) var(--ease-standard),
+              transform var(--duration-normal) var(--ease-spring);
 }
 
 .lyric-fade-leave-active {
-  transition: opacity 0.12s var(--ease-standard), transform 0.12s var(--ease-standard);
+  transition: opacity var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
 }
 
 .lyric-fade-enter {
@@ -340,7 +343,7 @@ export default {
   position: relative;
   transform: scaleY(0.6); /* 3px / 5px，静止态高度 */
   transform-origin: center;
-  transition: transform 0.12s var(--ease-standard);
+  transition: transform var(--duration-fast) var(--ease-standard);
   will-change: transform;
 }
 
@@ -355,7 +358,7 @@ export default {
   background: rgba(255, 255, 255, 0.65);
   transform: scaleX(0);
   transform-origin: left center;
-  transition: transform 0.2s var(--ease-standard);
+  transition: transform var(--duration-fast) var(--ease-standard);
   will-change: transform;
 }
 
@@ -367,7 +370,8 @@ export default {
   background: #fff;
   top: 50%;
   transform: translate(-50%, -50%) scale(0);
-  transition: transform 0.12s cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* 回弹反馈（§5.5.1 第 8 项）：原 cubic-bezier(0.34,1.56,0.64,1) 即 --ease-spring */
+  transition: transform var(--duration-fast) var(--ease-spring);
   box-shadow: var(--shadow-sm);
 }
 
@@ -391,7 +395,9 @@ export default {
   cursor: pointer;
   padding: 5px;
   border-radius: 50%;
-  transition: background 0.15s, transform 0.1s, color 0.15s;
+  transition: background var(--duration-fast) var(--ease-standard),
+              transform var(--duration-fast) var(--ease-standard),
+              color var(--duration-fast) var(--ease-standard);
   display: flex;
   align-items: center;
   justify-content: center;

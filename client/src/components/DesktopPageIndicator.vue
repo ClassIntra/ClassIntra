@@ -75,7 +75,7 @@ export default {
   background: transparent;
   position: relative;
   -webkit-tap-highlight-color: transparent;
-  transition: transform 0.15s var(--ease-standard);
+  transition: transform var(--duration-fast) var(--ease-standard);
 }
 
 .page-dot:active {
@@ -94,7 +94,11 @@ export default {
   height: 6px;
   border-radius: var(--radius-pill);
   background: var(--indicator-dot, rgba(255, 255, 255, 0.4));
-  transition: width 0.25s var(--ease-standard), background-color 0.25s var(--ease-standard);
+  /* 规范例外（§5.5.2）：页面指示器由 6px 变 18px 长条，
+     改用 scaleX 会把 pill 圆角拉成椭圆，视觉错误；
+     元素极小（<100px²），重排代价可忽略，故保留 width 过渡。 */
+  transition: width var(--duration-normal) var(--ease-standard),
+              background-color var(--duration-normal) var(--ease-standard);
 }
 
 .page-dot--active::before {
@@ -116,7 +120,7 @@ export default {
   justify-content: center;
   margin-left: 4px;
   -webkit-tap-highlight-color: transparent;
-  transition: transform 0.15s var(--ease-standard);
+  transition: transform var(--duration-fast) var(--ease-standard);
 }
 
 .page-add-btn:active {

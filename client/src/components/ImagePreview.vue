@@ -10,7 +10,7 @@
           @touchcancel="onTouchEnd"
           @wheel="onWheel">
           <img :src="imageUrl" class="preview-image"
-            :style="{ transform: 'translate(' + x + 'px,' + y + 'px) scale(' + scale + ')', transition: (isPinching || isDragging) ? 'none' : 'transform 0.18s ease-out' }"
+            :style="{ transform: 'translate(' + x + 'px,' + y + 'px) scale(' + scale + ')', transition: (isPinching || isDragging) ? 'none' : 'transform var(--duration-normal) var(--ease-decelerate)' }"
             @load="onImageLoad"
             draggable="false" />
         </div>
@@ -244,7 +244,7 @@ export default {
   position: absolute; top: 16px; width: 40px; height: 40px;
   border-radius: 50%; background: rgba(255,255,255,0.2); color: #fff;
   display: flex; align-items: center; justify-content: center;
-  cursor: pointer; transition: background 0.15s, transform 0.15s;
+  cursor: pointer; transition: background var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
   z-index: 10; -webkit-tap-highlight-color: transparent;
 }
 .preview-action-btn:active { background: rgba(255,255,255,0.35); transform: scale(0.94); }

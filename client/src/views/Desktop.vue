@@ -1341,7 +1341,7 @@ export default {
   -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
   opacity: 0;
-  transition: opacity 0.8s var(--ease-standard), -webkit-filter 0.3s var(--ease-standard), filter 0.3s var(--ease-standard);
+  transition: opacity 0.8s var(--ease-standard), -webkit-filter var(--duration-normal) var(--ease-standard), filter var(--duration-normal) var(--ease-standard);
 }
 
 .desktop-video-wallpaper.video-active {
@@ -1355,7 +1355,7 @@ export default {
   width: 100%;
   height: 100%;
   z-index: 0;
-  transition: -webkit-filter 0.3s var(--ease-standard), filter 0.3s var(--ease-standard);
+  transition: -webkit-filter var(--duration-normal) var(--ease-standard), filter var(--duration-normal) var(--ease-standard);
 }
 
 /* ===== 多页面容器 ===== */
@@ -1369,7 +1369,7 @@ export default {
   display: -webkit-flex;
   display: flex;
   z-index: 1;
-  transition: transform 0.35s var(--ease-decelerate);
+  transition: transform var(--duration-normal) var(--ease-decelerate);
   will-change: transform;
 }
 
@@ -1404,13 +1404,13 @@ export default {
   min-height: 0;
   border-radius: 22px;
   overflow: hidden;
-  transition: transform 0.2s var(--ease-standard, ease);
+  transition: transform var(--duration-fast) var(--ease-standard);
   /* 兜底背景，避免 widget 内部组件未设背景时与壁纸融合看不清 */
   background: var(--card-bg, rgba(255, 255, 255, 0.7));
   box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.08));
 }
 .desktop-widget.widget-editing {
-  animation: widgetWiggle 0.25s ease-in-out infinite;
+  animation: widgetWiggle var(--duration-normal) ease-in-out infinite;
   outline: 2px dashed rgba(0, 122, 255, 0.5);
   outline-offset: -2px;
 }
@@ -1440,7 +1440,7 @@ export default {
   -webkit-justify-content: center;
   justify-content: center;
   z-index: 10;
-  transition: transform 0.15s;
+  transition: transform var(--duration-fast) var(--ease-standard);
 }
 .widget-remove-btn:hover { transform: scale(1.15); background: #FF453A; }
 .widget-remove-btn:active { transform: scale(0.9); }
@@ -1464,7 +1464,8 @@ export default {
   -webkit-justify-content: center;
   justify-content: center;
   z-index: 10;
-  transition: transform 0.15s, background 0.15s;
+  transition: transform var(--duration-fast) var(--ease-standard),
+              background var(--duration-fast) var(--ease-standard);
 }
 .widget-ctrl-btn:hover { transform: scale(1.15); }
 .widget-ctrl-btn:active { transform: scale(0.9); }
@@ -1502,7 +1503,7 @@ export default {
   justify-content: center;
   position: relative;
   border-radius: var(--radius-lg);
-  transition: background 0.15s var(--ease-standard), box-shadow 0.15s var(--ease-standard);
+  transition: background var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
 }
 
 /* 落点高亮 */
@@ -1563,7 +1564,7 @@ export default {
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
-  transition: background 0.3s var(--ease-standard), box-shadow 0.3s var(--ease-standard);
+  transition: background var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
 }
 /* Chrome/Safari/Edge 隐藏滚动条 */
 .dock-bar::-webkit-scrollbar {
@@ -1601,8 +1602,8 @@ export default {
 
 /* 编辑态：Dock 图标单独 wiggle（与 AppIcon 统一），禁用 hover 缩放避免与 wiggle 冲突 */
 .desktop--editing .dock-slot {
-  -webkit-animation: dockSlotWiggle 0.25s var(--ease-standard) infinite alternate;
-  animation: dockSlotWiggle 0.25s var(--ease-standard) infinite alternate;
+  -webkit-animation: dockSlotWiggle var(--duration-normal) var(--ease-standard) infinite alternate;
+  animation: dockSlotWiggle var(--duration-normal) var(--ease-standard) infinite alternate;
   will-change: transform;
 }
 .desktop--editing .dock-slot:hover {
@@ -1628,8 +1629,8 @@ export default {
   cursor: pointer;
   position: relative;
   margin: 0 9px;
-  -webkit-transition: -webkit-transform 0.3s var(--ease-spring);
-  transition: transform 0.3s var(--ease-spring);
+  -webkit-transition: -webkit-transform var(--duration-normal) var(--ease-spring);
+  transition: transform var(--duration-normal) var(--ease-spring);
   border-radius: var(--radius-xl);
 }
 
@@ -1646,18 +1647,18 @@ export default {
 
 /* transition-group：Dock 图标进出动画（自动扩展/缩减） */
 .dock-slot-move {
-  -webkit-transition: -webkit-transform 0.35s var(--ease-spring, var(--ease-spring));
-  transition: transform 0.35s var(--ease-spring, var(--ease-spring));
+  -webkit-transition: -webkit-transform var(--duration-normal) var(--ease-spring);
+  transition: transform var(--duration-normal) var(--ease-spring);
 }
 
 .dock-slot-enter-active {
-  -webkit-transition: opacity 0.3s var(--ease-standard), -webkit-transform 0.3s var(--ease-spring, var(--ease-spring));
-  transition: opacity 0.3s var(--ease-standard), transform 0.3s var(--ease-spring, var(--ease-spring));
+  -webkit-transition: opacity var(--duration-normal) var(--ease-standard), -webkit-transform var(--duration-normal) var(--ease-spring);
+  transition: opacity var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-spring);
 }
 
 .dock-slot-leave-active {
-  -webkit-transition: opacity 0.25s var(--ease-accelerate), -webkit-transform 0.25s var(--ease-accelerate);
-  transition: opacity 0.25s var(--ease-accelerate), transform 0.25s var(--ease-accelerate);
+  -webkit-transition: opacity var(--duration-normal) var(--ease-accelerate), -webkit-transform var(--duration-normal) var(--ease-accelerate);
+  transition: opacity var(--duration-normal) var(--ease-accelerate), transform var(--duration-normal) var(--ease-accelerate);
   position: absolute;
 }
 
@@ -1674,8 +1675,8 @@ export default {
 }
 
 .dock-slot.dock-slot--launching {
-  -webkit-animation: dockLaunch 0.3s var(--ease-emphasized) forwards;
-  animation: dockLaunch 0.3s var(--ease-emphasized) forwards;
+  -webkit-animation: dockLaunch var(--duration-normal) var(--ease-emphasized) forwards;
+  animation: dockLaunch var(--duration-normal) var(--ease-emphasized) forwards;
 }
 
 @-webkit-keyframes dockLaunch {
@@ -1872,8 +1873,8 @@ export default {
   -webkit-justify-content: center;
   justify-content: center;
   font-size: 14px;
-  -webkit-transition: background 0.2s var(--ease-standard), color 0.2s var(--ease-standard);
-  transition: background 0.2s var(--ease-standard), color 0.2s var(--ease-standard);
+  -webkit-transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
+  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
 }
 
 .announcement-float-close:hover {
@@ -1938,8 +1939,8 @@ export default {
   -webkit-align-items: center;
   align-items: center;
   gap: 4px;
-  -webkit-transition: background 0.2s var(--ease-standard), opacity 0.2s var(--ease-standard);
-  transition: background 0.2s var(--ease-standard), opacity 0.2s var(--ease-standard);
+  -webkit-transition: background var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard);
+  transition: background var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard);
 }
 
 .announcement-float-btn i {
@@ -1967,13 +1968,13 @@ export default {
 
 /* Announcement Float Transition */
 .announcement-float-enter-active {
-  -webkit-transition: opacity 0.4s var(--ease-standard), -webkit-transform 0.4s var(--ease-spring);
-  transition: opacity 0.4s var(--ease-standard), transform 0.4s var(--ease-spring);
+  -webkit-transition: opacity var(--duration-normal) var(--ease-standard), -webkit-transform var(--duration-normal) var(--ease-spring);
+  transition: opacity var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-spring);
 }
 
 .announcement-float-leave-active {
-  -webkit-transition: opacity 0.3s var(--ease-standard), -webkit-transform 0.3s var(--ease-accelerate);
-  transition: opacity 0.3s var(--ease-standard), transform 0.3s var(--ease-accelerate);
+  -webkit-transition: opacity var(--duration-normal) var(--ease-standard), -webkit-transform var(--duration-normal) var(--ease-accelerate);
+  transition: opacity var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-accelerate);
 }
 
 .announcement-float-enter {
@@ -1990,12 +1991,12 @@ export default {
 
 /* 文件夹展开过渡：打开淡入，关闭淡出+缩回（参考 iPadOS 关闭文件夹缩回动画） */
 .folder-expand-enter-active {
-  -webkit-transition: opacity 0.25s var(--ease-standard);
-  transition: opacity 0.25s var(--ease-standard);
+  -webkit-transition: opacity var(--duration-normal) var(--ease-standard);
+  transition: opacity var(--duration-normal) var(--ease-standard);
 }
 .folder-expand-leave-active {
-  -webkit-transition: opacity 0.2s var(--ease-accelerate), -webkit-transform 0.2s var(--ease-accelerate);
-  transition: opacity 0.2s var(--ease-accelerate), transform 0.2s var(--ease-accelerate);
+  -webkit-transition: opacity var(--duration-fast) var(--ease-accelerate), -webkit-transform var(--duration-fast) var(--ease-accelerate);
+  transition: opacity var(--duration-fast) var(--ease-accelerate), transform var(--duration-fast) var(--ease-accelerate);
 }
 .folder-expand-enter, .folder-expand-leave-to {
   opacity: 0;
@@ -2027,7 +2028,7 @@ export default {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  animation: wcDialogIn 0.2s var(--ease-standard, ease);
+  animation: wcDialogIn var(--duration-fast) var(--ease-standard);
 }
 @keyframes wcDialogIn {
   from { opacity: 0; transform: scale(0.92); }
@@ -2053,7 +2054,7 @@ export default {
   cursor: pointer;
   padding: 4px 8px;
   border-radius: var(--radius-sm);
-  transition: background 0.15s;
+  transition: background var(--duration-fast) var(--ease-standard);
 }
 .wc-close:hover {
   background: var(--separator-color, rgba(0,0,0,0.06));
@@ -2085,7 +2086,7 @@ export default {
   color: var(--text-primary);
   font-size: 14px;
   box-sizing: border-box;
-  transition: border-color 0.15s;
+  transition: border-color var(--duration-fast) var(--ease-standard);
 }
 .wc-select:focus, .wc-input:focus {
   outline: none;
@@ -2104,7 +2105,7 @@ export default {
   background: var(--separator-color, #e9e9ea);
   position: relative;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: background var(--duration-fast) var(--ease-standard);
   padding: 0;
   flex-shrink: 0;
 }
@@ -2120,7 +2121,7 @@ export default {
   border-radius: 50%;
   background: #fff;
   box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-  transition: transform 0.2s var(--ease-standard, ease);
+  transition: transform var(--duration-fast) var(--ease-standard);
 }
 .wc-switch.on .wc-switch-knob {
   transform: translateX(18px);
@@ -2145,7 +2146,7 @@ export default {
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  transition: transform 0.15s var(--ease-standard), background 0.15s var(--ease-standard), box-shadow 0.15s var(--ease-standard), opacity 0.15s var(--ease-standard);
+  transition: transform var(--duration-fast) var(--ease-standard), background var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard);
   min-height: 38px;
 }
 .wc-btn:active {

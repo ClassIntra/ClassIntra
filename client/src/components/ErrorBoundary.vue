@@ -101,7 +101,7 @@ export default {
 }
 
 .error-actions { display: flex; justify-content: center; gap: 8px; }
-.error-help { margin: 12px 0 0; color: var(--text-tertiary, var(--text-secondary)); font-size: var(--font-size-xs); }
+.error-help { margin: 12px 0 0; color: var(--text-tertiary); font-size: var(--font-size-xs); }
 .error-retry-btn {
   padding: 10px 24px;
   background: var(--primary-color);

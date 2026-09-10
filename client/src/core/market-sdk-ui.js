@@ -382,7 +382,8 @@ function ensureStyles() {
     '.ios-list-item-text{min-width:0;flex:1}',
     '.ios-list-item-title{font-size:var(--font-size-body);color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
     '.ios-list-item-subtitle{font-size:var(--font-size-footnote);color:var(--text-secondary);margin-top:2px}',
-    '.ios-list-item-right{display:flex;align-items:center;gap:6px;flex-shrink:0}',
+    '.ios-list-item-right{display:flex;align-items:center;flex-shrink:0}',
+    '.ios-list-item-right>*+*{margin-left:6px}',
     '.ios-list-item-value{font-size:var(--font-size-body);color:var(--text-secondary)}',
     '.ios-list-item-chevron{font-size:12px;color:var(--text-tertiary,#c7c7cc)}',
     /* 徽标 */
@@ -396,7 +397,8 @@ function ensureStyles() {
     '.ios-segmented-item{border:0;background:transparent;padding:6px 14px;font-size:var(--font-size-footnote);font-family:var(--font-family);color:var(--text-primary);cursor:pointer;border-radius:calc(var(--radius-sm) - 2px);transition:background var(--duration-fast) var(--ease-standard)}',
     '.ios-segmented-item.is-active{background:var(--card-bg,#fff);font-weight:var(--font-weight-semibold);box-shadow:0 1px 3px rgba(0,0,0,.1)}',
     /* 开关 */
-    '.ios-switch-wrap{display:inline-flex;align-items:center;gap:8px;cursor:pointer}',
+    '.ios-switch-wrap{display:inline-flex;align-items:center;cursor:pointer}',
+    '.ios-switch-wrap>*+*{margin-left:8px}',
     '.ios-switch-input{position:absolute;opacity:0;width:0;height:0}',
     '.ios-switch-track{position:relative;display:inline-block;width:51px;height:31px;background:var(--separator-color);border-radius:9999px;transition:background var(--duration-normal) var(--ease-standard)}',
     '.ios-switch-knob{position:absolute;top:2px;left:2px;width:27px;height:27px;background:#fff;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,.2);transition:transform var(--duration-normal) var(--ease-standard)}',
@@ -404,7 +406,8 @@ function ensureStyles() {
     '.ios-switch-input:checked+.ios-switch-track .ios-switch-knob{transform:translateX(20px)}',
     '.ios-switch-label{font-size:var(--font-size-body);color:var(--text-primary)}',
     /* 搜索栏 */
-    '.ios-search-bar{display:flex;align-items:center;gap:8px;background:var(--input-bg,var(--secondary-bg));border-radius:var(--radius-sm);padding:8px 12px}',
+    '.ios-search-bar{display:flex;align-items:center;background:var(--input-bg,var(--secondary-bg));border-radius:var(--radius-sm);padding:8px 12px}',
+    '.ios-search-bar>*+*{margin-left:8px}',
     '.ios-search-bar-icon{color:var(--text-tertiary,#c7c7cc);font-size:14px}',
     '.ios-search-bar-input{flex:1;border:0;background:transparent;outline:none;font-size:var(--font-size-body);font-family:var(--font-family);color:var(--text-primary)}',
     /* 空状态 */
@@ -412,8 +415,9 @@ function ensureStyles() {
     '.ios-empty-state-icon{font-size:40px;color:var(--text-tertiary,#c7c7cc);margin-bottom:12px}',
     '.ios-empty-state-title{font-size:var(--font-size-headline);font-weight:var(--font-weight-semibold);color:var(--text-primary);margin-bottom:6px}',
     '.ios-empty-state-desc{font-size:var(--font-size-footnote);color:var(--text-secondary);margin-bottom:16px;max-width:280px}',
-    /* 加载 */
-    '.ios-spinner-wrap{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px}',
+    /* 加载：循环动画用 linear（§5.5.1 第 9 项豁免）——匀速旋转才自然，缓动会「一冲一停」 */
+    '.ios-spinner-wrap{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px}',
+    '.ios-spinner-wrap>*+*{margin-top:10px}',
     '.ios-spinner{width:28px;height:28px;border:3px solid var(--separator-color);border-top-color:var(--primary-color);border-radius:50%;animation:ci-sdk-spin .8s linear infinite}',
     '.ios-spinner-text{font-size:var(--font-size-footnote);color:var(--text-secondary)}',
     '@keyframes ci-sdk-spin{to{transform:rotate(360deg)}}',
@@ -425,8 +429,10 @@ function ensureStyles() {
     /* 区块标题 */
     '.ios-section-title{font-size:var(--font-size-footnote);font-weight:var(--font-weight-medium);color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;padding:0 var(--spacing-xs);margin-bottom:6px}',
     /* 工具栏 */
-    '.ios-toolbar{display:flex;align-items:center;gap:4px;padding:6px;background:var(--nav-bg);border-top:.5px solid var(--separator-color)}',
-    '.ios-toolbar-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;border:0;background:transparent;padding:6px;cursor:pointer;color:var(--text-secondary);font-family:var(--font-family);font-size:var(--font-size-caption2)}',
+    '.ios-toolbar{display:flex;align-items:center;padding:6px;background:var(--nav-bg);border-top:.5px solid var(--separator-color)}',
+    '.ios-toolbar>*+*{margin-left:4px}',
+    '.ios-toolbar-item{flex:1;display:flex;flex-direction:column;align-items:center;border:0;background:transparent;padding:6px;cursor:pointer;color:var(--text-secondary);font-family:var(--font-family);font-size:var(--font-size-caption2)}',
+    '.ios-toolbar-item>*+*{margin-top:2px}',
     '.ios-toolbar-item.is-active{color:var(--primary-color)}'
   ].join('');
 

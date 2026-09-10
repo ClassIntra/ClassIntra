@@ -84,11 +84,11 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.3s, transform 0.3s;
+  transition: background var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard);
 }
 
 .notif-icon-pulse {
-  animation: notif-icon-pop 0.5s var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
+  animation: notif-icon-pop 0.5s var(--ease-spring);
 }
 
 @keyframes notif-icon-pop {

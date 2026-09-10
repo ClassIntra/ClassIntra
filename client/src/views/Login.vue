@@ -325,8 +325,8 @@ export default {
   /* 入场：scale(0.95)+opacity（emil-design：never animate from scale(0)） */
   opacity: 0;
   transform: scale(0.95) translateY(12px);
-  transition: opacity 0.5s var(--ease-decelerate, cubic-bezier(0, 0, 0.2, 1)),
-              transform 0.6s var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
+  transition: opacity var(--duration-normal) var(--ease-decelerate),
+              transform 0.6s var(--ease-spring);
 }
 
 .login-page.page-enter .login-card {
@@ -393,9 +393,9 @@ export default {
   background: rgba(255, 255, 255, 0.65);
   border: 1.5px solid rgba(0, 0, 0, 0.06);
   border-radius: var(--radius-lg);
-  transition: border-color 0.18s var(--ease-standard, ease),
-              box-shadow 0.18s var(--ease-standard, ease),
-              background-color 0.18s var(--ease-standard, ease);
+  transition: border-color var(--duration-fast) var(--ease-standard),
+              box-shadow var(--duration-fast) var(--ease-standard),
+              background-color var(--duration-fast) var(--ease-standard);
 }
 
 [data-theme="dark"] .input-wrap {
@@ -421,7 +421,7 @@ export default {
   margin-left: 16px;
   font-size: 16px;
   color: var(--text-tertiary);
-  transition: color 0.18s var(--ease-standard, ease);
+  transition: color var(--duration-fast) var(--ease-standard);
   pointer-events: none;
 }
 
@@ -467,9 +467,9 @@ export default {
   color: var(--text-secondary);
   background: transparent;
   border-radius: var(--radius-md);
-  transition: background-color 0.15s var(--ease-standard, ease),
-              transform 0.15s var(--ease-standard, ease),
-              color 0.15s var(--ease-standard, ease);
+  transition: background-color var(--duration-fast) var(--ease-standard),
+              transform var(--duration-fast) var(--ease-standard),
+              color var(--duration-fast) var(--ease-standard);
 }
 .password-toggle:hover {
   background: rgba(0, 0, 0, 0.05);
@@ -508,12 +508,12 @@ export default {
 
 /* 错误消息过渡：从左滑入 + 淡入（spatial consistency） */
 .error-fade-enter-active {
-  transition: opacity 0.2s var(--ease-decelerate, ease-out),
-              transform 0.2s var(--ease-decelerate, ease-out);
+  transition: opacity var(--duration-fast) var(--ease-decelerate),
+              transform var(--duration-fast) var(--ease-decelerate);
 }
 .error-fade-leave-active {
-  transition: opacity 0.15s var(--ease-accelerate, ease-in),
-              transform 0.15s var(--ease-accelerate, ease-in);
+  transition: opacity var(--duration-fast) var(--ease-accelerate),
+              transform var(--duration-fast) var(--ease-accelerate);
 }
 .error-fade-enter {
   opacity: 0;
@@ -540,9 +540,9 @@ export default {
   justify-content: center;
   box-shadow: 0 6px 16px rgba(var(--primary-rgb), 0.4),
               inset 0 1px 0 rgba(255, 255, 255, 0.25);
-  transition: background-color 0.15s var(--ease-standard, ease),
-              transform 0.15s var(--ease-standard, ease),
-              box-shadow 0.15s var(--ease-standard, ease);
+  transition: background-color var(--duration-fast) var(--ease-standard),
+              transform var(--duration-fast) var(--ease-standard),
+              box-shadow var(--duration-fast) var(--ease-standard);
 }
 
 .btn-primary:hover {
@@ -668,8 +668,8 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background-color 0.15s var(--ease-standard, ease),
-              transform 0.15s var(--ease-standard, ease);
+  transition: background-color var(--duration-fast) var(--ease-standard),
+              transform var(--duration-fast) var(--ease-standard);
 }
 [data-theme="dark"] .sheet-close {
   background: rgba(255, 255, 255, 0.1);
@@ -744,9 +744,9 @@ export default {
   text-transform: uppercase;
   color: var(--text-primary, #000);
   background: rgba(0, 0, 0, 0.03);
-  transition: border-color 0.18s var(--ease-standard, ease),
-              box-shadow 0.18s var(--ease-standard, ease),
-              background-color 0.18s var(--ease-standard, ease);
+  transition: border-color var(--duration-fast) var(--ease-standard),
+              box-shadow var(--duration-fast) var(--ease-standard),
+              background-color var(--duration-fast) var(--ease-standard);
 }
 [data-theme="dark"] .sheet-input {
   background: rgba(255, 255, 255, 0.05);
@@ -778,9 +778,9 @@ export default {
   justify-content: center;
   box-shadow: 0 6px 16px rgba(var(--primary-rgb, 0, 122, 255), 0.4),
               inset 0 1px 0 rgba(255, 255, 255, 0.25);
-  transition: background-color 0.15s var(--ease-standard, ease),
-              transform 0.15s var(--ease-standard, ease),
-              box-shadow 0.15s var(--ease-standard, ease);
+  transition: background-color var(--duration-fast) var(--ease-standard),
+              transform var(--duration-fast) var(--ease-standard),
+              box-shadow var(--duration-fast) var(--ease-standard);
 }
 .sheet-submit:hover {
   background: var(--primary-hover, #0066cc);
@@ -798,18 +798,18 @@ export default {
 
 /* ========== Sheet 过渡：从底部滑入 + scale(0.95) ========== */
 .sheet-fade-enter-active {
-  transition: opacity 0.25s var(--ease-decelerate, ease-out);
+  transition: opacity var(--duration-normal) var(--ease-decelerate);
 }
 .sheet-fade-leave-active {
-  transition: opacity 0.2s var(--ease-accelerate, ease-in);
+  transition: opacity var(--duration-fast) var(--ease-accelerate);
 }
 .sheet-fade-enter-active .sheet-card {
-  transition: transform 0.4s var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1)),
-              opacity 0.3s var(--ease-decelerate, ease-out);
+  transition: transform var(--duration-normal) var(--ease-spring),
+              opacity var(--duration-normal) var(--ease-decelerate);
 }
 .sheet-fade-leave-active .sheet-card {
-  transition: transform 0.2s var(--ease-accelerate, ease-in),
-              opacity 0.2s var(--ease-accelerate, ease-in);
+  transition: transform var(--duration-fast) var(--ease-accelerate),
+              opacity var(--duration-fast) var(--ease-accelerate);
 }
 .sheet-fade-enter,
 .sheet-fade-leave-to {
@@ -865,12 +865,12 @@ export default {
     animation: none !important;
   }
   .login-card {
-    transition: opacity 0.2s ease !important;
+    transition: opacity var(--duration-fast) var(--ease-standard) !important;
     transform: none !important;
   }
   .sheet-fade-enter-active .sheet-card,
   .sheet-fade-leave-active .sheet-card {
-    transition-duration: 0.15s !important;
+    transition-duration: var(--duration-fast) !important;
     transform: none !important;
   }
   .btn-primary:active,

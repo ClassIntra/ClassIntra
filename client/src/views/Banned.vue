@@ -295,8 +295,8 @@ export default {
   /* 入场动画 */
   opacity: 0;
   transform: scale(0.95) translateY(12px);
-  transition: opacity 0.5s var(--ease-decelerate, cubic-bezier(0, 0, 0.2, 1)),
-              transform 0.6s var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
+  transition: opacity var(--duration-normal) var(--ease-decelerate),
+              transform 0.6s var(--ease-spring);
 }
 
 .banned-page.page-enter .banned-card {
@@ -462,9 +462,9 @@ export default {
   font-size: var(--font-size-subheadline);
   font-weight: var(--font-weight-semibold);
   cursor: pointer;
-  transition: background-color 0.15s var(--ease-standard, ease),
-              transform 0.15s var(--ease-standard, ease),
-              border-color 0.15s var(--ease-standard, ease);
+  transition: background-color var(--duration-fast) var(--ease-standard),
+              transform var(--duration-fast) var(--ease-standard),
+              border-color var(--duration-fast) var(--ease-standard);
 }
 
 [data-theme="dark"] .btn-check {
@@ -502,7 +502,7 @@ export default {
     animation: none;
   }
   .banned-card {
-    transition: opacity 0.2s ease;
+    transition: opacity var(--duration-fast) var(--ease-standard);
     transform: none;
   }
   .banned-page.page-enter .banned-card {

@@ -238,7 +238,7 @@ export default {
   font-size: 18px;
   padding: 4px;
   cursor: pointer;
-  transition: color 0.15s;
+  transition: color var(--duration-fast) var(--ease-standard);
 }
 .picker-fullscreen-btn:hover { color: var(--primary-color); }
 .picker-close {
@@ -248,7 +248,7 @@ export default {
   font-size: 20px;
   padding: 4px;
   cursor: pointer;
-  transition: color 0.15s;
+  transition: color var(--duration-fast) var(--ease-standard);
 }
 .picker-close:hover {
   color: var(--text-primary);
@@ -276,7 +276,7 @@ export default {
   background: var(--bg-color);
   color: var(--text-primary);
   font-size: 14px;
-  transition: border-color 0.15s;
+  transition: border-color var(--duration-fast) var(--ease-standard);
 }
 
 .picker-search-input:focus {
@@ -294,7 +294,7 @@ export default {
   padding: 6px 12px; border-radius: var(--radius-pill);
   font-size: 12px; color: var(--text-secondary);
   background: var(--bg-color); border: none; cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
 }
 .picker-tab.active {
   background: var(--primary-color); color: #fff;
@@ -317,7 +317,7 @@ export default {
   font-size: 11px; color: var(--text-tertiary);
   background: transparent; border: 1px solid var(--border-color);
   cursor: pointer; flex-shrink: 0;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard);
 }
 .picker-folder-tab.active {
   background: var(--primary-color); color: #fff;
@@ -376,7 +376,7 @@ export default {
   background: var(--bg-color);
   overflow: hidden;
   cursor: pointer;
-  transition: transform 0.15s, box-shadow 0.15s;
+  transition: transform var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
 }
 
 .picker-item:hover {

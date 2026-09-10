@@ -776,7 +776,7 @@ export default {
   padding: 6px 10px;
   margin-bottom: 6px;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--duration-fast) var(--ease-standard);
 }
 /* 深色模式下对方气泡引用块用半透明白 */
 [data-theme="dark"] .reply-quote {
@@ -842,7 +842,7 @@ export default {
   background: var(--bg-color);
   border: 1px solid var(--border-color);
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard);
   -webkit-user-select: none;
   user-select: none;
 }
@@ -898,7 +898,7 @@ export default {
   font-family: inherit;
   line-height: 1;
   border-radius: 3px;
-  transition: opacity 0.15s;
+  transition: opacity var(--duration-fast) var(--ease-standard);
 }
 
 .status-retry:hover {
@@ -1034,7 +1034,7 @@ export default {
   color: var(--danger-color);
   text-align: center;
   border-radius: var(--radius-sm);
-  transition: background 0.15s;
+  transition: background var(--duration-fast) var(--ease-standard);
 }
 
 .context-menu-item:hover {
@@ -1051,7 +1051,7 @@ export default {
   -webkit-user-select: none;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
-  transition: opacity 0.15s;
+  transition: opacity var(--duration-fast) var(--ease-standard);
 }
 
 .msg-image:active {
@@ -1176,7 +1176,7 @@ export default {
   max-width: 6px;
   border-radius: 2px;
   background: var(--text-color-secondary, rgba(0, 0, 0, 0.3));
-  transition: background 0.15s;
+  transition: background var(--duration-fast) var(--ease-standard);
 }
 
 .own-bubble >>> .voice-wave-bars span {

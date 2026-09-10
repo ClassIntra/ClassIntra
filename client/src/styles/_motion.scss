@@ -75,3 +75,41 @@ $duration-slow: 0.35s;
     scroll-behavior: auto !important;
   }
 }
+
+// ========== 毛玻璃降级（§5.5.3） ==========
+// 由 PerfPolicy（client/src/core/perf-policy.js）在 <html> 上设置：
+//   [data-perf="low"]      低端设备（内存/核心数/saveData 判定）
+//   [data-scrolling="1"]   滚动进行中（停止 120ms 后移除）
+//   [data-glass="flat"]    用户显式省电（与 data-no-motion 联动）
+//   [data-engine="x5"]     腾讯 X5/TBS 内核标记
+//
+// 降级方式：把 backdrop-filter 置为 none。
+// 关键：不改变任何尺寸与位置属性，因此不产生重排——
+//       用户只感到「变清爽」，不会看到布局跳动。
+//
+// 覆盖策略说明：
+//   全仓 90 处 backdrop-filter 中，绝大多数直接引用 var(--glass-blur-*) 令牌。
+//   因此降级不逐个标记类名，而是用「属性存在 + 后代通配」一次性覆盖，
+//   避免遗漏，也不需要在每个组件里改代码。
+//   通配选择器仅在降级条件命中时生效（低频：低端设备 / 滚动进行中），
+//   正常状态下不参与匹配，无性能代价。
+
+// 降级条件：三者任一命中
+[data-perf="low"] *,
+[data-scrolling="1"] *,
+[data-glass="flat"] * {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+// 低端设备：禁用模糊滤镜（filter 触发重绘，代价高于 backdrop-filter）
+[data-perf="low"] * {
+  filter: none !important;
+}
+
+// X5/TBS 内核：毛玻璃实现与 Chromium 原生有差异，滚动期间统一降级以保稳定
+[data-engine="x5"][data-scrolling="1"] * {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+

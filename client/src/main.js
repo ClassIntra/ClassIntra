@@ -97,6 +97,7 @@ import { getHotkeyManager } from '@/core/hotkey-manager';
 import { getSearchRegistry } from '@/core/search-registry';
 import { getIntegrationManager } from '@/integrations';
 import { getRuntimeKernel } from '@/core/runtime-kernel';
+import { getPerfPolicy } from '@/core/perf-policy';
 import { createContext } from '@/core/market-sdk';
 import api from '@/utils/api';
 import wsManager from '@/utils/websocket';
@@ -206,10 +207,20 @@ boot.onStage('services', 'serviceRegistry', function() {
   serviceRegistry.register('hotkey', function() { return getHotkeyManager(); });
   serviceRegistry.register('integration', function() { return getIntegrationManager(); });
   serviceRegistry.register('search', function() { return getSearchRegistry(); });
+  serviceRegistry.register('perfPolicy', function() { return getPerfPolicy(); });
   // 暴露到 Vue 原型，供组件通过 this.$services.resolve('xxx') 访问
   Vue.prototype.$services = serviceRegistry;
   // 让 AppShell / 第三方可通过全局访问主题引擎（订阅主题变化）
   window.__getThemeEngine = function() { return getThemeEngine(); };
+
+  // 性能策略：设备能力探测 + 毛玻璃降级（§5.5.3）
+  // 在 services 阶段初始化，早于任何视图挂载，避免首屏先渲染再降级导致的闪变
+  try {
+    getPerfPolicy().init({ eventBus: getEventBus() });
+    window.__getPerfPolicy = function() { return getPerfPolicy(); };
+  } catch (e) {
+    console.error('[main] PerfPolicy 初始化失败:', e);
+  }
 
   // 注册四类模块到统一注册表（定位见 docs/ecosystem-design.md §1.5）
   kernel.modules.register('component', 'AppShell', { label: '应用统一容器', version: '1' });

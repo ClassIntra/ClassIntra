@@ -61,7 +61,7 @@ export default {
   padding: 0 20px; border-radius: 0; border: none;
   border-top: 0.5px solid var(--separator-color);
   background: transparent; color: var(--primary-color); font-size: var(--font-size-callout);
-  cursor: pointer; transition: background var(--transition-fast), transform 0.15s var(--ease-emphasized);
+  cursor: pointer; transition: background var(--transition-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-emphasized);
   min-height: 44px; font-weight: var(--font-weight-regular);
 }
 .btn-secondary:hover { background: var(--primary-lighter); }
@@ -71,7 +71,7 @@ export default {
   padding: 0 20px; border-radius: 0; border: none;
   border-top: 0.5px solid var(--separator-color);
   font-size: var(--font-size-callout); font-weight: var(--font-weight-semibold); cursor: pointer;
-  transition: background var(--transition-fast), transform 0.15s var(--ease-emphasized);
+  transition: background var(--transition-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-emphasized);
   min-height: 44px;
 }
 .btn-confirm:active { transform: scale(0.94); opacity: 0.7; }
@@ -79,8 +79,8 @@ export default {
 .btn-danger:hover { background: var(--danger-lighter, rgba(255, 59, 48, 0.08)); }
 .btn-primary-confirm { background: transparent; color: var(--primary-color); }
 .btn-primary-confirm:hover { background: var(--primary-lighter); }
-.modal-fade-enter-active { transition: opacity 0.25s var(--ease-emphasized), transform 0.3s var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1)); }
-.modal-fade-leave-active { transition: opacity 0.15s var(--ease-accelerate), transform 0.15s var(--ease-accelerate); }
+.modal-fade-enter-active { transition: opacity var(--duration-normal) var(--ease-emphasized), transform var(--duration-normal) var(--ease-spring)); }
+.modal-fade-leave-active { transition: opacity var(--duration-fast) var(--ease-accelerate), transform var(--duration-fast) var(--ease-accelerate); }
 .modal-fade-enter { opacity: 0; transform: scale(0.92) translateY(8px); }
 .modal-fade-leave-to { opacity: 0; transform: scale(0.97) translateY(-4px); }
 </style>

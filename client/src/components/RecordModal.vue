@@ -578,7 +578,7 @@ export default {
   background: var(--bg-card, #fff);
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   padding: 20px 24px calc(20px + env(safe-area-inset-bottom, 0px));
-  animation: sheetSlideUp 0.3s var(--ease-standard, ease-out);
+  animation: sheetSlideUp var(--duration-normal) var(--ease-standard);
 }
 
 @keyframes sheetSlideUp {
@@ -946,7 +946,13 @@ export default {
   height: 56px;
   border-radius: 50%;
   background: #ff3b30;
-  transition: width 0.2s var(--ease-standard), height 0.2s var(--ease-standard), border-radius 0.2s var(--ease-standard), background 0.2s var(--ease-standard);
+  /* 规范例外（§5.5.2）：录音按钮在「圆形 56px ↔ 方形 24px」间形变，
+     形状变化必须靠 border-radius + 尺寸过渡表达，scale 无法还原圆→方；
+     元素极小，重排代价可忽略。 */
+  transition: width var(--duration-fast) var(--ease-standard),
+              height var(--duration-fast) var(--ease-standard),
+              border-radius var(--duration-fast) var(--ease-standard),
+              background var(--duration-fast) var(--ease-standard);
 }
 
 .vf-record-btn.recording .vf-btn-inner {
@@ -986,7 +992,7 @@ export default {
   background: var(--primary-color, #007aff);
   transform: scaleX(0);
   transform-origin: left center;
-  transition: transform 0.2s var(--ease-standard, ease);
+  transition: transform var(--duration-fast) var(--ease-standard);
   will-change: transform;
 }
 
@@ -1034,7 +1040,7 @@ export default {
 
 /* 过渡动画 */
 .record-modal-fade-enter-active, .record-modal-fade-leave-active {
-  transition: opacity 0.25s var(--ease-standard, ease-out);
+  transition: opacity var(--duration-normal) var(--ease-standard);
 }
 
 .record-modal-fade-enter, .record-modal-fade-leave-to {

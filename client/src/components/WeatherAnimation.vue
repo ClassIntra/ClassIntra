@@ -1252,7 +1252,7 @@ export default {
   height: 100%;
   background: rgba(200, 215, 255, 0.4);
   opacity: 0;
-  transition: opacity 0.25s var(--ease-standard);
+  transition: opacity var(--duration-normal) var(--ease-standard);
   pointer-events: none;
 }
 

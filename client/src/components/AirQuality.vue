@@ -13,7 +13,7 @@
         <div class="seg s5"></div>
         <div class="seg s6"></div>
       </div>
-      <div class="aqi-dot" :style="{ left: indicatorPosition + '%' }"></div>
+      <div class="aqi-dot" :style="{ transform: 'translateX(calc(' + indicatorPosition + '% - 50%))' }"></div>
     </div>
     <div class="pollutants" v-if="topPollutants.length">
       <div class="p-row" v-for="p in topPollutants" :key="p.code">
@@ -185,13 +185,14 @@ export default {
 .aqi-dot {
   position: absolute;
   top: -4px;
+  left: 0;                 /* 定位基准归零，位移全部交给 transform */
   width: 11px;
   height: 11px;
   border-radius: 50%;
   background: #fff;
   border: 2px solid rgba(0,0,0,0.12);
-  transform: translateX(-50%);
-  transition: left 0.6s var(--ease-standard);
+  /* 用 transform 位移替代 left（§5.5.2）：跳过布局阶段，只在合成器上完成 */
+  transition: transform var(--duration-slow) var(--ease-standard);
   box-shadow: var(--shadow-sm);
 }
 

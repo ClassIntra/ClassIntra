@@ -258,10 +258,10 @@ export default {
 
 /* 进出动画：从右侧滑入（iPadOS 设置页风格） */
 .settings-panel-enter-active {
-  transition: transform 0.35s var(--ease-spring), opacity 0.35s var(--ease-standard);
+  transition: transform var(--duration-normal) var(--ease-spring), opacity var(--duration-normal) var(--ease-standard);
 }
 .settings-panel-leave-active {
-  transition: transform 0.25s var(--ease-accelerate), opacity 0.25s var(--ease-standard);
+  transition: transform var(--duration-normal) var(--ease-accelerate), opacity var(--duration-normal) var(--ease-standard);
 }
 .settings-panel-enter,
 .settings-panel-leave-to {
@@ -289,7 +289,7 @@ export default {
   border-radius: var(--radius-sm);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition: opacity 0.15s var(--ease-standard);
+  transition: opacity var(--duration-fast) var(--ease-standard);
 }
 .settings-done-link:active {
   opacity: 0.5;
@@ -356,7 +356,7 @@ export default {
   font-size: var(--font-size-body);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition: background 0.15s var(--ease-standard);
+  transition: background var(--duration-fast) var(--ease-standard);
   text-align: left;
 }
 
@@ -530,7 +530,7 @@ export default {
   gap: 14px;
   padding: 14px 18px;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--duration-fast) var(--ease-standard);
   -webkit-tap-highlight-color: transparent;
 }
 .widget-picker-item:active {
@@ -577,11 +577,11 @@ export default {
 /* 选择器滑入动画 */
 .picker-slide-enter-active,
 .picker-slide-leave-active {
-  transition: opacity 0.25s var(--ease-standard);
+  transition: opacity var(--duration-normal) var(--ease-standard);
 }
 .picker-slide-enter-active .widget-picker,
 .picker-slide-leave-active .widget-picker {
-  transition: transform 0.3s var(--ease-spring);
+  transition: transform var(--duration-normal) var(--ease-spring);
 }
 .picker-slide-enter,
 .picker-slide-leave-to {
