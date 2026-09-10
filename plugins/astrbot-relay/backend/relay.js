@@ -72,14 +72,15 @@ function botDisplayNames() {
   return names;
 }
 
-// 公共聊天室：仅响应被点名（@称呼）或直接下指令（/开头）的消息，避免刷屏
+// 公共聊天室：与 AstrBot wake_prefix 对齐——被点名（@称呼/名字开头）或 `/`、`-` 开头才转发，避免刷屏
 function isPublicBotDirected(text) {
   var t = String(text || '').trim();
   if (!t) return false;
-  if (t.charAt(0) === '/') return true;
+  if (t.charAt(0) === '/' || t.charAt(0) === '-') return true;
   var names = botDisplayNames();
   for (var i = 0; i < names.length; i++) {
     if (t.indexOf('@' + names[i]) !== -1) return true;
+    if (t.indexOf(names[i]) === 0) return true; // 名字开头（wake_prefix 含裸名字）
   }
   return false;
 }
