@@ -491,13 +491,12 @@ function onPublicMessage(message) {
   if (!text.trim()) return;
   if (!isPublicBotDirected(text)) return;
 
-  var userText = stripBotMention(text) || '（被点名了）';
+  var userText = String(text).trim(); // 保留原文（含 @称呼/唤醒前缀），由 AstrBot 统一剥前缀
   state.counters.received++;
   var msgId = ++state.msgSeq;
-  // 首段插入 At 机器人，确保 AstrBot 群聊唤醒检查放行
-  var segments = [{ type: 'at', data: { qq: ciSelfId() } }].concat(
-    buildInboundSegments(userText, message.reply_to)
-  );
+  // 不注入 At：self_id 非数字会让适配器 get_group_member_info 的 int() 解析失败；
+  // 唤醒依赖 wake_prefix（@白露未晞 / 林晞 / / / -），由 AstrBot 剥前缀
+  var segments = buildInboundSegments(userText, message.reply_to);
   var event = {
     time: Math.floor(Date.now() / 1000),
     self_id: ciSelfId(),
