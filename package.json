@@ -12,7 +12,10 @@
     "start": "pnpm --filter server run start",
     "version": "node scripts/version.js",
     "version:show": "node scripts/version.js show",
-    "version:check": "node scripts/version.js check"
+    "version:check": "node scripts/version.js check",
+    "verify:modules": "node scripts/modularity-verify.js --mode all",
+    "verify:modules:plugins": "node scripts/modularity-verify.js --mode plugins",
+    "verify:modules:apps": "node scripts/modularity-verify.js --mode modules"
   },
   "devDependencies": {
     "sharp": "^0.35.2"

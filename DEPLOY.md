@@ -326,6 +326,21 @@ curl http://localhost:9001
 2. 登录后访问 `/admin` 路径
 3. 验证用户管理、广播管理功能
 
+### 5.4 模块化验证（插件独立 / 无模块可用）
+
+ClassIntra 采用「核心 + 模块」分层：apps/（应用）、plugins/（插件）、
+market-apps/（市场应用）都是可选模块，删除后核心仍须可构建、可启动、核心功能可用。
+
+```bash
+pnpm verify:modules           # 全量：L1（无 plugins）+ L2（无业务应用/插件）
+pnpm verify:modules:plugins   # 仅 L1
+pnpm verify:modules:apps      # 仅 L2
+```
+
+自测在系统临时目录建快照（junction/零删除，不触碰生产目录与运行进程），
+对快照执行前端构建 + 隔离端口冷启动 + 核心端点冒烟。详见
+`docs/modular-architecture.md` 与 `scripts/modularity-verify.js`。
+
 ***
 
 ## 6. 故障排除

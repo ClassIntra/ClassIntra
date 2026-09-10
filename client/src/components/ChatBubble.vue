@@ -87,9 +87,15 @@
         <span v-else-if="isOwn && status === 'sent'" class="status-icon status-sent">
           <i class="fa-solid fa-check"></i>
         </span>
-        <span v-else-if="isOwn && status === 'failed'" class="status-icon status-failed">
+        <button
+          v-else-if="isOwn && status === 'failed'"
+          class="status-icon status-failed status-retry"
+          :title="'发送失败，点击重试'"
+          @click="onRetryClick"
+        >
           <i class="fa-solid fa-exclamation"></i>
-        </span>
+          <span class="status-retry-text">重试</span>
+        </button>
         <span v-if="isOwn && isPrivate && message.recalled !== 1" class="read-receipt">
           <span v-if="isRead" class="read-receipt-read">&#10003;&#10003;</span>
           <span v-else class="read-receipt-unread">&#10003;</span>
@@ -176,6 +182,8 @@ export default {
       showContextMenu: false,
       longPressTimer: null,
       longPressFired: false,
+      // 长按触发时刻，用于抑制随后的合成 click
+      _longPressAt: 0,
       longPressMediaUrl: null,
       longPressMediaType: null,
       audioManager: new AudioPlayerManager() // 语音条播放管理器
@@ -310,6 +318,8 @@ export default {
   },
   methods: {
     onContentClick: function(e) {
+      // 长按弹出菜单后的合成 click 不应触发媒体预览 / 链接跳转
+      if (this._suppressClickAfterLongPress()) return;
       var target = e.target;
       // 语音条点击 → 切换播放（不触发全屏预览）
       var voiceBar = target.closest && target.closest('.msg-voice-bar');
@@ -348,17 +358,20 @@ export default {
       }
     },
     onForwardClick: function() {
+      if (this._suppressClickAfterLongPress()) return;
       if (this.forwardData.postId) {
         this.$router.push('/community?post=' + this.forwardData.postId);
       }
     },
     onMusicPlaylistClick: function() {
+      if (this._suppressClickAfterLongPress()) return;
       var data = this.playlistData;
       if (data.playlistId) {
         this.$router.push('/music?playlist=' + data.playlistId);
       }
     },
     onAiForwardClick: function() {
+      if (this._suppressClickAfterLongPress()) return;
       var data = this.aiForwardData;
       if (data.content) {
         // 跳转到AI聊天页面查看完整内容
@@ -366,10 +379,20 @@ export default {
       }
     },
     onAiBatchClick: function() {
+      if (this._suppressClickAfterLongPress()) return;
       var data = this.aiBatchData;
       if (data.messages && data.messages.length) {
         this.$router.push('/ai-chat?viewBatch=' + encodeURIComponent(JSON.stringify(data.messages)));
       }
+    },
+    // 长按弹出菜单后的合成 click 需要被抑制，否则会误触底层跳转/预览。
+    // touchend 上的 preventDefault 不足以阻止合成 click，故改用时间窗判定。
+    _suppressClickAfterLongPress: function() {
+      if (!this.longPressFired) return false;
+      var now = Date.now();
+      if (now - (this._longPressAt || 0) < 500) return true;
+      this.longPressFired = false;
+      return false;
     },
     formatTime: function(timestamp) {
       if (!timestamp) return '';
@@ -440,6 +463,7 @@ export default {
 
       self.longPressTimer = setTimeout(function() {
         self.longPressFired = true;
+        self._longPressAt = Date.now();
         // 长按统一触发 context-menu，附带媒体 URL（如有）
         self.$emit('context-menu', self.message, {
           clientX: touch.clientX,
@@ -450,10 +474,18 @@ export default {
         });
       }, 600);
     },
-    onTouchEnd: function() {
+    onTouchEnd: function(e) {
       if (this.longPressTimer) {
         clearTimeout(this.longPressTimer);
         this.longPressTimer = null;
+      }
+      // 长按已弹出菜单：吞掉本次抬手产生的 click，
+      // 否则会同时触发底层点击（如打开转发卡片 / 打开媒体预览）
+      if (this.longPressFired) {
+        if (e && e.cancelable) e.preventDefault();
+        // 复位要晚于浏览器派发 click 的时机，故延后一帧
+        var self = this;
+        setTimeout(function() { self.longPressFired = false; }, 50);
       }
     },
     onTouchMove: function() {
@@ -473,6 +505,10 @@ export default {
     },
     onReactionClick: function(emoji) {
       this.$emit('toggle-reaction', this.message, emoji);
+    },
+    // 发送失败时点击状态图标 → 交给上层重试（重发同一条消息）
+    onRetryClick: function() {
+      this.$emit('retry', this.message);
     }
   }
 };
@@ -849,6 +885,29 @@ export default {
 
 .status-failed {
   color: var(--danger-color);
+}
+
+/* 失败态可点击重试 */
+.status-retry {
+  background: none;
+  border: none;
+  padding: 0 2px;
+  margin: 0;
+  cursor: pointer;
+  gap: 3px;
+  font-family: inherit;
+  line-height: 1;
+  border-radius: 3px;
+  transition: opacity 0.15s;
+}
+
+.status-retry:hover {
+  opacity: 0.75;
+}
+
+.status-retry-text {
+  font-size: 11px;
+  text-decoration: underline;
 }
 
 /* Read receipt */

@@ -1,0 +1,19 @@
+{
+  "name": "bot-admin",
+  "type": "plugin",
+  "version": "1.0.0",
+  "label": "Bot 控制台",
+  "icon": "/resources/public/icons/AI-Chat.png",
+  "color": "#5E5CE6",
+  "category": "desktop",
+  "order": 98,
+  "defaultEnabled": true,
+  "canDisable": true,
+  "visibleRoles": ["admin", "officer"],
+  "frontend": {
+    "route": "/bot-admin",
+    "routeName": "BotAdmin",
+    "component": "./frontend/BotAdmin.vue",
+    "meta": { "requiresAdmin": true }
+  }
+}

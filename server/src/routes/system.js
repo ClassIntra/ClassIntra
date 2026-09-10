@@ -218,9 +218,50 @@ router.get('/app-control', function(req, res) {
       var lockScreenEnabled = lockRow ? lockRow.value !== '0' : true;
       res.json({ code: 200, data: { enabled_apps: enabledApps, lock_screen: lockScreenEnabled } });
     } catch (e) {
-      // 数据库异常时返回全部启用（降级处理，不影响用户使用）
+      // 数据库异常时按「本地实际存在的 manifest」推导全部启用（降级处理，不影响用户使用）
       // admin 仍由前端 Desktop.vue 的 visibleRoles 过滤，普通用户不可见
-      res.json({ code: 200, data: { enabled_apps: ['chat', 'community', 'ai-chat', 'notes', 'resource', 'weather', 'music', 'settings', 'timetable', 'calendar', 'countdown', 'admin', 'calculator', 'browser'], lock_screen: true } });
+      var fallbackManifests = [];
+      try {
+        var ml = require('../core/manifest-loader');
+        fallbackManifests = ml.loadManifests()
+          .filter(function(m) { return m._sourceType === 'app'; })
+          .map(function(m) { return m.name; });
+      } catch (loaderError) {}
+      var fallbackEnabled = fallbackManifests.slice();
+      if (fallbackEnabled.indexOf('browser') === -1) fallbackEnabled.push('browser');
+      res.json({ code: 200, data: { enabled_apps: fallbackEnabled, lock_screen: true } });
+    }
+  });
+});
+
+// GET /api/system/modules - 模块注册表状态（需登录）
+// 聚合 apps/plugins/market-apps 三类模块的存在/挂载/能力信息，
+// 供管理页与客户端做存在性判断与降级（体现「无插件/无模块也可正常使用」的可观测性）
+router.get('/modules', function(req, res) {
+  var auth = require('../middleware/auth');
+  auth.requireAuth(req, res, function() {
+    try {
+      var ml = require('../core/manifest-loader');
+      var list = ml.loadManifests().map(function(m) {
+        return {
+          name: m.name,
+          label: m.label || m.name,
+          type: m.type || 'module',
+          source: m._sourceType,
+          category: m.category || '',
+          order: m.order || 99,
+          defaultEnabled: m.defaultEnabled !== false,
+          canDisable: m.canDisable !== false,
+          hasFrontend: !!(m.frontend && m.frontend.component),
+          backend: m.backend ? {
+            mountPath: m.backend.mountPath,
+            entryAvailable: ml.hasModuleBackend(m.name)
+          } : null
+        };
+      });
+      res.json({ code: 200, data: { count: list.length, modules: list } });
+    } catch (e) {
+      res.status(500).json({ code: 500, message: '模块状态查询失败: ' + e.message });
     }
   });
 });

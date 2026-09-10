@@ -108,6 +108,7 @@ router.get('/contacts', function(req, res) {
       }
     }
     var contacts = [];
+    var seenIds = {};
     for (var k = 0; k < rows.length; k++) {
       var contact = {
         user_id: rows[k].user_id,
@@ -124,7 +125,36 @@ router.get('/contacts', function(req, res) {
         contact.last_message_at = time.toISOString(lastMsg.created_at);
       }
       contacts.push(contact);
+      seenIds[rows[k].user_id] = true;
     }
+
+    // 补充"跨班/跨服务器"联系人：本机 users 表只含本服务器用户，
+    // 但中继过来的私聊消息会入库。若只按 users 表返回，会出现
+    // "消息在库里、联系人在列表里找不到"的情况（对方离线后会话入口直接消失）。
+    // 因此把有过私聊往来的、不在本机 users 表里的 user_id 一并返回，标记 remote: true。
+    try {
+      for (var otherId in lastMsgMap) {
+        if (seenIds[otherId]) continue;
+        var rim = lastMsgMap[otherId];
+        var remoteContact = {
+          user_id: otherId,
+          net_name: otherId,        // 名称后续由 remote_users_sync / 消息体补全
+          real_name: '',
+          gender: '',
+          status: '',
+          remote: true
+        };
+        remoteContact.last_message = rim.recalled ? '[消息已撤回]' : rim.content;
+        remoteContact.last_message_type = rim.type;
+        remoteContact.last_message_sender_id = rim.sender_id;
+        remoteContact.last_message_at = time.toISOString(rim.created_at);
+        contacts.push(remoteContact);
+        seenIds[otherId] = true;
+      }
+    } catch (e) {
+      console.error('Merge remote contacts error:', e);
+    }
+
     res.json({ code: 200, message: 'ok', data: contacts });
   } catch (err) {
     console.error('Get contacts error:', err);
@@ -398,13 +428,13 @@ router.get('/private/:userId', function(req, res) {
     var rows;
     if (beforeId) {
       rows = db.prepare(
-        'SELECT id, sender_id, receiver_id, content, type, extra_json, read, created_at FROM private_messages ' +
+        'SELECT id, sender_id, receiver_id, content, type, extra_json, read, recalled, created_at FROM private_messages ' +
         'WHERE ((sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)) AND id < ? ' +
         'ORDER BY id DESC LIMIT ?'
       ).all(req.user.user_id, targetUserId, targetUserId, req.user.user_id, beforeId, limit);
     } else {
       rows = db.prepare(
-        'SELECT id, sender_id, receiver_id, content, type, extra_json, read, created_at FROM private_messages ' +
+        'SELECT id, sender_id, receiver_id, content, type, extra_json, read, recalled, created_at FROM private_messages ' +
         'WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?) ' +
         'ORDER BY id DESC LIMIT ?'
       ).all(req.user.user_id, targetUserId, targetUserId, req.user.user_id, limit);
@@ -420,6 +450,7 @@ router.get('/private/:userId', function(req, res) {
         content: rows[i].content,
         type: rows[i].type,
         read: rows[i].read,
+        recalled: rows[i].recalled || 0,
         reply_to: extraData.reply_to || null,
         created_at: time.toISOString(rows[i].created_at)
       });
@@ -800,16 +831,24 @@ router.get('/poll', function(req, res) {
       return res.status(401).json({ code: 401, message: '尚未注册为 poller，请先调用 /poll/register', data: null });
     }
     var since = parseInt(req.query.since) || 0;
+    var sinceSeq = parseInt(req.query.since_seq) || 0;
     var startTime = Date.now();
     var LONG_POLL_TIMEOUT_MS = 25000;
     function tryFetch() {
-      var events = cs.consumePollEvents(userId, since);
+      var events = cs.consumePollEvents(userId, since, sinceSeq);
       if (events.length > 0 || Date.now() - startTime >= LONG_POLL_TIMEOUT_MS) {
+        // last_seq 取本次返回事件的最大 seq；无事件时回传 sinceSeq 原值，
+        // 客户端据此推进游标，不会跳过「入队早于响应」的事件。
+        var lastSeq = sinceSeq;
+        if (events.length > 0 && events[events.length - 1].seq) {
+          lastSeq = events[events.length - 1].seq;
+        }
         res.json({
           code: 200,
           message: 'ok',
           data: {
             events: events,
+            last_seq: lastSeq,
             server_time: Date.now()
           }
         });

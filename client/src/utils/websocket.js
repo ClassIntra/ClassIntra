@@ -23,7 +23,8 @@ var WebSocketManager = function() {
   // HTTP 长轮询回退
   this._transport = this._x5Browser ? 'poll' : 'ws';     // 'ws' or 'poll'
   this._pollTimer = null;
-  this._pollLastTs = 0;       // 上次 poll 拉到的事件 ts
+  this._pollLastTs = 0;       // 上次 poll 拉到的事件 ts（兼容旧服务端）
+  this._pollLastSeq = 0;      // 上次 poll 拉到的事件序号（主游标，单调递增）
   this._pollInFlight = false;
   this._pollStopped = false;
   this._pollRetryDelay = 1000; // 错误重试延迟（指数退避，初始 1s，最大 30s）
@@ -155,28 +156,49 @@ WebSocketManager.prototype.disconnect = function() {
   this.authenticated = false;
 };
 
+// 返回值约定：
+//   'sent'    —— 已真正写入传输通道（WS 已发出 / HTTP 已发起请求）
+//   'queued'  —— 通道未就绪，已进入离线队列，待重连后补发
+//   'dropped' —— 通道未就绪且队列已满，消息被丢弃（调用方应提示用户失败）
 WebSocketManager.prototype.send = function(data) {
   // WS 模式优先
   if (this._transport === 'ws' && this.ws && this.ws.readyState === WebSocket.OPEN) {
     var payload = typeof data === 'string' ? data : JSON.stringify(data);
-    this.ws.send(payload);
-    return;
+    try {
+      this.ws.send(payload);
+      return 'sent';
+    } catch (e) {
+      // 发送异常：降级入队，交由重连补发
+      if (this._offlineQueue.length < this._maxOfflineQueue) {
+        this._offlineQueue.push(data);
+        return 'queued';
+      }
+      return 'dropped';
+    }
   }
   // Poll 模式：通过 HTTP 发送
   if (this._transport === 'poll') {
     this._sendViaHttp(data);
-    return;
+    return 'sent';
   }
   // WS 暂未就绪，入队
   if (this._offlineQueue.length < this._maxOfflineQueue) {
     this._offlineQueue.push(data);
+    return 'queued';
   }
+  return 'dropped';
 };
 
 WebSocketManager.prototype._flushOfflineQueue = function() {
   while (this._offlineQueue.length > 0) {
     var data = this._offlineQueue.shift();
-    this.send(data);
+    // send() 可能因通道再次断开而把消息重新入队，导致 while 死循环；
+    // 这里只在返回值不是 'queued' 时继续，避免同一批消息反复入队-出队空转。
+    var r = this.send(data);
+    if (r === 'queued') {
+      // 已重新入队（或被后续逻辑处理），停止本轮冲刷，等下次连接事件再试
+      break;
+    }
   }
 };
 
@@ -341,6 +363,8 @@ WebSocketManager.prototype._startPolling = function() {
     }
     var data = result.data;
     self._pollLastTs = data.server_time || Date.now();
+    // 序号游标从 0 开始：register 响应中的历史消息不经 poll 队列，无需推进 seq
+    self._pollLastSeq = 0;
     self._lastConnectedData = data;
     self.authenticated = true;
     self.connected = true;
@@ -390,7 +414,8 @@ WebSocketManager.prototype._doPoll = function() {
     return;
   }
   self._pollInFlight = true;
-  var url = '/api/chat/poll?since=' + encodeURIComponent(self._pollLastTs);
+  var url = '/api/chat/poll?since=' + encodeURIComponent(self._pollLastTs) +
+            '&since_seq=' + encodeURIComponent(self._pollLastSeq || 0);
   fetch(url, {
     method: 'GET',
     headers: self._getPollHeaders(),
@@ -408,6 +433,10 @@ WebSocketManager.prototype._doPoll = function() {
       if (evt.ts && evt.ts > self._pollLastTs) {
         self._pollLastTs = evt.ts;
       }
+      // 序号游标优先：不依赖时间戳比较，避免竞态漏投
+      if (typeof evt.seq === 'number' && evt.seq > (self._pollLastSeq || 0)) {
+        self._pollLastSeq = evt.seq;
+      }
       if (evt.event) {
         if (evt.event.type) {
           self.emit(evt.event.type, evt.event);
@@ -415,8 +444,12 @@ WebSocketManager.prototype._doPoll = function() {
         self.emit('_message', evt.event);
       }
     }
-    // 更新 server_time 作为下次 since
-    if (result.data.server_time && result.data.server_time > self._pollLastTs) {
+    // 用服务端回传的 last_seq 推进游标（无事件时保持不变）
+    if (typeof result.data.last_seq === 'number' && result.data.last_seq > (self._pollLastSeq || 0)) {
+      self._pollLastSeq = result.data.last_seq;
+    }
+    // 时间戳仅作兼容兜底（服务端未回传 last_seq 的旧版本）
+    if (result.data.last_seq === undefined && result.data.server_time && result.data.server_time > self._pollLastTs) {
       self._pollLastTs = result.data.server_time;
     }
     self._pollInFlight = false;
@@ -479,9 +512,15 @@ WebSocketManager.prototype._sendViaHttp = function(data) {
     }
   }).catch(function(err) {
     console.error('[Poll] Send error:', err.message);
-    // 发送失败入队，等待重试
+    // 发送失败：能入队则入队待重试，不能入队则必须回传失败信号。
+    // 注意 send() 对本分支返回的是 'sent'（请求已发起，异步结果未定），
+    // 因此只能通过事件总线把真实结果告诉上层，由 UI 把消息置为 failed / sending。
+    var tempId = body && (body.temp_id || body.tempId) ? (body.temp_id || body.tempId) : null;
     if (self._offlineQueue.length < self._maxOfflineQueue) {
       self._offlineQueue.push(data);
+      self.emit('send_queued', { temp_id: tempId, reason: err.message });
+    } else {
+      self.emit('send_failed', { temp_id: tempId, reason: err.message });
     }
   });
 };

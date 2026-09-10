@@ -201,6 +201,8 @@ export default defineConfig({
     outDir: 'dist',
     sourcemap: false,
     minify: 'esbuild',
+    // 本机构建环境禁止批量删除旧产物，故关闭构建前的 outDir 清理（仅影响构建，不影响产物/运行）
+    emptyOutDir: false,
     rollupOptions: {
       output: {
         manualChunks: {

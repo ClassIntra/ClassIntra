@@ -162,6 +162,9 @@ var mutations = {
         state.messages[i]._serverId = true;
         if (state.messages[i].id) state.messages[i].id = newId;
         if (state.messages[i].message_id) state.messages[i].message_id = newId;
+        // 服务端已确认：清掉临时 id，否则前端会继续把它当本地临时消息，
+        // 发送状态将永远停在 sending（与私聊 REPLACE_TEMP_MESSAGE 的处理保持一致）
+        if (msgTempId) Vue.delete(state.messages[i], 'tempId');
         if (state._messageIdSet[newId]) break;
         delete state._messageIdSet[oldId];
         state._messageIdSet[newId] = true;
@@ -194,6 +197,8 @@ var mutations = {
         msgs[i]._serverId = true;
         if (msgs[i].id) msgs[i].id = newId;
         if (msgs[i].message_id) msgs[i].message_id = newId;
+        // 服务端已确认：清掉临时 id（原因同 UPDATE_MESSAGE_ID）
+        if (msgTempId) Vue.delete(msgs[i], 'tempId');
         if (state._groupMsgIdSet[groupId]) {
           delete state._groupMsgIdSet[groupId][oldId];
           state._groupMsgIdSet[groupId][newId] = true;
@@ -238,6 +243,28 @@ var mutations = {
   SET_CONTACTS: function(state, contacts) {
     state.contacts = contacts;
   },
+  // 收到/发出消息时同步会话列表摘要与排序时间。
+  // 说明：会话列表的预览文案与排序依赖 contact/group 上的 last_message* 字段，
+  // 这些字段只在 loadContacts/loadGroups 时刷新，导致"对方发消息但侧栏预览/排序不动"。
+  // 该 mutation 让未读之外的两项也能实时更新，避免用户误以为消息没到。
+  UPDATE_CHAT_PREVIEW: function(state, payload) {
+    var chatId = payload.chatId;
+    var isGroup = payload.isGroup;
+    var list = isGroup ? state.groups : state.contacts;
+    if (!list || !list.length) return;
+    for (var i = 0; i < list.length; i++) {
+      var itemId = isGroup ? list[i].group_id : list[i].user_id;
+      if (itemId !== chatId) continue;
+      var preview = payload.content || '';
+      if (preview.length > 60) preview = preview.substring(0, 60);
+      Vue.set(list[i], 'last_message', preview);
+      Vue.set(list[i], 'last_message_type', payload.msgType || 'text');
+      Vue.set(list[i], 'last_message_sender', payload.senderName || '');
+      Vue.set(list[i], 'last_message_sender_id', payload.senderId || '');
+      Vue.set(list[i], 'last_message_at', payload.createdAt || new Date().toISOString());
+      return;
+    }
+  },
   SET_GROUPS: function(state, groups) {
     state.groups = groups;
   },
@@ -246,6 +273,16 @@ var mutations = {
   },
   SET_PRIVATE_MESSAGES: function(state, payload) {
     var existing = state.privateChats[payload.chatId];
+    // 合并前记录本地已知的撤回状态，防止历史接口载荷缺失 recalled 时状态回退
+    var recalledMap = {};
+    if (existing) {
+      for (var rk = 0; rk < existing.length; rk++) {
+        var rMsgId = existing[rk].id || existing[rk].message_id;
+        if (rMsgId && existing[rk].recalled === 1) {
+          recalledMap[String(rMsgId)] = 1;
+        }
+      }
+    }
     if (existing && existing.length > 0 && payload.messages && payload.messages.length > 0) {
       var serverMap = {};
       for (var si = 0; si < payload.messages.length; si++) {
@@ -273,9 +310,25 @@ var mutations = {
       merged.sort(function(a, b) {
         return (a.created_at || '').localeCompare(b.created_at || '');
       });
+      // 回填本地已撤回标记（历史载荷未携带 recalled 时兜底）
+      for (var rb = 0; rb < merged.length; rb++) {
+        var mMsgId = merged[rb].id || merged[rb].message_id;
+        if (mMsgId && recalledMap[String(mMsgId)] && merged[rb].recalled !== 1) {
+          Vue.set(merged[rb], 'recalled', 1);
+          Vue.set(merged[rb], 'content', '该消息已撤回');
+        }
+      }
       Vue.set(state.privateChats, payload.chatId, merged);
     } else {
-      Vue.set(state.privateChats, payload.chatId, payload.messages);
+      var fresh = payload.messages || [];
+      for (var rb2 = 0; rb2 < fresh.length; rb2++) {
+        var fMsgId = fresh[rb2].id || fresh[rb2].message_id;
+        if (fMsgId && recalledMap[String(fMsgId)] && fresh[rb2].recalled !== 1) {
+          fresh[rb2].recalled = 1;
+          fresh[rb2].content = '该消息已撤回';
+        }
+      }
+      Vue.set(state.privateChats, payload.chatId, fresh);
     }
     if (!state._privateMsgIdSet[payload.chatId]) {
       Vue.set(state._privateMsgIdSet, payload.chatId, {});
@@ -540,8 +593,10 @@ var actions = {
     if (msg.reply_to) {
       sendData.reply_to = msg.reply_to;
     }
-    wsManager.send(sendData);
+    var result = wsManager.send(sendData);
     context.commit('ADD_MESSAGE', msg);
+    // 透传真实发送结果，供 UI 区分「已发送 / 待补发 / 发送失败」
+    return result || 'sent';
   },
   sendPrivateMessage: function(context, msg) {
     var sendData = {
@@ -554,8 +609,9 @@ var actions = {
     if (msg.reply_to) {
       sendData.reply_to = msg.reply_to;
     }
-    wsManager.send(sendData);
+    var result = wsManager.send(sendData);
     context.commit('ADD_MESSAGE', msg);
+    return result || 'sent';
   },
   loadMessages: function(context) {
     return api.get('/chat/messages').then(function(response) {
@@ -600,11 +656,12 @@ var actions = {
     if (msg.reply_to) {
       sendData.reply_to = msg.reply_to;
     }
-    wsManager.send(sendData);
+    var result = wsManager.send(sendData);
     context.commit('ADD_GROUP_MESSAGE', {
       groupId: msg.chatId,
       message: msg
     });
+    return result || 'sent';
   },
   loadGroupMessages: function(context, groupId) {
     return api.get('/chat/groups/' + groupId + '/messages').then(function(response) {
