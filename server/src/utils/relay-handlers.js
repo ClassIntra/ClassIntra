@@ -150,22 +150,30 @@ function normTs(v) {
   return String(v || '').replace(/[^0-9]/g, '').substring(0, 14);
 }
 
+// 回环去重：按 sender+content+归一化时间戳 匹配最近 5 条，命中即视为同一消息
+function isRelayDuplicate(ctx, table, whereCols, values, createdAt) {
+  var where = whereCols.map(function (c) { return c + ' = ?'; }).join(' AND ');
+  var recent = ctx.db.prepare(
+    'SELECT id, created_at FROM ' + table + ' WHERE ' + where + ' ORDER BY id DESC LIMIT 5'
+  ).all.apply(null, values);
+  var tsKey = normTs(createdAt);
+  for (var i = 0; i < recent.length; i++) {
+    if (createdAt && (recent[i].created_at === createdAt || normTs(recent[i].created_at) === tsKey)) {
+      return recent[i];
+    }
+  }
+  return null;
+}
+
 bus.register('new_message', function(payload, ctx) {
   if (!payload.message) return;
   var msg = payload.message;
   preFetchCloudFiles(msg.content, ctx.sourceServer);
   try {
-    // 回环去重：对端会把消息再中继回来（ctx.broadcast 曾触发再中继），
-    // 按 sender+content+归一化时间戳 匹配最近 5 条，命中即丢弃
-    var recent = ctx.db.prepare(
-      'SELECT id, created_at FROM chat_messages WHERE sender_id = ? AND content = ? ORDER BY id DESC LIMIT 5'
-    ).all(msg.sender_id, msg.content);
-    var tsKey = normTs(msg.created_at);
-    for (var ri = 0; ri < recent.length; ri++) {
-      if (msg.created_at && (recent[ri].created_at === msg.created_at || normTs(recent[ri].created_at) === tsKey)) {
-        console.log('[Relay-Dedup] Duplicate new_message, skipping: id=' + recent[ri].id);
-        return;
-      }
+    var dup = isRelayDuplicate(ctx, 'chat_messages', ['sender_id', 'content'], [msg.sender_id, msg.content], msg.created_at);
+    if (dup) {
+      console.log('[Relay-Dedup] Duplicate new_message, skipping: id=' + dup.id);
+      return;
     }
     var extraJson = JSON.stringify({
       relayed_from: ctx.sourceServer,
@@ -203,11 +211,9 @@ bus.register('private_message', function(payload, ctx) {
   var pm = payload.message;
   preFetchCloudFiles(pm.content, ctx.sourceServer);
   try {
-    var existingPm = ctx.db.prepare(
-      'SELECT id FROM private_messages WHERE sender_id = ? AND receiver_id = ? AND content = ? AND (created_at = ? OR (created_at IS NULL AND ? IS NULL)) LIMIT 1'
-    ).get(pm.from_user_id || pm.sender_id, pm.to_user_id, pm.content, pm.created_at, pm.created_at);
-    if (existingPm) {
-      console.log('[Relay] Duplicate private_message, skipping');
+    var dupPm = isRelayDuplicate(ctx, 'private_messages', ['sender_id', 'receiver_id', 'content'], [pm.from_user_id || pm.sender_id, pm.to_user_id, pm.content], pm.created_at);
+    if (dupPm) {
+      console.log('[Relay] Duplicate private_message, skipping: id=' + dupPm.id);
       return;
     }
     var extraJson = JSON.stringify({
@@ -254,11 +260,9 @@ bus.register('group_message', function(payload, ctx) {
   var gmGroup = ctx.stmts.getGroup.get(gmGroupId);
   if (gmGroup) {
     try {
-      var existingGm = ctx.db.prepare(
-        'SELECT id FROM group_messages WHERE group_id = ? AND sender_id = ? AND content = ? AND (created_at = ? OR (created_at IS NULL AND ? IS NULL)) LIMIT 1'
-      ).get(gmGroupId, gm.sender_id, gm.content, gm.created_at, gm.created_at);
-      if (existingGm) {
-        console.log('[Relay] Duplicate group_message, skipping');
+      var dupGm = isRelayDuplicate(ctx, 'group_messages', ['group_id', 'sender_id', 'content'], [gmGroupId, gm.sender_id, gm.content], gm.created_at);
+      if (dupGm) {
+        console.log('[Relay] Duplicate group_message, skipping: id=' + dupGm.id);
         return;
       }
       var extraJson = JSON.stringify({
