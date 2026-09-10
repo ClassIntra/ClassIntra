@@ -3,6 +3,7 @@
 > 状态：**设计稿（待评审）** · 2026-09-10
 > 目标：系统一体化、体验不割裂；第三方可自主开发；生态完整丰富；iOS 风格贯穿
 > 目标设备：Android 9.0 横屏平板，兼容腾讯 X5 Chromium 89 与非 X5 Chromium 80
+> 产品边界：ClassIntra = 专注班级内网系统（通用 WebOS 由并行项目 Ditto 承担，见 §0.1、§12）
 
 ---
 
@@ -14,7 +15,20 @@
 | 一体化重点 | 视觉令牌、导航状态栏、数据账号、桌面安装 —— **四项均需统一** |
 | 权限模型 | **开放**：不设沙箱，信任开发者 |
 | 生态分发 | 独立市场仓库 `D:\NetWork\Integration\market`；文档仓库 `ClassIntra_docs` |
+| 产品边界 | **ClassIntra = 专注班级内网系统**；通用 WebOS 内核另由并行项目承担（见 §12） |
 | 本轮交付 | 架构设计文档（本文） |
+
+### 0.1 产品定位声明
+
+为避免生态设计在「通用平台」与「垂直业务系统」之间摇摆，明确以下边界：
+
+| 项目 | 定位 | 与本文的关系 |
+|---|---|---|
+| **ClassIntra（CI）** | **专注班级内网系统**。校园内网场景下的班级管理、聊天、社区、资源、天气等业务集合 | 本文的唯一主体 |
+| **Ditto** | **通用 WebOS 框架**（通用「浏览器里的操作系统」内核，无校园业务） | **并行独立产品线**，非本系统内核，不参与 ClassIntra 的运行时（见 §12） |
+| **captive** | 附属项目，与 CI 生态无依赖关系 | 不在本文范围 |
+
+**关键含义**：ClassIntra 不需要自建一个「通用操作系统内核」。它的模块化目标是**支撑自身业务的按需扩展**，而非承载任意形态的第三方系统。因此本文选择「同页面自由装载」这一轻量开放式模型，而非通用 WebOS 所需的沙盒 + 权限 + 多窗口重模型。
 
 ---
 
@@ -647,6 +661,9 @@ ClassIntra_docs（文档仓库）
 | 重写第三方开发文档 | `ClassIntra_docs/docs/development/third-party.md` | 与实作一致，含 Chrome 80 红线 |
 | SDK 参考扩写 | `ClassIntra_docs/docs/development/sdk.md` | 覆盖全部新 API |
 | 脚手架 | 新增 `packages/create-classintra-app` | 生成合规模板 |
+| **启动流程分阶段编排** | 新增 `client/src/core/boot-orchestrator.js`，重构 `client/src/main.js` | 单阶段失败不阻断挂载（见 §12.2 借鉴 1） |
+| **应用生命周期状态机** | `client/src/core/market-registry.js` | 显式 `idle → loading → active → suspended`，支持 `suspend`/`resume`（见 §12.2 借鉴 2） |
+| **`sdk` 版本校验** | `client/src/core/market-registry.js` + `MarketRuntime.vue` | 版本不满足时进入错误态而非静默失败（见 §12.2 借鉴 6） |
 
 ### 第四期：生态工具
 
@@ -655,6 +672,8 @@ ClassIntra_docs（文档仓库）
 | 市场审核脚本 | 静态扫描 CSS 前缀、禁用语法、危险 API |
 | 开发者预览模式 | 本地加载未发布应用，免安装调试 |
 | 应用性能预算 | 首屏体积、DOM 节点数、内存占用上限 |
+| **能力披露展示** | 市场安装页展示 manifest 的 `capabilities` 清单（披露不拦截，见 §12.2 借鉴 3） |
+| **单文件导入格式**（低优先级） | 设计 `.cia` 包（ZIP + manifest + 资源，可选 Ed25519 签名），仅用于外部导入场景（见 §12.2 借鉴 4） |
 
 ---
 
@@ -689,6 +708,153 @@ ClassIntra_docs（文档仓库）
 
 ---
 
+## 12. 与 Ditto 的边界与可借鉴设计
+
+### 12.1 结论：并行，不合并
+
+**Ditto 不是 ClassIntra 的内核，ClassIntra 也不应基于 Ditto 重构。** 依据如下：
+
+| 维度 | ClassIntra | Ditto | 是否可融合 |
+|---|---|---|---|
+| 定位 | 班级内网业务系统 | 通用 WebOS 框架 | ✗ 目标不同 |
+| UI 技术栈 | Vue 2.7 Options API，`var` / `function`，禁 `const` / 箭头函数 / 模板字符串 | Vue 3.5 `<script setup>` + Composition API + TypeScript strict | ✗ 不可共享代码 |
+| 后端 | Express + better-sqlite3 | Bun + Hono | ✗ 运行时不同 |
+| 构建 | Vite 5/6 + `target: 'chrome80'` + legacy plugin | Vite 6 + turbo + 原生 ESM | ✗ 兼容基线不同 |
+| 隔离模型 | **同页面自由**（无沙箱） | **三档沙盒**（`iframe-strict` / `shadow-trusted` / `worker`） | ✗ 互斥路线 |
+| 交互范式 | 全屏应用 + 桌面网格 | 多窗口（`DWindow` / `DTaskbar`） | ✗ 产品形态不同 |
+| 权限模型 | 开放，信任开发者 | capability 细粒度 + dev 自动授权 / prod 默认拒绝 | ✗ 设计哲学相反 |
+
+**特别说明隔离模型的互斥性**：Ditto 的 `iframe-strict` 默认不下发 `allow-same-origin`，第三方应用**必然拿不到主页面 DOM**；ClassIntra 的「真·同页面自由」要求第三方**直接持有主页面 DOM**。这两条路线在架构上不可调和，任何「融合」尝试都会退回其中一侧。因此维持两条独立产品线是唯一自洽的选择。
+
+**可直接对齐的部分**：两者的 manifest 字段命名（如 `type` 枚举、`permissions` 声明）、SDK 命名分层、生命周期阶段命名，可保持**语义趋同**——便于未来若有开发者同时接触两个项目时认知负担更低。这属于约定层面的对齐，不涉及代码复用。
+
+### 12.2 值得借鉴的设计智慧（仅吸收模式，不复用代码）
+
+Ditto 的工程成熟度显著高于 ClassIntra 当前水平（26,612 行 TS/Vue / 181 个文件 / 9 个 package / 10 个 vitest 测试文件）。以下六项设计模式在 ClassIntra 的技术栈下**可以按同样思路重新实现**：
+
+#### 借鉴 1：分阶段生命周期编排 + 单阶段失败不中断
+
+Ditto 的实现（`packages/core/src/lifecycle-orchestrator.ts`）把启动切为 7 个有序阶段：
+
+```
+storage → events → ipc → permissions → services → cells → ready
+```
+
+关键在于**错误隔离**：某个 stage 的 handler 抛错时，只 `emit('stage-error', { stage, error })` 然后**继续执行下一个 stage**，不中断整体启动。
+
+```typescript
+for (const stage of STAGE_ORDER) {
+  const handlers = this.handlers.get(stage) ?? [];
+  for (const h of handlers) {
+    if (h.onInit) {
+      try { await h.onInit(); }
+      catch (e) {
+        console.error(`[Lifecycle] stage "${stage}" init failed:`, e);
+        this.emitter.emit('stage-error', { stage, error: e });
+        // 不中断，继续下一 stage
+      }
+    }
+  }
+}
+```
+
+**对 ClassIntra 的价值**：`client/src/main.js` 当前的启动流程是一串顺序副作用（polyfills → 全局组件 → `$modal` → router 包装 → ServiceRegistry 注册 6 个服务 → `window.ClassIntraMarket` → `realtime.connect()` → `marketRegistry.refresh()` → `new Vue().$mount()`）。任一环节抛错会导致后续全部不执行，白屏且无诊断信息。
+
+**落地建议（第三期候选）**：把这段启动流程重构为分阶段编排器（`client/src/core/boot-orchestrator.js`），阶段可定义为：
+
+```
+polyfills → errors → components → services → sdk → realtime → market → mount → ready
+```
+
+每个阶段可注册多个 handler，handler 抛错只记录并派发事件，不阻断后续阶段。收益是**故障降级**：即使 `realtime.connect()` 失败，应用仍能挂载并给出可用的降级界面。
+
+#### 借鉴 2：应用生命周期状态机
+
+Ditto 的客户端 Cell 用显式状态机约束生命周期（`activate` 先请求权限，再按 `native` / 其他选择沙盒模式，然后 `mount`）：
+
+```
+loading → active → paused → stopped
+```
+
+服务端另有更复杂的状态机：
+
+```
+creating → running ⇄ hibernated → stopped
+```
+
+并且用 `assertTransition()` **主动校验非法跃迁**（例如未 `activate` 直接 `pause` 会抛错），而不是静默容错。
+
+**对 ClassIntra 的价值**：`market-registry.js` 当前的状态管理只有「已加载 / 未加载」二元，`mount()` 与 `unmount()` 可被任意顺序调用，无状态校验、无 `pause` / `resume` 概念。平板上用户切换应用（去聊天、回桌面）时，第三方应用仍在后台全速运行。
+
+**落地建议**：为 `MarketRegistry` 引入显式状态机 `idle → loading → active → suspended → idle`，并实现 `suspend(name)` / `resume(name)`——与 §5.1 的生命周期审计共用同一套受管资源回收机制（`pause` 时暂停计时器，`resume` 时恢复）。这直接对应平板续航问题（R3）。
+
+#### 借鉴 3：能力声明的显式化与持久化
+
+Ditto 的权限管理用两层 Map 建模（`packages/core/src/permission/manager.ts`）：
+
+```typescript
+granted: Map<string, Set<Capability>>   // appId → 已授权能力集合
+```
+
+`request(appId, capability)` 走三分支：已授权直接放行 → `dev` 模式自动授权并 `console.warn` → 否则走交互式询问，**无 prompt 时默认拒绝**。授权结果可 `persist()` 到存储、`loadFromStore()` 恢复。
+
+**对 ClassIntra 的价值**：ClassIntra 已确定**开放权限模型**（不设沙箱、不拦截），因此**不引入拒绝逻辑**。但仍应引入 **capability 声明 + 可观测**机制：
+
+- manifest 中要求声明 `capabilities`（如 `net:fetch` / `clipboard:read` / `storage:persist` / `realtime:subscribe`）；
+- 安装时在市场上**展示能力清单**给用户看（知情，而非拦截）；
+- 运行时若第三方调用了未声明的能力，SDK 输出 `console.warn` 并计入应用诊断信息。
+
+这样保留「开放」的产品决策，同时让能力边界从隐性变为显性——**披露而非限制**。
+
+#### 借鉴 4：打包格式的加密与签名思路
+
+Ditto 的 `.dit` 包（另有 `.ditx` widget / `.ditc` plugin / `.ditz` theme）采用 **ZIP + AES-256-GCM 加密（PBKDF2 10 万次迭代）+ Ed25519 签名**，配合 CLI 的 `ditto pack / install / verify / publish`。
+
+**对 ClassIntra 的价值**：ClassIntra 当前的分发是「市场仓库 + 服务端扫描」，离线优先、内网部署，**不需要加密**。但**签名校验值得考虑**：内网环境下第三方包由学生/教师编写，若未来出现「从外部导入 `.ci-app` 包」的需求（不走市场仓库），则**完整性校验**可防止包在中转中被篡改。
+
+**落地建议（第四期候选，低优先级）**：为学生作品导入场景设计轻量 `.cia` 单文件格式（ZIP 结构 + manifest + 前端资源），可选配 Ed25519 签名。**不建议**引入加密——内网场景下加密只会增加调试成本，且解密密钥仍需内置于客户端，安全性增益有限。
+
+#### 借鉴 5：SDK 按能力域命名分层
+
+Ditto 的 SDK 暴露 10 个 Vue `InjectionKey`，按能力域切分而非按函数堆叠：
+
+```
+UseIPC / UseWindow / UseFS / UseNet / UseAuth / UseUI / UseWidget / UseApp / UseCell / UseTheme
+```
+
+**对 ClassIntra 的价值**：本文 §4 的 `context.ui` / `context.data` / `context.system` / `context.app` / `context.compat` **五大命名空间划分与 Ditto 的分层思路一致**——按能力域组织，而非平铺一堆方法。这印证了当前 SDK 设计方向正确，可作为**设计不是臆造的旁证**。
+
+**命名趋同建议**：Ditto 用 `UseXxx`（Vue composable 风格），ClassIntra 用 `context.xxx`（对象风格）。因第三方不过构建、无法使用 composable，维持 `context.xxx` 是正确选择。但**内部子项命名可对齐**，例如 `theme` / `storage` / `ipc`（对应 ClassIntra 的 `eventBus`）等关键字，降低跨项目认知成本。
+
+#### 借鉴 6：最低版本约束
+
+Ditto 的 `AppManifest` 含 `minDittoVersion` 字段，用于表达「本应用要求的内核最低版本」，避免应用依赖了尚未发布的 API 却在旧内核上静默失败。
+
+**对 ClassIntra 的价值**：本文 §6.2 已引入 `sdk` 字段（如 `"sdk": "1"`），其语义与 `minDittoVersion` 完全对应。建议在文档中**明确该字段的校验时机与失败行为**：
+
+| 时机 | 行为 |
+|---|---|
+| 市场安装时 | 拒绝安装，提示「此应用需要 ClassIntra SDK v2 或更高版本」 |
+| 运行时装载时 | 不装载，进入 `MarketRuntime` 的错误态（复用现有重试/返回桌面 UI） |
+| 服务端扫描时 | 记录 warning，标记为「不兼容」但不隐藏 |
+
+### 12.3 明确不复用的部分
+
+| Ditto 组件 | 不复用原因 |
+|---|---|
+| `DittoKernel` / `ServiceRegistry` / `LifecycleOrchestrator` 代码 | TypeScript + DI 容器，与 ClassIntra 的 `var`/`function` 风格和既有 `service-registry.js` 不兼容；仅借鉴**思路**（借鉴 1） |
+| 三档沙盒（`IFrameSandbox` / `ShadowSandbox`） | 与「真·同页面自由」决策直接冲突 |
+| `CellBridge`（WS + HTTP 双向通信） | ClassIntra 已选定 `realtime.js` HTTP 长轮询（X5/TBS 下 WS 不可靠），传输层不同 |
+| `ElasticScaler` / `ResourceQuotaManager` / `TrafficShaper` / `FairScheduler` | 面向多用户 SaaS 的服务端资源治理，ClassIntra 是内网单实例部署，场景不匹配 |
+| `.dit` 加密体系 | 内网离线场景无此需求（见借鉴 4） |
+| 多窗口（`DWindow` / `DTaskbar`） | ClassIntra 是横屏平板全屏应用范式 |
+
+### 12.4 一句话总结
+
+> ClassIntra 从 Ditto 学「**怎么把内核写工程化**」（阶段编排、状态机、能力声明、版本约束），但**不学「怎么做通用操作系统」**。前者是内部质量，后者是产品定位——后者已由 Ditto 自己承担，ClassIntra 专注班级内网业务即可。
+
+---
+
 ## 附录 A：现有资产复用清单
 
 | 资产 | 位置 | 在生态设计中的角色 |
@@ -715,3 +881,5 @@ ClassIntra_docs（文档仓库）
 | **SDK** | `window.ClassIntra.market` 暴露的能力集合，第三方应用的唯一编程接口 |
 | **令牌（Token）** | CSS 自定义属性 `--ci-*`，主题的原子单位 |
 | **双轨加载器** | 官方应用的构建期加载 与 第三方应用的运行时加载 并存 |
+| **Ditto** | 并行独立项目，通用 WebOS 框架。**不是** ClassIntra 的内核，仅作为设计模式参照（见 §12） |
+| **capabilities** | manifest 中声明应用所需能力的字段。ClassIntra 下为**披露用途**，不做拦截（见 §12.2 借鉴 3） |
