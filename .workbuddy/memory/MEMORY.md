@@ -14,7 +14,9 @@
 - **离线验证原生模块**：本机 managed Node 22 与 `better-sqlite3` 的 ABI 不匹配（`ERR_DLOPEN_FAILED`），诊断脚本须用系统 Node `C:\Program Files\nodejs\node.exe`（NODE_MODULE_VERSION 137），并在 `server/` 目录下加载 `.env`（`DB_PATH=./database/classintra.db` 是相对路径）。
 
 ## 生态一体化设计基线（2026-09-10 确立，实施须遵守）
-设计文档：`docs/ecosystem-design.md`。四仓库/目录：主仓库 `ClassIntra`、市场 `D:\NetWork\Integration\market`、文档站 `D:\NetWork\Integration\ClassIntra_docs`（VitePress）。
+设计文档：`docs/ecosystem-design.md`（886 行，含 §12 与 Ditto 的边界）。四仓库/目录：主仓库 `ClassIntra`、市场 `D:\NetWork\Integration\market`、文档站 `D:\NetWork\Integration\ClassIntra_docs`（VitePress）。
+
+- **路线决策（2026-09-10 第七轮，用户确认，勿再反复询问）**：采纳**方案 B**。**ClassIntra = 专注班级内网系统**（自建轻内核，保持 Vue2.7 + `var`/`function` + Express + better-sqlite3 与「同页面自由」模型）；**Ditto = 通用 WebOS**（并行独立产品线，互不替代）；**captive = 无关附属项目**，不在范围内。顶层含义：CI **不需要自建通用操作系统内核**，模块化目标是支撑自身业务按需扩展 —— 这正是「同页面自由」轻量模型优于「沙盒+权限+多窗口」重模型的根本理由。
 
 - **已定的四项决策**（用户确认，勿再反复询问）：①第三方接入 = **真·同页面运行时装载**（非 iframe 沙箱，开放完整 DOM/window/localStorage 权限）②一体化四项都重要（视觉令牌 / 导航状态栏 / 数据账号 / 桌面安装）③权限模型开放、不设沙箱、信任开发者 ④交付形态先文档后代码。
 - **两套加载器是既存事实，不合并**：官方 `apps/*` 走 `import.meta.glob('../../../apps/*/manifest.json',{eager:true})` + `shared/src/manifest-schema.js` 的 `validateManifest`；第三方 `market-apps/*` 走 `server/src/core/market-service.js` 扫描 + `client/src/core/market-registry.js` 动态 `<script>` + 独立 `_validateMarketManifest()`。**`market-apps/` 不被前端 manifest-loader 扫描，也不经 manifest-schema 校验**——给市场 manifest 加新字段必须改 `_validateMarketManifest()`，否则静默丢弃。
@@ -25,7 +27,11 @@
 - **待修正的既存问题**：`apps/bot-admin/manifest.json` 的 `type` 应为 `app`（当前误写 `plugin`，但它有前端且在 `apps/` 下）；`docs/development/third-party.md` 讲的是 `.vue` 应用开发，与市场应用实作不符，需重写。
 - **视觉割裂实证**：`market-apps/gomoku` 是当前唯一生态样本，`style.css` 仅 39 行、自建 `gomoku-*` 类名体系、零 `--ci-*` 引用；15 个官方应用用 `AppNavBar`，第三方 0 个。
 
-## Ditto WebOS 项目（2026-09-10 发现，重要参照对象）
+## Ditto WebOS 项目（2026-09-10 发现，参照对象；**结论：并行不合并**）
+> **最终定位（同日第七轮定案）**：Ditto 是**并行独立产品线**（通用 WebOS），**不是** ClassIntra 的内核，CI 也**不**基于 Ditto 重构。只吸收**设计模式思路**，**不复用任何代码**。文档见 `docs/ecosystem-design.md` §12（含 7 维度不可融合对照表 + 六项可借鉴模式 + 六项明确不复用清单）。
+> **隔离模型互斥是根本原因**：Ditto `iframe-strict` 默认不下发 `allow-same-origin`（第三方必然拿不到主页面 DOM）⟺ CI「同页面自由」要求直接持有主页面 DOM。两条路线架构上不可调和。
+> **六项可借鉴（仅思路）**：①分阶段生命周期编排 + 单阶段失败不中断 ②应用生命周期状态机（CI 建议 `idle→loading→active→suspended` + suspend/resume）③能力声明显式化（CI 因开放模型改为**披露而非拦截**）④打包签名思路（CI **不建议加密**）⑤SDK 按能力域命名分层（印证 CI 五命名空间方向正确）⑥最低版本约束（`minDittoVersion` ⟺ CI 的 `sdk` 字段）。
+
 位置：`D:\NetWork\Ditto`（主仓库）+ `D:\NetWork\Ditto_docs`（VitePress 文档站，含 `docs/concepts/{kernel,cell,ipc,lifecycle,permission}.md`）。**未推送到 GitHub org（org 下只有 5 个仓库，无 Ditto）**。最后提交 2026-06-29，有大量未提交改动。
 
 - **定位**：通用 WebOS 框架（**非校园专用**，无聊天/社区/天气业务），对标「浏览器里的操作系统」。26,612 行 TS/Vue、181 个文件、9 个 package（core/ui/services/sdk/theme/adapter/packager/cli/shared）。
