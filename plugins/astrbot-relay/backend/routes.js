@@ -132,4 +132,16 @@ router.post('/publish', async function (req, res) {
   }
 });
 
+// 帖子详情（AstrBot 端 read_classintra_post 工具用，含最新评论）
+router.get('/post/:id', function (req, res) {
+  if (!publishKeyOk(req)) {
+    return res.status(401).json({ code: 401, message: 'publish key 无效' });
+  }
+  var detail = relay.getPostDetail(req.params.id);
+  if (!detail) {
+    return res.status(404).json({ code: 404, message: '帖子不存在或已删除' });
+  }
+  res.json({ code: 200, message: 'ok', data: detail });
+});
+
 module.exports = router;

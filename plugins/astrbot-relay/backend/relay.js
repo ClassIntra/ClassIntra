@@ -374,6 +374,72 @@ function extractSpecialText(msgType, content) {
   return content || '';
 }
 
+// 帖子分享卡片 → 拉取全文+作者+最新评论，让 bot 真正"看得到"帖子内容
+function communityPostCardText(content) {
+  try {
+    var card = JSON.parse(content);
+    if (!card || !card.postId) return '';
+    var detail = getPostDetail(card.postId);
+    if (!detail) return '';
+    var lines = [
+      '【帖子分享】《' + (detail.title || '无标题') + '》',
+      '作者：' + detail.author + ' · ' + String(detail.created_at || '').replace('T', ' ').substring(0, 16) + ' · 赞 ' + detail.like_count + ' / 评论 ' + detail.comment_count,
+      '帖子ID：' + detail.id,
+      ''
+    ];
+    var body = String(detail.content || '').trim();
+    if (body.length > 1200) body = body.substring(0, 1200) + '……（正文过长已截断，可用 read_classintra_post 工具看全文与评论）';
+    lines.push(body);
+    if (detail.comments.length) {
+      lines.push('', '—— 最新评论 ——');
+      for (var i = 0; i < detail.comments.length; i++) {
+        lines.push(detail.comments[i].author + '：' + String(detail.comments[i].content || '').substring(0, 120));
+      }
+    }
+    return lines.join('\n');
+  } catch (e) {
+    log('帖子卡片解析失败:', e.message);
+    return '';
+  }
+}
+
+// 帖子详情（供 AstrBot 端 read_classintra_post 工具与卡片增强使用）
+function getPostDetail(postId) {
+  postId = String(postId || '').replace(/[^0-9]/g, '');
+  if (!postId) return null;
+  var post = db.prepare('SELECT id, user_id, type, title, content, anonymous, like_count, comment_count, share_count, created_at FROM community_posts WHERE id = ?').get(postId);
+  if (!post) return null;
+  var tomb = db.prepare("SELECT 1 FROM sync_tombstones WHERE data_type IN ('post', 'posts') AND record_id = ? LIMIT 1").get(postId);
+  if (tomb) return null;
+  var author = '匿名';
+  if (!post.anonymous) {
+    var u = db.prepare('SELECT net_name FROM users WHERE user_id = ?').get(post.user_id);
+    author = (u && u.net_name) || post.user_id;
+  }
+  var comments = db.prepare('SELECT user_id, content, created_at FROM community_comments WHERE post_id = ? ORDER BY id DESC LIMIT 10').all(postId);
+  var commentList = [];
+  for (var i = comments.length - 1; i >= 0; i--) {
+    var cu = db.prepare('SELECT net_name FROM users WHERE user_id = ?').get(comments[i].user_id);
+    commentList.push({
+      author: (cu && cu.net_name) || comments[i].user_id,
+      content: comments[i].content || '',
+      created_at: comments[i].created_at || null
+    });
+  }
+  return {
+    id: post.id,
+    type: post.type,
+    title: post.title || '',
+    author: author,
+    created_at: post.created_at || null,
+    like_count: post.like_count || 0,
+    comment_count: post.comment_count || 0,
+    share_count: post.share_count || 0,
+    content: post.content || '',
+    comments: commentList
+  };
+}
+
 function onPrivateMessage(fromUserId, message) {
   if (fromUserId === state.botCfg.userId || message.sender_id === state.botCfg.userId) return;
   if (!obReady()) {
@@ -389,8 +455,11 @@ function onPrivateMessage(fromUserId, message) {
     userText = content;
   } else if (msgType === 'ai_forward') {
     try { userText = JSON.parse(content).content || ''; } catch (e) { userText = ''; }
-  } else if (msgType === 'music_playlist' || msgType === 'community_forward') {
+  } else if (msgType === 'music_playlist') {
     userText = extractSpecialText(msgType, content);
+  } else if (msgType === 'community_forward') {
+    // 帖子分享卡片：拉全文+作者+最新评论，让 bot 能"看懂"帖子
+    userText = communityPostCardText(content) || extractSpecialText(msgType, content);
   } else {
     sendPrivate(fromUserId, '这种类型我收不到啦，截图发文字给我吧～');
     return;
@@ -1201,5 +1270,6 @@ module.exports = {
   sendPrivate: sendPrivate,
   publishForumPost: publishForumPost,
   persistPublishImage: persistPublishImage,
+  getPostDetail: getPostDetail,
   CFG: CFG
 };
