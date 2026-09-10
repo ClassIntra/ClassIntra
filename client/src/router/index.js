@@ -2,6 +2,7 @@ import Vue from 'vue';
 import VueRouter from 'vue-router';
 import api from '@/utils/api';
 import { appRoutes, ROUTE_APP_MAP } from '@/core/router-aggregator';
+import { loadManifests } from '@/core/manifest-loader';
 import MarketRuntime from '@/components/MarketRuntime.vue';
 
 Vue.use(VueRouter);
@@ -28,8 +29,15 @@ function getEnabledApps() {
     enabledAppsLoading = null;
     return enabledAppsCache;
   }).catch(function() {
-    // 降级：全部启用
-    enabledAppsCache = ['chat', 'community', 'ai-chat', 'notes', 'resource', 'weather', 'music', 'settings', 'timetable', 'calendar', 'countdown', 'browser'];
+    // 降级：后端不可达时按「本地实际打包的 manifest」推导启用名单，
+    // 跟随构建内容，避免硬编码过期应用名（已删除的模块自然不在其列）
+    var fallback = loadManifests()
+      .map(function(m) { return m.name; })
+      .filter(function(n) { return !!n; });
+    if (fallback.indexOf('browser') === -1) {
+      fallback.push('browser');
+    }
+    enabledAppsCache = fallback;
     enabledAppsLoading = null;
     return enabledAppsCache;
   });

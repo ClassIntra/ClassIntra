@@ -6,6 +6,7 @@ function RealtimeClient() {
   this.lastTs = 0;
   this.pollTimer = null;
   this.inFlight = false;
+  this._retryDelay = 100;
 }
 
 RealtimeClient.prototype._headers = function() {
@@ -35,8 +36,12 @@ RealtimeClient.prototype._emit = function(event, payload, message) {
 
 RealtimeClient.prototype.connect = function() {
   var self = this;
-  if (!localStorage.getItem('token') || !self.stopped) return;
+  if (!localStorage.getItem('token')) return;
+  if (!self.stopped) return;
+  // 清理可能残留的重连定时器，避免叠加
+  if (self.pollTimer) { clearTimeout(self.pollTimer); self.pollTimer = null; }
   self.stopped = false;
+  self.inFlight = false;
   fetch('/api/realtime/poll/register', { method: 'POST', headers: self._headers(), credentials: 'same-origin', body: '{}' })
     .then(function(response) { if (!response.ok) throw new Error('realtime register failed: ' + response.status); return response.json(); })
     .then(function(result) {
@@ -49,7 +54,10 @@ RealtimeClient.prototype.connect = function() {
     .catch(function(error) {
       self.connected = false;
       self._emit('error', error);
-      if (!self.stopped) self.pollTimer = setTimeout(function() { self.stopped = true; self.connect(); }, 5000);
+      // 保持 stopped=false 并按退避重试，不能置为 true（否则 connect() 会直接 return，永不重连）
+      if (!self.stopped) {
+        self.pollTimer = setTimeout(function() { self.connect(); }, 5000);
+      }
     });
 };
 
@@ -58,7 +66,16 @@ RealtimeClient.prototype._poll = function() {
   if (self.stopped || self.inFlight) return;
   self.inFlight = true;
   fetch('/api/realtime/poll?since=' + encodeURIComponent(self.lastTs), { method: 'GET', headers: self._headers(), credentials: 'same-origin' })
-    .then(function(response) { if (!response.ok) throw new Error('realtime poll failed: ' + response.status); return response.json(); })
+    .then(function(response) {
+      if (response.status === 401) {
+        // 认证失效：停止轮询，交由登录流程重新 connect，避免高频空转刷服务端
+        var err = new Error('realtime poll unauthorized');
+        err._authFailed = true;
+        throw err;
+      }
+      if (!response.ok) throw new Error('realtime poll failed: ' + response.status);
+      return response.json();
+    })
     .then(function(result) {
       var events = result.data && result.data.events || [];
       for (var i = 0; i < events.length; i++) {
@@ -67,9 +84,25 @@ RealtimeClient.prototype._poll = function() {
         if (item.event && item.event.type) self._emit(item.event.type, item.event, item.event);
       }
       if (result.data && result.data.server_time > self.lastTs) self.lastTs = result.data.server_time;
+      self._retryDelay = 100;
     })
-    .catch(function(error) { self._emit('error', error); })
-    .then(function() { self.inFlight = false; if (!self.stopped) self.pollTimer = setTimeout(function() { self._poll(); }, 100); });
+    .catch(function(error) {
+      self._emit('error', error);
+      if (error && error._authFailed) {
+        self.stopped = true;
+        self.connected = false;
+        self.inFlight = false;
+        return;
+      }
+      // 连接类错误：指数退避（100ms → 最大 10s），避免网络异常时高速重试
+      self._retryDelay = Math.min((self._retryDelay || 100) * 2, 10000);
+    })
+    .then(function() {
+      self.inFlight = false;
+      if (self.stopped) return;
+      var delay = self._retryDelay || 100;
+      self.pollTimer = setTimeout(function() { self._poll(); }, delay);
+    });
 };
 
 RealtimeClient.prototype.publish = function(event, payload, appName) {
@@ -95,8 +128,10 @@ RealtimeClient.prototype.disconnect = function() {
   var self = this;
   self.stopped = true;
   self.connected = false;
+  self.inFlight = false;
   if (self.pollTimer) clearTimeout(self.pollTimer);
   self.pollTimer = null;
+  self._retryDelay = 100;
   fetch('/api/realtime/poll/unregister', { method: 'POST', headers: self._headers(), credentials: 'same-origin', body: '{}' }).catch(function() {});
 };
 

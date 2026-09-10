@@ -86,6 +86,31 @@ function getAppEntryPath(appName, relPath, sourceDir) {
   return path.resolve(base, appName, cleaned);
 }
 
+// 按名称查找 manifest（apps/plugins/market-apps 任一来源；模块被移除后自然查不到）
+function findManifest(name) {
+  if (!name) return null;
+  var manifests = loadManifests();
+  for (var i = 0; i < manifests.length; i++) {
+    if (manifests[i].name === name) return manifests[i];
+  }
+  return null;
+}
+
+// 解析模块内任意入口的绝对路径（跟随 manifest 的来源目录），不存在返回 null
+function resolveModuleEntry(name, relPath) {
+  var m = findManifest(name);
+  if (!m) return null;
+  return getAppEntryPath(name, relPath, m._sourceDir);
+}
+
+// 判断模块后端入口是否实际存在（目录被整体删除/未安装时返回 false）
+function hasModuleBackend(name) {
+  var m = findManifest(name);
+  if (!m || !m.backend || !m.backend.entry) return false;
+  var p = getAppEntryPath(name, m.backend.entry, m._sourceDir);
+  return !!p && fs.existsSync(p);
+}
+
 // 清除缓存（开发时热加载用）
 function clearCache() {
   _cache = null;
@@ -94,6 +119,9 @@ function clearCache() {
 module.exports = {
   loadManifests: loadManifests,
   getAppEntryPath: getAppEntryPath,
+  findManifest: findManifest,
+  resolveModuleEntry: resolveModuleEntry,
+  hasModuleBackend: hasModuleBackend,
   clearCache: clearCache,
   appsDir: appsDir,
   pluginsDir: pluginsDir,

@@ -328,9 +328,16 @@ process.on('SIGINT', function() { gracefulShutdown('SIGINT'); });
 require('./ws/chat-server');
 
 // ======== 天气提醒定时检查 ========
+// 模块化边界：weather 是可选项业务模块（apps/weather），核心不得静态 require 其路径。
+// 通过 optional-module 探测存在性；模块未安装时停用调度器，不影响核心启动。
 var weatherAlertLastChecked = {};
+var optionalModule = require('./core/optional-module');
 
 function startWeatherAlertScheduler() {
+  if (!optionalModule.isAvailable('weather')) {
+    console.warn('[WeatherAlert] weather 模块未安装（apps/weather 缺失），天气提醒调度停用');
+    return;
+  }
   setInterval(function() {
     var db = require('./utils/db');
     var now = new Date();
@@ -344,7 +351,11 @@ function startWeatherAlertScheduler() {
         if (schedules[i].schedule_time === currentTime && !weatherAlertLastChecked[scheduleKey]) {
           weatherAlertLastChecked[scheduleKey] = true;
           console.log('[WeatherAlert] Scheduled check triggered at ' + currentTime);
-          var weatherRoute = require('../../apps/weather/backend/routes');
+          var weatherRoute = optionalModule.load('weather');
+          if (!weatherRoute || typeof weatherRoute.checkWeatherAlert !== 'function') {
+            console.warn('[WeatherAlert] weather 模块不可用，跳过本轮检查');
+            continue;
+          }
           weatherRoute.checkWeatherAlert().then(function(result) {
             if (result.has_rain || result.has_warning) {
               var alertType = 'both';

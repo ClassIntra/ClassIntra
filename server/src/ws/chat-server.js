@@ -263,7 +263,7 @@ var stmtInsertPrivateMessage = db.prepare(
 );
 
 var stmtGetPrivateHistory = db.prepare(
-  'SELECT id, sender_id, receiver_id, content, type, extra_json, read, created_at FROM private_messages ' +
+  'SELECT id, sender_id, receiver_id, content, type, extra_json, read, recalled, created_at FROM private_messages ' +
   'WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?) ' +
   'ORDER BY id DESC LIMIT ?'
 );
@@ -1559,6 +1559,7 @@ function handleGetPrivateHistory(ws, data) {
       content: rows[i].content,
       type: rows[i].type,
       read: rows[i].read,
+      recalled: rows[i].recalled || 0,
       reply_to: extraData.reply_to || null,
       created_at: time.toISOString(rows[i].created_at)
     });
@@ -2831,6 +2832,7 @@ var pollQueues = {};
 var POLL_QUEUE_MAX = 200;           // 单用户队列上限，防止内存泄漏
 var POLL_QUEUE_TTL_MS = 5 * 60 * 1000; // 5 分钟无 poll 视为离线
 var pollLastSeen = {};              // pollLastSeen[user_id] = ms timestamp
+var pollSeqCounter = 0;             // 全局单调递增事件序号，供客户端做游标
 
 function pushToPollQueue(userId, event) {
   if (!userId || !event) return;
@@ -2846,7 +2848,7 @@ function pushToPollQueue(userId, event) {
       return;
     }
   }
-  queue.push({ ts: Date.now(), event: event });
+  queue.push({ ts: Date.now(), seq: ++pollSeqCounter, event: event });
   if (queue.length > POLL_QUEUE_MAX) {
     queue.splice(0, queue.length - POLL_QUEUE_MAX);
   }
@@ -2880,14 +2882,26 @@ function touchPoller(userId) {
   pollLastSeen[userId] = Date.now();
 }
 
-function consumePollEvents(userId, sinceTs) {
+function consumePollEvents(userId, sinceTs, sinceSeq) {
   if (!userId || !pollQueues[userId]) return [];
   touchPoller(userId);
   var queue = pollQueues[userId];
   var result = [];
-  for (var i = 0; i < queue.length; i++) {
-    if (queue[i].ts > sinceTs) {
-      result.push(queue[i]);
+  // 优先用单调递增序号做游标：避免时间戳游标在「事件入队时刻早于响应时刻」时漏投。
+  // 注意 seq 从 1 开始，首次 poll 的 sinceSeq=0 必须走序号分支，故此处用
+  // Number.isFinite 判定而非 > 0，否则首次 poll 会退回有竞态的时间戳分支。
+  var useSeq = typeof sinceSeq === 'number' && isFinite(sinceSeq);
+  if (useSeq) {
+    for (var s = 0; s < queue.length; s++) {
+      if (queue[s].seq > sinceSeq) {
+        result.push({ ts: queue[s].ts, seq: queue[s].seq, event: queue[s].event });
+      }
+    }
+  } else {
+    for (var i = 0; i < queue.length; i++) {
+      if (queue[i].ts > sinceTs) {
+        result.push({ ts: queue[i].ts, seq: queue[i].seq, event: queue[i].event });
+      }
     }
   }
   // 清除已消费且过期的事件

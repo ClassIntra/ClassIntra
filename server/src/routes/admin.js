@@ -1796,7 +1796,12 @@ router.patch('/weather-alert/settings/:id', function(req, res) {
 
 // GET /api/admin/weather-alert/check - 手动触发天气检查
 router.get('/weather-alert/check', function(req, res) {
-  var weatherRoute = require('../../../apps/weather/backend/routes');
+  // 模块化边界：weather 为可选业务模块，经 optional-module 存在性加载，缺失时降级而非抛错
+  var optionalModule = require('../core/optional-module');
+  var weatherRoute = optionalModule.load('weather');
+  if (!weatherRoute || typeof weatherRoute.checkWeatherAlert !== 'function') {
+    return res.status(404).json({ code: 404, message: '天气模块未安装或不可用（apps/weather 缺失）' });
+  }
   weatherRoute.checkWeatherAlert().then(function(result) {
     res.json({
       code: 200,

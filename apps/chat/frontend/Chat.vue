@@ -149,9 +149,21 @@
               class="search-input"
               placeholder="搜索消息..."
               ref="searchInput"
+              @keydown.enter.exact.prevent="gotoNextMatch"
+              @keydown.enter.shift.prevent="gotoPrevMatch"
             />
             <button v-if="searchText" class="search-clear" @click="searchText = ''">
               <i class="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+          <!-- 搜索导航（对齐 QQ：显示第几条/共几条，Enter 下一条、Shift+Enter 上一条） -->
+          <div v-if="searchText" class="search-nav">
+            <span class="search-nav-count">{{ searchMatchTotal > 0 ? (searchMatchIndex + 1) : 0 }}/{{ searchMatchTotal }}</span>
+            <button class="search-nav-btn" :disabled="searchMatchTotal === 0" @click="gotoPrevMatch" title="上一条 (Shift+Enter)">
+              <i class="fa-solid fa-chevron-up"></i>
+            </button>
+            <button class="search-nav-btn" :disabled="searchMatchTotal === 0" @click="gotoNextMatch" title="下一条 (Enter)">
+              <i class="fa-solid fa-chevron-down"></i>
             </button>
           </div>
           <button class="search-close-btn" @click="closeSearch">取消</button>
@@ -197,6 +209,7 @@
               :senderRole="getSenderRole(msg.sender_id || msg.user_id)"
               :senderTitle="getSenderTitle(msg.sender_id || msg.user_id)"
               @recall="recallMessage"
+              @retry="retryMessage"
               @context-menu="openContextMenu"
               @preview-media="previewMedia"
               @toggle-reaction="toggleReaction"
@@ -204,6 +217,24 @@
             />
           </transition-group>
         </div>
+        <!-- 新消息悬浮提示 / 回到底部（对齐 QQ：翻看历史时新消息不打扰，但给出计数与一键回底） -->
+        <transition name="fade-quick">
+          <button
+            v-if="showScrollToBottom"
+            class="scroll-to-bottom-btn"
+            :class="{ 'has-new': pendingNewCount > 0 }"
+            @click="scrollToBottomAndClear"
+          >
+            <template v-if="pendingNewCount > 0">
+              <span class="scroll-btn-badge">{{ pendingNewCount > 99 ? '99+' : pendingNewCount }}</span>
+              <span class="scroll-btn-text">新消息</span>
+              <i class="fa-solid fa-arrow-down"></i>
+            </template>
+            <template v-else>
+              <i class="fa-solid fa-arrow-down"></i>
+            </template>
+          </button>
+        </transition>
         <div class="chat-input-area">
           <div v-if="replyingTo" class="reply-preview-bar">
             <div class="reply-preview-content">
@@ -393,7 +424,13 @@
             <div class="settings-user-card" v-if="currentPrivateContact">
               <div class="settings-user-avatar" :style="{ background: getAvatarColor(currentChat) }">{{ firstChar(getContactDisplayName(currentPrivateContact)) }}</div>
               <div class="settings-user-info">
-                <div class="settings-user-name">{{ getContactDisplayName(currentPrivateContact) }}</div>
+                <div class="settings-user-name">
+                  {{ getContactDisplayName(currentPrivateContact) }}
+                  <span v-if="isRemoteUser(currentChat)" class="cc-badge">CC</span>
+                </div>
+                <div class="settings-user-status" :class="{ online: isUserOnline(currentChat) }">
+                  {{ isUserOnline(currentChat) ? (isRemoteUser(currentChat) ? '跨班在线' : '在线') : '离线' }}
+                </div>
                 <div v-if="friendRemarks[currentChat]" class="settings-user-realname">{{ currentPrivateContact.net_name || currentPrivateContact.real_name }}</div>
               </div>
             </div>
@@ -691,6 +728,14 @@ export default {
       unreadCountOnEnter: 0,
       showUnreadDivider: false,
       prevChatId: null,
+      // 已读回执去重：记录上次上报的会话与消息点位（消息点位前移时才重发）
+      _lastMarkReadChat: null,
+      _lastMarkReadMsgId: null,
+      // 回到底部 / 新消息提示（对齐 QQ 的浮动胶囊）
+      showScrollToBottom: false,
+      pendingNewCount: 0,
+      // 消息搜索导航：当前命中的序号（在 filteredMessages 中的索引）
+      searchMatchIndex: 0,
       editingGroupName: false,
       editingGroupNameText: '',
       showAnnouncementPopup: false,
@@ -825,7 +870,12 @@ export default {
       var msgs = this.$store.state.chat.messages;
       if (msgs.length === 0) return '暂无消息';
       var last = msgs[msgs.length - 1];
-      return (last.sender_name || '') + ': ' + this.formatPreviewContent(last.content, last.type).substring(0, 20);
+      // 已撤回消息不应继续展示原文
+      if (last.recalled === 1) return (last.sender_name || '') + ': 消息已撤回';
+      // 消息类型字段为 type（服务端输出统一用 type；msg_type 仅是发送时的入参名）
+      var preview = this.formatPreviewContent(last.content, last.type);
+      if (preview.length > 20) preview = preview.substring(0, 20);
+      return (last.sender_name || '') + ': ' + preview;
     },
     publicLastTime: function() {
       var msgs = this.$store.state.chat.messages;
@@ -919,6 +969,11 @@ export default {
     },
     isPrivateChat: function() {
       return this.currentChat !== 'public' && !this.isGroupChat(this.currentChat);
+    },
+    // 搜索命中总数（搜索结果即 filteredMessages 的内容）
+    searchMatchTotal: function() {
+      if (!this.searchText) return 0;
+      return this.filteredMessages.length;
     },
     currentPrivateContact: function() {
       if (this.isGroupChat(this.currentChat) || this.currentChat === 'public') return null;
@@ -1070,11 +1125,19 @@ export default {
     }
   },
   watch: {
+    searchText: function() {
+      // 搜索词变化后命中集合会重建，索引必须归零，否则会指向越界位置
+      this.searchMatchIndex = 0;
+    },
     currentChat: function(newVal) {
       var self = this;
       self.typingUsers = [];
       self._clearAllTypingTimers();
       self._lastMarkReadChat = null;
+      self._lastMarkReadMsgId = null;
+      // 切换会话即重置浮动提示，避免把上一个会话的待读计数带过来
+      self.pendingNewCount = 0;
+      self.showScrollToBottom = false;
       if (self.isPrivateChat) {
         self.$nextTick(function() {
           self.sendMarkRead();
@@ -1209,6 +1272,8 @@ export default {
       self._wsHandlers['connected'] = function(data) {
         self.wsConnecting = false;
         self._processConnectedData(data);
+        // 重连补偿：断线期间的消息不会补发，需主动刷新当前会话 + 会话列表摘要
+        self._resyncAfterReconnect();
       };
       wsManager.on('connected', self._wsHandlers['connected']);
 
@@ -1258,7 +1323,7 @@ export default {
             if (isOwn) {
               self.scrollToBottom();
             } else {
-              self.scrollToBottomIfNear();
+              self._handleIncomingScroll();
             }
           });
         }
@@ -1307,6 +1372,16 @@ export default {
             var count = self.$store.state.chat.unread[chatId] || 0;
             self.$store.commit('chat/SET_UNREAD', { chatId: chatId, count: count + 1 });
           }
+          // 同步私聊在侧栏的预览文案与排序时间（否则须刷新页面才更新）
+          self.$store.commit('chat/UPDATE_CHAT_PREVIEW', {
+            chatId: chatId,
+            isGroup: false,
+            content: data.message.content,
+            msgType: data.message.msg_type || 'text',
+            senderName: data.message.sender_name || '',
+            senderId: data.message.sender_id || '',
+            createdAt: data.message.created_at
+          });
           if (!isPmOwn && !self.$store.getters['chat/isDnd'](chatId)) {
             self.playNotificationSound();
           }
@@ -1314,7 +1389,15 @@ export default {
             self.sendMarkRead();
           }
           self.$nextTick(function() {
-            self.scrollToBottomIfNear();
+            // 仅当消息属于当前打开的会话时才滚动/计数，
+            // 否则会给其他会话的消息错误地累加"新消息"提示。
+            if (self.currentChat === chatId) {
+              if (isPmOwn) {
+                self.scrollToBottom();
+              } else {
+                self._handleIncomingScroll();
+              }
+            }
           });
         }
       };
@@ -1339,6 +1422,10 @@ export default {
           var groupId = data.group_id;
           if (data.temp_id && groupId) {
             self.$store.commit('chat/UPDATE_GROUP_MESSAGE_ID', { groupId: groupId, oldId: data.temp_id, newId: data.message_id });
+            self.$set(self.messageStatuses, data.message_id, 'sent');
+            if (self.messageStatuses[data.temp_id] !== undefined) {
+              self.$delete(self.messageStatuses, data.temp_id);
+            }
           }
         }
       };
@@ -1353,14 +1440,27 @@ export default {
           var count = self.$store.state.chat.unread[groupId] || 0;
           self.$store.commit('chat/SET_UNREAD', { chatId: groupId, count: count + 1 });
         }
+        // 同步群聊在侧栏的预览文案与排序时间
+        self.$store.commit('chat/UPDATE_CHAT_PREVIEW', {
+          chatId: groupId,
+          isGroup: true,
+          content: data.message.content,
+          msgType: data.message.msg_type || 'text',
+          senderName: data.message.sender_name || '',
+          senderId: data.message.sender_id || '',
+          createdAt: data.message.created_at
+        });
         if (!isOwn && !self.$store.getters['chat/isDnd'](groupId)) {
           self.playNotificationSound();
         }
         self.$nextTick(function() {
-          if (isOwn) {
-            self.scrollToBottom();
-          } else {
-            self.scrollToBottomIfNear();
+          // 同私聊：只有当前会话的消息才滚动或计数
+          if (self.currentChat === groupId) {
+            if (isOwn) {
+              self.scrollToBottom();
+            } else {
+              self._handleIncomingScroll();
+            }
           }
         });
       };
@@ -1640,6 +1740,26 @@ export default {
       };
       wsManager.on('message_read', self._wsHandlers['message_read']);
 
+      // poll（HTTP 长轮询）模式下 send() 是 fire-and-forget，异步结果只能经事件回传。
+      // send_failed：请求失败且离线队列已满 —— 必须明确置为失败，避免"显示成功实际没发出"。
+      self._wsHandlers['send_failed'] = function(data) {
+        var tid = data && data.temp_id;
+        if (tid) {
+          self.$set(self.messageStatuses, tid, 'failed');
+        }
+        self.$store.commit('toast/SHOW_TOAST', { message: '消息发送失败，请检查网络后重试', type: 'error' });
+      };
+      wsManager.on('send_failed', self._wsHandlers['send_failed']);
+
+      // send_queued：请求失败但已入队待重试 —— 保持"发送中"，重连后由 *_message_sent 置为已发送。
+      self._wsHandlers['send_queued'] = function(data) {
+        var tid = data && data.temp_id;
+        if (tid) {
+          self.$set(self.messageStatuses, tid, 'sending');
+        }
+      };
+      wsManager.on('send_queued', self._wsHandlers['send_queued']);
+
       autoConnect();
 
       if (wsManager.isReady()) {
@@ -1649,6 +1769,25 @@ export default {
           self._processConnectedData(cached);
         }
       }
+    },
+    // 连接建立/重连后的补偿同步：拉取当前会话最新消息与联系人/群列表摘要，
+    // 解决断线期间漏收消息、会话列表未读数不更新的问题。
+    _resyncAfterReconnect: function() {
+      var self = this;
+      var chatId = self.currentChat;
+      if (chatId && chatId !== 'public') {
+        if (self.isGroupChat(chatId)) {
+          self.$store.dispatch('chat/loadGroupMessages', chatId).then(function() {
+            self.$nextTick(function() { self.scrollToBottomIfNear(); });
+          }).catch(function() {});
+        } else {
+          self.$store.dispatch('chat/loadPrivateMessages', chatId).then(function() {
+            self.$nextTick(function() { self.scrollToBottomIfNear(); });
+          }).catch(function() {});
+        }
+      }
+      self.$store.dispatch('chat/loadContacts').catch(function() {});
+      self.$store.dispatch('chat/loadGroups').catch(function() {});
     },
     _processConnectedData: function(data) {
       var self = this;
@@ -1720,6 +1859,17 @@ export default {
       if (!contact) return '';
       var remark = this.friendRemarks[contact.user_id];
       if (remark) return remark;
+      if (contact.net_name && contact.net_name !== contact.user_id) return contact.net_name;
+      if (contact.real_name) return contact.real_name;
+      // 兜底：跨班联系人本机没有用户资料，名称只能从中继消息体里取。
+      // 无名称时直接显示 user_id 体验很差，这里从该会话消息中回溯对方昵称。
+      var msgs = this.$store.state.chat.privateChats[contact.user_id];
+      if (msgs && msgs.length > 0) {
+        for (var i = msgs.length - 1; i >= 0; i--) {
+          var m = msgs[i];
+          if (m.sender_id === contact.user_id && m.sender_name) return m.sender_name;
+        }
+      }
       return contact.net_name || contact.real_name || contact.user_id || '?';
     },
     loadFriendRemarks: function() {
@@ -1795,7 +1945,17 @@ export default {
       self.$store.commit('chat/SET_CURRENT_CHAT', chatId);
       self.$store.commit('chat/CLEAR_UNREAD', chatId);
       if (chatId === 'public') {
-        // nothing extra
+        // 公共聊天室的消息来自全局 store.messages，切换时不需要重新拉取，
+        // 但必须显式滚到底部——否则会沿用上一条会话的 scrollTop，
+        // 表现为"点了公共聊天室却停在中间/顶部"。
+        // 用两级 nextTick：第一级等 Vue 渲染出切换后的消息列表，
+        // 第二级等 transition-group 完成布局后再定 scrollTop。
+        self.$nextTick(function() {
+          self.scrollToBottom();
+          self.$nextTick(function() {
+            self.scrollToBottom();
+          });
+        });
       } else if (self.isGroupChat(chatId)) {
         self.$store.dispatch('chat/loadGroupMessages', chatId).then(function() {
           self.$nextTick(function() {
@@ -1883,6 +2043,23 @@ export default {
           self.$store.commit('toast/SHOW_TOAST', { message: errMsg, type: 'error' });
         });
     },
+    // 依据 wsManager.send() 的返回值统一落发送状态。
+    //   'sent'    → 已写入传输通道（HTTP 模式下属"请求已发起"，最终结果由 send_failed/send_queued 事件回传）
+    //   'queued'  → 通道未就绪已入队，显示"发送中"，重连后由 *_sent 事件推进
+    //   'dropped' → 通道未就绪且队列已满，明确置为失败并提示
+    _applySendResult: function(tempId, result) {
+      if (result === 'dropped') {
+        this.$set(this.messageStatuses, tempId, 'failed');
+        this.$store.commit('toast/SHOW_TOAST', { message: '消息未发送：连接已断开且待发队列已满', type: 'error' });
+        return false;
+      }
+      if (result === 'queued') {
+        this.$set(this.messageStatuses, tempId, 'sending');
+        return true;
+      }
+      this.$set(this.messageStatuses, tempId, 'sent');
+      return true;
+    },
     sendMessage: function(options) {
       var self = this;
       var isForward = !!(options && options.forwardData);
@@ -1922,11 +2099,17 @@ export default {
       var payload = Object.assign({}, msg, { msg_type: msgType });
       self.$store
         .dispatch(sendAction, payload)
-        .then(function() {
-          self.$set(self.messageStatuses, msgId, 'sent');
+        .then(function(result) {
+          var ok = self._applySendResult(msgId, result);
+          if (!ok) {
+            // dropped：消息实际未发出，保留输入内容便于用户重试
+            return;
+          }
           if (!isForward) {
             self.inputText = '';
           }
+          // 自己发言说明已读到当前底部，未读分隔线完成使命后应消失
+          self.showUnreadDivider = false;
           // Clear reply state after sending
           if (self.replyingTo) {
             self.replyingTo = null;
@@ -1942,6 +2125,34 @@ export default {
         .finally(function() {
           self.sending = false;
         });
+    },
+    // 重发失败消息：以原消息内容与类型重新走一次发送流程。
+    // 只允许重试本会话内、未被服务端确认（无真实 id）且当前标记为 failed 的消息，
+    // 避免重复发送已成功的消息。
+    retryMessage: function(msg) {
+      var self = this;
+      if (!msg) return;
+      var msgId = msg.id || msg.message_id;
+      var status = self.messageStatuses[msg.tempId || msgId] || self.messageStatuses[msgId];
+      if (status && status !== 'failed') return;
+      var content = msg.content;
+      if (!content) return;
+      var msgType = msg.msg_type || msg.type || 'text';
+      var chatId = msg.chatId || self.currentChat;
+
+      // 置为发送中并复用现有发送逻辑（不修改输入框内容，避免干扰正在编辑的文本）
+      self.$set(self.messageStatuses, msg.tempId || msgId, 'sending');
+      var sendData;
+      if (chatId === 'public') {
+        sendData = { type: 'text', content: content, msg_type: msgType, temp_id: msg.tempId || msgId };
+      } else if (self.isGroupChat(chatId)) {
+        sendData = { type: 'group_message', group_id: chatId, content: content, msg_type: msgType, temp_id: msg.tempId || msgId };
+      } else {
+        sendData = { type: 'private_message', target_user_id: chatId, content: content, msg_type: msgType, temp_id: msg.tempId || msgId };
+      }
+      if (msg.reply_to) sendData.reply_to = msg.reply_to;
+      var result = wsManager.send(sendData);
+      self._applySendResult(msg.tempId || msgId, result);
     },
     insertEmoji: function(emoji) {
       this.inputText += emoji;
@@ -1985,12 +2196,32 @@ export default {
         }
       });
     },
+    // 点击「新消息/回到底部」：滚到底并清空待读计数
+    scrollToBottomAndClear: function() {
+      this.pendingNewCount = 0;
+      this.showScrollToBottom = false;
+      this.showUnreadDivider = false;
+      this.scrollToBottom();
+    },
     isNearBottom: function() {
       var container = this.$refs.messageContainer;
       if (!container) return true;
       var threshold = 150;
       var distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
       return distanceFromBottom <= threshold;
+    },
+    // 收到他人消息时的滚动策略（对齐 QQ）：
+    //   已在底部 → 自动跟随滚动，不打扰；
+    //   已上翻     → 不动视口，改为累计「新消息」计数，由浮动按钮一键回底。
+    _handleIncomingScroll: function() {
+      var self = this;
+      var wasNearBottom = self.isNearBottom();
+      if (wasNearBottom) {
+        self.scrollToBottom();
+      } else {
+        self.pendingNewCount = (self.pendingNewCount || 0) + 1;
+        self.showScrollToBottom = true;
+      }
     },
     scrollToBottomIfNear: function() {
       var self = this;
@@ -2036,6 +2267,7 @@ export default {
         if (last.recalled === 1) return '[消息已撤回]';
         var prefix = this.isOwnMessage(last) ? '你: ' : '';
         var content = last.content || '';
+        // 消息类型字段为 type（服务端输出统一用 type；msg_type 仅是发送入参名）
         if (last.type === 'community_forward') {
           try { var fwd = JSON.parse(content); content = '[分享] ' + (fwd.title || fwd.dish_name || '帖子'); } catch (e) {}
         } else {
@@ -2061,6 +2293,7 @@ export default {
       var msgs = this.$store.state.chat.groupChats[groupId];
       if (msgs && msgs.length > 0) {
         var last = msgs[msgs.length - 1];
+        // 消息类型字段为 type（服务端输出统一用 type；msg_type 仅是发送入参名）
         if (last.type === 'system') return last.content || '';
         if (last.recalled === 1) return '[消息已撤回]';
         var name = last.sender_name || '';
@@ -2481,8 +2714,16 @@ export default {
     },
     getMessageStatus: function(msg) {
       var msgId = msg.id || msg.message_id;
+      // 临时消息：优先匹配本地发送状态（tempId 为状态键）
+      if (msg.tempId && this.messageStatuses[msg.tempId]) {
+        return this.messageStatuses[msg.tempId];
+      }
       if (this.messageStatuses[msgId]) {
         return this.messageStatuses[msgId];
+      }
+      // 未在本地记录状态，但仍是临时消息 → 视为发送中（尚未收到服务端确认）
+      if (msg.tempId && !msg._serverId) {
+        return 'sending';
       }
       return 'sent';
     },
@@ -2522,6 +2763,7 @@ export default {
       var prev = msgs[index - 1];
       var curr = msgs[index];
       if (!prev || !curr) return true;
+      // 系统消息两侧都要显示时间；消息类型字段统一为 type
       if (prev.type === 'system' || curr.type === 'system') return true;
       // Different sender always shows timestamp
       if (prev.sender_id !== curr.sender_id) return true;
@@ -2540,6 +2782,19 @@ export default {
         if (!container) return;
         if (container.scrollTop <= 50 && !self.chatLoadingMore && self.chatHasMore) {
           self.loadOlderMessages();
+        }
+        // 滚到底部（读完全部未读）后，未读分隔线应消失，否则会长期滞留在列表中
+        var distToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+        if (self.showUnreadDivider && distToBottom <= 50) {
+          self.showUnreadDivider = false;
+        }
+        // 偏离底部一定距离才显示「回到底部」；回到附近则收起并清掉新消息计数
+        var awayFromBottom = distToBottom > 200;
+        if (awayFromBottom !== self.showScrollToBottom) {
+          self.showScrollToBottom = awayFromBottom;
+        }
+        if (!awayFromBottom && self.pendingNewCount > 0) {
+          self.pendingNewCount = 0;
         }
       });
     },
@@ -2618,6 +2873,32 @@ export default {
     closeSearch: function() {
       this.showSearch = false;
       this.searchText = '';
+      this.searchMatchIndex = 0;
+    },
+    // 搜索结果导航（对齐 QQ：Enter 下一条 / Shift+Enter 上一条，循环）
+    gotoNextMatch: function() {
+      var total = this.searchMatchTotal;
+      if (total === 0) return;
+      this.searchMatchIndex = (this.searchMatchIndex + 1) % total;
+      this._scrollToMatch();
+    },
+    gotoPrevMatch: function() {
+      var total = this.searchMatchTotal;
+      if (total === 0) return;
+      this.searchMatchIndex = (this.searchMatchIndex - 1 + total) % total;
+      this._scrollToMatch();
+    },
+    _scrollToMatch: function() {
+      var self = this;
+      self.$nextTick(function() {
+        var container = self.$refs.messageContainer;
+        if (!container) return;
+        var bubbles = container.querySelectorAll('.chat-bubble');
+        var el = bubbles[self.searchMatchIndex];
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      });
     },
     onInputChange: function() {
       this.autoResizeInput();
@@ -2692,30 +2973,33 @@ export default {
 
       if (chatId === 'public') {
         self.$store.commit('chat/ADD_MESSAGE', optimisticMsg);
-        wsManager.send({
+        var fwdR1 = wsManager.send({
           type: 'text',
           content: content,
           msg_type: msgType,
           temp_id: tempId
         });
+        self._applySendResult(tempId, fwdR1);
       } else if (self.isGroupChat(chatId)) {
         self.$store.commit('chat/ADD_GROUP_MESSAGE', { groupId: chatId, message: optimisticMsg });
-        wsManager.send({
+        var fwdR2 = wsManager.send({
           type: 'group_message',
           group_id: chatId,
           content: content,
           msg_type: msgType,
           temp_id: tempId
         });
+        self._applySendResult(tempId, fwdR2);
       } else {
         self.$store.commit('chat/ADD_MESSAGE', optimisticMsg);
-        wsManager.send({
+        var fwdR3 = wsManager.send({
           type: 'private_message',
           target_user_id: chatId,
           content: content,
           msg_type: msgType,
           temp_id: tempId
         });
+        self._applySendResult(tempId, fwdR3);
       }
 
       // Increment share count for community forwards (fire-and-forget)
@@ -3002,24 +3286,11 @@ export default {
       var self = this;
       if (!self.isPrivateChat) return;
       var chatId = self.currentChat;
-      if (self._lastMarkReadChat === chatId) return;
       var msgs = self.$store.state.chat.privateChats[chatId];
       if (!msgs || msgs.length === 0) return;
 
-      var hasUnread = false;
+      // 找到对方最新一条可读消息，作为本次已读的回执点位
       var userId = self.currentUser ? self.currentUser.user_id : '';
-      for (var i = msgs.length - 1; i >= 0; i--) {
-        var msg = msgs[i];
-        if (msg.sender_id !== userId && msg.recalled !== 1) {
-          hasUnread = true;
-          break;
-        }
-      }
-      if (!hasUnread) {
-        self._lastMarkReadChat = chatId;
-        return;
-      }
-
       var lastOtherMsgId = null;
       for (var j = msgs.length - 1; j >= 0; j--) {
         var m = msgs[j];
@@ -3028,15 +3299,20 @@ export default {
           break;
         }
       }
+      // 没有任何对方消息 → 无需回执
+      if (!lastOtherMsgId) return;
+      // 同一会话内仅当回执点位前移时才重发，避免频繁请求；
+      // 注意不能只按 chatId 去重 —— 否则同一会话收到后续新消息时永不补发已读，
+      // 对方会一直显示未读。
+      if (self._lastMarkReadChat === chatId && self._lastMarkReadMsgId === lastOtherMsgId) return;
 
-      if (lastOtherMsgId) {
-        self._lastMarkReadChat = chatId;
-        wsManager.send({
-          type: 'mark_read',
-          chat_id: chatId,
-          message_id: lastOtherMsgId
-        });
-      }
+      self._lastMarkReadChat = chatId;
+      self._lastMarkReadMsgId = lastOtherMsgId;
+      wsManager.send({
+        type: 'mark_read',
+        chat_id: chatId,
+        message_id: lastOtherMsgId
+      });
     },
     showClearChatConfirm: function() {
       this.showClearChatConfirmDialog = true;
@@ -3356,6 +3632,59 @@ export default {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  /* 供「新消息/回到底部」浮动按钮定位 */
+  position: relative;
+}
+
+/* 新消息提示 / 回到底部浮动胶囊（对齐 QQ） */
+.scroll-to-bottom-btn {
+  position: absolute;
+  right: 20px;
+  /* 停在输入区上方，并避开 iOS 安全区 */
+  bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: 0.5px solid var(--separator-color);
+  border-radius: 999px;
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.scroll-to-bottom-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16);
+}
+
+.scroll-to-bottom-btn.has-new {
+  background: var(--primary-color);
+  border-color: var(--primary-color);
+  color: #fff;
+}
+
+.scroll-btn-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--danger-color, #ff3b30);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.scroll-to-bottom-btn.has-new .scroll-btn-badge {
+  background: rgba(255, 255, 255, 0.28);
 }
 
 .chat-header {
@@ -4326,6 +4655,17 @@ export default {
   margin-top: 2px;
 }
 
+/* 私聊设置里的在线/离线状态（对齐 QQ 的资料卡状态行） */
+.settings-user-status {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.settings-user-status.online {
+  color: var(--success-color, #34c759);
+}
+
 .settings-remark-input {
   flex: 1;
   max-width: 180px;
@@ -4535,6 +4875,46 @@ export default {
   padding: 8px 24px;
   border-bottom: 0.5px solid var(--separator-color);
   background: var(--card-bg);
+}
+
+/* 搜索导航：命中计数 + 上下条切换（对齐 QQ） */
+.search-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.search-nav-count {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  min-width: 42px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.search-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.search-nav-btn:hover:not(:disabled) {
+  background: var(--bg-color);
+  color: var(--primary-color);
+}
+
+.search-nav-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 .search-input-wrap {

@@ -153,9 +153,12 @@ function normTs(v) {
 // 回环去重：按 sender+content+归一化时间戳 匹配最近 5 条，命中即视为同一消息
 function isRelayDuplicate(ctx, table, whereCols, values, createdAt) {
   var where = whereCols.map(function (c) { return c + ' = ?'; }).join(' AND ');
-  var recent = ctx.db.prepare(
+  var stmt = ctx.db.prepare(
     'SELECT id, created_at FROM ' + table + ' WHERE ' + where + ' ORDER BY id DESC LIMIT 5'
-  ).all.apply(null, values);
+  );
+  // 必须用 stmt 作为 this 调用：better-sqlite3 的 statement 方法依赖 this 访问原生句柄，
+  // 用 .apply(null, values) 会抛 "TypeError: Illegal invocation"，导致中继消息全部丢失。
+  var recent = stmt.all.apply(stmt, values);
   var tsKey = normTs(createdAt);
   for (var i = 0; i < recent.length; i++) {
     if (createdAt && (recent[i].created_at === createdAt || normTs(recent[i].created_at) === tsKey)) {
