@@ -61,6 +61,39 @@ function ciSelfId() {
   return (state.botCfg && state.botCfg.userId) || 'linxi_ai';
 }
 
+// 机器人可被 @ 的称呼（网名/真名/常用称呼），用于公共聊天室点名识别
+function botDisplayNames() {
+  var names = [];
+  if (state.botCfg) {
+    if (state.botCfg.netName) names.push(state.botCfg.netName);
+    if (state.botCfg.realName) names.push(state.botCfg.realName);
+  }
+  ['白露未晞', '林晞'].forEach(function (n) { if (names.indexOf(n) === -1) names.push(n); });
+  return names;
+}
+
+// 公共聊天室：仅响应被点名（@称呼）或直接下指令（/开头）的消息，避免刷屏
+function isPublicBotDirected(text) {
+  var t = String(text || '').trim();
+  if (!t) return false;
+  if (t.charAt(0) === '/') return true;
+  var names = botDisplayNames();
+  for (var i = 0; i < names.length; i++) {
+    if (t.indexOf('@' + names[i]) !== -1) return true;
+  }
+  return false;
+}
+
+// 去掉 @称呼 前缀/片段，保留真正的指令内容
+function stripBotMention(text) {
+  var t = String(text || '');
+  var names = botDisplayNames();
+  for (var i = 0; i < names.length; i++) {
+    t = t.split('@' + names[i]).join(' ');
+  }
+  return t.replace(/\s+/g, ' ').trim();
+}
+
 // ===== 云盘内容解析：[cloud-img|video|audio:hash.ext] → OneBot 消息段 =====
 
 var CLOUD_TAG_RE = /\[cloud-(img|video|audio):([a-f0-9]{64}(?:\.\w+)?)\]/g;
@@ -263,8 +296,13 @@ function handleCiMessage(data) {
     case 'group_message':
       if (data.group_id && data.message) onGroupMessage(data.group_id, data.message);
       break;
+    case 'new_message':
+      // 公共聊天室（room_id=public）为全员广播，仅在被点名/下指令时转给 AstrBot
+      if (data.message) onPublicMessage(data.message);
+      break;
     case 'private_message_sent':
     case 'group_message_sent':
+    case 'message_sent':
       if (data && data.success === false) {
         log('消息发送被服务端拒绝: ' + JSON.stringify(data));
       } else if (data && data.temp_id && state.pendingRecall[data.temp_id]) {
@@ -296,11 +334,12 @@ function forwardRecallNotice(data) {
     time: Math.floor(Date.now() / 1000),
     self_id: ciSelfId(),
     post_type: 'notice',
-    notice_type: data.message_type === 'group' ? 'group_recall' : 'friend_recall',
+    notice_type: (data.message_type === 'group' || data.message_type === 'public') ? 'group_recall' : 'friend_recall',
     user_id: data.sender_id || null,
     message_id: obId
   };
   if (data.message_type === 'group') notice.group_id = data.group_id;
+  if (data.message_type === 'public') notice.group_id = 'public';
   delete state.ciToOb[String(data.message_id)];
   try { state.obWs.send(JSON.stringify(notice)); log('已上报撤回 notice:', obId); } catch (e) {}
 }
@@ -434,6 +473,55 @@ function onGroupMessage(groupId, message) {
     if (okg.length > 400) delete state.obToCi[okg[0]];
   }
   cacheAndSendEvent(event, 'group=' + groupId + ' user=' + message.sender_id);
+}
+
+// CI 公共聊天室消息 → OneBot 群事件（group_id 固定为 public，仅被点名时上报）
+function onPublicMessage(message) {
+  if (!obReady()) return;
+  if (!message || message.sender_id === state.botCfg.userId) return;
+  var msgType = message.type || 'text';
+  var text;
+  if (msgType === 'text') text = message.content || '';
+  else if (msgType === 'ai_forward') {
+    try { text = JSON.parse(message.content).content || ''; } catch (e) { text = ''; }
+  } else {
+    return; // 公共聊天室仅处理文本，其他类型静默忽略，避免刷屏
+  }
+  text = String(text || '');
+  if (!text.trim()) return;
+  if (!isPublicBotDirected(text)) return;
+
+  var userText = stripBotMention(text) || '（被点名了）';
+  state.counters.received++;
+  var msgId = ++state.msgSeq;
+  // 首段插入 At 机器人，确保 AstrBot 群聊唤醒检查放行
+  var segments = [{ type: 'at', data: { qq: ciSelfId() } }].concat(
+    buildInboundSegments(userText, message.reply_to)
+  );
+  var event = {
+    time: Math.floor(Date.now() / 1000),
+    self_id: ciSelfId(),
+    post_type: 'message',
+    message_type: 'group',
+    sub_type: 'normal',
+    message_id: msgId,
+    group_id: 'public',
+    group_name: '公共聊天室',
+    user_id: message.sender_id,
+    message: segments,
+    raw_message: userText,
+    font: 0,
+    sender: { user_id: message.sender_id, nickname: String(message.sender_name || message.sender_id), card: String(message.sender_name || ''), role: 'member' }
+  };
+  var replySegPub = inboundReplySegment(message);
+  if (replySegPub) event.message.splice(1, 0, replySegPub);
+  if (message.id != null) {
+    state.ciToOb[String(message.id)] = msgId;
+    state.obToCi[msgId] = String(message.id);
+    var okp = Object.keys(state.obToCi);
+    if (okp.length > 400) delete state.obToCi[okp[0]];
+  }
+  cacheAndSendEvent(event, 'public user=' + message.sender_id);
 }
 
 function cacheAndSendEvent(event, tag) {
@@ -954,8 +1042,10 @@ async function handleSendGroup(p, echo) {
   if (!groupId || !texts.length) { obReply(echo, { message_id: 0 }); return; }
   var obIdG = ++state.msgSeq;
   obReply(echo, { message_id: obIdG, reserver: null });
-  deliverTexts(groupId, texts, 'group', state.refReplyTo, obIdG);
-  flushPendingMedia(groupId, 'group', obIdG);
+  // 公共聊天室（group_id=public）走 chat_messages 广播通道，其余为普通群
+  var channel = groupId === 'public' ? 'public' : 'group';
+  deliverTexts(groupId, texts, channel, state.refReplyTo, obIdG);
+  flushPendingMedia(groupId, channel, obIdG);
 }
 
 async function handleForwardMsg(p, echo) {
@@ -977,14 +1067,11 @@ function flushPendingMedia(targetId, channel) {
   var items = state.pendingMedia.splice(0);
   items.forEach(function (item) {
     downloadToLocal(item.segType, item.url).then(function (url) {
-      if (url) {
-        log('媒体后台补发:', url);
-        if (channel === 'group') sendGroupMessage(targetId, url);
-        else sendPrivate(targetId, url);
-      } else {
-        if (channel === 'group') sendGroupMessage(targetId, '（音乐加载失败，换首试试？）');
-        else sendPrivate(targetId, '（音乐加载失败，换首试试？）');
-      }
+      var payload = url || '（音乐加载失败，换首试试？）';
+      if (url) log('媒体后台补发:', url);
+      if (channel === 'public') sendPublicMessage(targetId, payload);
+      else if (channel === 'group') sendGroupMessage(targetId, payload);
+      else sendPrivate(targetId, payload);
     });
   });
 }
@@ -1003,11 +1090,14 @@ function sendSegmented(targetId, texts, idx, channel, replyToCiId, obId, groupId
   if (idx >= texts.length) { state.counters.replied++; return; }
   // CI 原生引用：只挂在第一段上；temp_id 关联 obId 供撤回
   var tempId = obId ? 'ob' + obId + '_' + idx + '_' + crypto.randomBytes(2).toString('hex') : null;
-  if (tempId && channel === 'group') state.pendingRecall[tempId] = { obId: obId, channel: 'group', target: targetId, groupId: groupId };
+  if (tempId && channel === 'public') state.pendingRecall[tempId] = { obId: obId, channel: 'public', target: targetId };
+  else if (tempId && channel === 'group') state.pendingRecall[tempId] = { obId: obId, channel: 'group', target: targetId, groupId: groupId };
   else if (tempId) state.pendingRecall[tempId] = { obId: obId, channel: 'private', target: targetId };
-  var ok = channel === 'group'
-    ? sendGroupMessage(targetId, texts[idx], idx === 0 ? replyToCiId : null, tempId)
-    : sendPrivate(targetId, texts[idx], idx === 0 ? replyToCiId : null, tempId);
+  var ok = channel === 'public'
+    ? sendPublicMessage(targetId, texts[idx], idx === 0 ? replyToCiId : null, tempId)
+    : channel === 'group'
+      ? sendGroupMessage(targetId, texts[idx], idx === 0 ? replyToCiId : null, tempId)
+      : sendPrivate(targetId, texts[idx], idx === 0 ? replyToCiId : null, tempId);
   if (!ok) { state.counters.failed++; return; }
   if (idx < texts.length - 1) {
     var delay = 300 + Math.floor(Math.random() * 500);
@@ -1015,6 +1105,24 @@ function sendSegmented(targetId, texts, idx, channel, replyToCiId, obId, groupId
   } else {
     state.counters.replied++;
   }
+}
+
+// 公共聊天室：chat_messages(room_id=public) 广播通道，服务端会推给所有在线用户
+function sendPublicMessage(content, replyToCiId, tempId) {
+  if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+    log('CI WS 未连接，无法发送到公共聊天室');
+    return false;
+  }
+  tempId = tempId || Date.now().toString() + '_' + crypto.randomBytes(3).toString('hex');
+  var payload = {
+    type: 'text',
+    content: content,
+    msg_type: 'text',
+    temp_id: tempId
+  };
+  if (replyToCiId) payload.reply_to = replyToCiId;
+  state.ws.send(JSON.stringify(payload));
+  return true;
 }
 
 function sendPrivate(targetUserId, content, replyToCiId, tempId) {
