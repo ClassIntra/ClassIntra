@@ -187,7 +187,7 @@ export default {
   max-width: 440px;
   width: 90%;
   overflow: hidden;
-  animation: modal-enter 0.4s var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
+  animation: modal-enter 0.4s var(--ease-spring);
 }
 
 @keyframes modal-enter {

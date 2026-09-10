@@ -1133,7 +1133,7 @@ export default {
   cursor: pointer;
   border: 2px solid transparent;
   background: none;
-  transition: background 0.15s var(--ease-standard), color 0.15s var(--ease-standard), border-color 0.15s var(--ease-standard);
+  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard);
   flex-shrink: 0;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
@@ -1287,7 +1287,7 @@ export default {
   cursor: pointer;
   border: 2px solid transparent;
   background: none;
-  transition: background 0.15s var(--ease-standard), color 0.15s var(--ease-standard), border-color 0.15s var(--ease-standard);
+  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard);
   padding: 0 8px;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
@@ -1349,7 +1349,8 @@ export default {
   border-radius: 50%;
   cursor: pointer;
   border: 2px solid transparent;
-  transition: border-color 0.15s, transform 0.15s;
+  transition: border-color var(--duration-fast) var(--ease-standard),
+              transform var(--duration-fast) var(--ease-standard);
   touch-action: manipulation;
 }
 
@@ -1461,7 +1462,8 @@ export default {
   position: relative;
   background: var(--card-bg);
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
-  transition: transform 0.05s ease-out;
+  /* 跟手补偿档（§5.5.1 第 10 项）：极短时长以求"即时感"，但需有值否则产生拖影断层 */
+  transition: transform 0.05s linear;
 }
 
 .draw-canvas--annotation .dc-layers-container {
@@ -1486,7 +1488,7 @@ export default {
 
 .dc-grid-overlay {
   pointer-events: none;
-  transition: opacity 0.2s;
+  transition: opacity var(--duration-fast) var(--ease-standard);
 }
 
 .dc-guides-overlay {

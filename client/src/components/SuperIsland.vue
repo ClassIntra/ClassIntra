@@ -546,14 +546,15 @@ export default {
 
 <style scoped>
 /* ===== Appear Transition ===== */
-/* apple-design: 进/出对称路径，spring 缓动，可中断 */
+/* apple-design: 进/出对称路径，spring 缓动，可中断
+   注：原写法存在多余右括号且属性段间缺逗号（CSS 会丢弃后续声明），此处已修正 */
 .island-appear-enter-active {
-  transition: opacity 0.32s var(--ease-standard, var(--ease-emphasized)),
-              transform 0.4s var(--ease-spring, var(--ease-spring));
+  transition: opacity var(--duration-normal) var(--ease-standard),
+              transform var(--duration-normal) var(--ease-spring);
 }
 .island-appear-leave-active {
-  transition: opacity 0.2s var(--ease-standard, var(--ease-emphasized)),
-              transform 0.2s var(--ease-standard, var(--ease-emphasized));
+  transition: opacity var(--duration-fast) var(--ease-accelerate),
+              transform var(--duration-fast) var(--ease-accelerate);
 }
 .island-appear-enter {
   opacity: 0;
@@ -600,9 +601,9 @@ export default {
      绝不 transition width/height/padding —— 那会每帧触发 layout 回流导致卡顿。
      容器尺寸 morph 由 JS FLIP 用 transform scale 驱动（见 island-gestures.js）。 */
   transition:
-    transform 0.16s var(--ease-emphasized),
-    box-shadow 0.3s var(--ease-standard, var(--ease-emphasized)),
-    opacity 0.2s var(--ease-standard, var(--ease-emphasized));
+    transform var(--duration-fast) var(--ease-emphasized),
+    box-shadow var(--duration-normal) var(--ease-standard),
+    opacity var(--duration-fast) var(--ease-standard);
   transform-origin: top center;
   /* will-change 只用于合成层属性；FLIP 运行时由 JS 动态设置/清理 */
   will-change: transform;
@@ -617,7 +618,7 @@ export default {
               0 0 0 0.5px rgba(255, 255, 255, 0.08) inset;
 }
 
-/* apple-design §12: 展开面板更大更"厚"，阴影随 box-shadow transition（0.3s）平滑加深 */
+/* apple-design §12: 展开面板更大更"厚"，阴影随 box-shadow transition（0.25s）平滑加深 */
 .island.island-mode-notification,
 .island.island-mode-actions,
 .island.island-mode-history,
@@ -762,7 +763,7 @@ export default {
  * emil-design: 从 scale(0.96) 起步，never from scale(0)
  */
 .island-bouncing {
-  animation: island-pop-in 0.4s var(--ease-spring) both;
+  animation: island-pop-in var(--duration-normal) var(--ease-spring) both;
 }
 
 @keyframes island-pop-in {
@@ -774,20 +775,23 @@ export default {
 .island-dismissing {
   opacity: 0.55;
   transform: translateY(-2px) scale(0.97);
-  transition: opacity 0.18s var(--ease-standard, var(--ease-emphasized)),
-              transform 0.18s var(--ease-standard, var(--ease-emphasized)) !important;
+  /* 淡出采用加速曲线（§5.5.1 第 7 项） */
+  transition: opacity var(--duration-fast) var(--ease-accelerate),
+              transform var(--duration-fast) var(--ease-accelerate) !important;
 }
 
 /* ===== Content Transition ===== */
-/* 模式内 panel 切换：spring 进、加速出（emil-design） */
+/* 模式内 panel 切换：spring 进、加速出（emil-design）
+   注：原写法存在多余右括号且属性段间缺逗号（CSS 会丢弃后续声明），此处已修正 */
 .island-content-enter-active {
-  /* delay 0.09s: 让容器先撑开一点，内容再 spring 入场 —— apple-design §8 hint in direction */
-  transition: opacity 0.24s var(--ease-standard, var(--ease-emphasized)) 0.09s,
-              transform 0.34s var(--ease-spring, var(--ease-spring)) 0.09s;
+  /* delay 0.09s: 让容器先撑开一点，内容再 spring 入场 —— apple-design §8 hint in direction
+     delay 属节奏参数（§5.5.1 第 9 项），保留硬编码值 */
+  transition: opacity var(--duration-normal) var(--ease-standard) 0.09s,
+              transform var(--duration-normal) var(--ease-spring) 0.09s;
 }
 .island-content-leave-active {
-  transition: opacity 0.1s var(--ease-accelerate, cubic-bezier(0.4, 0, 1, 1)),
-              transform 0.1s var(--ease-accelerate, cubic-bezier(0.4, 0, 1, 1));
+  transition: opacity var(--duration-fast) var(--ease-accelerate),
+              transform var(--duration-fast) var(--ease-accelerate);
 }
 .island-content-enter {
   opacity: 0;
@@ -822,7 +826,7 @@ export default {
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  transition: opacity 0.3s var(--ease-standard, var(--ease-emphasized));
+  transition: opacity var(--duration-normal) var(--ease-standard);
 }
 
 .compact-icon-pulse {
@@ -858,7 +862,7 @@ export default {
   padding: 0 10px;
   min-height: 44px;
   border-radius: var(--radius-pill);
-  transition: background 0.18s var(--ease-standard, var(--ease-emphasized)),
+  transition: background var(--duration-fast) var(--ease-standard),
               transform 0.12s var(--ease-emphasized);
   cursor: pointer;
 }
@@ -896,15 +900,15 @@ export default {
 /* apple-design: reduced motion 仍保留反馈，但用 cross-fade 替代位移/spring */
 @media (prefers-reduced-motion: reduce) {
   .island {
-    transition: opacity 0.18s var(--ease-standard, var(--ease-emphasized)) !important;
+    transition: opacity var(--duration-fast) var(--ease-standard) !important;
   }
   .island-bouncing { animation: none !important; }
-  .island-dismissing { transition: opacity 0.15s var(--ease-standard, var(--ease-emphasized)) !important; transform: none !important; }
+  .island-dismissing { transition: opacity var(--duration-fast) var(--ease-standard) !important; transform: none !important; }
   .island-urgent { animation: none !important; }
   .compact-icon-pulse { animation: none !important; }
   .island-content-enter-active,
   .island-content-leave-active {
-    transition: opacity 0.15s var(--ease-standard, var(--ease-emphasized)) !important;
+    transition: opacity var(--duration-fast) var(--ease-standard) !important;
   }
   .island-content-enter,
   .island-content-leave-to { transform: none !important; }

@@ -44,7 +44,7 @@ export default {
   color: rgba(255, 255, 255, 0.4);
   font-size: 13px;
   flex-shrink: 0;
-  transition: color 0.2s;
+  transition: color var(--duration-fast) var(--ease-standard);
 }
 
 .browser-row:focus-within .browser-globe {
@@ -80,7 +80,7 @@ export default {
   flex-shrink: 0;
   cursor: pointer;
   border: none;
-  transition: background 0.2s, transform 0.15s;
+  transition: background var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
 }
 
 .browser-go:hover:not(:disabled) {

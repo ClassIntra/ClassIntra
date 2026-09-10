@@ -546,9 +546,9 @@ export default {
   height: 36px;
   min-width: 0;
   border: 1px solid transparent;
-  transition: border-color 0.18s var(--ease-standard, cubic-bezier(0.25, 0.1, 0.25, 1)),
-              box-shadow 0.2s var(--ease-standard, cubic-bezier(0.25, 0.1, 0.25, 1)),
-              background-color 0.15s var(--ease-standard, cubic-bezier(0.25, 0.1, 0.25, 1));
+  transition: border-color var(--duration-fast) var(--ease-standard),
+              box-shadow var(--duration-fast) var(--ease-standard),
+              background-color var(--duration-fast) var(--ease-standard);
 }
 .browser-url-wrap:focus-within {
   border-color: var(--primary-color);
@@ -589,8 +589,8 @@ export default {
   cursor: pointer;
   flex-shrink: 0;
   opacity: 0.5;
-  transition: opacity 0.15s var(--ease-standard, cubic-bezier(0.25, 0.1, 0.25, 1)),
-              transform 0.16s var(--ease-emphasized);
+  transition: opacity var(--duration-fast) var(--ease-standard),
+              transform var(--duration-fast) var(--ease-emphasized);
 }
 .browser-url-clear:hover {
   opacity: 0.8;
@@ -861,12 +861,12 @@ export default {
 .capsule-inner {
   margin: 12px;
   padding: 16px;
-  background: var(--surface-elevated, var(--card-bg));
+  background: var(--surface-elevated);
   -webkit-backdrop-filter: var(--glass-blur-thick);
   backdrop-filter: var(--glass-blur-thick);
   border-radius: var(--radius-xl);
   box-shadow: 0 20px 48px rgba(0, 0, 0, 0.28), 0 4px 12px rgba(0, 0, 0, 0.12);
-  animation: capsule-pop 0.32s var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
+  animation: capsule-pop 0.32s var(--ease-spring);
   transform-origin: top right;
 }
 
@@ -945,7 +945,7 @@ export default {
 /* 胶囊入场过渡（v-if 切换） */
 .capsule-slide-enter-active,
 .capsule-slide-leave-active {
-  transition: opacity 0.22s var(--ease-decelerate, cubic-bezier(0, 0, 0.2, 1));
+  transition: opacity var(--duration-fast) var(--ease-decelerate);
 }
 .capsule-slide-enter,
 .capsule-slide-leave-to {

@@ -66,7 +66,7 @@ export default {
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
-  transition: transform 0.15s var(--ease-standard);
+  transition: transform var(--duration-fast) var(--ease-standard);
 }
 
 .app-icon:active {
@@ -84,7 +84,7 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform 0.2s var(--ease-standard);
+  transition: transform var(--duration-fast) var(--ease-standard);
 }
 
 .app-icon-img-wrap img {
@@ -139,7 +139,7 @@ export default {
 
 /* 编辑态 wiggle 抖动动画 */
 .app-icon--editing {
-  animation: appIconWiggle 0.25s var(--ease-standard) infinite alternate;
+  animation: appIconWiggle var(--duration-normal) var(--ease-standard) infinite alternate;
   cursor: grab;
   will-change: transform;
 }
@@ -178,7 +178,7 @@ export default {
 
 /* launching 启动动画 */
 .app-icon--launching .app-icon-img-wrap {
-  animation: appIconLaunch 0.25s var(--ease-standard) forwards;
+  animation: appIconLaunch var(--duration-normal) var(--ease-standard) forwards;
 }
 
 @keyframes appIconLaunch {

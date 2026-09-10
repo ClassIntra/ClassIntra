@@ -253,6 +253,64 @@ context.compat.has('backdrop-filter')
 
 ---
 
+## 5.5 动效规范：让应用「德芙般流畅」
+
+这是决定应用「像不像系统自带」的关键一节。**曲线和时长不是随手填的数字。**
+
+### 5.5.1 照抄这张表，别自己定
+
+| 你要做的效果 | 曲线 | 时长 |
+|---|---|---|
+| 按钮/列表项按下反馈 | `var(--ease-standard)` | `var(--duration-fast)` |
+| Tab 选中、开关切换 | `var(--ease-standard)` | `var(--duration-fast)` |
+| 面板展开/收拢 | `var(--ease-emphasized)` | `var(--duration-normal)` |
+| 内容淡入淡出 | `var(--ease-standard)` | `var(--duration-normal)` |
+| 弹窗进入 | `var(--ease-decelerate)` | `var(--duration-normal)` |
+| 弹窗退出 | `var(--ease-accelerate)` | `var(--duration-fast)` |
+| 回弹效果 | `var(--ease-spring)` | `var(--duration-normal)` |
+| 跟随手指（拖拽/捏合） | 无过渡 | `0s` |
+
+```css
+/* ✅ 正确 */
+.my-app-btn { transition: transform var(--duration-fast) var(--ease-standard); }
+.my-app-dialog-enter { transition: opacity var(--duration-normal) var(--ease-decelerate); }
+.my-app-dialog-leave { transition: opacity var(--duration-fast) var(--ease-accelerate); }
+
+/* ❌ 错误：写死秒数 + CSS 关键字曲线 */
+.my-app-btn { transition: transform 0.2s ease; }
+```
+
+### 5.5.2 三条铁律
+
+1. **禁止写秒数**（`0.2s`），用 `var(--duration-fast/normal/slow)`；
+2. **禁止用 `ease` / `ease-in` / `ease-out` 关键字**，用 `var(--ease-*)`（循环动画的 `linear` 除外）；
+3. **退出必须比进入快**。这条最容易被忽略，也最影响手感：用户点开时愿意等 0.25s 看内容，但关闭时已经知道结果了——进出等长会让人感觉「点完还得盯着它收完」。
+
+### 5.5.3 只动 `transform` 和 `opacity`
+
+浏览器只有这两个属性可以跳过「布局」和「绘制」，直接在合成器上完成。
+
+```css
+/* ❌ 触发重排，会卡 */
+.my-app-panel { transition: width 0.25s var(--ease-standard); }
+/* ✅ 用 transform 位移替代 */
+.my-app-panel { transition: transform var(--duration-normal) var(--ease-standard); }
+```
+
+**禁止过渡**：`width` / `height` / `top` / `left` / `margin` / `padding` / `background-position`。
+
+### 5.5.4 毛玻璃：少用，且别放在列表里
+
+`backdrop-filter` 会触发全屏重采样，**是帧率杀手**。SDK 会自动在滚动期间降级它，但你自己的用法也要克制：
+
+| 位置 | 能用吗 |
+|---|---|
+| 顶部导航栏、侧边栏、弹窗背景 | ✅ 可以 |
+| 卡片 | ⚠️ 单屏最多 3 个 |
+| 列表项 | ❌ 不要用，滚动必卡 |
+
+---
+
 ## 6. 生命周期
 
 你的应用会经历这些状态，框架自动管理：
@@ -308,10 +366,24 @@ idle → loading → active ⇄ suspended → idle
 
 ## 10. 提交前自查清单
 
+**兼容性**
 - [ ] `entry.js` 无 `const` / `let` / 箭头函数 / 模板字符串 / 可选链 / `class`
 - [ ] CSS 无 flex `gap`、无 `:is()`/`:where()`
-- [ ] CSS 未写死颜色，全部用 `--*` 令牌
-- [ ] 所有计时器 / 全局监听 / SDK 片段都在 `context.app.onDestroy` 里清理
 - [ ] 没有直接使用原生 `WebSocket`
+
+**视觉一致**
+- [ ] CSS 未写死颜色，全部用 `--*` 令牌
+- [ ] 圆角/间距/字号均取自令牌，无硬编码 px 值
 - [ ] CSS 类名有自己的前缀
 - [ ] 切深色模式后界面正常
+
+**动效与流畅**
+- [ ] 所有 `transition` 用 `var(--duration-*)`，无写死秒数
+- [ ] 所有曲线用 `var(--ease-*)`，无 `ease` / `ease-out` 关键字
+- [ ] 退出时长 ≤ 进入时长
+- [ ] 无 `transition: all`
+- [ ] 未过渡布局属性（`width`/`height`/`top`/`left`/`margin`/`padding`）
+- [ ] 毛玻璃未用在列表项上
+
+**生命周期**
+- [ ] 所有计时器 / 全局监听 / SDK 片段都在 `context.app.onDestroy` 里清理

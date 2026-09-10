@@ -563,14 +563,14 @@ export default {
    - 离开：translateX(0) → translateX(-20px) + scale(0.98)，0.22s ease-in（加速曲线）
    - 注意：先离开再进入（mode="out-in"），避免两层重叠导致 backdrop-filter 性能问题 */
 .page-fade-enter-active {
-  transition: opacity 0.45s var(--ease-decelerate, cubic-bezier(0, 0, 0.2, 1)),
-              transform 0.5s var(--ease-decelerate, cubic-bezier(0, 0, 0.2, 1));
+  transition: opacity var(--duration-normal) var(--ease-decelerate)
+              transform var(--duration-normal) var(--ease-decelerate);
   /* 进入时提升合成层，避免 backdrop-filter 闪烁 */
   will-change: transform, opacity;
 }
 .page-fade-leave-active {
-  transition: opacity 0.22s var(--ease-accelerate, cubic-bezier(0.4, 0, 1, 1)),
-              transform 0.22s var(--ease-accelerate, cubic-bezier(0.4, 0, 1, 1));
+  transition: opacity var(--duration-fast) var(--ease-accelerate))
+              transform 0.22s var(--ease-accelerate);
   will-change: transform, opacity;
 }
 .page-fade-enter {
@@ -588,7 +588,7 @@ export default {
 @media (prefers-reduced-motion: reduce) {
   .page-fade-enter-active,
   .page-fade-leave-active {
-    transition: opacity 0.2s ease;
+    transition: opacity var(--duration-fast) var(--ease-standard);
   }
   .page-fade-enter,
   .page-fade-leave-to {
@@ -636,15 +636,15 @@ export default {
 .toast-close:hover { opacity: 1; }
 @media (prefers-reduced-motion: reduce) {
   .toast-fade-enter-active,
-  .toast-fade-leave-active { transition: opacity .2s ease; }
+  .toast-fade-leave-active { transition: opacity var(--duration-fast) var(--ease-standard); }
   .toast-fade-enter,
   .toast-fade-leave-to { transform: translateX(-50%); }
 }
 .toast-fade-enter-active {
-  transition: opacity 0.3s var(--ease-emphasized), transform 0.4s var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
+  transition: opacity var(--duration-normal) var(--ease-emphasized), transform var(--duration-normal) var(--ease-spring);
 }
 .toast-fade-leave-active {
-  transition: opacity 0.2s var(--ease-emphasized), transform 0.15s var(--ease-accelerate);
+  transition: opacity var(--duration-fast) var(--ease-emphasized), transform var(--duration-fast) var(--ease-accelerate);
 }
 .toast-fade-enter {
   opacity: 0;
@@ -656,10 +656,10 @@ export default {
 }
 
 .lock-fade-enter-active {
-  transition: opacity 0.4s var(--ease-standard);
+  transition: opacity var(--duration-normal) var(--ease-standard);
 }
 .lock-fade-leave-active {
-  transition: opacity 0.3s var(--ease-standard);
+  transition: opacity var(--duration-normal) var(--ease-standard);
 }
 .lock-fade-enter,
 .lock-fade-leave-to {

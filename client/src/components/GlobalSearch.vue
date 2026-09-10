@@ -405,7 +405,7 @@ export default {
   cursor: pointer;
   color: var(--text-tertiary);
   font-size: 11px;
-  transition: background 0.15s, transform 0.15s;
+  transition: background var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
 }
 
 .is-dark .clear-btn {
@@ -487,7 +487,7 @@ export default {
   cursor: pointer;
   padding: 2px 6px;
   border-radius: var(--radius-xs);
-  transition: background 0.15s;
+  transition: background var(--duration-fast) var(--ease-standard);
 }
 
 .clear-recent-btn:hover {
@@ -513,7 +513,7 @@ export default {
   font-size: 14px;
   text-align: left;
   width: 100%;
-  transition: background 0.12s;
+  transition: background var(--duration-fast) var(--ease-standard);
 }
 
 .is-dark .recent-item {
@@ -582,7 +582,7 @@ export default {
   color: var(--text-primary);
   text-align: left;
   width: 100%;
-  transition: background 0.12s;
+  transition: background var(--duration-fast) var(--ease-standard);
 }
 
 .is-dark .result-item {

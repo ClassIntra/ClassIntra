@@ -302,11 +302,12 @@ export default {
 }
 
 /* ========== 切换过渡 ========== */
+/* 庆典动效：时长节奏刻意偏慢（0.4s），但曲线走令牌；退出 0.25s < 进入 0.4s（§5.5.1 规则 3） */
 .celebration-fade-enter-active {
-  transition: opacity 0.4s ease;
+  transition: opacity var(--duration-normal) var(--ease-decelerate);
 }
 .celebration-fade-leave-active {
-  transition: opacity 0.5s ease;
+  transition: opacity var(--duration-normal) var(--ease-accelerate);
 }
 .celebration-fade-enter-from,
 .celebration-fade-leave-to {
@@ -414,7 +415,9 @@ export default {
   left: 50%;
   transform: translate(-50%, -50%) scale(0.5);
   opacity: 0;
-  transition: transform 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  /* 回弹反馈（§5.5.1 第 8 项）：用 --ease-spring 取代写死的 overshoot 曲线 */
+  transition: transform var(--duration-slow) var(--ease-spring),
+              opacity var(--duration-slow) var(--ease-spring);
   pointer-events: none;
 }
 
@@ -500,7 +503,9 @@ export default {
   left: 50%;
   transform: translateX(-50%) translateY(10px);
   opacity: 0;
-  transition: transform 0.5s ease 0.5s, opacity 0.5s ease 0.5s;
+  /* 延时出现（节奏参数，保留）；曲线走令牌 */
+  transition: transform var(--duration-normal) var(--ease-decelerate) 0.5s
+              opacity 0.5s var(--ease-decelerate) 0.5s;
   color: rgba(255, 255, 255, 0.6);
   font-size: 13px;
   pointer-events: none;

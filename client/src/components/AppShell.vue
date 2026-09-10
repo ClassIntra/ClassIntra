@@ -208,7 +208,7 @@ export default {
   cursor: pointer;
   padding: 6px 8px;
   border-radius: var(--radius-sm, 8px);
-  transition: opacity var(--duration-fast, 0.15s) var(--ease-standard, ease);
+  transition: opacity var(--duration-fast) var(--ease-standard);
   -webkit-tap-highlight-color: transparent;
 }
 

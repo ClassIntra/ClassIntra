@@ -81,17 +81,20 @@ function collectTokens() {
 
   var computed = window.getComputedStyle(root);
   var tokens = {};
-  var i, name, value;
+  var i, j, name, value;
 
-  // 1. 按前缀采集
-  for (i = 0; i < TOKEN_PREFIXES.length; i++) {
-    var prefix = TOKEN_PREFIXES[i];
-    // 遍历全部自定义属性（style.length 只覆盖内联，需用 computed 遍历）
-    for (var j = 0; j < computed.length; j++) {
-      name = computed[j];
-      if (name && name.indexOf(prefix) === 0) {
+  // 1. 单次遍历 computed，同时做前缀匹配
+  //    原实现为「外层遍历前缀 × 内层遍历 computed」（O(P×N)），
+  //    在 P=2、N≈150 时需遍历 300 次；改为单次遍历 O(N)（§5.5.5 性能约束）
+  var len = computed.length;
+  for (i = 0; i < len; i++) {
+    name = computed[i];
+    if (!name) continue;
+    for (j = 0; j < TOKEN_PREFIXES.length; j++) {
+      if (name.indexOf(TOKEN_PREFIXES[j]) === 0) {
         value = computed.getPropertyValue(name);
         if (value && value.trim()) tokens[name] = value.trim();
+        break; // 命中一个前缀即可，避免重复取值
       }
     }
   }

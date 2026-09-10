@@ -95,7 +95,7 @@ export default {
   color: var(--island-text);
   opacity: 0.5;
   cursor: pointer;
-  transition: background 0.15s, opacity 0.15s;
+  transition: background var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard);
 }
 
 .htab:hover {
@@ -122,7 +122,7 @@ export default {
   padding: 10px 8px;
   border-radius: 10px;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--duration-fast) var(--ease-standard);
 }
 
 .hitem:hover {

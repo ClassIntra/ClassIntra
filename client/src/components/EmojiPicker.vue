@@ -88,7 +88,7 @@ export default {
   padding: 4px 10px;
   border-radius: var(--radius-sm);
   background: transparent;
-  transition: background 0.2s;
+  transition: background var(--duration-fast) var(--ease-standard);
 }
 
 .emoji-tab:hover {
@@ -114,7 +114,8 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.15s, transform 0.1s;
+  transition: background var(--duration-fast) var(--ease-standard),
+              transform var(--duration-fast) var(--ease-standard);
 }
 
 .emoji-btn:hover {

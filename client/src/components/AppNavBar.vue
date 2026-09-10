@@ -100,7 +100,7 @@ export default {
   background: transparent;
   border: none;
   cursor: pointer;
-  transition: opacity var(--transition-fast), transform 0.15s var(--ease-emphasized);
+  transition: opacity var(--transition-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-emphasized);
   padding: 0;
 }
 

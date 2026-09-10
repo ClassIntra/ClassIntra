@@ -51,7 +51,7 @@ export default {
   background: transparent;
   border-radius: var(--radius-md);
   cursor: pointer;
-  transition: background 0.15s, transform 0.15s var(--ease-emphasized);
+  transition: background var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-emphasized);
 }
 
 .action-btn:hover {
@@ -65,7 +65,7 @@ export default {
 }
 
 .action-btn-stagger {
-  animation: action-stagger-in 0.35s var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1)) both;
+  animation: action-stagger-in 0.35s var(--ease-spring) both;
   animation-delay: calc(var(--stagger-index, 0) * 0.06s);
 }
 

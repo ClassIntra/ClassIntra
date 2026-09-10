@@ -157,7 +157,7 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.15s, opacity 0.15s;
+  transition: background var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard);
 }
 .panel-close:hover {
   background: rgba(255, 255, 255, 0.16);
@@ -209,7 +209,7 @@ export default {
   align-items: center;
   justify-content: center;
   font-size: 14px;
-  transition: transform 0.15s, background 0.15s;
+  transition: transform var(--duration-fast) var(--ease-standard), background var(--duration-fast) var(--ease-standard);
 }
 .video-play-btn:hover {
   transform: scale(1.1);
@@ -259,7 +259,7 @@ export default {
   border-radius: 2px;
   transform: scaleX(0);
   transform-origin: left center;
-  transition: transform 0.3s ease;
+  transition: transform var(--duration-normal) var(--ease-standard);
   will-change: transform;
 }
 .video-time {
