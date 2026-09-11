@@ -1,5 +1,8 @@
 # Changelog
 
+## [1.2.2] - 2026-09-11
+仓库规范化：插件迁出至 market，工作数据清理，功能优化与质量门延续
+
 ## [1.2.1] - 2026-08-26
 【安全】
 - 修复 33 个 Dependabot 依赖漏洞（11 high）：升级 client 端 postcss/dompurify/sass/mermaid/highlight.js/video.js/axios/vite（5→6）+ 插件链（plugin-legacy 5→6、plugin-vue2→2.3.4），升级 server 端 pm2/morgan/ws/jose/uuid/sharp
