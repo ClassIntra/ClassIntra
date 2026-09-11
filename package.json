@@ -1,6 +1,6 @@
 {
   "name": "classintra",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "private": true,
   "license": "MIT",
   "author": "ClassIntra",
@@ -16,7 +16,11 @@
     "verify:modules": "node scripts/modularity-verify.js --mode all",
     "verify:modules:plugins": "node scripts/modularity-verify.js --mode plugins",
     "verify:modules:apps": "node scripts/modularity-verify.js --mode modules",
-    "verify:motion": "node scripts/motion-verify.js"
+    "verify:motion": "node scripts/motion-verify.js",
+    "verify:schema": "node scripts/schema-verify.mjs",
+    "verify:all": "pnpm verify:modules && pnpm verify:motion && pnpm verify:schema",
+    "review:market": "node scripts/market-review.mjs",
+    "create:app": "node scripts/create-app.mjs"
   },
   "devDependencies": {
     "sharp": "^0.35.2"
