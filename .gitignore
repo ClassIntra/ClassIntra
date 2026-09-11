@@ -120,3 +120,12 @@ backup/
 
 # 无关项目副本（误克隆的嵌套仓库）
 Ditto/
+
+# 插件（独立生态，源码维护于 market 仓库 plugins/ 目录）
+plugins/
+
+# WorkBuddy 本地工作数据（日志/临时脚本，不进公开仓库）
+.workbuddy/
+
+# 设计工具导出产物
+classintraops-gui.html
