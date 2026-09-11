@@ -29,6 +29,7 @@ var rateLimitLib = require('../middleware/rate-limit').createRateLimiter;
 
 var rootDir = path.resolve(__dirname, '../../../');
 var marketAppsDir = manifestLoader.marketAppsDir;
+var runtimePluginsDir = manifestLoader.pluginsDir; // 插件运行时目录（rootDir/plugins，源码维护于 market 仓库）
 
 // ========== 安装限制 ==========
 var MAX_FILES = 300;                  // 单应用最大文件数
@@ -98,11 +99,12 @@ function _clearRequireCache(appDir) {
   });
 }
 
-// 加载（或重载）一个市场应用的后端 router
-function _loadRouter(manifest) {
-  var entryPath = manifestLoader.getAppEntryPath(manifest.name, manifest.backend.entry, marketAppsDir);
+// 加载（或重载）一个市场应用的后端 router（baseDir 缺省为 market-apps，插件传 runtimePluginsDir）
+function _loadRouter(manifest, baseDir) {
+  var sourceDir = baseDir || marketAppsDir;
+  var entryPath = manifestLoader.getAppEntryPath(manifest.name, manifest.backend.entry, sourceDir);
   if (!fs.existsSync(entryPath)) return null;
-  var appDir = path.join(marketAppsDir, manifest.name);
+  var appDir = path.join(sourceDir, manifest.name);
   _clearRequireCache(appDir);
   var moduleLib = require('module');
   var dependencyPath = path.join(rootDir, 'server', 'node_modules');
@@ -116,9 +118,9 @@ function _loadRouter(manifest) {
 }
 
 // 设置挂载（安装/更新共用）：热替换 router
-function _setMount(manifest) {
+function _setMount(manifest, baseDir) {
   if (!manifest.backend || !manifest.backend.mountPath || !manifest.backend.entry) return false;
-  var router = _loadRouter(manifest);
+  var router = _loadRouter(manifest, baseDir);
   if (!router) {
     console.error('[market] 后端入口不存在:', manifest.name, manifest.backend.entry);
     return false;
@@ -319,7 +321,19 @@ function _validateCatalog(data) {
     }
     apps.push(a);
   }
-  return { version: data.version || 1, updated_at: data.updated_at || '', apps: apps };
+  // 插件目录（可选段；旧版系统忽略此字段，插件安装流程为独立链路）
+  var plugins = [];
+  if (Array.isArray(data.plugins)) {
+    for (var p = 0; p < data.plugins.length; p++) {
+      var pl = data.plugins[p];
+      if (!pl || !pl.name || !pl.label || !Array.isArray(pl.files) || pl.files.length === 0) {
+        console.warn('[market] 插件目录条目不完整，已跳过:', pl && pl.name);
+        continue;
+      }
+      plugins.push(pl);
+    }
+  }
+  return { version: data.version || 1, updated_at: data.updated_at || '', apps: apps, plugins: plugins };
 }
 
 function getCatalog(sourceId) {
@@ -651,6 +665,200 @@ function getInstalledManifest(appName) {
   return null;
 }
 
+// ========== 插件市场（插件为独立扩展模块：无前端页面、必有后端，安装到运行时 plugins/ 目录） ==========
+
+// 扫描本地已安装插件（runtimePluginsDir 下含 type=plugin 的 manifest）
+function _scanInstalledPlugins() {
+  var list = [];
+  if (!fs.existsSync(runtimePluginsDir)) return list;
+  var dirs = fs.readdirSync(runtimePluginsDir).filter(function(d) {
+    try { return fs.statSync(path.join(runtimePluginsDir, d)).isDirectory() && d.indexOf('.') !== 0; } catch (e) { return false; }
+  });
+  for (var i = 0; i < dirs.length; i++) {
+    var mp = path.join(runtimePluginsDir, dirs[i], 'manifest.json');
+    if (!fs.existsSync(mp)) continue;
+    try {
+      var m = JSON.parse(fs.readFileSync(mp, 'utf8'));
+      if (m.type !== 'plugin') continue;
+      var st = fs.statSync(path.join(runtimePluginsDir, dirs[i]));
+      list.push({
+        name: m.name || dirs[i],
+        label: m.label || m.name,
+        version: m.version || '0.0.0',
+        description: m.description || '',
+        installedAt: st.mtimeMs,
+        dir: dirs[i]
+      });
+    } catch (e) {
+      console.warn('[market] 插件 manifest 读取失败:', dirs[i], e.message);
+    }
+  }
+  return list;
+}
+
+function listInstalledPlugins() { return _scanInstalledPlugins(); }
+
+// 插件包 manifest 校验（与 app 校验的差异：backend 必填、frontend 可选、type 必须为 plugin）
+function _validateMarketPluginManifest(m, expectedName) {
+  var errors = [];
+  if (!m || typeof m !== 'object') return ['manifest 非对象'];
+  if (m.type !== 'plugin') errors.push('manifest.type 必须为 "plugin"');
+  if (m.name !== expectedName) errors.push('manifest.name (' + m.name + ') 与请求的插件名 (' + expectedName + ') 不一致');
+  if (!m.label) errors.push('缺少 label');
+  if (!m.version) errors.push('缺少 version');
+  if (!m.backend || !m.backend.mountPath || m.backend.mountPath.indexOf('/api/') !== 0) errors.push('backend.mountPath 缺失或非法（必须以 /api/ 开头）');
+  if (!m.backend || !m.backend.entry || typeof m.backend.entry !== 'string') errors.push('backend.entry 缺失');
+  if (m.frontend && m.frontend.entry && typeof m.frontend.entry !== 'string') errors.push('frontend.entry 非法');
+  if (m.sdk !== undefined) {
+    if (typeof m.sdk !== 'string' || !/^\d+$/.test(m.sdk)) {
+      errors.push('sdk 字段应为纯数字主版本字符串（如 "1"）');
+    } else if (parseInt(m.sdk, 10) > parseInt(CURRENT_SDK_VERSION, 10)) {
+      errors.push('此插件要求 SDK v' + m.sdk + '，当前系统为 v' + CURRENT_SDK_VERSION + '——请升级 ClassIntra 后再安装');
+    }
+  }
+  return errors;
+}
+
+// 从指定市场源下载并安装插件（下载 → 校验 → 原子写入 plugins/ → 热挂载后端）
+function installPluginFromSource(pluginName, sourceId) {
+  return Promise.resolve().then(function() {
+    if (!/^[a-z][a-z0-9-]*$/.test(pluginName || '')) throw new Error('插件名非法（kebab-case）');
+    var source = getSource(sourceId) || getSource('gitee');
+    return getCatalog(source.id).then(function(catalog) {
+      var plugins = catalog.plugins || [];
+      var entry = null;
+      for (var i = 0; i < plugins.length; i++) {
+        if (plugins[i].name === pluginName) { entry = plugins[i]; break; }
+      }
+      if (!entry) throw new Error('市场目录中不存在插件: ' + pluginName);
+      var installed = _scanInstalledPlugins().filter(function(p) { return p.name === pluginName; })[0];
+      if (installed && compareVersions(entry.version, installed.version) < 0) {
+        throw new Error('拒绝降级: 当前版本 ' + installed.version + ' 高于市场版本 ' + entry.version);
+      }
+      if (entry.files.length > MAX_FILES) throw new Error('文件数超过上限 ' + MAX_FILES);
+
+      var prefix = 'plugins/' + pluginName + '/';
+      var total = 0;
+      var downloads = [];
+      function next(idx) {
+        if (idx >= entry.files.length) return Promise.resolve(downloads);
+        var rel = entry.files[idx];
+        if (typeof rel !== 'string' || rel.indexOf(prefix) !== 0) {
+          return Promise.reject(new Error('文件路径必须在 ' + prefix + ' 下: ' + rel));
+        }
+        var ext = path.extname(rel).toLowerCase();
+        if (ALLOWED_EXTS.indexOf(ext) === -1) {
+          return Promise.reject(new Error('不支持的文件类型: ' + rel));
+        }
+        return _fetchFile(source, rel).then(function(buf) {
+          if (buf.length > MAX_FILE_BYTES) throw new Error('文件过大: ' + rel);
+          total += buf.length;
+          if (total > MAX_TOTAL_BYTES) throw new Error('插件总大小超过上限');
+          downloads.push({ rel: rel, buf: buf });
+          return next(idx + 1);
+        });
+      }
+      return next(0).then(function() {
+        return { entry: entry, downloads: downloads, source: source };
+      });
+    });
+  }).then(function(ctx) {
+    var manifestBuf = null;
+    var manifestRel = 'plugins/' + pluginName + '/manifest.json';
+    for (var i = 0; i < ctx.downloads.length; i++) {
+      if (ctx.downloads[i].rel === manifestRel) { manifestBuf = ctx.downloads[i].buf; break; }
+    }
+    if (!manifestBuf) throw new Error('包内缺少 manifest.json');
+    var manifest;
+    try { manifest = JSON.parse(manifestBuf.toString('utf8')); }
+    catch (e) { throw new Error('manifest.json 解析失败'); }
+    var errs = _validateMarketPluginManifest(manifest, pluginName);
+    if (errs.length) throw new Error(errs.join('; '));
+    ctx.manifest = manifest;
+    return ctx;
+  }).then(function(ctx) {
+    // 原子写入运行时 plugins/ 目录
+    if (!fs.existsSync(runtimePluginsDir)) fs.mkdirSync(runtimePluginsDir, { recursive: true });
+    var tmpDir = path.join(runtimePluginsDir, '.tmp-' + pluginName + '-' + Date.now());
+    fs.mkdirSync(tmpDir, { recursive: true });
+    try {
+      for (var i = 0; i < ctx.downloads.length; i++) {
+        var d = ctx.downloads[i];
+        var inner = d.rel.replace(/^plugins\/[^/]+\//, '');
+        if (!inner || inner.indexOf('/') === 0) throw new Error('非法包内路径: ' + d.rel);
+        var dest = _safeJoin(tmpDir, inner);
+        if (!dest) throw new Error('非法包内路径: ' + d.rel);
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        fs.writeFileSync(dest, d.buf);
+      }
+      var finalDir = path.join(runtimePluginsDir, pluginName);
+      if (fs.existsSync(finalDir)) {
+        fs.rmSync(finalDir, { recursive: true, force: true });
+      }
+      fs.renameSync(tmpDir, finalDir);
+    } catch (e) {
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e2) {}
+      throw new Error('写入文件失败: ' + e.message);
+    }
+    // 热挂载插件后端（挂载失败时插件仍已落盘，重启后由 route-aggregator 自动挂载）
+    // app_control 注册：与管理后台的插件启用/禁用机制对齐（默认启用）
+    try {
+      var db = require('../utils/db');
+      db.prepare('INSERT OR IGNORE INTO app_control (app_name, enabled) VALUES (?, 1)').run(ctx.manifest.name);
+    } catch (e) {
+      console.warn('[market] app_control 注册失败（表可能未初始化）:', e.message);
+    }
+    var mounted = _setMount(ctx.manifest, runtimePluginsDir);
+    if (!mounted) console.warn('[market] 插件后端挂载失败（重启后自动重试）');
+    manifestLoader.clearCache();
+    console.log('[market] 插件已安装:', ctx.manifest.name, 'v' + (ctx.manifest.version || '0.0.0'));
+    return {
+      name: ctx.manifest.name,
+      label: ctx.manifest.label,
+      version: ctx.manifest.version || '0.0.0',
+      source: ctx.source.id,
+      requiresRebuild: !!ctx.manifest.frontend
+    };
+  });
+}
+
+function installPlugin(pluginName, sourceId) {
+  var sources = getSourceFallbacks(sourceId || 'gitee');
+  if (!sources.length) return Promise.reject(new Error('未知市场源: ' + sourceId));
+  function attempt(index, errors) {
+    return installPluginFromSource(pluginName, sources[index].id).catch(function(error) {
+      errors.push(sources[index].id + ': ' + error.message);
+      if (index + 1 < sources.length) return attempt(index + 1, errors);
+      throw new Error('所有市场源安装失败: ' + errors.join(' | '));
+    });
+  }
+  return attempt(0, []);
+}
+
+// 卸载插件：撤挂载 → 删目录 → 清缓存（保护：不允许卸载仍在运行的清单来源外目录）
+function uninstallPlugin(pluginName) {
+  return Promise.resolve().then(function() {
+    if (!/^[a-z][a-z0-9-]*$/.test(pluginName || '')) throw new Error('插件名非法');
+    var manifestPath = path.join(runtimePluginsDir, pluginName, 'manifest.json');
+    if (!fs.existsSync(manifestPath)) throw new Error('插件未安装: ' + pluginName);
+    var manifest = {};
+    try { manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')); } catch (e) {}
+    _removeMount(manifest);
+    // 清理 app_control 记录（管理后台不再显示该插件）
+    try {
+      var db = require('../utils/db');
+      db.prepare('DELETE FROM app_control WHERE app_name = ?').run(pluginName);
+    } catch (e) {
+      console.warn('[market] app_control 清理失败:', e.message);
+    }
+    var finalDir = path.join(runtimePluginsDir, pluginName);
+    fs.rmSync(finalDir, { recursive: true, force: true });
+    manifestLoader.clearCache();
+    console.log('[market] 插件已卸载:', pluginName);
+    return { name: pluginName };
+  });
+}
+
 module.exports = {
   init: init,
   dispatcher: dispatcher,
@@ -662,8 +870,12 @@ module.exports = {
   uninstallApp: uninstallApp,
   updateApp: updateApp,
   getInstalledManifest: getInstalledManifest,
+  listInstalledPlugins: listInstalledPlugins,
+  installPlugin: installPlugin,
+  uninstallPlugin: uninstallPlugin,
   getSources: function() {
     return DEFAULT_SOURCES.map(function(s) { return { id: s.id, label: s.label, type: s.type }; });
   },
-  marketAppsDir: marketAppsDir
+  marketAppsDir: marketAppsDir,
+  runtimePluginsDir: runtimePluginsDir
 };

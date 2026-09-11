@@ -101,4 +101,38 @@ router.post('/uninstall', auth.requireAuth, auth.requireAdmin, function(req, res
   });
 });
 
+// ========== 插件市场 ==========
+
+// 已安装插件列表
+router.get('/plugins-installed', auth.requireAuth, function(req, res) {
+  res.json({ code: 200, data: marketService.listInstalledPlugins() });
+});
+
+// 安装插件（管理员）
+router.post('/install-plugin', auth.requireAuth, auth.requireAdmin, function(req, res) {
+  var name = req.body && req.body.name;
+  var source = (req.body && req.body.source) || 'gitee';
+  if (!name) return res.status(400).json({ code: 400, message: '缺少插件名' });
+  marketService.installPlugin(name, source).then(function(result) {
+    broadcastMarketChange('plugin-installed', name, result);
+    res.json({ code: 200, data: result, message: '插件安装成功' });
+  }).catch(function(e) {
+    console.error('[market] 插件安装失败:', name, e.message);
+    res.status(400).json({ code: 400, message: e.message || '插件安装失败' });
+  });
+});
+
+// 卸载插件（管理员）
+router.post('/uninstall-plugin', auth.requireAuth, auth.requireAdmin, function(req, res) {
+  var name = req.body && req.body.name;
+  if (!name) return res.status(400).json({ code: 400, message: '缺少插件名' });
+  marketService.uninstallPlugin(name).then(function(result) {
+    broadcastMarketChange('plugin-uninstalled', name, result);
+    res.json({ code: 200, data: result, message: '插件卸载成功' });
+  }).catch(function(e) {
+    console.error('[market] 插件卸载失败:', name, e.message);
+    res.status(400).json({ code: 400, message: e.message || '插件卸载失败' });
+  });
+});
+
 module.exports = router;
