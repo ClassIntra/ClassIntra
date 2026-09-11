@@ -122,6 +122,47 @@
           </div>
           <div v-else class="empty-state"><i class="fa-solid fa-box-open"></i><p>暂无已安装的第三方应用</p></div>
         </section>
+
+        <section class="market-section plugins-section">
+          <div class="section-header">
+            <h2><i class="fa-solid fa-plug"></i> 服务端插件</h2>
+            <span class="count-badge">{{ catalogPlugins.length }} 个插件</span>
+          </div>
+          <div v-if="catalogPlugins.length" class="app-grid">
+            <article v-for="plugin in catalogPlugins" :key="plugin.name" class="app-card">
+              <div class="app-head">
+                <div class="app-icon placeholder-icon"><i class="fa-solid fa-plug"></i></div>
+                <div class="app-titles">
+                  <h3>{{ plugin.label }}</h3>
+                  <small>{{ plugin.name }} · v{{ plugin.version }}</small>
+                </div>
+              </div>
+              <p class="app-desc">{{ plugin.description }}</p>
+              <div class="app-foot">
+                <span v-if="installedPluginMap[plugin.name]" class="installed-label"><i class="fa-solid fa-circle-check"></i> 已安装 v{{ installedPluginMap[plugin.name].version }}</span>
+                <button type="button" class="primary-action" :disabled="actionLoading === plugin.name" @click="installPlugin(plugin)">
+                  <span v-if="actionLoading === plugin.name" class="mini-spinner"></span>
+                  <span v-else>{{ installedPluginMap[plugin.name] ? '重新安装' : '安装' }}</span>
+                </button>
+              </div>
+            </article>
+          </div>
+          <div v-else class="empty-state"><i class="fa-solid fa-plug"></i><p>市场目录中暂无插件</p></div>
+          <div v-if="installedPlugins.length" class="installed-list" style="margin-top: 12px;">
+            <article v-for="plugin in installedPlugins" :key="'ip-' + plugin.name" class="installed-card">
+              <div class="installed-info">
+                <div class="installed-title-row">
+                  <strong><i class="fa-solid fa-plug"></i> {{ plugin.label }}</strong>
+                  <small>v{{ plugin.version }}</small>
+                </div>
+                <small class="status-hint">{{ plugin.name }}</small>
+              </div>
+              <div class="installed-actions">
+                <button type="button" class="danger-action" :disabled="actionLoading === plugin.name" @click="uninstallPlugin(plugin)">卸载</button>
+              </div>
+            </article>
+          </div>
+        </section>
       </template>
     </div>
   </div>
@@ -144,6 +185,8 @@ export default {
       selectedSource: 'gitee',
       catalogApps: [],
       installedApps: [],
+      catalogPlugins: [],
+      installedPlugins: [],
       catalogUpdatedAt: '',
       activeSource: '',
       loading: true,
@@ -156,6 +199,11 @@ export default {
     installedMap: function() {
       var result = {};
       this.installedApps.forEach(function(app) { result[app.name] = app; });
+      return result;
+    },
+    installedPluginMap: function() {
+      var result = {};
+      this.installedPlugins.forEach(function(plugin) { result[plugin.name] = plugin; });
       return result;
     }
   },
@@ -176,7 +224,7 @@ export default {
       var self = this;
       self.loading = true;
       self.error = '';
-      Promise.all([self.loadSources(), self.loadInstalled(), self.loadCatalog()]).catch(function(error) {
+      Promise.all([self.loadSources(), self.loadInstalled(), self.loadCatalog(), self.loadInstalledPlugins()]).catch(function(error) {
         self.error = self.getErrorMessage(error, '市场数据加载失败');
       }).finally(function() {
         self.loading = false;
@@ -199,6 +247,7 @@ export default {
         var catalog = data && data.catalog;
         self.activeSource = data && data.source ? data.source : self.selectedSource;
         self.catalogApps = catalog && Array.isArray(catalog.apps) ? catalog.apps : [];
+        self.catalogPlugins = catalog && Array.isArray(catalog.plugins) ? catalog.plugins : [];
         self.catalogUpdatedAt = catalog && catalog.updated_at ? self.formatDate(catalog.updated_at) : '';
       });
     },
@@ -294,6 +343,51 @@ export default {
       self.$modal.confirm({ title: '卸载应用', message: '确定要卸载“' + app.label + '”吗？', confirmText: '卸载', cancelText: '取消' }).then(function(confirmed) {
         if (confirmed) self.runAction('/market/uninstall', app, '卸载成功');
       }).catch(function() {});
+    },
+    // ========== 服务端插件 ==========
+    loadInstalledPlugins: function() {
+      var self = this;
+      // 旧版服务端无此端点时静默降级（插件目录为可选能力）
+      return api.get('/market/plugins-installed').then(function(response) {
+        var data = response.data && response.data.data;
+        self.installedPlugins = data && Array.isArray(data) ? data : [];
+      }).catch(function() {});
+    },
+    installPlugin: function(plugin) {
+      var self = this;
+      self.$modal.confirm({
+        title: '安装插件「' + (plugin.label || plugin.name) + '」',
+        message: '插件将以服务端扩展方式安装并热挂载后端接口；含前端文件的插件需要重新构建客户端后才会生效。',
+        confirmText: '安装',
+        cancelText: '取消'
+      }).then(function(confirmed) {
+        if (confirmed) self.runPluginAction('/market/install-plugin', plugin, '插件安装成功');
+      }).catch(function() {});
+    },
+    uninstallPlugin: function(plugin) {
+      var self = this;
+      self.$modal.confirm({ title: '卸载插件', message: '确定要卸载插件「' + plugin.label + '」吗？其后端接口将立即下线。', confirmText: '卸载', cancelText: '取消' }).then(function(confirmed) {
+        if (confirmed) self.runPluginAction('/market/uninstall-plugin', plugin, '插件卸载成功');
+      }).catch(function() {});
+    },
+    runPluginAction: function(endpoint, plugin, successMessage) {
+      var self = this;
+      if (self.actionLoading) return;
+      self.actionLoading = plugin.name;
+      self.actionStatus = '正在下载并校验插件…';
+      self.error = '';
+      api.post(endpoint, { name: plugin.name, source: self.selectedSource || 'gitee' }).then(function(response) {
+        var result = response.data && response.data.data;
+        var note = result && result.requiresRebuild ? '（含前端文件，需重新构建客户端后生效）' : '';
+        return Promise.all([self.loadInstalledPlugins(), self.loadCatalog()]).then(function() {
+          self.$store.commit('toast/SHOW_TOAST', { message: successMessage + note, type: 'success' });
+        });
+      }).catch(function(error) {
+        self.error = self.getErrorMessage(error, successMessage.replace('成功', '失败'));
+      }).finally(function() {
+        self.actionLoading = '';
+        self.actionStatus = '';
+      });
     },
     runAction: function(endpoint, app, successMessage) {
       var self = this;
