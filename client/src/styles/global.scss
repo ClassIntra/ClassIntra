@@ -152,21 +152,79 @@
   --spacing-xl: 32px;
   --spacing-xxl: 48px;
 
-  /* 动画曲线 - iOS 标准（别名指向 --ci-motion-ease-*） */
+  /* ============================================================
+     动画曲线 —— iOS Spring 近似体系
+     ------------------------------------------------------------
+     iOS 17+ 的动画是物理弹簧模型（Spring），由两个参数定义：
+       response        达到目标的时间感（越小越快）
+       dampingFraction 阻尼比（1.0 = 临界阻尼无弹跳；<1 有回弹）
+
+     CSS 无法原生表达真 Spring，此处用 cubic-bezier 的 overshoot
+     （控制点 y > 1）近似。每个令牌注释都标出对应的 iOS 真值，
+     便于将来用 WAAPI / linear() 换成真弹簧实现。
+
+     iOS 17+ 官方预设与场景映射：
+       .snappy            response 0.5  damping 0.85  → 通用"利落"
+       .bouncy            response 0.5  damping 0.70  → 弹性反馈
+       .smooth            response 0.5  damping 1.00  → 无弹跳顺滑
+       .interactiveSpring response 0.15 damping 0.86  → 跟手拖拽
+
+     场景推荐（response / damping）：
+       Toggle 开关     0.25 / 0.80      Sheet 呈现      0.35 / 0.75
+       Card 展开       0.40 / 0.70      庆祝弹跳        0.50 / 0.50
+       拖拽释放        0.30 / 0.65      页面转场        0.45 / 0.85
+       下拉刷新        0.35 / 0.60      键盘导航        0.20 / 0.90
+     ============================================================ */
+
+  /* standard：非物理的对称缓动，用于颜色/透明度等无方向性变化 */
   --ease-standard: var(--ci-motion-ease-standard, cubic-bezier(0.25, 0.1, 0.25, 1));
+  /* decelerate：进入。对应 iOS easeOut，元素入场 */
   --ease-decelerate: var(--ci-motion-ease-decelerate, cubic-bezier(0, 0, 0.2, 1));
+  /* accelerate：退出。对应 iOS easeIn，元素离场 */
   --ease-accelerate: var(--ci-motion-ease-accelerate, cubic-bezier(0.4, 0, 1, 1));
-  --ease-spring: var(--ci-motion-ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
-  /* emphasized：Apple 风格"强调"曲线，用于 transform 缩放/位移反馈（比 standard 更有力度） */
+  /* emphasized：Apple 风格"强调"曲线，用于 transform 缩放/位移反馈 */
   --ease-emphasized: var(--ci-motion-ease-emphasized, cubic-bezier(0.32, 0.72, 0, 1));
+
+  /* spring —— 通用弹性（≈ iOS .snappy，response 0.5 / damping 0.85）
+     轻微过冲，收尾利落。默认的"弹性感"用这一档。 */
+  --ease-spring: var(--ci-motion-ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
+
+  /* spring-snappy —— 利落弹性（iOS .snappy，response 0.5 / damping 0.85）
+     过冲幅度比 spring 收敛，适合列表项、卡片、按钮的日常反馈。 */
+  --motion-spring-snappy: var(--ci-motion-spring-snappy, cubic-bezier(0.32, 1.28, 0.5, 1));
+
+  /* spring-bouncy —— 明显回弹（iOS .bouncy，response 0.5 / damping 0.7）
+     过冲明显，用于"庆祝"语义：点赞、发帖成功、徽章点亮。
+     注意：过度使用会导致眩晕，仅限偶发的正向反馈。 */
+  --motion-spring-bouncy: var(--ci-motion-spring-bouncy, cubic-bezier(0.34, 1.72, 0.52, 1));
+
+  /* spring-smooth —— 无弹跳顺滑（iOS .smooth，response 0.5 / damping 1.0）
+     临界阻尼，无任何过冲。用于面板尺寸变化、层级展开等
+     "不应有玩具感"的场景。 */
+  --motion-spring-smooth: var(--ci-motion-spring-smooth, cubic-bezier(0.22, 1, 0.36, 1));
+
+  /* spring-interactive —— 跟手（iOS .interactiveSpring，response 0.15 / damping 0.86）
+     极短响应，用于拖拽跟手、长按反馈。常与 <=0.06s 的时长搭配。 */
+  --motion-spring-interactive: var(--ci-motion-spring-interactive, cubic-bezier(0.2, 0.9, 0.3, 1));
 
   /* 动画时长（别名指向 --ci-motion-duration-*）
      注意：必须带兜底值。与 --ease-* 保持同一模式——
      若外部主题未定义 --ci-motion-duration-*，无兜底会导致令牌解析失败、
-     引用它的 transition 丢失时长（浏览器按 0s 处理，动效直接消失）。 */
+     引用它的 transition 丢失时长（浏览器按 0s 处理，动效直接消失）。
+
+     取值基准（对齐 iOS 17 实际观感，而非 Material 的宽松值）：
+       instant 0.10s —— 「让位」专用：out-in 里的离场段，只需让出位置，不需要被看清。
+       fast   0.15s —— 按压反馈、hover、小控件状态变化。手感「立刻」，不应被感知为动画。
+       normal 0.22s —— 标签切换、列表进场、弹窗进出。iOS 多数 UI 过渡落在 0.2~0.25s。
+       slow   0.30s —— 侧栏抽屉、全屏详情、播放器升起。仅限「大位移」场景，且不得叠加 out-in。
+     上一版 normal=0.25 / slow=0.35 在 mode="out-in" 场景下（先退场再入场，两段串行）
+     观感时长翻倍至 0.5~0.7s，明显偏慢——这是「聊天页切换太长」的根因之一。 */
+  --duration-instant: var(--ci-motion-duration-instant, 0.1s);
   --duration-fast: var(--ci-motion-duration-fast, 0.15s);
-  --duration-normal: var(--ci-motion-duration-normal, 0.25s);
-  --duration-slow: var(--ci-motion-duration-slow, 0.35s);
+  --duration-normal: var(--ci-motion-duration-normal, 0.22s);
+  --duration-slow: var(--ci-motion-duration-slow, 0.30s);
+  /* 编排档：用于错开编舞（stagger）与较重的转场 */
+  --duration-stagger: var(--ci-motion-duration-stagger, 0.05s);
 
   /* 过渡（组合变量，依赖上面的 duration-* 与 ease-*） */
   --transition-fast: var(--duration-fast) var(--ease-standard);
@@ -552,11 +610,12 @@ a:focus-visible {
   opacity: 0;
 }
 
-/* iPadOS 风格 modal 入场：scale(0.95) + opacity 弹簧曲线
-   emil-design：never animate from scale(0)，从 0.95 起步更自然 */
+/* iPadOS 风格 modal 入场：scale(0.95) + opacity
+   入场用 snappy（利落），不用 bouncy（过冲 1.72 会让弹窗显得玩具化）。
+   原则：never animate from scale(0)，从 0.95 起步更自然。 */
 .modal-fade-enter-active {
   transition: opacity var(--duration-normal) var(--ease-decelerate),
-              transform var(--duration-normal) var(--ease-spring);
+              transform var(--duration-normal) var(--motion-spring-snappy);
 }
 .modal-fade-leave-active {
   transition: opacity var(--duration-fast) var(--ease-accelerate),
@@ -1287,7 +1346,7 @@ input[type="radio"]:checked::after {
 .latex-colorbox {
   display: inline-block;
   padding: 2px 6px;
-  border-radius: 3px;
+  border-radius: var(--radius-xs);
   line-height: 1.5;
 }
 
@@ -1397,7 +1456,7 @@ input[type="radio"]:checked::after {
 }
 
 .ghost-folder-cell {
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
 }
 
@@ -1407,4 +1466,116 @@ input[type="radio"]:checked::after {
   object-fit: cover;
   pointer-events: none;
   -webkit-user-drag: none;
+}
+
+/* ============================================================
+   能力披露清单（capability catalogue）
+   ------------------------------------------------------------
+   用途：市场安装确认框里展示「这个应用会用到什么」。
+   注入方式：ModalDialog 经 v-html 渲染，因此样式必须放在全局
+   （scoped 样式不会作用于运行时插入的 DOM）。
+
+   配套数据：shared/src/capability-catalog.js
+   ============================================================ */
+.ci-cap-wrapper {
+  text-align: left;
+}
+
+.ci-cap-head {
+  margin: 0 0 6px 0;
+  font-size: var(--font-size-footnote);
+  color: var(--text-secondary);
+  line-height: var(--line-height-normal);
+}
+
+.ci-cap-meta {
+  margin: 0 0 14px 0;
+  font-size: var(--font-size-caption);
+  color: var(--text-tertiary, var(--text-secondary));
+  opacity: 0.8;
+}
+
+.ci-cap-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 260px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.ci-cap-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--fill-quaternary, rgba(118, 118, 128, 0.08));
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+/* 需留意的能力：左侧描边 + 轻微强调底色 */
+.ci-cap-notice {
+  background: rgba(var(--warning-rgb, 255, 149, 0), 0.1);
+  box-shadow: inset 2px 0 0 rgba(var(--warning-rgb, 255, 149, 0), 0.7);
+}
+
+.ci-cap-item > i {
+  flex-shrink: 0;
+  width: 18px;
+  margin-top: 2px;
+  text-align: center;
+  font-size: var(--font-size-footnote);
+  color: var(--text-secondary);
+}
+
+.ci-cap-notice > i {
+  color: rgb(var(--warning-rgb, 255, 149, 0));
+}
+
+.ci-cap-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.ci-cap-body strong {
+  display: block;
+  font-size: var(--font-size-footnote);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.ci-cap-body span {
+  display: block;
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+  line-height: var(--line-height-normal);
+}
+
+.ci-cap-unknown {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  font-size: 10px;
+  font-weight: 500;
+  background: rgba(var(--danger-rgb, 255, 59, 48), 0.12);
+  color: rgb(var(--danger-rgb, 255, 59, 48));
+  vertical-align: middle;
+}
+
+.ci-cap-foot {
+  margin: 14px 0 0 0;
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+  line-height: var(--line-height-normal);
+  opacity: 0.85;
+}
+
+/* ModalDialog 的 html 容器：与 message 保持一致的排版基调 */
+.modal-html {
+  font-size: var(--font-size-footnote);
+  color: var(--text-secondary);
+  line-height: var(--line-height-normal);
 }

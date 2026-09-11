@@ -149,7 +149,7 @@ export default {
 .wave-bar {
   width: 2.5px;
   height: 13px; /* base = max，用 scaleY 缩放避免动画 height 触发 layout 回流（apple-design §11） */
-  border-radius: 1.5px;
+  border-radius: var(--radius-pill);
   background: rgba(255, 255, 255, 0.5);
   transform: scaleY(0.231); /* 3px / 13px，非播放态静止高度 */
   transform-origin: center;
@@ -183,7 +183,7 @@ export default {
 .music-expanded-cover {
   width: 48px;
   height: 48px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   overflow: hidden;
   flex-shrink: 0;
   cursor: pointer;
@@ -254,7 +254,7 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   cursor: pointer;
   font-size: 9px;
   color: rgba(255, 255, 255, 0.35);
@@ -291,9 +291,10 @@ export default {
 }
 
 .lyric-fade-enter-active {
-  /* 回弹反馈（§5.5.1 第 8 项）：cubic-bezier(0.34,1.56,0.64,1) 即 --ease-spring */
+  /* 歌词淡入属「无方向性」变化 → iOS .smooth（临界阻尼，无弹跳）。
+     文字内容弹跳会显得廉价。 */
   transition: opacity var(--duration-normal) var(--ease-standard),
-              transform var(--duration-normal) var(--ease-spring);
+              transform var(--duration-normal) var(--motion-spring-smooth);
 }
 
 .lyric-fade-leave-active {
@@ -338,7 +339,7 @@ export default {
 .music-progress-track {
   width: 100%;
   height: 5px; /* base = max，用 scaleY 缩放避免动画 height 触发 layout 回流（apple-design §11） */
-  border-radius: 2px;
+  border-radius: var(--radius-pill);
   background: rgba(255, 255, 255, 0.1);
   position: relative;
   transform: scaleY(0.6); /* 3px / 5px，静止态高度 */
@@ -354,7 +355,7 @@ export default {
 .music-progress-fill {
   width: 100%;
   height: 100%;
-  border-radius: 2px;
+  border-radius: var(--radius-pill);
   background: rgba(255, 255, 255, 0.65);
   transform: scaleX(0);
   transform-origin: left center;
@@ -369,14 +370,19 @@ export default {
   border-radius: 50%;
   background: #fff;
   top: 50%;
-  transform: translate(-50%, -50%) scale(0);
+  /* 跟手拖拽点：never animate from scale(0)，从 0.4 起步＋透明，
+     避免「从无到有」的通用崩坏感（iOS HIG / §5.5.2） */
+  transform: translate(-50%, -50%) scale(0.4);
+  opacity: 0;
   /* 回弹反馈（§5.5.1 第 8 项）：原 cubic-bezier(0.34,1.56,0.64,1) 即 --ease-spring */
-  transition: transform var(--duration-fast) var(--ease-spring);
+  transition: transform var(--duration-fast) var(--ease-spring),
+              opacity var(--duration-fast) var(--ease-spring);
   box-shadow: var(--shadow-sm);
 }
 
 .music-expanded-progress:hover .music-progress-dot {
   transform: translate(-50%, -50%) scale(1);
+  opacity: 1;
 }
 
 .music-expanded-controls {

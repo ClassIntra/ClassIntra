@@ -219,7 +219,7 @@ export default {
   background: var(--card-bg, rgba(255,255,255,0.7));
   backdrop-filter: blur(30px) saturate(180%);
   -webkit-backdrop-filter: blur(30px) saturate(180%);
-  border-radius: 22px;
+  border-radius: var(--radius-2xl);
   padding: 14px;
   box-sizing: border-box;
   display: flex;
@@ -296,7 +296,7 @@ export default {
   font-size: 11px;
   font-weight: 700;
   padding: 2px 8px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 .tw-week-type.odd {
   background: rgba(var(--danger-rgb), 0.15);
@@ -313,9 +313,9 @@ export default {
   align-items: center;
   gap: 10px;
   padding: 10px;
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   background: var(--surface-elevated);
-  transition: all 0.3s;
+  transition: background-color var(--duration-slow) var(--ease-standard), border-color var(--duration-slow) var(--ease-standard), color var(--duration-slow) var(--ease-standard), transform var(--duration-slow) var(--ease-standard), opacity var(--duration-slow) var(--ease-standard), box-shadow var(--duration-slow) var(--ease-standard);
 }
 .tw-next.upcoming {
   background: rgba(var(--primary-rgb), 0.08);
@@ -328,7 +328,7 @@ export default {
 .tw-next-subject {
   width: 40px;
   height: 40px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -384,7 +384,7 @@ export default {
   height: 10px;
   border-radius: 50%;
   opacity: 0.5;
-  transition: all 0.2s;
+  transition: background-color var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
 }
 .tw-class-dot.ongoing {
   opacity: 1;

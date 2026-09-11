@@ -1,6 +1,8 @@
 import Vue from 'vue';
 import wsManager from '@/utils/websocket';
 import api from '@/utils/api';
+// 时间戳归一化比较：created_at 有 SQLite/ISO 两种格式并存，裸 localeCompare 同日内必错序
+import { cmpTimeAsc } from '@/utils/time-compare';
 
 var savedPinned = [];
 try {
@@ -22,6 +24,38 @@ try {
   savedDnd = {};
 }
 
+// 未读计数持久化。
+// 背景：unread 原先只存活在内存里，刷新/重新进入应用即归零，
+// 与「重新进入还能看到提示」的预期恰好相反 —— 桌面角标刷新就没了，
+// 而超能岛的公告却因每次重新拉取而反复出现，两者行为割裂。
+// 这里把未读计数落到 localStorage，让「未读」在刷新后保持一致，
+// 只有用户真正进入会话时才由 CLEAR_UNREAD 清零。
+// 读取时做类型清洗：只接受正整数，脏数据一律丢弃。
+var savedUnread = {};
+try {
+  var storedUnread = localStorage.getItem('classintra_unread_chats');
+  if (storedUnread) {
+    var parsedUnread = JSON.parse(storedUnread);
+    if (parsedUnread && typeof parsedUnread === 'object') {
+      var unreadKeys = Object.keys(parsedUnread);
+      for (var uk = 0; uk < unreadKeys.length; uk++) {
+        var uv = parseInt(parsedUnread[unreadKeys[uk]], 10);
+        if (isFinite(uv) && uv > 0) savedUnread[unreadKeys[uk]] = uv;
+      }
+    }
+  }
+} catch (e) {
+  savedUnread = {};
+}
+
+function persistUnread(map) {
+  try {
+    localStorage.setItem('classintra_unread_chats', JSON.stringify(map || {}));
+  } catch (e) {
+    // 写入失败（隐私模式/配额满）不阻断业务，未读仅在内存内生效
+  }
+}
+
 var state = {
   messages: [],
   onlineUsers: [],
@@ -31,7 +65,7 @@ var state = {
   privateChats: {},
   groups: [],
   contacts: [],
-  unread: {},
+  unread: savedUnread,
   groupChats: {},
   dndSettings: savedDnd,
   groupMembers: {},
@@ -64,6 +98,18 @@ var getters = {
   },
   unread: function(state) {
     return state.unread;
+  },
+  // 全部会话未读总数。
+  // 抽成 getter 而非各处自行遍历：桌面角标（Desktop.vue）与超能岛收起态
+  // 都要这个数字，两处各写一遍必然漂移。
+  unreadTotal: function(state) {
+    var total = 0;
+    var keys = Object.keys(state.unread || {});
+    for (var i = 0; i < keys.length; i++) {
+      var n = parseInt(state.unread[keys[i]], 10);
+      if (isFinite(n) && n > 0) total += n;
+    }
+    return total;
   },
   isDnd: function(state) {
     return function(chatId) {
@@ -307,9 +353,7 @@ var mutations = {
         }
         merged.push(exMsg);
       }
-      merged.sort(function(a, b) {
-        return (a.created_at || '').localeCompare(b.created_at || '');
-      });
+      merged.sort(cmpTimeAsc);
       // 回填本地已撤回标记（历史载荷未携带 recalled 时兜底）
       for (var rb = 0; rb < merged.length; rb++) {
         var mMsgId = merged[rb].id || merged[rb].message_id;
@@ -344,11 +388,26 @@ var mutations = {
       if (pmDedupKey) { state._contentDedupSet[payload.chatId][pmDedupKey] = true; }
     }
   },
+  // 未读计数：SET 递增写、CLEAR 归零写，两者都必须落 localStorage。
+  // 只写内存的话，刷新后未读清零 —— 用户会看到「刚才明明有红点，进来看就没了」，
+  // 而公告类提示却反复出现，体验上自相矛盾。
   SET_UNREAD: function(state, payload) {
-    Vue.set(state.unread, payload.chatId, payload.count);
+    var count = parseInt(payload.count, 10);
+    if (!isFinite(count) || count < 0) count = 0;
+    Vue.set(state.unread, payload.chatId, count);
+    persistUnread(state.unread);
   },
   CLEAR_UNREAD: function(state, chatId) {
     Vue.set(state.unread, chatId, 0);
+    persistUnread(state.unread);
+  },
+  // 一次性清空所有会话未读（登出 / 全部已读场景）
+  CLEAR_ALL_UNREAD: function(state) {
+    var keys = Object.keys(state.unread);
+    for (var i = 0; i < keys.length; i++) {
+      Vue.set(state.unread, keys[i], 0);
+    }
+    persistUnread(state.unread);
   },
   ADD_GROUP_MESSAGE: function(state, payload) {
     if (!state.groupChats[payload.groupId]) {
@@ -437,9 +496,7 @@ var mutations = {
         }
         merged.push(exMsg);
       }
-      merged.sort(function(a, b) {
-        return (a.created_at || '').localeCompare(b.created_at || '');
-      });
+      merged.sort(cmpTimeAsc);
       Vue.set(state.groupChats, payload.groupId, merged);
     } else {
       Vue.set(state.groupChats, payload.groupId, payload.messages);

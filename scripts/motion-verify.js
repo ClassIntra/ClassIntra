@@ -11,31 +11,48 @@
  *   [E3] flex gap（Chrome 80 不支持，目标设备含非 X5 的 Chrome 80）
  *   [E4] transition: all（性能陷阱）
  *   [E5] 布局属性过渡（width/height/top/left/margin/padding）
+ *   [E6] 硬编码 border-radius（应改用 --radius-* 令牌）
+ *   [E7] 引用不存在的圆角令牌（如 --radius-full）
+ *   [E8] scale(0) 起步（应改为 scale(0.9~0.96) + opacity）
  *
  * 豁免（规范 §5.5.1 第 9/10 项 + §5.5.2 豁免规则）：
  *   - 跟手档：时长 <= 0.06s
  *   - 循环动画：0.8s / 1.2s 等节奏参数
  *   - delay：transition 末位的延时值
  *   - 形状形变：代码内标注「规范例外」的行
+ *   - 圆形 50% / 直角 0：语义明确，非令牌可表达
  */
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 const ROOT = process.cwd();
-const SRC = join(ROOT, 'client', 'src');
+// 扫描范围：
+//   client/src/**  核心前端
+//   apps/**        官方应用（同样经 Vite 构建，享 polyfill；但样式规范必须一致）
+// 不扫描 market-apps/** 与 plugins/**（第三方），它们的专用红线由 E3 单独处理。
+const SCAN_DIRS = [join(ROOT, 'client', 'src'), join(ROOT, 'apps')];
 const EXEMPT_MARK = '规范例外';
 
+// 现存圆角令牌白名单（与 client/src/styles/global.scss 的 --radius-* 定义保持一致）
+const KNOWN_RADIUS = [
+  '--radius-xs', '--radius-sm', '--radius-md', '--radius-lg',
+  '--radius-xl', '--radius-2xl', '--radius-3xl', '--radius-pill'
+];
+
 const COMPOSITE = /var\(--transition-/;
-const EASE = /var\(--ease-|linear\b/;
+const EASE = /var\(--ease-|var\(--motion-spring-|linear\b/;
 const DUR = /var\(--duration-/;
 
 function walk(dir, out = []) {
-  for (const name of readdirSync(dir)) {
+  let entries;
+  try { entries = readdirSync(dir); } catch { return out; }
+  for (const name of entries) {
     const p = join(dir, name);
-    const st = statSync(p);
+    let st;
+    try { st = statSync(p); } catch { continue; }
     if (st.isDirectory()) {
-      if (name === 'node_modules' || name === 'dist') continue;
+      if (name === 'node_modules' || name === 'dist' || name === 'backend') continue;
       walk(p, out);
     } else if (/\.(vue|scss|css)$/.test(name)) {
       out.push(p);
@@ -58,7 +75,7 @@ function splitSegments(body) {
 
 const issues = [];
 const exempted = [];
-const files = walk(SRC);
+const files = SCAN_DIRS.flatMap((d) => walk(d));
 
 for (const file of files) {
   const rel = relative(ROOT, file).replace(/\\/g, '/');
@@ -108,6 +125,9 @@ for (const file of files) {
       if (markedExempt) exempt = '形状形变（代码标注）';
       else if (times.some(v => v <= 0.06)) exempt = '跟手档';
       else if (/\b0\.8s\b|\b1\.2s\b/.test(s)) exempt = '循环动画';
+      // 长时长节奏参数：进度条生长、背景交叉淡入、歌词逐行浮现等
+      // 这些场景需要「缓慢可见」的过渡，属 §5.5.1 第 9 项节奏参数
+      else if (/\b0\.[567]s\b|\b[1-9]\.?[0-9]*s\b/.test(s)) exempt = '节奏参数（长时长）';
 
       if (exempt) {
         exempted.push({ file: rel, line: ln, kind: exempt, text: s });
@@ -150,6 +170,82 @@ for (const file of files) {
   }
 }
 
+// ---- E6: 硬编码 border-radius ----
+// 规范：圆角必须取自 8 档令牌梯度
+//   xs(4) sm(8) md(12) lg(16) xl(20) 2xl(24) 3xl(28) pill(9999)
+// 豁免：50%（圆形）、0（直角）、以及标注「规范例外」的装饰性形状。
+for (const file of files) {
+  const rel = relative(ROOT, file).replace(/\\/g, '/');
+  let src;
+  try { src = readFileSync(file, 'utf8'); } catch { continue; }
+  const lines = src.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const m = line.match(/border-radius\s*:\s*([^;]+?)\s*;/);
+    if (!m) continue;
+    const raw = m[1].trim();
+    // 已用令牌 -> 进入 E7 检查
+    if (!raw.includes('var(')) {
+      if (raw === '50%' || raw === '0') continue;
+      // 圆形与异形可能出现在多值里，如 "50% 50% 50% 50% / 40% 40% 60% 60%"
+      const nearLines = lines.slice(Math.max(0, i - 3), i + 1).join('\n');
+      if (nearLines.indexOf(EXEMPT_MARK) !== -1) {
+        exempted.push({ file: rel, line: i + 1, kind: '形状形变（代码标注）', text: raw });
+        continue;
+      }
+      if (/^(50%|0)(\s+(50%|0))/.test(raw) || /\//.test(raw)) continue; // 纯圆形/异形
+      issues.push({
+        code: 'E6', file: rel, line: i + 1,
+        msg: '硬编码 border-radius，应改用 --radius-* 令牌',
+        text: raw
+      });
+      continue;
+    }
+    // ---- E7: 引用不存在的圆角令牌 ----
+    const tokens = raw.match(/var\(\s*(--radius-[a-z0-9-]+)/g) || [];
+    for (const t of tokens) {
+      const name = t.replace(/var\(\s*/, '');
+      if (KNOWN_RADIUS.indexOf(name) === -1) {
+        issues.push({
+          code: 'E7', file: rel, line: i + 1,
+          msg: `引用不存在的圆角令牌 ${name}`,
+          text: raw
+        });
+      }
+    }
+  }
+}
+
+// ---- E8: scale(0) 起步 ----
+// 原则（iOS HIG / §5.5.2）：从 scale(0) 做入场动画会产生「通用崩坏感」，
+// 应改为 scale(0.9 ~ 0.96) + opacity，让元素看起来是「长大」而非「凭空出现」。
+// 豁免：scaleX(0) / scaleY(0) 用于进度条、波形条等「长度从零生长」的语义，
+//       这不是缩小到消失，而是维度展开，属合理用法。
+//       同时需要剔除注释中的说明文字（如「never from scale(0)」）。
+for (const file of files) {
+  const rel = relative(ROOT, file).replace(/\\/g, '/');
+  let src;
+  try { src = readFileSync(file, 'utf8'); } catch { continue; }
+  const lines = src.split('\n');
+  // 预剥离注释：块注释可能跨行，统一在扫描前替换为空白（保留行号），
+  // 避免注释里的说明文字（如「never animate from scale(0)」）被误报
+  const stripped = src
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
+    .replace(/\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, ' '))
+    .split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const codeOnly = (stripped[i] || '').trim();
+    if (!/scale\(\s*0\s*\)/.test(codeOnly)) continue;
+    const nearLines = lines.slice(Math.max(0, i - 2), i + 1).join('\n');
+    if (nearLines.indexOf(EXEMPT_MARK) !== -1) continue;
+    issues.push({
+      code: 'E8', file: rel, line: i + 1,
+      msg: 'scale(0) 起步，应改为 scale(0.9~0.96) + opacity',
+      text: codeOnly
+    });
+  }
+}
+
 // ---- E3: 第三方代码的 flex gap（不过构建，无 polyfill） ----
 // 官方 client/src/** 经 Vite 构建有 polyfill，不检查；
 // 第三方 market-apps/** 直出浏览器，必须禁止。
@@ -184,7 +280,10 @@ const LABELS = {
   E2: '缺失曲线令牌',
   E3: 'flex gap（Chrome 80）',
   E4: 'transition: all',
-  E5: '布局属性过渡'
+  E5: '布局属性过渡',
+  E6: '硬编码 border-radius',
+  E7: '引用不存在的圆角令牌',
+  E8: 'scale(0) 起步'
 };
 
 console.log('================ 动效与视觉规范审计 ================\n');

@@ -734,12 +734,12 @@ export default {
   border: none;
   background: var(--surface-elevated);
   color: var(--text-primary);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s;
+  transition: background-color var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
 }
 .nav-btn:hover {
   background: var(--primary-lighter);
@@ -756,11 +756,11 @@ export default {
   border: none;
   background: var(--primary-color);
   color: #fff;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   font-size: 13px;
   font-weight: 600;
-  transition: all 0.2s;
+  transition: background-color var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
 }
 .today-btn:hover {
   opacity: 0.85;
@@ -771,12 +771,12 @@ export default {
   border: none;
   background: var(--surface-elevated);
   color: var(--primary-color);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s;
+  transition: background-color var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
 }
 .add-btn:hover {
   background: var(--primary-lighter);
@@ -796,7 +796,7 @@ export default {
   display: flex;
   flex-direction: column;
   background: var(--card-bg);
-  border-radius: 18px;
+  border-radius: var(--radius-xl);
   padding: 12px;
   box-shadow: var(--shadow-sm);
   overflow: hidden;
@@ -824,10 +824,10 @@ export default {
   gap: 4px;
 }
 .day-cell {
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   padding: 6px 8px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background-color var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -911,7 +911,7 @@ export default {
   display: flex;
   flex-direction: column;
   background: var(--card-bg);
-  border-radius: 18px;
+  border-radius: var(--radius-xl);
   padding: 16px;
   box-shadow: var(--shadow-sm);
   overflow: hidden;
@@ -944,12 +944,12 @@ export default {
   border: none;
   background: var(--primary-color);
   color: #fff;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s;
+  transition: background-color var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
 }
 .ddh-add:hover {
   opacity: 0.85;
@@ -967,7 +967,7 @@ export default {
   gap: 10px;
   padding: 12px;
   background: var(--surface-elevated);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   border-left: 3px solid var(--text-tertiary);
 }
 .event-main {
@@ -1011,12 +1011,12 @@ export default {
   border: none;
   background: transparent;
   color: var(--text-tertiary);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s;
+  transition: background-color var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
 }
 .ea-btn:hover {
   background: var(--primary-lighter);
@@ -1032,7 +1032,7 @@ export default {
   gap: 8px;
   padding: 10px 12px;
   background: rgba(var(--success-rgb), 0.08);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   border-left: 3px solid var(--success-color);
 }
 .bi-icon {
@@ -1083,7 +1083,7 @@ export default {
   max-width: 460px;
   max-height: 85vh;
   background: var(--card-bg);
-  border-radius: 20px;
+  border-radius: var(--radius-xl);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1108,7 +1108,7 @@ export default {
   color: var(--text-tertiary);
   font-size: 18px;
   cursor: pointer;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1156,12 +1156,12 @@ export default {
 .form-input {
   padding: 10px 12px;
   border: 1px solid var(--separator-color);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--surface-elevated);
   color: var(--text-primary);
   font-size: 14px;
   outline: none;
-  transition: border-color 0.2s;
+  transition: border-color var(--duration-normal) var(--ease-standard);
 }
 .form-input:focus {
   border-color: var(--primary-color);
@@ -1181,12 +1181,12 @@ textarea.form-input {
   gap: 6px;
   padding: 8px 14px;
   border: 1px solid var(--separator-color);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--surface-elevated);
   color: var(--text-secondary);
   cursor: pointer;
   font-size: 13px;
-  transition: all 0.2s;
+  transition: background-color var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
 }
 .category-btn.active {
   border-color: var(--cat-color);
@@ -1211,11 +1211,11 @@ textarea.form-input {
   border: none;
   background: var(--primary-color);
   color: #fff;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   font-size: 15px;
   font-weight: 600;
-  transition: all 0.2s;
+  transition: background-color var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
 }
 .ea-save:hover {
   opacity: 0.85;
@@ -1226,10 +1226,10 @@ textarea.form-input {
   border: 1px solid var(--separator-color);
   background: transparent;
   color: var(--text-secondary);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   font-size: 15px;
-  transition: all 0.2s;
+  transition: background-color var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
 }
 .ea-cancel:hover {
   background: var(--surface-elevated);
@@ -1274,7 +1274,7 @@ textarea.form-input {
   padding: 4px 12px;
   border-radius: var(--radius-pill);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background-color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
 }
 .view-btn.active {
   background: var(--primary-color);
@@ -1294,11 +1294,11 @@ textarea.form-input {
 }
 .year-month-card {
   background: var(--card-bg);
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   padding: 10px;
   box-shadow: var(--shadow-sm);
   cursor: pointer;
-  transition: transform 0.15s, box-shadow 0.15s;
+  transition: transform var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
   border: 1.5px solid transparent;
 }
 .year-month-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
@@ -1343,7 +1343,7 @@ textarea.form-input {
   font-size: 11px;
   color: var(--text-secondary);
   padding: 3px 0;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   line-height: 1.2;
 }
 .ym-cell.ym-other { color: var(--text-quaternary); opacity: 0.4; }

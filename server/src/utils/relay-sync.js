@@ -89,7 +89,8 @@ function getSyncState() {
   state.last_broadcast_id = watermarks.broadcasts || 0;
   if (state.last_broadcast_id === 0) {
     try {
-      var lastBroadcast = db.prepare('SELECT rowid as id FROM broadcasts ORDER BY rowid DESC LIMIT 1').get();
+      // 用 id 而非 rowid（AUTOINCREMENT 单调、不复用，是稳定游标）
+      var lastBroadcast = db.prepare('SELECT MAX(id) as id FROM broadcasts').get();
       state.last_broadcast_id = lastBroadcast ? lastBroadcast.id : 0;
     } catch (e) { state.last_broadcast_id = 0; }
   }
@@ -256,9 +257,19 @@ function getMissedExpLogs(sinceId) {
 
 function getMissedBroadcasts(sinceId) {
   try {
-    return db.prepare(
-      'SELECT rowid as id, content, priority, created_at FROM broadcasts WHERE rowid > ? ORDER BY rowid ASC LIMIT ?'
+    // ⚠️ 用 id 而非 rowid 作游标。broadcasts.id 是 INTEGER PRIMARY KEY AUTOINCREMENT，
+    //    单调递增且 DELETE 后不会复用；而 rowid 在清理（大批 DELETE）后会把空位分配给
+    //    新插入行 —— 实测清理过广播表后 rowid 从 8944 回落到 5438，导致
+    //    `rowid > last_broadcast_id` 这个游标永远收敛不了，对端每轮都回灌 200 条。
+    // 另外：系统欢迎语不外发（见 isSystemWelcomeBroadcast 说明），避免对端被污染。
+    var rows = db.prepare(
+      'SELECT id, content, priority, created_at FROM broadcasts WHERE id > ? ORDER BY id ASC LIMIT ?'
     ).all(sinceId, currentBatchSize);
+    var out = [];
+    for (var i = 0; i < rows.length; i++) {
+      if (!isSystemWelcomeBroadcast(rows[i].content)) out.push(rows[i]);
+    }
+    return out;
   } catch (e) {
     return [];
   }
@@ -341,7 +352,17 @@ function getSyncStmts() {
     expLogInsert: db.prepare('INSERT INTO exp_log (user_id, action, exp_gained, created_at) VALUES (?, ?, ?, ?)'),
     expLogCheck: db.prepare('SELECT id FROM exp_log WHERE user_id = ? AND action = ? AND created_at = ? LIMIT 1'),
     bcCheck: db.prepare('SELECT rowid FROM broadcasts WHERE content = ? AND created_at = ? LIMIT 1'),
-    bcInsert: db.prepare('INSERT INTO broadcasts (content, priority, created_at) VALUES (?, ?, ?)'),
+    // 时间窗去重：同一 content 在窗口内已存在则视为回灌、拒绝入库。
+    // 为什么不是 (content) 全局唯一：管理员可能隔几天再发一次同样的广播，必须允许。
+    // 为什么需要它：(content, created_at) 唯一索引挡不住对端用「不同时间戳回灌同一内容」——
+    // 实测对端 8i 把一条欢迎语以相隔 2.5 分钟的时间戳灌了 491 次。
+    bcRecentCheck: db.prepare(
+      'SELECT rowid FROM broadcasts WHERE content = ? AND created_at >= ? LIMIT 1'
+    ),
+    // OR IGNORE 依赖迁移 005 建的唯一索引 (content, created_at)。
+    // 历史教训：该索引缺失时 OR IGNORE 退化为普通 INSERT，catchup 回灌每轮都新增行，
+    // 又抬高同步水位线，形成两台服务器互推的正反馈风暴（实测每秒约 40 条）。
+    bcInsert: db.prepare('INSERT OR IGNORE INTO broadcasts (content, priority, created_at) VALUES (?, ?, ?)'),
     groupInsert: db.prepare('INSERT OR IGNORE INTO groups (id, name, creator_id, members_json, announcement, announcement_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'),
     groupUpdate: db.prepare('UPDATE groups SET members_json = ?, announcement = ?, announcement_at = ? WHERE id = ?'),
     groupCheck: db.prepare('SELECT id FROM groups WHERE id = ?'),
@@ -369,10 +390,22 @@ function normTs(v) {
   return String(v || '').replace(/[^0-9]/g, '').substring(0, 14);
 }
 
+// 判断是否为「系统欢迎语」广播。
+// 这类内容由每台服务器的 init-db.js 在**空库时**各自写入一条，属于本机初始化产物，
+// 不应该从中继对端回灌 —— 对端历史上因风暴累积了数百条（每条时间戳不同），
+// 一旦回灌就会污染本机超能岛的「最近一条」展示。
+function isSystemWelcomeBroadcast(content) {
+  var s = String(content || '');
+  return s.indexOf('欢迎使用 ') === 0 && s.indexOf(' 系统！') === s.length - 4;
+}
+
 // catchup 回灌去重：精确 created_at 未命中时，再按 sender+content+归一化时间戳 比对最近几条
 // （本机产生的消息中继到对端后，对端 catchup 会把同一消息以另一种时间格式灌回来）
 function syncDupRecent(recentStmt, values, createdAt) {
-  var recent = recentStmt.all.apply(null, values);
+  // ⚠️ better-sqlite3 的 statement 方法必须以 statement 自身为 this 调用。
+  // 曾写成 recentStmt.all.apply(null, values) → 抛 `TypeError: Illegal invocation`，
+  // 被外层 try/catch 静默吞掉，导致去重整段失效。
+  var recent = recentStmt.all.apply(recentStmt, values);
   var tsKey = normTs(createdAt);
   for (var i = 0; i < recent.length; i++) {
     if (createdAt && (recent[i].created_at === createdAt || normTs(recent[i].created_at) === tsKey)) {
@@ -384,6 +417,10 @@ function syncDupRecent(recentStmt, values, createdAt) {
 
 function applySyncData(syncData) {
   var result = { chat: 0, pm: 0, gm: 0, posts: 0, comments: 0, likes: 0, reactions: 0, bookmarks: 0, exp_logs: 0, broadcasts: 0, groups: 0, users: 0, user_experience: 0, user_settings: 0, tombstones: 0 };
+  // 本次同步「新插入」的消息行（去重命中的不算）。
+  // 用途：catchup 只把数据写库，若不补推，在线用户必须刷新页面才能看到 —— 这是
+  // 「跨班聊天不实时、要反复刷新」的直接原因之一。返回值交调用方投递。
+  var newlyApplied = { private_messages: [], group_messages: [], chat_messages: [] };
   var s = getSyncStmts();
 
   // 使用事务保护，确保原子性
@@ -427,8 +464,17 @@ function applySyncData(syncData) {
         try { pmExtraObj = JSON.parse(pm.extra_json || '{}'); } catch (e2) {}
         pmExtraObj.synced = true;
         pmExtraObj.original_id = pm.id;
-        s.pmInsert.run(pm.sender_id, pm.receiver_id, pm.content, pm.type || 'text', JSON.stringify(pmExtraObj), pm.read || 0, pm.created_at);
+        var pmIns = s.pmInsert.run(pm.sender_id, pm.receiver_id, pm.content, pm.type || 'text', JSON.stringify(pmExtraObj), pm.read || 0, pm.created_at);
         result.pm++;
+        // 记录新插入的行，供调用方向在线客户端补推（否则用户必须刷新页面才能看到）
+        newlyApplied.private_messages.push({
+          id: pmIns.lastInsertRowid,
+          sender_id: pm.sender_id,
+          receiver_id: pm.receiver_id,
+          content: pm.content,
+          type: pm.type || 'text',
+          created_at: pm.created_at
+        });
       } catch (e) {}
     }
   }
@@ -449,8 +495,17 @@ function applySyncData(syncData) {
         try { gmExtraObj = JSON.parse(gm.extra_json || '{}'); } catch (e2) {}
         gmExtraObj.synced = true;
         gmExtraObj.original_id = gm.id;
-        s.gmInsert.run(gm.group_id, gm.sender_id, gm.sender_name, gm.content, gm.type || 'text', JSON.stringify(gmExtraObj), gm.created_at);
+        var gmIns = s.gmInsert.run(gm.group_id, gm.sender_id, gm.sender_name, gm.content, gm.type || 'text', JSON.stringify(gmExtraObj), gm.created_at);
         result.gm++;
+        newlyApplied.group_messages.push({
+          id: gmIns.lastInsertRowid,
+          group_id: gm.group_id,
+          sender_id: gm.sender_id,
+          sender_name: gm.sender_name,
+          content: gm.content,
+          type: gm.type || 'text',
+          created_at: gm.created_at
+        });
       } catch (e) {}
     }
   }
@@ -523,13 +578,26 @@ function applySyncData(syncData) {
   }
 
   if (syncData.broadcasts && syncData.broadcasts.length > 0) {
+    // 同一 content 的时间窗去重窗：7 天内已存在同内容广播则不再回灌。
+    // 对端反复回灌的历史脏数据时间戳跨度为两周（6/16~6/30），
+    // 7 天窗足以覆盖；同时不影响「管理员隔几天再发同样内容」。
+    var BC_DEDUP_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+    var bcWindowStart = new Date(Date.now() - BC_DEDUP_WINDOW_MS).toISOString().replace('T', ' ').substring(0, 19);
     for (var b = 0; b < syncData.broadcasts.length; b++) {
       var bc = syncData.broadcasts[b];
       try {
-        var bcExisting = s.bcCheck.get(bc.content, bc.created_at);
-        if (bcExisting) continue;
-        s.bcInsert.run(bc.content, bc.priority || 'normal', bc.created_at);
-        result.broadcasts++;
+        // ⓪ 系统欢迎语无条件拒收。历史风暴在对端 8i 累积了 491 条 ClassNet + 182 条
+        //    ClassIntra 欢迎语，每次 catchup 都会整批推过来；它们不是用户内容，
+        //    本机每台服务器各自写一条即可，从对端回灌永远是脏数据。
+        if (isSystemWelcomeBroadcast(bc.content)) continue;
+        // ① 先查同内容是否已在窗口内 —— 挡住「不同时间戳回灌同一内容」
+        var bcRecent = s.bcRecentCheck.get(bc.content, bcWindowStart);
+        if (bcRecent) continue;
+        // ② 唯一索引 (content, created_at) 保证同一时刻的同内容幂等：命中则 ignore，changes=0。
+        // 用 changes 判定是否真正插入，避免把「已存在」也计入 result.broadcasts
+        // 而被调用方当作新数据二次外发（这正是死循环的放大器）。
+        var bcRes = s.bcInsert.run(bc.content, bc.priority || 'normal', bc.created_at);
+        if (bcRes && bcRes.changes > 0) result.broadcasts++;
       } catch (e) {}
     }
   }
@@ -672,6 +740,8 @@ function applySyncData(syncData) {
   lastSyncResult = result;
   lastSyncTime = new Date().toISOString();
 
+  // 附带本次新插入的消息行，供调用方补推给在线客户端
+  result.newly_applied = newlyApplied;
   return result;
 }
 

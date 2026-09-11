@@ -186,12 +186,12 @@ export default {
 .countdown-widget {
   height: 100%;
   cursor: pointer;
-  border-radius: 18px;
+  border-radius: var(--radius-xl);
   overflow: hidden;
   background: var(--card-bg);
   border: 1px solid var(--separator-color);
   box-shadow: var(--shadow-sm);
-  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s;
+  transition: transform var(--duration-normal) var(--ease-spring), box-shadow var(--duration-normal) var(--ease-standard);
 }
 .countdown-widget:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
 .countdown-widget:active { transform: scale(0.98); }

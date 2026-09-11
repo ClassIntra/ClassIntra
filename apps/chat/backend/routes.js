@@ -715,6 +715,36 @@ function canUserSeeGroupForPoll(userId, groupId) {
   return true;
 }
 
+// 确保用户已注册为 poller（幂等）。
+// ⚠️ 为什么需要自动补注册（2026-09-11「发消息刷新后消失」根因）：
+//   服务端 TTL 清理（5 分钟无 poll）或重启会把 poller 移除；平板息屏/切后台超过
+//   5 分钟后回来，客户端只会无限重试 poll GET（401），从不主动重新 register ——
+//   期间所有 poll/send 全部 401 被拒，消息静默丢失，用户刷新页面才恢复。
+//   token 已通过 requireAuth（身份可信），直接补注册即可恢复通道，旧客户端无需升级。
+function ensurePoller(userId) {
+  var cs = getChatServer();
+  if (!cs || !cs.registerPoller || !cs.isPoller) return cs;
+  if (!cs.isPoller(userId)) {
+    var userRow = db.prepare('SELECT user_id, net_name, real_name, gender FROM users WHERE user_id = ?').get(userId);
+    var userInfo = userRow ? {
+      user_id: userRow.user_id,
+      net_name: userRow.net_name,
+      real_name: userRow.real_name,
+      gender: userRow.gender,
+      status: 'online'
+    } : {
+      user_id: userId,
+      net_name: userId,
+      real_name: userId,
+      gender: '',
+      status: 'online'
+    };
+    cs.registerPoller(userId, userInfo);
+    console.log('[Poll] Auto re-registered stale poller:', userId);
+  }
+  return cs;
+}
+
 // POST /api/chat/poll/register
 // 注册为 HTTP 长轮询客户端，返回初始状态（connected 等价载荷）
 router.post('/poll/register', function(req, res) {
@@ -827,6 +857,9 @@ router.get('/poll', function(req, res) {
     if (!cs || !cs.consumePollEvents) {
       return res.status(503).json({ code: 503, message: '聊天服务不可用', data: null });
     }
+    // 自动补注册：poller 可能因 TTL 清理/服务端重启被移除，token 有效即补注册，
+    // 否则客户端（不会主动重新 register）将永久 401，发送静默丢失。
+    cs = ensurePoller(userId);
     if (!cs.isPoller || !cs.isPoller(userId)) {
       return res.status(401).json({ code: 401, message: '尚未注册为 poller，请先调用 /poll/register', data: null });
     }
@@ -849,6 +882,9 @@ router.get('/poll', function(req, res) {
           data: {
             events: events,
             last_seq: lastSeq,
+            // 服务端当前 seq 水位：客户端检测到 cur_seq < 本地持久游标时
+            // 判定服务端 seq 回退（旧版计数器型服务端重启），重置游标防永久漏投
+            cur_seq: cs.getCurrentPollSeq ? cs.getCurrentPollSeq() : lastSeq,
             server_time: Date.now()
           }
         });
@@ -872,6 +908,8 @@ router.post('/poll/send', function(req, res) {
     if (!cs || !cs.handleHttpMessage) {
       return res.status(503).json({ code: 503, message: '聊天服务不可用', data: null });
     }
+    // 自动补注册（同 poll GET）：否则平板息屏超 5 分钟后发送全部 401 静默丢失
+    cs = ensurePoller(userId);
     if (!cs.isPoller || !cs.isPoller(userId)) {
       return res.status(401).json({ code: 401, message: '尚未注册为 poller，请先调用 /poll/register', data: null });
     }

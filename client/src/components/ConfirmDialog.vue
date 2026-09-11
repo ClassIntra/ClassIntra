@@ -6,7 +6,10 @@
           <i :class="icon"></i>
         </div>
         <h3 class="confirm-title">{{ title }}</h3>
-        <p v-if="message" class="confirm-message">{{ message }}</p>
+        <p v-if="message && !html" class="confirm-message">{{ message }}</p>
+        <!-- html 由调用方负责转义（如市场安装页的能力披露清单）。
+            这里仅承载已净化的片段，非用户输入直出。 -->
+        <div v-else-if="html" class="confirm-html" v-html="html"></div>
         <div class="confirm-actions">
           <button class="btn-secondary" @click="cancel">{{ cancelText }}</button>
           <button class="btn-confirm" :class="confirmClass" @click="confirm">{{ confirmText }}</button>
@@ -23,6 +26,9 @@ export default {
     visible: { type: Boolean, default: false },
     title: { type: String, default: '确认' },
     message: { type: String, default: '' },
+    // 富文本内容（HTML 字符串）。设置后优先于 message 渲染。
+    // 调用方必须自行转义所有动态内容（模板中已用 escapeHtml 处理）。
+    html: { type: String, default: '' },
     icon: { type: String, default: 'fa-solid fa-triangle-exclamation' },
     iconColor: { type: String, default: '#FF9500' },
     confirmText: { type: String, default: '确认' },
@@ -79,7 +85,7 @@ export default {
 .btn-danger:hover { background: var(--danger-lighter, rgba(255, 59, 48, 0.08)); }
 .btn-primary-confirm { background: transparent; color: var(--primary-color); }
 .btn-primary-confirm:hover { background: var(--primary-lighter); }
-.modal-fade-enter-active { transition: opacity var(--duration-normal) var(--ease-emphasized), transform var(--duration-normal) var(--ease-spring)); }
+.modal-fade-enter-active { transition: opacity var(--duration-normal) var(--ease-emphasized), transform var(--duration-normal) var(--motion-spring-snappy); }
 .modal-fade-leave-active { transition: opacity var(--duration-fast) var(--ease-accelerate), transform var(--duration-fast) var(--ease-accelerate); }
 .modal-fade-enter { opacity: 0; transform: scale(0.92) translateY(8px); }
 .modal-fade-leave-to { opacity: 0; transform: scale(0.97) translateY(-4px); }

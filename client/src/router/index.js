@@ -84,7 +84,16 @@ var routes = [
     component: function() { return import('@/views/Browser.vue'); },
     meta: { requiresAuth: true }
   }
-].concat(appRoutes).concat([
+].concat(import.meta.env.DEV ? [
+  // 性能诊断页：仅开发模式注册，不进入生产构建
+  // 生产环境需临时排查时，用「加 ?perf=1 参数」或改为完整构建后访问 /dev/perf
+  {
+    path: '/dev/perf',
+    name: 'DevPerf',
+    component: function() { return import('@/views/DevPerf.vue'); },
+    meta: { requiresAuth: false }
+  }
+] : []).concat(appRoutes).concat([
   {
     path: '*',
     redirect: '/'

@@ -241,7 +241,7 @@ context.compat.has('backdrop-filter')
 | 背景 | `--background-color`、`--secondary-bg`、`--card-bg` |
 | 文本 | `--text-primary`、`--text-secondary`、`--text-tertiary` |
 | 分隔线 | `--separator-color`、`--border-color` |
-| 圆角 | `--radius-sm` / `--radius-md` / `--radius-lg` / `--radius-full` |
+| 圆角 | 见下方 §5.4.1 圆角梯度表 |
 | 字号 | `--font-size-body`、`--font-size-footnote`、`--font-size-title3` |
 | 字重 | `--font-weight-medium` / `--font-weight-semibold` |
 | 间距 | `--spacing-xs` / `--spacing-sm` / `--spacing-md` / `--spacing-lg` |
@@ -250,6 +250,42 @@ context.compat.has('backdrop-filter')
 **查全部令牌**：见 `client/src/styles/global.scss`（共 147 个）。
 
 类名前缀：用自己的应用名（如 `.my-app-header`），避免与官方 `ios-*` 或别人冲突。
+
+### 5.4.1 圆角梯度：只能用这 8 档
+
+**圆角必须取自梯度表，禁止写任意 px 值。** 这是「R 角统一」的硬要求——系统内混用 `6px`/`10px`/`13px` 这类未经定义的值，会让卡片、按钮、输入框的圆角彼此「差一点点」，视觉上就是不够精致。
+
+| 令牌 | 值 | 典型用途 |
+|---|---|---|
+| `var(--radius-xs)` | 4px | 标签、小徽章、内嵌小方块 |
+| `var(--radius-sm)` | 8px | 输入框、小按钮、列表项 |
+| `var(--radius-md)` | 12px | 卡片、面板、主要按钮 |
+| `var(--radius-lg)` | 16px | 大卡片、分组容器 |
+| `var(--radius-xl)` | 20px | 大面板、模态框 |
+| `var(--radius-2xl)` | 24px | 桌面小组件 |
+| `var(--radius-3xl)` | 28px | 大尺寸容器（如通知面板） |
+| `var(--radius-pill)` | 9999px | 胶囊按钮、开关、标签、进度条 |
+
+**两种合法例外（不需令牌）**：
+
+1. `border-radius: 50%` —— 正圆（头像、圆形图标按钮）；
+2. `border-radius: 0` —— 直角（分隔区域）。
+
+**细线/小标记怎么办**：宽度只有 4–8px 的小元素（如波形条、进度条），用 `var(--radius-pill)` 而非 `2px`。胶囊语义更准确，且缩放时不会露出直角。
+
+```css
+/* ❌ 错误：值不在梯度内 */
+.my-app-card { border-radius: 10px; }
+.my-app-tag  { border-radius: 6px; }
+
+/* ✅ 正确 */
+.my-app-card { border-radius: var(--radius-md); }   /* 12px */
+.my-app-tag  { border-radius: var(--radius-sm); }   /* 8px  */
+```
+
+::: tip 为什么要这么严
+「差不多就行」的圆角正是界面显得业余的常见原因。8 档梯度覆盖了从 4px 到 28px 的全部合理需求——你想要的任何圆角都在里面，只是值可能与直觉稍有不同。**选最接近的那一档，不要发明新值。**
+:::
 
 ---
 
@@ -267,7 +303,10 @@ context.compat.has('backdrop-filter')
 | 内容淡入淡出 | `var(--ease-standard)` | `var(--duration-normal)` |
 | 弹窗进入 | `var(--ease-decelerate)` | `var(--duration-normal)` |
 | 弹窗退出 | `var(--ease-accelerate)` | `var(--duration-fast)` |
-| 回弹效果 | `var(--ease-spring)` | `var(--duration-normal)` |
+| 日常弹性（卡片抬起、列表项） | `var(--motion-spring-snappy)` | `var(--duration-normal)` |
+| 庆祝反馈（点赞、成功提示） | `var(--motion-spring-bouncy)` | `var(--duration-slow)` |
+| 内容/面板顺滑变化（不弹跳） | `var(--motion-spring-smooth)` | `var(--duration-normal)` |
+| 跟手（拖拽把手、长按） | `var(--motion-spring-interactive)` | `var(--duration-fast)` |
 | 跟随手指（拖拽/捏合） | 无过渡 | `0s` |
 
 ```css
@@ -280,11 +319,50 @@ context.compat.has('backdrop-filter')
 .my-app-btn { transition: transform 0.2s ease; }
 ```
 
+### 5.5.1.1 Spring 分档怎么选
+
+系统提供 4 档弹簧曲线，对应 iOS 官方的命名预设。**它们不是「程度的深浅」，而是不同用途**：
+
+| 档位 | 像什么 | 用在哪 | ⚠️ 别用在哪 |
+|---|---|---|---|
+| `--motion-spring-snappy` | 利落，微微回弹 | 弹窗进入、卡片抬起、按钮反馈 | — |
+| `--motion-spring-bouncy` | 明显回弹 | 点赞、发帖成功、徽章点亮 | **弹窗进入、文字动画**（会显得玩具化） |
+| `--motion-spring-smooth` | 完全不回弹 | 面板尺寸变化、内容淡入、侧栏 | — |
+| `--motion-spring-interactive` | 紧跟手指 | 拖拽把手、长按反馈 | 大面积元素（会显得躁） |
+
+**最容易犯的错**：把 `bouncy` 当作"更好看的弹簧"到处用。过冲明显的曲线用在弹窗和文字上，是「廉价的卡通感」而非「高级的流畅感」。**bouncy 只属于庆祝场景，且要偶发。**
+
 ### 5.5.2 三条铁律
 
 1. **禁止写秒数**（`0.2s`），用 `var(--duration-fast/normal/slow)`；
-2. **禁止用 `ease` / `ease-in` / `ease-out` 关键字**，用 `var(--ease-*)`（循环动画的 `linear` 除外）；
+2. **禁止用 `ease` / `ease-in` / `ease-out` 关键字**，用 `var(--ease-*)` 或 `var(--motion-spring-*)`（循环动画的 `linear` 除外）；
 3. **退出必须比进入快**。这条最容易被忽略，也最影响手感：用户点开时愿意等 0.25s 看内容，但关闭时已经知道结果了——进出等长会让人感觉「点完还得盯着它收完」。
+
+### 5.5.2.1 入场缩放：never scale to 0
+
+```css
+/* ❌ 从 0 长出来，像凭空出现 */
+.my-app-panel-enter { transform: scale(0); }
+/* ✅ 从 0.95 起步，像「长大」 */
+.my-app-panel-enter { transform: scale(0.95); opacity: 0; }
+```
+
+`scale(0)` 产生「通用崩坏感」。改用 `scale(0.9 ~ 0.96)` 配合 `opacity`。
+
+**例外**：进度条、波形条的 `scaleX(0)` / `scaleY(0)` 是「长度从零生长」的语义，属合理用法。
+
+### 5.5.2.2 错开编舞：让列表「活」起来
+
+系统提供 `.ci-stagger` 工具类，子项自动获得 0 / 50 / 100 / 150ms… 的递增延时：
+
+```html
+<div class="ci-stagger">
+  <div class="my-app-item">…</div>
+  <div class="my-app-item">…</div>
+</div>
+```
+
+这是 iOS 界面「高级感」的来源——**不是某个动画漂亮，而是多个动画错开执行**。最多覆盖 12 项，关闭动画时会自动清零延时。
 
 ### 5.5.3 只动 `transform` 和 `opacity`
 

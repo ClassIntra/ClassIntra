@@ -243,7 +243,7 @@ export default {
   background: transparent;
   border: none;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--duration-fast) var(--ease-standard);
 }
 .nav-action-btn:hover { background: var(--primary-light); }
 .nav-action-btn:active { transform: scale(0.94); opacity: 0.7; }
@@ -308,7 +308,7 @@ export default {
   border: none;
   cursor: pointer;
   white-space: nowrap;
-  transition: all 0.15s;
+  transition: background-color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
 }
 .filter-tab.active { background: var(--primary-color); color: #fff; }
 .filter-tab i { margin-right: 2px; }
@@ -382,7 +382,7 @@ export default {
   border-radius: var(--radius-md);
   overflow: hidden;
   cursor: pointer;
-  transition: transform 0.15s, box-shadow 0.15s;
+  transition: transform var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
   position: relative;
   box-shadow: var(--shadow-sm);
 }
@@ -428,7 +428,7 @@ export default {
   background: rgba(0,0,0,0.6);
   color: #fff;
   font-size: 10px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
 }
 .card-info {
   padding: 8px;

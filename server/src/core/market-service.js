@@ -22,6 +22,9 @@ var path = require('path');
 var axios = require('axios');
 var manifestLoader = require('./manifest-loader');
 var validateManifest = require('./manifest-schema').validateManifest;
+var CURRENT_SDK_VERSION = require('./manifest-schema').CURRENT_SDK_VERSION;
+var KNOWN_ROLES = require('./manifest-schema').KNOWN_ROLES;
+var LAYOUT_MODES = require('./manifest-schema').LAYOUT_MODES;
 var rateLimitLib = require('../middleware/rate-limit').createRateLimiter;
 
 var rootDir = path.resolve(__dirname, '../../../');
@@ -268,6 +271,9 @@ function listInstalled() {
       icon: icon,
       color: m.color || '',
       category: m.category || 'desktop',
+      // 能力披露：安装前告知用户「这个应用会用到什么」。
+      // 非拦截（开放模型），仅用于 UI 展示与市场审核参考。
+      capabilities: Array.isArray(m.capabilities) ? m.capabilities : [],
       route: m.frontend && m.frontend.route ? m.frontend.route : '',
       frontendEntry: m.frontend && m.frontend.entry ? m.frontend.entry : '',
       frontendStyle: m.frontend && m.frontend.style ? m.frontend.style : '',
@@ -369,6 +375,14 @@ function _safeJoin(baseDir, relPath) {
 }
 
 // 校验下载的 manifest（市场应用扩展校验）
+//
+// ⚠️ 市场应用不走 shared/src/manifest-schema.js 的 FIELD_DEFS 白名单校验路径，
+//    因此新增 manifest 字段必须在此处显式登记，否则会被静默丢弃。
+//    （第十轮已踩过：visibleRoles 三个官方 manifest 已在用但 schema 未声明。）
+//
+// 与 manifest-schema 的分工：
+//   - 本函数：市场专属约束（路由前缀、入口文件、SDK 版本、能力披露、可见角色）
+//   - validateManifest()：通用字段类型与枚举校验
 function _validateMarketManifest(m, expectedName) {
   var errors = [];
   if (!m || typeof m !== 'object') return ['manifest 非对象'];
@@ -380,6 +394,57 @@ function _validateMarketManifest(m, expectedName) {
     if (!m.backend.mountPath || m.backend.mountPath.indexOf('/api/') !== 0) errors.push('backend.mountPath 缺失或非法（必须以 /api/ 开头）');
     if (!m.backend.entry || typeof m.backend.entry !== 'string') errors.push('backend.entry 缺失');
   }
+
+  // ---- sdk：所需 SDK 主版本。高于当前版本时阻断安装（宁可明确报错，不要静默失败）----
+  if (m.sdk !== undefined) {
+    if (typeof m.sdk !== 'string' || !/^\d+$/.test(m.sdk)) {
+      errors.push('sdk 字段应为纯数字主版本字符串（如 "1"）');
+    } else if (parseInt(m.sdk, 10) > parseInt(CURRENT_SDK_VERSION, 10)) {
+      errors.push(
+        '此应用要求 SDK v' + m.sdk + '，当前系统为 v' + CURRENT_SDK_VERSION +
+        '——请升级 ClassIntra 后再安装'
+      );
+    }
+  }
+
+  // ---- capabilities：能力披露（非拦截，仅安装前展示）----
+  // 未知能力不构成错误——开放模型下不拦截，且允许市场先于系统登记新能力。
+  if (m.capabilities !== undefined) {
+    if (!Array.isArray(m.capabilities)) {
+      errors.push('capabilities 应为数组类型');
+    } else {
+      for (var ci = 0; ci < m.capabilities.length; ci++) {
+        if (typeof m.capabilities[ci] !== 'string') {
+          errors.push('capabilities[' + ci + '] 应为字符串');
+        }
+      }
+    }
+  }
+
+  // ---- layout：布局偏好 ----
+  if (m.layout !== undefined) {
+    if (!m.layout || typeof m.layout !== 'object' || Array.isArray(m.layout)) {
+      errors.push('layout 应为对象类型');
+    } else if (m.layout.mode !== undefined && LAYOUT_MODES.indexOf(m.layout.mode) === -1) {
+      errors.push('layout.mode "' + m.layout.mode + '" 不在枚举中（' + LAYOUT_MODES.join(' / ') + '）');
+    }
+  }
+
+  // ---- visibleRoles：可见角色白名单 ----
+  if (m.visibleRoles !== undefined) {
+    if (!Array.isArray(m.visibleRoles)) {
+      errors.push('visibleRoles 应为数组类型');
+    } else {
+      for (var vi = 0; vi < m.visibleRoles.length; vi++) {
+        if (typeof m.visibleRoles[vi] !== 'string') {
+          errors.push('visibleRoles[' + vi + '] 应为字符串');
+        } else if (KNOWN_ROLES.indexOf(m.visibleRoles[vi]) === -1) {
+          errors.push('visibleRoles 中的 "' + m.visibleRoles[vi] + '" 不是已知角色（' + KNOWN_ROLES.join(' / ') + '）');
+        }
+      }
+    }
+  }
+
   return errors;
 }
 

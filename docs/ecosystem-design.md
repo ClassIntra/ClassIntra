@@ -667,9 +667,12 @@ MarketRuntime 捕获（AppShell 展示错误态）
 | 5 | 内容淡入淡出 | `--ease-standard` | `--duration-normal` | 0.25s | **同一元素的进出必须用相同时长**，否则会「进快出慢」 |
 | 6 | 模态进入 / 弹窗出现 | `--ease-decelerate` | `--duration-normal` | 0.25s | 减速进入（快起慢停，符合「从外部飞入」的心理预期） |
 | 7 | 模态退出 / 弹窗消失 | `--ease-accelerate` | `--duration-fast` | 0.15s | 加速离开，**退出必须比进入快**，否则用户感到「拖沓」 |
-| 8 | 回弹/弹性反馈（按钮回弹、卡片抬起） | `--ease-spring` | `--duration-normal` | 0.25s | 仅用于 transform，不用于 opacity |
+| 8 | 回弹/弹性反馈（按钮回弹、卡片抬起） | `--motion-spring-snappy` | `--duration-normal` | 0.25s | 仅用于 transform，不用于 opacity |
 | 9 | 循环动画（Spinner、骨架屏） | `--ease-standard` | 固定 0.8s / 1.2s | — | 循环动画的时长是**节奏参数**不是过渡参数，允许固定值，但曲线必须用令牌 |
 | 10 | 拖拽/捏合跟随（跟随手指） | 无过渡 | **0s（禁用过渡）** | — | 跟随手指的操作**绝不能有过渡**，否则产生「拖影滞后」 |
+| 11 | 庆祝反馈（点赞、发帖成功、徽章点亮） | `--motion-spring-bouncy` | `--duration-slow` | 0.35s | **偶发**正向反馈专用，滥用会导致眩晕 |
+| 12 | 无弹跳顺滑（面板尺寸、层级展开、文字淡入） | `--motion-spring-smooth` | `--duration-normal` | 0.25s | 临界阻尼（damping 1.0），不应有玩具感的场景 |
+| 13 | 跟手反馈（拖拽把手、长按） | `--motion-spring-interactive` | `--duration-fast` | 0.15s | 极短响应（response 0.15），紧贴手指 |
 
 **三条强制规则**：
 
@@ -680,6 +683,71 @@ MarketRuntime 捕获（AppShell 展示错误态）
 ::: warning 为什么「退出必须比进入快」
 iOS HIG 的核心节奏原则。用户点击展开时期待看到内容（愿意等 0.25s），但关闭时已经知道结果了（不愿再等）。两者等长会让人感觉「点完还得盯着它收完」。这是「德芙感」中最容易被忽略、也最影响体感的一条。
 :::
+
+### 5.5.1.1 iOS Spring 分档模型（第十轮新增）
+
+**问题的本质**：CSS 的 `cubic-bezier` 是**固定时长的时间曲线**；iOS 的动画是**物理弹簧模型**。两者不是同一类东西，CSS 无法原生表达真 Spring。
+
+**iOS 17+ 的 Spring 由两个参数定义**：
+
+| 参数 | 含义 | 取值范围 | 直觉 |
+|---|---|---|---|
+| `response` | 达到目标的时间感 | 0.2 – 0.5（UI 场景） | 越小越快、越"跟手" |
+| `dampingFraction` | 阻尼比 | 0.7 – 1.0 | 1.0 = 临界阻尼（无回弹）；< 1 有过冲 |
+
+**iOS 官方四个命名预设**：
+
+| 预设 | response | damping | 语义 |
+|---|---|---|---|
+| `.snappy` | 0.5 | 0.85 | 利落，轻微过冲 |
+| `.bouncy` | 0.5 | 0.70 | 明显回弹 |
+| `.smooth` | 0.5 | 1.00 | 无过冲，纯顺滑 |
+| `.interactiveSpring()` | 0.15 | 0.86 | 跟手 |
+
+**ClassIntra 的近似实现**：用 `cubic-bezier` 的控制点越界（y > 1）模拟过冲，并按 iOS 命名分档。
+
+| 令牌 | cubic-bezier 值 | 对应 iOS | 过冲幅度 |
+|---|---|---|---|
+| `--ease-spring` | `(0.34, 1.56, 0.64, 1)` | 通用弹性（历史保留） | 中 |
+| `--motion-spring-snappy` | `(0.32, 1.28, 0.5, 1)` | `.snappy` | 小 |
+| `--motion-spring-bouncy` | `(0.34, 1.72, 0.52, 1)` | `.bouncy` | 大 |
+| `--motion-spring-smooth` | `(0.22, 1, 0.36, 1)` | `.smooth` | 无 |
+| `--motion-spring-interactive` | `(0.2, 0.9, 0.3, 1)` | `.interactiveSpring` | 极小 |
+
+**分派原则（最容易做错的地方）**：
+
+1. **入场/弹窗不要用 bouncy**。过冲 1.72 的曲线用在弹窗出现上，会让界面显得玩具化。入场用 `snappy`。
+2. **庆祝场景才用 bouncy**。点赞、生日祝福、徽章点亮——这些是"值得回弹"的偶发正向事件。
+3. **文字与内容淡入用 smooth**。文字做弹跳会显得廉价。
+4. **面板/侧栏这类有"物理体积感"的变化用 smooth**，因为真实物体不会 overshoot。
+5. **绝不全局使用同一个 spring**。iOS 高级感的来源不是单一动画，而是**多个动画在不同时间、用不同 spring 参数错开执行**（见 §5.5.1.2）。
+
+**与鸿蒙的关系**：鸿蒙曲线偏「快进慢出」，与 `.snappy` 的差别可通过替换令牌值吸收，**不新增第二套令牌**。
+
+### 5.5.1.2 错开编舞（Stagger）与入场原则
+
+**iOS 高级感的来源**：不是某个动画特别漂亮，而是**多个动画错开执行**——如卡片先浮现，内容随后淡入；列表项以 50ms 阶梯依次入场。
+
+**ClassIntra 提供 `.ci-stagger` 工具类**（定义于 `styles/_motion.scss`）：
+
+```html
+<div class="ci-stagger">
+  <div class="item">…</div>  <!-- 延时 0ms   -->
+  <div class="item">…</div>  <!-- 延时 50ms  -->
+  <div class="item">…</div>  <!-- 延时 100ms -->
+</div>
+```
+
+实现要点：
+- 用 `nth-child` 生成，最多覆盖 12 项（首屏列表足够）；
+- 延时值属**节奏参数**，规范允许硬编码；
+- `[data-no-motion="true"]` 时**同时清零延时**，避免"等一会才出现"的假死感。
+
+**入场缩放铁律：never scale to 0**
+
+从 `scale(0)` 做入场动画会产生「通用崩坏感」——元素像是凭空出现。正确做法是 `scale(0.9 ~ 0.96)` + `opacity`，让它看起来是「长大」而非「无中生有」。
+
+审计器 `E8` 强制此项。**豁免**：`scaleX(0)` / `scaleY(0)` 用于进度条、波形条的「长度从零生长」，那是维度展开而非缩小消失，属合理用法。
 
 ### 5.5.2 只动合成属性（合成器友好）
 
@@ -995,26 +1063,341 @@ ClassIntra_docs（文档仓库）
 
 | 任务 | 文件 | 验收标准 | 状态 |
 |---|---|---|---|
-| 修订 `type` 语义 | `apps/bot-admin/manifest.json` | `plugin` → `app` | ✅ 已完成 |
-| manifest 新增字段 | `shared/src/manifest-schema.js` | 支持 `sdk` / `capabilities` / `layout` | ⬜ 待做 |
-| 重写第三方开发文档 | `ClassIntra_docs/docs/development/third-party.md` | 与实作一致，含 Chrome 80 红线 | ⬜ 待做 |
-| SDK 参考扩写 | `ClassIntra_docs/docs/development/sdk.md` | 覆盖全部新 API | ⬜ 待做 |
-| 脚手架 | 新增 `packages/create-classintra-app` | 生成合规模板 | ⬜ 待做 |
+| 修订 `type` 语义 | `apps/bot-admin/manifest.json` | `plugin` → `app` | ✅ 已完成（第二轮已改） |
+| manifest 新增字段 | `shared/src/manifest-schema.js` + `server/src/core/manifest-schema.js` | 支持 `sdk` / `capabilities` / `layout` / `visibleRoles`，双份同步 | ✅ 已完成 |
+| 市场 manifest 校验补齐 | `server/src/core/market-service.js` 的 `_validateMarketManifest()` | 市场路径同步登记新字段（否则静默丢弃） | ✅ 已完成 |
+| 重写第三方开发文档 | `ClassIntra_docs/docs/development/third-party.md` | 与实作一致，含 Chrome 80 红线 | ✅ 已完成 |
+| SDK 参考扩写 | `ClassIntra_docs/docs/development/sdk.md` | 覆盖全部新 API（含 `context.*` 全签名） | ✅ 已完成 |
+| 脚手架 | `scripts/create-app.mjs` + `pnpm create:app` | 生成合规模板，市场/官方双变体 | ✅ 已完成 |
 | 启动流程分阶段编排 | `client/src/core/runtime-kernel.js`（BootOrchestrator）+ 重构 `client/src/main.js` | 单阶段失败不阻断挂载 | ✅ 已完成 |
 | 应用生命周期状态机 | `client/src/core/runtime-kernel.js`（LifecycleMachine） | 显式 `idle → loading → active → suspended`，支持 `suspend`/`resume` | ✅ 已完成 |
-| `sdk` 版本校验 | `client/src/core/market-registry.js` + `MarketRuntime.vue` | 版本不满足时进入错误态而非静默失败 | ⬜ 待做 |
+| `sdk` 版本校验 | `server/src/core/manifest-schema.js` + `market-service.js` | 版本不满足时**安装即阻断**（比运行期错误态更早暴露） | ✅ 已完成 |
+| Schema 质量门 | `scripts/schema-verify.mjs` + `pnpm verify:schema` | 前后端常量一致性 + 42 项断言 | ✅ 已完成 |
 
 ### 第四期：生态工具
 
 | 任务 | 说明 | 状态 |
 |---|---|---|
-| 市场审核脚本 | 静态扫描 CSS 前缀、禁用语法、危险 API | ⬜ 待做 |
+| 脚手架 | `scripts/create-app.mjs`（`pnpm create:app`） | market / official 双变体 + `--with-backend`，生成物 0 错误 0 警告通过审查 | ✅ 已完成 |
+| 市场审核脚本 | `scripts/market-review.mjs`，五组检查（manifest / Chrome80 语法 / CSS 兼容 / 危险 API / 资源回收） | ✅ 已完成 |
+| 性能诊断页 | `client/src/views/DevPerf.vue`（`/dev/perf`，仅开发模式注册）：FPS / Long Task / 令牌打点 / 毛玻璃扫描 | ✅ 已完成 |
+| 能力披露展示（数据层） | `capabilities` 字段 + 校验链路 + 审查脚本输出披露清单 | ✅ 已完成 |
+| 能力披露展示（安装页 UI） | 市场安装确认页渲染 `capabilities` 清单 | ✅ 第十二轮完成（市场卡片 chips + 安装确认清单） |
 | 开发者预览模式 | 本地加载未发布应用，免安装调试 | ⬜ 待做 |
-| 应用性能预算 | 首屏体积、DOM 节点数、内存占用上限 | ⬜ 待做 |
-| 能力披露展示 | 市场安装页展示 manifest 的 `capabilities` 清单（披露不拦截） | ⬜ 待做 |
-| 单文件导入格式（低优先级） | 设计 `.cia` 包（ZIP + manifest + 资源，可选 Ed25519 签名） | ⬜ 待做 |
+| 应用性能预算 | 首屏体积、DOM 节点数、内存占用上限（`DevPerf` 已提供度量，尚缺硬阈值门） | ⬜ 部分 |
+| DOM API 版本门（第十三轮新增） | `scripts/market-review.mjs` 的 B2 组：语法合法但 API 在 Chrome 80 不存在的情况（如 `replaceChildren`） | ✅ 第十三轮完成 |
+| ~~单文件导入格式~~ | ~~设计 `.cia` 包（ZIP + manifest + 资源，可选签名）~~ —— **用户已明确否决，不做** | ❌ 已移除 |
 
-### 9.5 实施记录（2026-09-10）
+### 9.6 第十轮实施记录（2026-09-10，动效深化 + 三期四期收尾）
+
+#### 新增文件
+
+| 文件 | 职责 |
+|---|---|
+| `scripts/schema-verify.mjs` | Schema 质量门：前后端常量一致性 + 向后兼容 + 版本/能力/布局校验，42 项断言 |
+| `scripts/market-review.mjs` | 市场应用静态审查：五组检查 + 能力披露汇总，支持 `--json` |
+| `client/src/views/DevPerf.vue` | 性能诊断页，仅开发模式注册（生产被 tree-shake） |
+
+#### 关键改动
+
+| 文件 | 改动 |
+|---|---|
+| `client/src/styles/global.scss` | 新增 4 档 iOS spring 令牌 + `--duration-stagger`；`modal-fade-enter-active` 改用 snappy |
+| `client/src/styles/_motion.scss` | 4 个 spring mixin + `.ci-stagger` 编舞工具类 |
+| `themes/{light,dark}/tokens.js` | `motion` 对象新增 5 键（三处同步之一） |
+| `client/src/core/token-injector.js` | 白名单补 4 档 spring + `--duration-stagger`（三处同步之三）；修正 `--radius-full` → `--radius-pill` |
+| `shared/src/manifest-schema.js` / `server/src/core/manifest-schema.js` | 四字段 + 四常量 + `compareVersions()` + 四段校验逻辑 |
+| `server/src/core/market-service.js` | `_validateMarketManifest()` 补齐新字段校验 |
+| `scripts/motion-verify.js` | 新增 `E6`/`E7`/`E8`；扫描范围扩到 `apps/`；注释预剥离 |
+| `market-apps/gomoku/{manifest.json,frontend/entry.js,frontend/style.css}` | 补 `sdk`/`capabilities`/`layout`；修 `aspect-ratio` 与 `gap` 两处 Chrome 80 兼容 Bug |
+| `client/src/components/CloudImagePicker.vue` | `aspect-ratio: 1` → padding-top 撑高 |
+| `client/src/router/index.js` | 新增 `/dev/perf` 路由（`import.meta.env.DEV` 门控） |
+
+#### 验证结果
+
+| 验证项 | 方法 | 结果 |
+|---|---|---|
+| Schema 双份一致性 | `node scripts/schema-verify.mjs` | ✅ 42 项通过 / 0 失败 |
+| 市场应用审查 | `node scripts/market-review.mjs market-apps/gomoku` | ✅ 错误 0 / 警告 0 |
+| 动效与圆角审计 | `node scripts/motion-verify.js` | ✅ 0 违规 / 43 豁免 |
+| 模块化删除式自测 | `node scripts/modularity-verify.js --mode all` | ✅ 通过（L1 / L2） |
+| 前端构建 | `vite build` | ✅ built in 2m44s |
+| DevPerf 生产排除 | 检查 `dist/` | ✅ 无对应 chunk，`"dev/perf"` 出现 0 次 |
+
+#### 顺带发现并修复的既存缺陷
+
+1. `--radius-full` 令牌不存在（正确名 `--radius-pill`），三处引用。
+2. 三处 `var(--radius-*, Npx)` 内联兜底值与令牌真值不一致。
+3. `ConfirmDialog.vue` 一条 transition 有多余右括号，整条声明被浏览器丢弃。
+4. `canvas` 画布配色的 `#ffffff` 在 `<canvas>` 中不解析 `var()`，需 JS 侧读取令牌。
+5. `market-apps/gomoku` 的 `aspect-ratio: 1` 撑棋盘 → Chrome 88+，**Chrome 80 上棋盘不是正方形**。
+
+### 9.7 第十二轮实施记录（2026-09-10，动效时长治理 + 能力披露 UI）
+
+#### 触发
+
+用户反馈：`部分页面的动画太长了。例如聊天页切换等`
+
+排查发现两类**独立**缺陷，均非「时长参数没调好」这么简单：
+
+#### 缺陷 A —— `transition` 简写缺逗号（正确性 Bug）
+
+```css
+/* 错：两个属性之间缺逗号 → 整条声明非法 → 浏览器整条丢弃 → 属性瞬变，无过渡 */
+transition: opacity var(--duration-normal) var(--ease-decelerate)
+            transform var(--duration-normal) var(--ease-decelerate);
+```
+
+`transition` 简写里多个属性的分隔符是逗号。漏掉后**整条声明被浏览器丢弃**，
+表现为「动画完全消失」而非「变慢」——与用户描述相反，属隐蔽缺陷。
+
+命中位置：
+`client/src/App.vue`（**页面路由切换，影响面最大**）、
+`apps/market/...`、`client/src/components/BirthdayCelebration.vue`。
+
+同类还有 `App.vue` 里 `var(--ease-accelerate))` 的多余右括号。
+
+#### 缺陷 B —— 局部 transition 类覆盖全局（时长翻倍根因）
+
+`apps/*.vue` 在各自的 `<style>` 段里重新定义了 `fade-slide` / `modal-fade` /
+`msg-list` / `section-fade` / `conv-list` / `res-list` 等同名 transition 类，
+**局部定义优先级高于全局**，把 `global.scss` 里已按 iOS 分档的时长覆盖成更慢的值。
+
+以聊天页为例：
+
+| 类名 | 全局定义（生效目标） | 局部覆盖（实际生效） |
+|---|---|---|
+| `fade-slide` | `fast` 0.15s | `normal` 0.25s |
+| `msg-list-enter` | `normal` 0.25s | `slow` 0.35s |
+| `modal-fade-enter` | `normal` + `snappy` | `normal` + `slow` + `--ease-spring` |
+
+**处理**：删除局部重复定义，让全局统一定义生效。
+不在全局登记表中的类（`slide-right` / `tab-fade` / `sidebar-slide` / `player-slide`
+/ `detail-slide` / `mini-slide` 等）保留在局部，但逐个调整档位。
+
+#### 时长令牌重新定档
+
+`--duration-normal` `0.25s → 0.22s`；`--duration-slow` `0.35s → 0.30s`；
+新增 `--duration-instant` `0.1s`。
+
+新增档位的动因是 `mode="out-in"`：Vue 的 `out-in` 会**先播完离场、再播入场**，
+两段串行 → 观感时长 = leave + enter。路由切换原为 `0.15 + 0.22 = 0.37s`，
+且中间有一段「旧页已淡出、新页还没到位」的空白期。
+现把 leave 压到 `instant`，总时长降到约 `0.32s`，空白期从 `0.15s` 降到 `0.1s`。
+
+三处令牌链路同步：`global.scss` → `themes/{light,dark}/tokens.js` → `token-injector.js` 白名单。
+
+#### 能力披露 UI（第四期收尾）
+
+数据链路（第十轮已就绪）之外的展示层，本轮补齐：
+
+| 层 | 文件 | 改动 |
+|---|---|---|
+| 共享元数据 | `shared/src/capability-catalog.js`（**新增**） | 16 项能力 → 中文标签 / 说明 / 图标 / 危险等级；`describeCapabilities()` 按 notice 优先排序；未知能力回退展示原始名 |
+| 后端透传 | `server/src/core/market-service.js` | `listInstalled()` 返回 `capabilities` 字段 |
+| 模态框 | `client/src/components/ModalDialog.vue` | 新增 `html` 选项（v-html 渲染），供富文本确认框使用 |
+| 市场页 | `apps/market/frontend/Market.vue` | 卡片展示能力 chips；点击安装弹出「此应用将使用以下能力」确认框，notice 级高亮 |
+| 样式 | `client/src/styles/global.scss` | `.ci-cap-*` 能力清单样式（因经 v-html 注入，须放全局而非 scoped） |
+| 质量门 | `scripts/schema-verify.mjs` | 新增第 8/9 组断言：能力目录与 `KNOWN_CAPABILITIES` 一致性 + `describeCapability` 行为，共 42 → 49 项 |
+
+**设计一致性**：能力目录（展示层）与 `manifest-schema.js` 的 `KNOWN_CAPABILITIES`
+（校验层）是两个独立枚举，易失配。第 8 组断言正是防这个：
+任何一侧增删能力而另一侧没跟上，`verify:schema` 立即失败。
+
+#### 新增工具脚本
+
+| 脚本 | 职责 |
+|---|---|
+| `scripts/scan-transition-commas.mjs` | 扫描「多行 transition 且下一行以裸属性名开头」的缺逗号写法（区分合法多行） |
+| `scripts/fix-motion-duration.mjs` | 批量修复：缺逗号 / 多余括号 / 裸属性列表 / 删除覆盖全局的局部 transition 类；支持 `--dry-run` |
+| `scripts/scan-slow-transitions.mjs` | 列出进场/离场规则块中仍使用 slow/normal 档的位置，供人工判断是否该降档 |
+
+#### 验证结果
+
+| 检查项 | 命令 | 结果 |
+|---|---|---|
+| 动效审计 | `node scripts/motion-verify.js` | ✅ 0 违规 / 43 豁免 |
+| Schema 质量门 | `node scripts/schema-verify.mjs` | ✅ 49 项通过 / 0 失败 |
+| 缺逗号扫描 | `node scripts/scan-transition-commas.mjs` | ✅ 全项目无残留 |
+| 修复脚本幂等 | `node scripts/fix-motion-duration.mjs --dry-run` | ✅ 三类缺陷均为「无」 |
+| 前端构建 | `vite build` | ✅ built in 2m41s |
+
+#### 排查过程中发现的陷阱
+
+「缺陷 A2：`transition: a, b, c, d, e, f var(--duration-X) var(--ease-Y)`」
+——前 5 个属性裸奔，只有最后一个带时长曲线，实际等价于「只有 `f` 有过渡」。
+这是第十轮批量展开 `transition: all` 时留下的痕迹，**全项目 60 处**，
+集中在 `AIChat.vue`(13) / `Calendar.vue`(10) / `Notes.vue`(9) / `Timetable.vue`(7)。
+已由 `fix-motion-duration.mjs` 的 A2 分支统一补齐。
+
+### 9.8 第十三轮实施记录（2026-09-10，五子棋崩溃修复 + 通知历史入口扩充）
+
+#### 触发
+
+用户反馈三件事 + 一条否决：
+`不要搞单文件，然后现在五子棋用不了，报错。然后优化五子棋，布局样式有问题。然后通知历史的触发方式太少了，要修复一下，例如长按超能岛?`
+
+#### 缺陷 A —— 五子棋挂载即崩溃（`replaceChildren` 不在 Chrome 80）
+
+`market-apps/gomoku/frontend/entry.js` 有 4 处 `Element.replaceChildren()`：
+
+| 行 | 调用 | 时机 |
+|---|---|---|
+| 30 | `container.replaceChildren(root)` | `mount()` 第一步 —— **必崩** |
+| 82 | `membersElement.replaceChildren()` | 每次渲染成员列表 |
+| 98 | `boardElement.replaceChildren()` | 每次渲染棋盘 |
+| 210 | `container.replaceChildren()` | `unmount()` 内 |
+
+`Element.replaceChildren()` 自 **Chrome 86** 起支持；校园平板基线是 **Chrome 80**。
+因此 `mount()` 第一行就抛 `TypeError: container.replaceChildren is not a function`，
+应用完全无法装载 —— 与用户描述的「用不了，报错」完全吻合。
+
+**为什么审查没拦住**：`market-review.mjs` 的 B 组只查 JS **语法**特性
+（`const`/`let`/箭头/模板字符串/`?.`/`??`/`class`/逻辑赋值/async）。
+`replaceChildren` 是**语法合法的 ES5 调用**，只是宿主对象没这个方法 ——
+语法检查天然看不到，属独立缺陷类别。
+
+修复：新增 `clearChildren(el)` 辅助函数（`while (el.firstChild) el.removeChild(el.firstChild)`），
+四处统一替换。
+
+> **教训**：语法兼容 ≠ API 兼容。第三方不过构建，**必须同时校验语法版本与 DOM API 版本**。
+> 已在 `market-review.mjs` 新增 **B2 组：DOM API 版本门**（25 条规则，含 `replaceChildren` /
+> `structuredClone` / `Object.hasOwn` / `.at(-n)` / `globalThis` 等），`since > 80` 即阻断。
+
+#### 缺陷 B —— `context.api` 不存在（第二处必崩）
+
+`entry.js` 的 `request()` 原实现：
+
+```js
+var action = context.api && context.api[method.toLowerCase()];
+if (typeof action !== 'function') return Promise.reject(new Error('SDK API 不可用'));
+```
+
+而 `client/src/core/market-sdk.js` 的 `context` **没有 `api` 字段** ——
+`context.api` 是向后兼容层的 getter，返回 `dataApi.api`，而 `dataApi.api` 来自
+`deps.api`，由 `main.js` 传入 `api` 实例。当前装配下该字段为 `null`。
+
+于是 `request()` 100% 走 reject 分支 → 创建房间/加入/落子**全部失败**，
+界面永远停在「未进入房间」。这是与缺陷 A 并列的第二处硬故障。
+
+修复：新增 `httpClient(context)`，按 **规范入口优先** 取客户端：
+
+```js
+function httpClient(context) {
+  if (context && context.data && context.data.api) return context.data.api;
+  if (context && context.api) return context.api;   // v1 兼容别名
+  return null;
+}
+```
+
+只取其一、不叠加别名 —— 兼容层 getter 返回同一对象，叠加只会掩盖问题。
+
+> **待办（另开）**：`main.js` 的 `createContext` 装配处需确认 `api` 实际可用；
+> 若 `api` 本就为 null，则全部市场应用的 HTTP 能力都不可用，属 SDK 装配缺陷而非应用问题。
+
+#### 缺陷 C —— 资源回收契约未履行
+
+`market-review.mjs` E 组报错：应用注册了 `realtime.subscribe` + `realtime.on` +
+两个 `addEventListener`，但**完全没有调用 `context.app.onDestroy`**。
+
+`market-registry.unmount()` 的三段式契约是：
+`disposeContext(name)`（执行应用 `onDestroy`）→ `definition.unmount(container)` → `machine.unmount()`。
+不走 `onDestroy` 时，`context.app` 的清理链根本没注册，卸载后监听器与实时订阅永久泄漏。
+
+顺带发现：3 处 `realtime.on(...)` 的**返回值（解绑函数）被丢弃**，
+断线重连会重复绑定，同一次事件触发多份 handler。
+
+修复：所有资源解绑统一登记进 `context.app.onDestroy`（逆序执行），
+`__gomokuUnmount` 保留作为兜底；`realtime.on` 返回值全部 push 进 `subscriptions`。
+
+#### 缺陷 D —— 布局样式问题（Chrome 80 下间距塌陷 + 棋盘变形）
+
+`style.css` 两类硬伤：
+
+| 问题 | 位置 | 影响 |
+|---|---|---|
+| flex `gap: 16px` | `.gomoku-header/.gomoku-roombar/.gomoku-layout/.gomoku-entry-row` | Chrome 80 不支持（需 84+），**间距全塌陷**，元素挤在一起 |
+| flex `gap: 6px` | `.gomoku-entry-row label` | 同上，label 与控件贴死 |
+| `aspect-ratio: 1` | `.gomoku-board` | Chrome 80 不支持（需 88+），**棋盘高度塌成 0** |
+
+另外 `border-radius` 全为裸值（`10px`/`8px`/`16px`/`12px`/`14px`），
+未走八档令牌；颜色大量硬编码，未跟随主题。
+
+修复方案：
+- `gap` → 相邻兄弟选择器 + `margin`（与 `market-sdk-ui.js` 既有做法一致）；
+  竖排断点下把 `margin-left` 换成 `margin-top`。
+- `aspect-ratio` → `padding-top: 100%` 撑高 + 内部绝对定位铺满（标准降级写法）。
+- 棋盘拆为**三层**：`.gomoku-grid`（网格线背景，`pointer-events:none`）、
+  `.gomoku-stones`（棋子层，承载可点格子）、棋盘容器本身（木纹底）。
+  原先棋盘背景与格子背景写在同一个元素上，无法分层控制。
+- 圆角全部改 `var(--radius-*)` 八档令牌；颜色改 `var(--ci-*)` 并保留兜底值。
+- 补 `-webkit-` 前缀与 `-ms-flexbox` 旧语法（Chrome 80 仍需前缀的部分）。
+- 新增 `prefers-reduced-motion` 降级（原文件完全没有）。
+- 新增最后一手脉冲环（`.is-last`）、胜利五连高亮（`.is-win`）、
+  棋子径向渐变（原为纯色平面，视觉单薄）。
+
+#### 缺陷 E —— 通知历史入口只有 1 条
+
+`client/src/mixins/island-gestures.js` 原 `onLongPress()`：
+
+```js
+if (this.islandMode === 'notification') {
+  if (this.notificationHistory.length > 0) this.islandMode = 'history';
+} else if (this.islandMode === 'compact' || this.islandMode === 'split') {
+  /* 长按语义是「打开浏览器/公告页」，不是历史 */
+}
+```
+
+即：**只有通知正弹着的那 3 秒内长按**才能进历史。通知一收起，
+`islandMode` 回到 `compact`，长按语义变成「打开浏览器」，历史面板**再无任何入口**。
+用户看到的「触发方式太少了」正是这个结构性缺口。
+
+修复：新增统一入口 `openHistory()`，并挂到 **4 条独立路径**：
+
+| # | 触发方式 | 实现位置 | 目标用户 |
+|---|---|---|---|
+| 1 | 通知展示时长按 | `island-gestures.js` → `onLongPress` | 原有路径，保留 |
+| 2 | **任意模式长按超能岛** | `island-gestures.js` → `onLongPress`（去掉 mode 限制） | **用户点名要的** |
+| 3 | 快捷操作面板 → 通知记录（带未读角标） | `IslandActionsPanel.vue` | 可发现性最好 |
+| 4 | 桌面空白处双击 | `views/Desktop.vue` → `onDesktopDblClick` | 触控板/鼠标 |
+| 5 | 右键超能岛 | `island-gestures.js` → `onContextMenu` | 桌面端 |
+
+配套改动：
+- 长按新增 `longPressFired` 标记 —— 长按触发后浏览器仍会补发 `click`，
+  必须抑制，否则「长按进历史」会被随后的 `handleClick` 立刻覆盖。
+- `onMouseDown` 也挂长按计时器（桌面无 `touchstart`），`onMouseUp`/`mouseleave` 清理。
+- 无历史时给 toast 提示而非静默返回（否则用户以为没反应）。
+- 历史面板新增**清空**按钮与**空态引导**（列出 5 条入口，教会用户怎么找）。
+- 外部唤出经 vuex：`store/modules/island.js` 新增 `historyRequestSeq` 自增序号 +
+  `OPEN_HISTORY` mutation，`SuperIsland.vue` 用 `'$store.state.island.historyRequestSeq'`
+  路径 watcher 监听。
+
+> **为什么用自增序号**：外部视图（Desktop）改不了 SuperIsland 的组件局部状态。
+> 若用布尔量，连续两次请求（中间未复位）第二次观察不到；序号保证每次变更都可被 watch 到。
+
+#### 用户否决 —— 移除 `.cia` 单文件格式提案
+
+用户明确 `不要搞单文件`。理由（已记入 §11 借鉴 4）：ClassIntra 的分发模型是
+**目录即模块**（`market-apps/<name>/` 下放 `manifest.json` + `frontend/` + `backend/`），
+新增单文件容器等于引入第二套解包/校验/版本比对链路，收益（少一次拷贝）远小于复杂度。
+已从 §9.5 待办表中移除，§11 借鉴 4 改为明确否决记录。
+
+#### 附带 —— 后端补 `lastMove`
+
+前端新增最后一手高亮需要 `state.lastMove`，但 `stateFor()` 未返回。
+已在 `market-apps/gomoku/backend/routes.js` 的 `stateFor()` 中按
+`gomoku_moves` 表 `ORDER BY id DESC LIMIT 1` 补上。
+
+#### 验证
+
+| 检查项 | 命令 | 结果 |
+|---|---|---|
+| 五子棋静态审查 | `node scripts/market-review.mjs market-apps/gomoku` | ✅ 错误 0 / 警告 0（原 3 错 15 警） |
+| 动效审计 | `node scripts/motion-verify.js` | ✅ **0 违规** / 43 豁免（长期存在的 2 处 gomoku 违规已清零） |
+| Schema 质量门 | `node scripts/schema-verify.mjs` | ✅ 49 项通过 / 0 失败 |
+| B2 规则回归 | 构造含 `replaceChildren` 的夹具 | ✅ 成功报出阻断错误 |
+| 前端构建 | `vite build` | ✅ built in 3m3s |
+
 
 #### 新增文件
 
@@ -1060,7 +1443,18 @@ ClassIntra_docs（文档仓库）
 | 资源清理机制 | 自定义 `container.__gomokuUnmount` | `context.app.onDestroy` 契约 + 内核审计双保险 |
 | 深色模式跟随 | ❌ 写死颜色 | ✅ 令牌继承（已验证） |
 
----
+### 9.9 第八轮实施记录（2026-09-10，生态一体化运行时内核 + 五子棋视觉改造）
+
+见上方内核资产清单与 `docs/third-party-development.md`。要点：
+
+- 运行时内核（`runtime-kernel.js` / `token-injector.js` / `market-sdk.js` / `market-sdk-ui.js` / `AppShell.vue`）
+- 五子棋从「零令牌、自建类名」改造为「14 种 `--ci-*`、消费 SDK UI 片段、深色模式跟随」
+- 四类模块定位判据（`docs/ecosystem-design.md` §1.5）+ `KIND_CAPABILITIES` 能力位
+
+> 注：第十三轮（§9.8）与第八轮对 `gomoku` 的改动是**互补**的 ——
+> 第八轮解决「视觉一致性」，第十三轮解决「Chrome 80 下能不能跑」。
+> 第八轮的改造虽然引入了令牌，但**未校验 DOM API 版本**，
+> `replaceChildren` 与 flex `gap` 两个问题当时就存在，只是没有触发条件被暴露出来。
 
 ---
 
@@ -1197,9 +1591,9 @@ granted: Map<string, Set<Capability>>   // appId → 已授权能力集合
 
 Ditto 的 `.dit` 包（另有 `.ditx` widget / `.ditc` plugin / `.ditz` theme）采用 **ZIP + AES-256-GCM 加密（PBKDF2 10 万次迭代）+ Ed25519 签名**，配合 CLI 的 `ditto pack / install / verify / publish`。
 
-**对 ClassIntra 的价值**：ClassIntra 当前的分发是「市场仓库 + 服务端扫描」，离线优先、内网部署，**不需要加密**。但**签名校验值得考虑**：内网环境下第三方包由学生/教师编写，若未来出现「从外部导入 `.ci-app` 包」的需求（不走市场仓库），则**完整性校验**可防止包在中转中被篡改。
+**对 ClassIntra 的价值**：ClassIntra 当前的分发是「市场仓库 + 服务端目录扫描」，离线优先、内网部署，**不需要加密**，**也不做单文件包格式**。
 
-**落地建议（第四期候选，低优先级）**：为学生作品导入场景设计轻量 `.cia` 单文件格式（ZIP 结构 + manifest + 前端资源），可选配 Ed25519 签名。**不建议**引入加密——内网场景下加密只会增加调试成本，且解密密钥仍需内置于客户端，安全性增益有限。
+> **决策（用户明确否决，不要再提）**：曾评估过为学生作品导入设计轻量 `.cia` 单文件格式（ZIP + manifest + 前端资源 + 可选签名）。用户已否决「搞单文件」。理由是 ClassIntra 的分发模型是**目录即模块**（`market-apps/<name>/` 下放 `manifest.json` + `frontend/` + `backend/`），新增一种单文件容器等于引入第二套解包/校验/版本比对链路，收益（少一次拷贝）远小于复杂度。**若未来真的要支持外部包导入，应采用「目录 + 可选签名清单（detached signature）」而非自定义容器格式**。
 
 #### 借鉴 5：SDK 按能力域命名分层
 

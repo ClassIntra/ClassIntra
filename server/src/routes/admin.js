@@ -16,6 +16,8 @@ function getUserAdminClass(userId) {
 
 // 检查管理员是否能操作指定用户（班管只能操作本班用户，班干通过前缀匹配）
 function canAdminManageUser(adminUserId, targetUserId) {
+  // 开发者账号拥有全部管理权限（constants.js 定义）
+  if (adminUserId === '999999') return true;
   var adminClass = getUserAdminClass(adminUserId);
   if (!adminClass) {
     // 班干或其他授权用户：通过 user_id 班级前缀判断
@@ -747,7 +749,9 @@ router.post('/broadcasts', auth.requirePermission('manage_broadcast'), function(
     priority = 'normal';
   }
 
-  var stmt = db.prepare("INSERT INTO broadcasts (content, priority, created_at) VALUES (?, ?, datetime('now'))");
+  // 广播表有 (content, created_at) 唯一索引（迁移 005）。管理员在同一秒内重复提交
+  // 相同内容时应静默去重，而不是抛约束错误。
+  var stmt = db.prepare("INSERT OR IGNORE INTO broadcasts (content, priority, created_at) VALUES (?, ?, datetime('now'))");
   var result = stmt.run(content.trim(), priority);
 
   var adminUser = db.prepare('SELECT net_name FROM users WHERE user_id = ?').get(req.user.user_id);
@@ -765,6 +769,7 @@ router.post('/broadcasts', auth.requirePermission('manage_broadcast'), function(
     var chatServer = require('../ws/chat-server');
     chatServer.broadcastToIsland({
       type: 'broadcast',
+      id: result.lastInsertRowid,
       content: content.trim(),
       priority: priority
     });
@@ -1350,6 +1355,15 @@ router.delete('/chat/messages/:messageId', auth.requirePermission('manage_chat')
   try {
     var msg = db.prepare('SELECT * FROM group_messages WHERE message_id = ?').get(messageId);
     if (!msg) return res.status(404).json({ code: 404, message: '消息不存在' });
+    // 权限边界明确区分：班管只能删除本班用户发送的消息（对班成员在跨班群里的
+    // 消息由其本班班管管理）。999999 开发者账号不受限。
+    var delAdminClass = getUserAdminClass(req.user.user_id);
+    if (delAdminClass) {
+      var delSenderClass = msg.sender_id ? String(msg.sender_id).substring(2, 4) : '';
+      if (delSenderClass !== delAdminClass) {
+        return res.status(403).json({ code: 403, message: '只能删除本班用户发送的消息' });
+      }
+    }
     db.prepare('DELETE FROM group_messages WHERE message_id = ?').run(messageId);
     try {
       var chatServer = require('../ws/chat-server');
@@ -2005,11 +2019,12 @@ router.put('/lock-screen', auth.requirePermission('manage_app_control'), functio
 // POST /api/admin/remote-action - 发送远程管理命令
 router.post('/remote-action', auth.requirePermission('manage_users'), function(req, res) {
   var adminUserId = req.user ? req.user.user_id : '';
-  var adminClass = getUserAdminClass(adminUserId);
 
-  // 班管可进行远程管理
-  if (!adminClass && !constants.isClassAdmin(adminUserId)) {
-    return res.status(403).json({ code: 403, message: '无远程管理权限' });
+  // 权限边界明确区分（2026-09-11 用户要求）：班管（YYCC00）只能管理本班用户，
+  // 本班管理在本机完成即可（数据经中继自动同步到对端镜像），不存在"班管跨班
+  // 管理"的合法场景。跨班远程管理通道仅保留给开发者账号 999999 作运维用途。
+  if (adminUserId !== '999999') {
+    return res.status(403).json({ code: 403, message: '远程管理仅限开发者账号；班管只能管理本班用户' });
   }
 
   var action = req.body.action;     // 'ban', 'unban', 'edit', 'delete', 'list'
@@ -2050,9 +2065,10 @@ router.post('/remote-action', auth.requirePermission('manage_users'), function(r
 // GET /api/admin/remote-servers - 获取已连接的远程服务器列表
 router.get('/remote-servers', function(req, res) {
   var adminUserId = req.user ? req.user.user_id : '';
-  var adminClass = getUserAdminClass(adminUserId);
-  if (adminClass) {
-    return res.status(403).json({ code: 403, message: '班级管理员无法查看远程服务器' });
+  // 跨班管理仅限开发者账号（999999）。权限边界明确区分：班管（YYCC00）的
+  // 管理范围 = 本班用户（本机管理 + 中继自动同步），不存在跨班管理场景。
+  if (adminUserId !== '999999') {
+    return res.status(403).json({ code: 403, message: '无跨班管理权限' });
   }
 
   try {
@@ -2070,6 +2086,22 @@ router.get('/remote-servers', function(req, res) {
     res.status(500).json({ code: 500, message: '获取远程服务器列表失败' });
   }
 });
+
+// 回传远程动作执行结果给发起方（发起端经 /remote-response/:requestId 轮询获取）。
+// 此前只有 list 回传，ban/unban/edit/delete 执行成功或被拒绝都无反馈，
+// 发起的管理员只能看到「已发送」，无法确认命令是否生效。
+function sendRemoteAdminResult(data, ok, message) {
+  try {
+    var relayBus = require('../utils/relay-bus');
+    relayBus.relayOnly('remote_admin_response', {
+      request_id: data.request_id,
+      action: data.action,
+      target_user_id: data.target_user_id,
+      ok: ok === true,
+      message: message || ''
+    });
+  } catch (e) { /* 回传失败不影响本地执行 */ }
+}
 
 // 注册远程管理命令处理器
 try {
@@ -2098,6 +2130,7 @@ try {
       // 检查时间戳，防止重放攻击（5分钟有效期）
       if (data.timestamp && Date.now() - data.timestamp > 300000) {
         console.warn('[RemoteAdmin] Request expired: ' + data.request_id);
+        sendRemoteAdminResult(data, false, '请求已过期，请重试');
         return;
       }
     } else {
@@ -2105,10 +2138,11 @@ try {
       return;
     }
 
-    // 验证来源管理员权限：仅班管可执行远程操作
-    var adminClass = getUserAdminClass(adminUserId);
-    if (!adminClass && !constants.isClassAdmin(adminUserId)) {
-      console.warn('[RemoteAdmin] Non-admin remote action rejected: ' + adminUserId);
+    // 权限边界明确区分：跨班远程管理仅限开发者账号（999999）发起。
+    // 班管的管理范围 = 本班用户（本机管理 + 中继同步），拒绝一切班管发起的跨班命令。
+    if (adminUserId !== '999999') {
+      console.warn('[RemoteAdmin] Non-developer remote action rejected: ' + adminUserId);
+      sendRemoteAdminResult(data, false, '远程管理仅限开发者账号，班管只能管理本班用户');
       return;
     }
 

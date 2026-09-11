@@ -150,7 +150,7 @@ export default {
   padding: 7px 12px;
   background: rgba(100, 181, 246, 0.12);
   border: 1px solid rgba(100, 181, 246, 0.18);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   margin-bottom: 4px;
   min-width: 0;
   overflow: hidden;

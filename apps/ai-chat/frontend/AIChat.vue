@@ -1588,7 +1588,7 @@ export default {
   height: 44px;
   border-radius: var(--radius-md);
   color: var(--primary-color);
-  transition: background 0.15s, transform 0.15s, opacity 0.15s;
+  transition: background var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard);
   background: none;
   border: none;
   cursor: pointer;
@@ -1645,7 +1645,7 @@ export default {
   border: none;
   cursor: pointer;
   color: var(--text-secondary);
-  transition: all 0.15s;
+  transition: background-color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
   font-size: var(--font-size-sm);
 }
 
@@ -1682,7 +1682,7 @@ export default {
 .panel-close {
   width: 100%; padding: 10px; min-height: 44px; border-radius: var(--radius-sm); border: 1px solid var(--border-color);
   background: var(--card-bg); color: var(--text-primary); font-size: var(--font-size-sm); cursor: pointer;
-  transition: background 0.15s, transform 0.15s, opacity 0.15s;
+  transition: background var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard);
 }
 .panel-close:active { transform: scale(0.94); opacity: 0.7; }
 
@@ -1699,14 +1699,14 @@ export default {
 .btn-reset {
   padding: 8px 16px; min-height: 44px; border-radius: var(--radius-sm); border: 1px solid var(--border-color);
   background: var(--card-bg); color: var(--text-primary); font-size: var(--font-size-sm); cursor: pointer;
-  transition: background 0.15s, transform 0.15s, opacity 0.15s;
+  transition: background var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard);
 }
 .btn-reset:active { transform: scale(0.94); opacity: 0.7; }
 
 .btn-save-prompt {
   padding: 8px 16px; min-height: 44px; border-radius: var(--radius-sm); border: none;
   background: var(--primary-color); color: #fff; font-size: var(--font-size-sm); font-weight: 600; cursor: pointer;
-  transition: background 0.15s, transform 0.15s, opacity 0.15s;
+  transition: background var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard);
 }
 .btn-save-prompt:active { transform: scale(0.94); opacity: 0.7; }
 
@@ -1717,7 +1717,8 @@ export default {
 
 .aichat-sidebar {
   flex-shrink: 0;
-  transition: width 0.3s var(--ease-standard), opacity 0.3s var(--ease-standard), transform 0.3s var(--ease-standard);
+  /* 规范例外：侧栏收起展开，宽度即语义；scaleX 会压扁内部文字（§5.5.2 形状形变豁免） */
+  transition: width var(--duration-slow) var(--ease-standard), opacity var(--duration-slow) var(--ease-standard), transform var(--duration-slow) var(--ease-standard);
   overflow: hidden;
 }
 
@@ -1807,7 +1808,7 @@ export default {
   color: var(--text-secondary);
   font-size: var(--font-size-caption2);
   flex-shrink: 0;
-  transition: all 0.15s;
+  transition: background-color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
 }
 
 .sidebar-search-clear:hover {
@@ -1844,7 +1845,7 @@ export default {
   min-height: 44px;
   border-radius: var(--radius-md);
   cursor: pointer;
-  transition: background 0.15s, transform 0.15s, opacity 0.15s;
+  transition: background var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard);
   margin-bottom: 2px;
   gap: 10px;
 }
@@ -1908,7 +1909,7 @@ export default {
   display: flex;
   gap: 4px;
   opacity: 0;
-  transition: opacity 0.15s;
+  transition: opacity var(--duration-fast) var(--ease-standard);
   flex-shrink: 0;
 }
 
@@ -1924,7 +1925,7 @@ export default {
   border: none;
   cursor: pointer;
   color: var(--text-secondary);
-  transition: all 0.15s;
+  transition: background-color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
 }
 
 .conv-action-btn:hover {
@@ -1975,7 +1976,7 @@ export default {
   min-height: 44px;
   border-radius: var(--radius-sm);
   flex-shrink: 0;
-  transition: background 0.15s, transform 0.15s, opacity 0.15s;
+  transition: background var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard);
 }
 
 .sidebar-toggle:hover {
@@ -2020,7 +2021,7 @@ export default {
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background-color var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
   display: flex;
   align-items: center;
   gap: 3px;
@@ -2093,7 +2094,7 @@ export default {
 
 .reasoning-header .chevron {
   margin-left: auto;
-  transition: transform 0.2s;
+  transition: transform var(--duration-normal) var(--ease-standard);
 }
 
 .reasoning-header .chevron.rotated {
@@ -2160,7 +2161,7 @@ export default {
   font-size: var(--font-size-footnote);
   font-weight: var(--font-weight-medium);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: background-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
 }
 
 .header-btn:hover {
@@ -2275,7 +2276,7 @@ export default {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background-color var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
   font-size: var(--font-size-sm);
   color: var(--text-primary);
   text-align: left;
@@ -2451,7 +2452,7 @@ export default {
   border-radius: var(--radius-sm);
   font-size: var(--font-size-caption);
   cursor: pointer;
-  transition: background 0.2s;
+  transition: background var(--duration-normal) var(--ease-standard);
 }
 
 .retry-btn:hover {
@@ -2463,7 +2464,7 @@ export default {
   justify-content: flex-end;
   margin-top: 6px;
   opacity: 0;
-  transition: opacity 0.2s;
+  transition: opacity var(--duration-normal) var(--ease-standard);
 }
 
 .msg-body:hover .msg-actions {
@@ -2488,7 +2489,7 @@ export default {
   color: var(--text-secondary);
   font-size: var(--font-size-caption);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background-color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
 }
 
 .msg-action-btn:hover {
@@ -2588,7 +2589,7 @@ export default {
   font-size: var(--font-size-sm);
   cursor: pointer;
   opacity: 0;
-  transition: all 0.2s;
+  transition: background-color var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
   z-index: 2;
 }
 
@@ -2890,7 +2891,7 @@ export default {
   max-height: 160px;
   min-height: 44px;
   line-height: 1.5;
-  transition: border-color 0.2s;
+  transition: border-color var(--duration-normal) var(--ease-standard);
   box-sizing: border-box;
   font-family: inherit;
   overflow-y: hidden;
@@ -2939,7 +2940,7 @@ export default {
   background: var(--primary-color);
   color: #fff;
   border-radius: var(--radius-md);
-  transition: background 0.2s, opacity 0.2s, transform 0.15s;
+  transition: background var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
   white-space: nowrap;
   border: none;
   cursor: pointer;
@@ -3018,7 +3019,7 @@ export default {
   font-size: var(--font-size-sm);
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background-color var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
   border: none;
 }
 
@@ -3044,21 +3045,6 @@ export default {
 
 .confirm-btn.danger:hover {
   background: #c82333;
-}
-
-.conv-list-enter-active,
-.conv-list-leave-active {
-  transition: opacity 0.2s, transform 0.2s;
-}
-
-.conv-list-enter {
-  opacity: 0;
-  transform: translateX(-10px);
-}
-
-.conv-list-leave-to {
-  opacity: 0;
-  transform: translateX(10px);
 }
 
 @media (max-width: 768px) {
@@ -3180,7 +3166,7 @@ export default {
   border: 1px solid var(--border-color);
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background-color var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
   font-size: var(--font-size-sm);
 }
 
@@ -3231,7 +3217,7 @@ export default {
   cursor: pointer;
   color: var(--text-secondary);
   font-size: var(--font-size-callout);
-  transition: all 0.15s;
+  transition: background-color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
 }
 
 .conv-settings-close:hover {
@@ -3288,7 +3274,7 @@ export default {
   resize: vertical;
   font-family: inherit;
   box-sizing: border-box;
-  transition: border-color 0.2s;
+  transition: border-color var(--duration-normal) var(--ease-standard);
 }
 
 .settings-textarea:focus {
@@ -3317,7 +3303,7 @@ export default {
   color: var(--text-secondary);
   background: var(--bg-color);
   border: 1px solid transparent;
-  transition: all 0.15s;
+  transition: background-color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
 }
 
 .priority-item.priority-active {
@@ -3402,7 +3388,7 @@ export default {
   color: #92400e;
   font-size: var(--font-size-sm);
   flex-shrink: 0;
-  transition: background 0.15s;
+  transition: background var(--duration-fast) var(--ease-standard);
 }
 
 .fallback-notice-close:hover {
@@ -3411,7 +3397,7 @@ export default {
 
 .toast-slide-enter-active,
 .toast-slide-leave-active {
-  transition: all 0.3s var(--ease-standard);
+  transition: background-color var(--duration-slow) var(--ease-standard), border-color var(--duration-slow) var(--ease-standard), color var(--duration-slow) var(--ease-standard), transform var(--duration-slow) var(--ease-standard), opacity var(--duration-slow) var(--ease-standard), box-shadow var(--duration-slow) var(--ease-standard);
 }
 
 .toast-slide-enter,
@@ -3458,7 +3444,7 @@ export default {
 }
 .forward-sheet {
   background: var(--bg-color, #fff);
-  border-radius: 20px 20px 0 0;
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
   width: 100%;
   max-width: 500px;
   padding: 8px 0 20px;
@@ -3514,7 +3500,7 @@ export default {
 }
 .viewer-panel {
   background: var(--bg-color, #fff);
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   width: 100%;
   max-width: 720px;
   max-height: 85vh;
@@ -3560,7 +3546,7 @@ export default {
 .msg-selectable {
   cursor: pointer;
   border-radius: var(--radius-md);
-  transition: background 0.15s var(--ease-standard);
+  transition: background var(--duration-fast) var(--ease-standard);
 }
 
 .msg-selectable:hover {
@@ -3583,7 +3569,7 @@ export default {
   flex-shrink: 0;
   margin-right: 8px;
   align-self: center;
-  transition: all 0.2s var(--ease-standard);
+  transition: background-color var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
 }
 
 .msg-checkbox.checked {
@@ -3624,7 +3610,7 @@ export default {
   font-size: var(--font-size-caption1, 13px);
   color: var(--text-color, #000);
   cursor: pointer;
-  transition: opacity 0.15s, transform 0.15s;
+  transition: opacity var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
 }
 
 .batch-btn:active {

@@ -625,7 +625,7 @@ export default {
 .nav-btn {
   width: 34px;
   height: 34px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   border: none;
   background: var(--surface-elevated);
   color: var(--text-primary);
@@ -634,7 +634,7 @@ export default {
   align-items: center;
   justify-content: center;
   font-size: 15px;
-  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.2s;
+  transition: transform var(--duration-normal) var(--ease-spring), background var(--duration-normal) var(--ease-standard);
 }
 .nav-btn:hover { background: var(--primary-lighter); transform: scale(1.06); }
 .nav-btn:active { transform: scale(0.94); }
@@ -677,13 +677,13 @@ export default {
 .state-retry {
   margin-top: 8px;
   padding: 8px 20px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   border: none;
   background: var(--primary-color);
   color: #fff;
   font-size: var(--font-size-body);
   cursor: pointer;
-  transition: transform 0.2s, opacity 0.2s;
+  transition: transform var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard);
 }
 .state-retry:hover { opacity: 0.9; }
 .state-retry:active { transform: scale(0.96); }
@@ -711,7 +711,7 @@ export default {
 .pinned-card {
   flex: 0 0 200px;
   background: var(--card-bg);
-  border-radius: 18px;
+  border-radius: var(--radius-xl);
   padding: 16px;
   cursor: pointer;
   scroll-snap-align: start;
@@ -719,7 +719,7 @@ export default {
   box-shadow: var(--shadow-sm);
   position: relative;
   overflow: hidden;
-  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s;
+  transition: transform var(--duration-normal) var(--ease-spring), box-shadow var(--duration-normal) var(--ease-standard);
 }
 .pinned-card::before {
   content: '';
@@ -751,7 +751,7 @@ export default {
   align-items: center;
   justify-content: center;
   font-size: 11px;
-  transition: all 0.2s;
+  transition: background-color var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
   -webkit-tap-highlight-color: transparent;
 }
 .pc-unpin-btn:hover { background: var(--danger-color); color: #fff; transform: scale(1.1); }
@@ -810,13 +810,13 @@ export default {
   align-items: center;
   gap: 5px;
   padding: 6px 14px;
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--separator-color);
   background: var(--card-bg);
   color: var(--text-secondary);
   font-size: var(--font-size-caption);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background-color var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
 }
 .filter-chip:hover { background: var(--surface-elevated); }
 .filter-chip.active {
@@ -845,7 +845,7 @@ export default {
 .group-count {
   background: var(--surface-elevated);
   color: var(--text-secondary);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   padding: 1px 8px;
   font-size: 11px;
 }
@@ -861,10 +861,10 @@ export default {
   gap: 12px;
   padding: 12px 14px;
   background: var(--card-bg);
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--separator-color);
   box-shadow: var(--shadow-sm);
-  transition: transform 0.2s, box-shadow 0.2s;
+  transition: transform var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
 }
 .event-row:hover { box-shadow: var(--shadow-md); }
 .event-row.past { opacity: 0.72; }
@@ -872,7 +872,7 @@ export default {
 .er-icon {
   width: 40px;
   height: 40px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -924,7 +924,7 @@ export default {
 .er-btn {
   width: 30px;
   height: 30px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   border: none;
   background: transparent;
   color: var(--text-tertiary);
@@ -933,7 +933,7 @@ export default {
   align-items: center;
   justify-content: center;
   font-size: 13px;
-  transition: all 0.2s;
+  transition: background-color var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
 }
 .er-btn:hover { background: var(--surface-elevated); color: var(--text-primary); }
 .er-btn.danger:hover { color: var(--danger-color); background: rgba(var(--danger-rgb), 0.1); }
@@ -965,7 +965,7 @@ export default {
   max-width: 460px;
   max-height: 85vh;
   background: var(--bg-color);
-  border-radius: 18px;
+  border-radius: var(--radius-xl);
   display: flex;
   flex-direction: column;
   box-shadow: var(--shadow-xl);
@@ -989,7 +989,7 @@ export default {
 .editor-close {
   width: 28px;
   height: 28px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   border: none;
   background: var(--surface-elevated);
   color: var(--text-secondary);
@@ -1018,7 +1018,7 @@ export default {
 .form-input {
   width: 100%;
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--separator-color);
   background: var(--card-bg);
   color: var(--text-primary);
@@ -1046,13 +1046,13 @@ textarea.form-input { resize: vertical; }
   align-items: center;
   gap: 4px;
   padding: 6px 12px;
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--separator-color);
   background: var(--card-bg);
   color: var(--text-secondary);
   font-size: var(--font-size-caption);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background-color var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
 }
 .category-btn .cat-icon { font-size: 13px; }
 .category-btn.active {
@@ -1077,7 +1077,7 @@ textarea.form-input { resize: vertical; }
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform 0.2s;
+  transition: transform var(--duration-normal) var(--ease-standard);
 }
 .color-btn:hover { transform: scale(1.1); }
 .color-btn.active { border-color: var(--text-primary); }
@@ -1112,12 +1112,12 @@ textarea.form-input { resize: vertical; }
 .ea-save, .ea-cancel {
   flex: 1;
   padding: 11px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   border: none;
   font-size: var(--font-size-body);
   font-weight: 500;
   cursor: pointer;
-  transition: transform 0.2s, opacity 0.2s;
+  transition: transform var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard);
 }
 .ea-save { background: var(--primary-color); color: #fff; }
 .ea-save:hover { opacity: 0.9; }

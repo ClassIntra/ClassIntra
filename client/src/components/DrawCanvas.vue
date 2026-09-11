@@ -1127,7 +1127,7 @@ export default {
   justify-content: center;
   width: 44px;
   height: 44px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   color: var(--text-secondary);
   font-size: 16px;
   cursor: pointer;
@@ -1200,7 +1200,7 @@ export default {
   align-items: center;
   gap: 4px;
   padding: 6px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border-color);
   background: var(--bg-color);
   color: var(--text-secondary);
@@ -1281,7 +1281,7 @@ export default {
   justify-content: center;
   min-width: 44px;
   height: 44px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   color: var(--text-secondary);
   font-size: 16px;
   cursor: pointer;
@@ -1326,7 +1326,7 @@ export default {
 .dc-color-preview {
   width: 44px;
   height: 44px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   border: 2px solid var(--border-color);
   cursor: pointer;
 }
@@ -1334,7 +1334,7 @@ export default {
 .dc-color-preview--sm {
   width: 36px;
   height: 36px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 
 .dc-preset-colors {
@@ -1383,7 +1383,7 @@ export default {
   width: 70px;
   height: 4px;
   background: var(--separator-color);
-  border-radius: 2px;
+  border-radius: var(--radius-pill);
   cursor: pointer;
   outline: none;
 }
@@ -1508,7 +1508,7 @@ export default {
   outline: none;
   min-width: 120px;
   font-family: sans-serif;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 /* ========== Minimap ========== */
@@ -1517,7 +1517,7 @@ export default {
   right: 10px;
   bottom: 10px;
   border: 2px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
   background: #fff;
   box-shadow: var(--shadow-md);
@@ -1541,7 +1541,7 @@ export default {
   align-items: center;
   justify-content: center;
   padding: 6px 16px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--primary-color);
   color: #FFFFFF;
   border: none;
@@ -1562,7 +1562,7 @@ export default {
   align-items: center;
   justify-content: center;
   padding: 6px 16px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--bg-color);
   color: var(--text-primary);
   border: 1px solid var(--border-color);
@@ -1583,7 +1583,7 @@ export default {
   height: 36px;
   min-width: 36px;
   font-size: 13px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 /* ========== 图片变换控制 ========== */
@@ -1594,7 +1594,7 @@ export default {
   transform: translateX(-50%);
   z-index: 100;
   background: var(--card-bg);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   padding: 8px 16px;
   box-shadow: var(--shadow-lg);
 }

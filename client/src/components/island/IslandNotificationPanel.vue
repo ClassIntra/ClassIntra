@@ -88,7 +88,8 @@ export default {
 }
 
 .notif-icon-pulse {
-  animation: notif-icon-pop 0.5s var(--ease-spring);
+  /* 通知图标抽出：庆祝语义（新通知到达是正向事件）→ iOS .bouncy */
+  animation: notif-icon-pop 0.5s var(--motion-spring-bouncy);
 }
 
 @keyframes notif-icon-pop {
@@ -162,7 +163,7 @@ export default {
   font-weight: 700;
   color: #fff;
   padding: 1px 6px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   line-height: 1.4;
   white-space: nowrap;
 }
@@ -173,7 +174,7 @@ export default {
   left: 0;
   width: 100%;
   height: 2px;
-  border-radius: 0 0 28px 28px;
+  border-radius: 0 0 var(--radius-3xl) var(--radius-3xl);
   transform-origin: left center;
   transform: scaleX(0);
   transition: transform 30ms var(--ease-standard);
@@ -184,7 +185,7 @@ export default {
   font-size: 10px;
   font-weight: 700;
   padding: 0 5px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   line-height: 1.5;
   margin-right: 4px;
   vertical-align: middle;

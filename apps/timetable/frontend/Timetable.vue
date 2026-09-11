@@ -834,7 +834,7 @@ export default {
 .view-toggle {
   display: flex;
   background: var(--border-color, rgba(0,0,0,0.08));
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   padding: 2px;
   height: 28px;
 }
@@ -845,9 +845,9 @@ export default {
   font-size: var(--font-size-sm, 13px);
   font-weight: 600;
   padding: 0 10px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background-color var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
   opacity: 0.6;
 }
 .view-toggle-btn.active {
@@ -860,14 +860,14 @@ export default {
 .week-toggle {
   height: 30px;
   padding: 0 14px;
-  border-radius: 15px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border-color, rgba(0,0,0,0.1));
   background: var(--card-bg, rgba(255,255,255,0.8));
   color: var(--text-primary);
   font-size: var(--font-size-sm, 13px);
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s var(--ease-standard, ease);
+  transition: background-color var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
 }
 .week-toggle.odd {
   background: rgba(var(--danger-rgb), 0.15);
@@ -908,7 +908,7 @@ export default {
   font-size: var(--font-size-sm, 13px);
   font-weight: 500;
   padding: 2px 8px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 .week-type-label.odd {
   color: var(--danger-color);
@@ -942,7 +942,7 @@ export default {
 .term-picker input {
   padding: 5px 10px;
   border: 1px solid var(--border-color, rgba(0,0,0,0.1));
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--card-bg, #fff);
   color: var(--text-primary);
   font-size: var(--font-size-sm, 13px);
@@ -950,7 +950,7 @@ export default {
 .picker-confirm {
   padding: 5px 12px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--primary-color);
   color: #fff;
   font-size: var(--font-size-sm, 13px);
@@ -987,7 +987,7 @@ export default {
   color: var(--text-primary);
   font-size: var(--font-size-sm, 13px);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background-color var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
 }
 .btn-retry:hover { background: var(--border-color, rgba(0,0,0,0.1)); }
 .btn-retry:active { transform: scale(0.95); }
@@ -1000,7 +1000,7 @@ export default {
   padding: 0;
 }
 .timetable-scroll::-webkit-scrollbar { width: 4px; height: 4px; }
-.timetable-scroll::-webkit-scrollbar-thumb { background: var(--separator-color); border-radius: 2px; }
+.timetable-scroll::-webkit-scrollbar-thumb { background: var(--separator-color); border-radius: var(--radius-pill); }
 [data-theme="dark"] .timetable-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); }
 
 .timetable-table {
@@ -1032,7 +1032,7 @@ export default {
   text-align: center;
   min-width: 68px;
   width: 68px;
-  transition: background 0.2s;
+  transition: background var(--duration-normal) var(--ease-standard);
 }
 .day-header.today {
   background: rgba(var(--primary-rgb), 0.08);
@@ -1119,7 +1119,7 @@ tr.period-start .period-cell {
 }
 
 .class-item {
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   padding: 5px 4px;
   display: flex;
   flex-direction: column;
@@ -1128,7 +1128,7 @@ tr.period-start .period-cell {
   gap: 2px;
   height: 100%;
   box-sizing: border-box;
-  transition: transform 0.15s, box-shadow 0.15s;
+  transition: transform var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
 }
 .class-item.current {
   box-shadow: 0 0 0 2px currentColor, var(--shadow-sm);
@@ -1164,7 +1164,7 @@ tr.period-start .period-cell {
   right: 3px;
   font-size: 9px;
   opacity: 0;
-  transition: opacity 0.15s;
+  transition: opacity var(--duration-fast) var(--ease-standard);
   pointer-events: none;
 }
 .week-class-item:hover .class-edit-icon {
@@ -1241,7 +1241,7 @@ tr.period-start .period-cell {
   align-items: center;
   gap: 10px;
   padding: 12px 16px;
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   font-size: var(--font-size-body, 15px);
   font-weight: 600;
 }
@@ -1258,10 +1258,10 @@ tr.period-start .period-cell {
 /* 下节课卡片 */
 .next-class-card {
   background: var(--card-bg, #fff);
-  border-radius: 18px;
+  border-radius: var(--radius-xl);
   padding: 18px 20px;
   box-shadow: var(--shadow-sm);
-  transition: all 0.3s;
+  transition: background-color var(--duration-slow) var(--ease-standard), border-color var(--duration-slow) var(--ease-standard), color var(--duration-slow) var(--ease-standard), transform var(--duration-slow) var(--ease-standard), opacity var(--duration-slow) var(--ease-standard), box-shadow var(--duration-slow) var(--ease-standard);
 }
 .next-class-card.ongoing {
   box-shadow: 0 0 0 2px var(--success-color), 0 4px 16px rgba(var(--success-rgb), 0.2);
@@ -1302,7 +1302,7 @@ tr.period-start .period-cell {
 .next-class-subject {
   width: 56px;
   height: 56px;
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1337,7 +1337,7 @@ tr.period-start .period-cell {
 /* 今日课节列表 */
 .today-list {
   background: var(--card-bg, #fff);
-  border-radius: 18px;
+  border-radius: var(--radius-xl);
   padding: 16px;
   box-shadow: var(--shadow-sm);
 }
@@ -1356,7 +1356,7 @@ tr.period-start .period-cell {
   color: #FF9500;
   font-size: var(--font-size-sm, 13px);
   padding: 4px 10px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -1373,9 +1373,9 @@ tr.period-start .period-cell {
   align-items: center;
   gap: 12px;
   padding: 10px 12px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: var(--bg-color, rgba(0,0,0,0.02));
-  transition: all 0.2s;
+  transition: background-color var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
   position: relative;
 }
 .today-item.ongoing {
@@ -1397,7 +1397,7 @@ tr.period-start .period-cell {
   width: 3px;
   height: 60%;
   background: #FF9500;
-  border-radius: 2px;
+  border-radius: var(--radius-pill);
 }
 .today-item-time {
   display: flex;
@@ -1416,7 +1416,7 @@ tr.period-start .period-cell {
   align-items: center;
   gap: 8px;
   padding: 8px 14px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   font-weight: 600;
   position: relative;
 }
@@ -1430,7 +1430,7 @@ tr.period-start .period-cell {
   background: #FF9500;
   color: #fff;
   padding: 1px 5px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
 }
 .today-item-edit {
   border: none;
@@ -1440,8 +1440,8 @@ tr.period-start .period-cell {
   font-size: 14px;
   cursor: pointer;
   padding: 6px;
-  border-radius: 8px;
-  transition: all 0.2s;
+  border-radius: var(--radius-sm);
+  transition: background-color var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
 }
 .today-item-edit:hover {
   background: var(--border-color, rgba(0,0,0,0.06));
@@ -1471,7 +1471,7 @@ tr.period-start .period-cell {
 }
 .override-editor {
   background: var(--card-bg, #fff);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   width: 100%;
   max-width: 360px;
   overflow: hidden;
@@ -1521,12 +1521,12 @@ tr.period-start .period-cell {
 .oe-field input {
   padding: 8px 12px;
   border: 1px solid var(--border-color, rgba(0,0,0,0.12));
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--bg-color, #f2f2f7);
   color: var(--text-primary);
   font-size: var(--font-size-body, 15px);
   outline: none;
-  transition: border-color 0.2s;
+  transition: border-color var(--duration-normal) var(--ease-standard);
 }
 .oe-field select:focus,
 .oe-field input:focus {
@@ -1544,11 +1544,11 @@ tr.period-start .period-cell {
   min-width: 80px;
   padding: 10px 12px;
   border: none;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   font-size: var(--font-size-sm, 13px);
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background-color var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
   display: flex;
   align-items: center;
   justify-content: center;

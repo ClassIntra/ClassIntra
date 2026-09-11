@@ -992,7 +992,7 @@ export default {
   position: absolute;
   height: 1.5px;
   background: linear-gradient(90deg, rgba(255,255,255,0.98), rgba(210,225,255,0.7) 10%, rgba(190,210,255,0.35) 35%, rgba(170,195,255,0.1) 65%, transparent 90%);
-  border-radius: 1px;
+  border-radius: var(--radius-pill);
   pointer-events: none;
   will-change: transform, opacity;
 }

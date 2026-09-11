@@ -27,6 +27,14 @@
           {{ tab.label }}
         </button>
       </div>
+      <!-- 未读状态说明 + 一键全部已读 -->
+      <div class="ann-readbar">
+        <span class="ann-readbar-text">
+          <template v-if="unreadCount > 0">{{ unreadCount }} 条未读</template>
+          <template v-else>全部已读</template>
+        </span>
+        <button v-if="unreadCount > 0" class="ann-readall-btn" @click="markAllRead">全部已读</button>
+      </div>
     </div>
 
     <!-- 列表：iPadOS 风格 inset list + stagger 入场 -->
@@ -44,11 +52,12 @@
           v-for="(item, idx) in filteredAnnouncements"
           :key="item.id"
           class="ann-card"
-          :class="{ pinned: item.pinned }"
+          :class="{ pinned: item.pinned, unread: !isRead(item.id) }"
           :style="{ '--stagger-index': idx }"
         >
           <div class="ann-card-header">
             <div class="ann-card-badges">
+              <span v-if="!isRead(item.id)" class="ann-dot" aria-label="未读"></span>
               <span v-if="item.pinned" class="ann-badge pin-badge">
                 <i class="fa-solid fa-thumbtack" aria-hidden="true"></i>
                 <span>置顶</span>
@@ -76,6 +85,7 @@
 
 <script>
 import api from '@/utils/api';
+import readState from '@/utils/read-state';
 
 export default {
   name: 'Announcements',
@@ -84,6 +94,9 @@ export default {
       announcements: [],
       activeFilter: 'all',
       activeIndex: 0,
+      // 触发重算用的版本号：readState 是 localStorage，不是响应式的，
+      // 标记已读后必须手动递增让 isRead/unreadCount 重新求值。
+      readVersion: 0,
       tabs: [
         { key: 'all', label: '全部' },
         { key: 'notice', label: '公告' },
@@ -96,6 +109,11 @@ export default {
       var self = this;
       if (self.activeFilter === 'all') return self.announcements;
       return self.announcements.filter(function(a) { return a.type === self.activeFilter; });
+    },
+    // 依赖 readVersion 以建立响应式依赖（见 data 中说明）
+    unreadCount: function() {
+      this.readVersion;
+      return readState.countUnread('announcement', this.announcements, 'id');
     },
     indicatorStyle: function() {
       // 滑动指示器：通过 translateX 移动到当前 tab 位置
@@ -113,9 +131,34 @@ export default {
       var self = this;
       api.get('/assets/announcements').then(function(response) {
         self.announcements = response.data.data || [];
+        // 关键修复：本页此前只读已读状态、从不写入。
+        // 用户点进公告中心把内容看完，localStorage 里一条记录都没有，
+        // 回到桌面浮窗/超能岛依然判定为「未读」—— 这就是「明明看了还提示」。
+        // 现在改为：进入本页即把当前拉取到的公告全部标记为已读
+        // （用户已经在公告列表里看到标题与正文摘要，视为已读是合理语义）。
+        self.markVisibleAsRead();
       }).catch(function() {
         self.announcements = [];
       });
+    },
+    markVisibleAsRead: function() {
+      var ids = [];
+      for (var i = 0; i < this.announcements.length; i++) {
+        if (this.announcements[i] && this.announcements[i].id !== undefined) {
+          ids.push(this.announcements[i].id);
+        }
+      }
+      var added = readState.markManyRead('announcement', ids);
+      if (added > 0) this.readVersion++;
+      // 同步通知其他页面（桌面浮窗/超能岛在别的组件实例里读同一份 storage）
+      this.$store.commit('island/READ_STATE_CHANGED');
+    },
+    markAllRead: function() {
+      this.markVisibleAsRead();
+    },
+    isRead: function(id) {
+      this.readVersion;
+      return readState.isRead('announcement', id);
     },
     formatTime: function(dateStr) {
       if (!dateStr) return '';
@@ -228,7 +271,7 @@ export default {
   position: relative;
   display: flex;
   background: rgba(118, 118, 128, 0.12);
-  border-radius: var(--radius-sm, 9px);
+  border-radius: var(--radius-sm, 8px);
   padding: 2px;
   overflow: hidden;
 }
@@ -244,7 +287,7 @@ export default {
   left: 2px;
   width: calc(33.333% - 1.33px);
   background: var(--card-bg, #fff);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 1px rgba(0, 0, 0, 0.04);
   transition: transform var(--duration-normal) var(--ease-decelerate);
   z-index: 0;
@@ -338,11 +381,71 @@ export default {
   margin: 0;
 }
 
+/* ========== 已读状态条 ========== */
+.ann-readbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 10px;
+  min-height: 20px;
+}
+
+.ann-readbar-text {
+  font-size: var(--font-size-caption, 12px);
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.ann-readall-btn {
+  border: none;
+  background: rgba(var(--primary-rgb, 0, 122, 255), 0.12);
+  color: var(--primary-color, #007AFF);
+  font-size: var(--font-size-caption, 12px);
+  font-weight: var(--font-weight-medium);
+  padding: 4px 10px;
+  border-radius: var(--radius-pill, 9999px);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-emphasized);
+}
+
+.ann-readall-btn:hover {
+  background: rgba(var(--primary-rgb, 0, 122, 255), 0.2);
+}
+
+.ann-readall-btn:active {
+  transform: scale(0.96);
+}
+
+/* 未读圆点：卡片左上角 */
+.ann-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--primary-color, #007AFF);
+  align-self: center;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb, 0, 122, 255), 0.14);
+}
+
+/* 已读卡片视觉降权：左边缘加一条中性描边，标题不再抢眼 */
+.ann-card:not(.unread) .ann-card-title {
+  color: var(--text-secondary);
+}
+
+.ann-card:not(.unread) {
+  opacity: 0.88;
+}
+
+/* 未读卡片：左边缘主色描边，一眼可辨 */
+.ann-card.unread {
+  border-left: 2.5px solid var(--primary-color, #007AFF);
+}
+
 /* ========== 卡片：iPadOS 风格 ========== */
 .ann-card {
   background: var(--card-bg);
   border: 0.5px solid var(--separator-color);
-  border-radius: var(--radius-lg, 14px);
+  border-radius: var(--radius-lg, 16px);
   padding: var(--spacing-md);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
   transition: transform var(--duration-fast) var(--ease-standard),

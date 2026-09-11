@@ -663,6 +663,8 @@
 
 <script>
 import ChatBubble from '@/components/ChatBubble.vue';
+// 时间戳归一化比较：created_at 有 SQLite/ISO 两种格式并存，裸 localeCompare 同日内必错序
+import { cmpTimeDesc } from '@/utils/time-compare';
 import EmojiPicker from '@/components/EmojiPicker.vue';
 import AppNavBar from '@/components/AppNavBar.vue';
 import CloudImagePicker from '@/components/CloudImagePicker.vue';
@@ -836,7 +838,7 @@ export default {
         if (aTime && !bTime) return -1;
         if (!aTime && bTime) return 1;
         if (!aTime && !bTime) return (a.net_name || '').localeCompare(b.net_name || '');
-        return bTime.localeCompare(aTime);
+        return cmpTimeDesc(aTime, bTime);
       });
       return contacts;
     },
@@ -996,14 +998,14 @@ export default {
         var bMsgs = groupChats[b.group_id];
         var aTime = (aMsgs && aMsgs.length > 0) ? (aMsgs[aMsgs.length - 1].created_at || '') : (a.last_message_at || a.created_at || '');
         var bTime = (bMsgs && bMsgs.length > 0) ? (bMsgs[bMsgs.length - 1].created_at || '') : (b.last_message_at || b.created_at || '');
-        return bTime.localeCompare(aTime);
+        return cmpTimeDesc(aTime, bTime);
       });
       unpinned.sort(function(a, b) {
         var aMsgs = groupChats[a.group_id];
         var bMsgs = groupChats[b.group_id];
         var aTime = (aMsgs && aMsgs.length > 0) ? (aMsgs[aMsgs.length - 1].created_at || '') : (a.last_message_at || a.created_at || '');
         var bTime = (bMsgs && bMsgs.length > 0) ? (bMsgs[bMsgs.length - 1].created_at || '') : (b.last_message_at || b.created_at || '');
-        return bTime.localeCompare(aTime);
+        return cmpTimeDesc(aTime, bTime);
       });
       return pinned.concat(unpinned);
     },
@@ -1060,14 +1062,14 @@ export default {
         var bMsgs = groupChats[b.group_id];
         var aTime = (aMsgs && aMsgs.length > 0) ? (aMsgs[aMsgs.length - 1].created_at || '') : (a.last_message_at || a.created_at || '');
         var bTime = (bMsgs && bMsgs.length > 0) ? (bMsgs[bMsgs.length - 1].created_at || '') : (b.last_message_at || b.created_at || '');
-        return bTime.localeCompare(aTime);
+        return cmpTimeDesc(aTime, bTime);
       });
       unpinned.sort(function(a, b) {
         var aMsgs = groupChats[a.group_id];
         var bMsgs = groupChats[b.group_id];
         var aTime = (aMsgs && aMsgs.length > 0) ? (aMsgs[aMsgs.length - 1].created_at || '') : (a.last_message_at || a.created_at || '');
         var bTime = (bMsgs && bMsgs.length > 0) ? (bMsgs[bMsgs.length - 1].created_at || '') : (b.last_message_at || b.created_at || '');
-        return bTime.localeCompare(aTime);
+        return cmpTimeDesc(aTime, bTime);
       });
       return pinned.concat(unpinned);
     },
@@ -1368,7 +1370,10 @@ export default {
           } else {
             self.$store.commit('chat/ADD_MESSAGE', Object.assign({}, data.message, { chatId: chatId }));
           }
-          if (!isPmOwn && self.currentChat !== chatId) {
+          // !data.historical：catchup 兜底补回的历史消息不累加未读。
+          // 这类消息可能是一天前的，实时路径已提醒过；再计未读会让用户
+          // 「明明看过、重新进入却仍显示未读」。
+          if (!isPmOwn && self.currentChat !== chatId && !data.historical) {
             var count = self.$store.state.chat.unread[chatId] || 0;
             self.$store.commit('chat/SET_UNREAD', { chatId: chatId, count: count + 1 });
           }
@@ -1382,7 +1387,7 @@ export default {
             senderId: data.message.sender_id || '',
             createdAt: data.message.created_at
           });
-          if (!isPmOwn && !self.$store.getters['chat/isDnd'](chatId)) {
+          if (!isPmOwn && !data.historical && !self.$store.getters['chat/isDnd'](chatId)) {
             self.playNotificationSound();
           }
           if (self.currentChat === chatId) {
@@ -1436,7 +1441,8 @@ export default {
         var isOwn = data.message && data.message.sender_id === (self.currentUser ? self.currentUser.user_id : '');
         // 统一通过 ADD_GROUP_MESSAGE 添加，内部有完善的去重逻辑
         self.$store.commit('chat/ADD_GROUP_MESSAGE', { groupId: groupId, message: data.message });
-        if (self.currentChat !== groupId) {
+        // 同私聊：catchup 补同步的历史群消息不计未读。
+        if (self.currentChat !== groupId && !data.historical) {
           var count = self.$store.state.chat.unread[groupId] || 0;
           self.$store.commit('chat/SET_UNREAD', { chatId: groupId, count: count + 1 });
         }
@@ -1450,7 +1456,7 @@ export default {
           senderId: data.message.sender_id || '',
           createdAt: data.message.created_at
         });
-        if (!isOwn && !self.$store.getters['chat/isDnd'](groupId)) {
+        if (!isOwn && !data.historical && !self.$store.getters['chat/isDnd'](groupId)) {
           self.playNotificationSound();
         }
         self.$nextTick(function() {
@@ -3648,14 +3654,14 @@ export default {
   gap: 6px;
   padding: 7px 14px;
   border: 0.5px solid var(--separator-color);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--card-bg);
   color: var(--text-secondary);
   font-size: var(--font-size-sm);
   font-family: inherit;
   cursor: pointer;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
-  transition: transform 0.15s, box-shadow 0.15s;
+  transition: transform var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
 }
 
 .scroll-to-bottom-btn:hover {
@@ -3676,7 +3682,7 @@ export default {
   min-width: 18px;
   height: 18px;
   padding: 0 5px;
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: var(--danger-color, #ff3b30);
   color: #fff;
   font-size: 11px;
@@ -3753,7 +3759,7 @@ export default {
   cursor: pointer;
   padding: 6px 8px;
   border-radius: var(--radius-sm);
-  transition: all 0.2s;
+  transition: background-color var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
 }
 .chat-header-btn:hover {
   color: rgba(255,255,255,0.8);
@@ -4504,7 +4510,7 @@ export default {
 
 .editable-title {
   cursor: pointer;
-  transition: color 0.15s;
+  transition: color var(--duration-fast) var(--ease-standard);
 }
 
 .editable-title:hover {
@@ -4787,64 +4793,19 @@ export default {
 }
 
 /* Transitions */
-.fade-slide-enter-active,
-.fade-slide-leave-active {
-  transition: opacity 0.2s, transform 0.2s;
+/* 侧栏抽屉：大位移场景，用 normal（0.22s）。此前用 slow(0.35s) 明显拖沓。
+   曲线改用 decelerate（进场利落），离场走 accelerate。 */
+.slide-right-enter-active {
+  transition: transform var(--duration-normal) var(--ease-decelerate);
 }
 
-.fade-slide-enter {
-  opacity: 0;
-  transform: translateX(-10px);
-}
-
-.fade-slide-leave-to {
-  opacity: 0;
-  transform: translateX(10px);
-}
-
-.msg-list-enter-active {
-  transition: opacity 0.3s, transform 0.3s;
-}
-
-.msg-list-enter {
-  opacity: 0;
-  transform: translateY(10px);
-}
-
-.modal-fade-enter-active {
-  transition: opacity 0.25s var(--ease-standard), transform 0.3s var(--ease-spring);
-}
-.modal-fade-leave-active {
-  transition: opacity 0.15s var(--ease-accelerate), transform 0.15s var(--ease-accelerate);
-}
-
-.modal-fade-enter {
-  opacity: 0;
-  transform: scale(0.92) translateY(8px);
-}
-.modal-fade-leave-to {
-  opacity: 0;
-  transform: scale(0.97) translateY(-4px);
-}
-
-.slide-right-enter-active,
 .slide-right-leave-active {
-  transition: transform 0.3s var(--ease-standard);
+  transition: transform var(--duration-fast) var(--ease-accelerate);
 }
 
 .slide-right-enter,
 .slide-right-leave-to {
   transform: translateX(100%);
-}
-
-.fade-quick-enter-active,
-.fade-quick-leave-active {
-  transition: opacity 0.15s;
-}
-
-.fade-quick-enter,
-.fade-quick-leave-to {
-  opacity: 0;
 }
 
 /* Header actions */
@@ -4904,7 +4865,7 @@ export default {
   color: var(--text-secondary);
   border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
 }
 
 .search-nav-btn:hover:not(:disabled) {

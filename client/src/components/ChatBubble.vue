@@ -724,7 +724,7 @@ export default {
 .forward-music-icon {
   width: 44px;
   height: 44px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: linear-gradient(135deg, var(--primary-color), var(--accent-ai));
   display: flex;
   align-items: center;
@@ -897,7 +897,7 @@ export default {
   gap: 3px;
   font-family: inherit;
   line-height: 1;
-  border-radius: 3px;
+  border-radius: var(--radius-xs);
   transition: opacity var(--duration-fast) var(--ease-standard);
 }
 
@@ -929,7 +929,7 @@ export default {
   background: rgba(255, 213, 0, 0.4);
   color: inherit;
   padding: 0 1px;
-  border-radius: 2px;
+  border-radius: var(--radius-pill);
 }
 
 .chat-bubble >>> .msg-link {
@@ -1174,7 +1174,7 @@ export default {
   height: 4px;
   min-width: 2px;
   max-width: 6px;
-  border-radius: 2px;
+  border-radius: var(--radius-pill);
   background: var(--text-color-secondary, rgba(0, 0, 0, 0.3));
   transition: background var(--duration-fast) var(--ease-standard);
 }

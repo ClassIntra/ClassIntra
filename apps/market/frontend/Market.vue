@@ -60,6 +60,17 @@
                 </div>
               </div>
               <p class="app-description">{{ app.description || '暂无应用描述' }}</p>
+              <div v-if="app.capabilities && app.capabilities.length" class="app-caps">
+                <span
+                  v-for="cap in describeCaps(app.capabilities)"
+                  :key="cap.name"
+                  class="cap-chip"
+                  :class="{ 'cap-chip-notice': cap.level === 'notice' }"
+                  :title="cap.description"
+                >
+                  <i class="fa-solid" :class="cap.icon"></i>{{ cap.label }}
+                </span>
+              </div>
               <div class="app-card-footer">
                 <span v-if="installedMap[app.name]" class="installed-label"><i class="fa-solid fa-circle-check"></i> 已安装</span>
                 <span v-else class="app-author">{{ app.author || 'ClassIntra 社区' }}</span>
@@ -121,6 +132,8 @@ import AppNavBar from '@/components/AppNavBar.vue';
 import api from '@/utils/api';
 import router from '@/router';
 import { marketRegistry } from '@/core/market-registry';
+import { describeCapabilities, countNotices } from '@shared/capability-catalog';
+import { escapeHtml } from '@shared/html';
 
 export default {
   name: 'Market',
@@ -155,6 +168,10 @@ export default {
     this.loadMarket();
   },
   methods: {
+    // 能力清单 → 展示元数据（模板里用，返回 [{name,label,icon,level,description}]）
+    describeCaps: function(names) {
+      return describeCapabilities(names);
+    },
     loadMarket: function() {
       var self = this;
       self.loading = true;
@@ -194,7 +211,55 @@ export default {
     },
     installApp: function(app) {
       var self = this;
-      self.runAction('/market/install', app, '安装成功');
+      var caps = Array.isArray(app.capabilities) ? app.capabilities : [];
+
+      // 无能力声明：保持原有一键安装流程，不额外打扰用户
+      if (!caps.length) {
+        self.runAction('/market/install', app, '安装成功');
+        return;
+      }
+
+      // 有能力声明：先展示「这个应用会用到什么」，确认后再安装。
+      // 走 $modal.confirm 的 html 能力（原生 DOM 字符串，非 Vue 组件）。
+      self.$modal.confirm({
+        title: '安装「' + (app.label || app.name) + '」',
+        html: self.buildCapabilityHtml(app, caps),
+        confirmText: '安装',
+        cancelText: '取消'
+      }).then(function(confirmed) {
+        if (!confirmed || self.actionLoading) return;
+        self.runAction('/market/install', app, '安装成功');
+      });
+    },
+    // 渲染能力披露清单（返回 HTML 字符串，供 $modal 使用）
+    buildCapabilityHtml: function(app, caps) {
+      var items = describeCapabilities(caps);
+      var rows = items.map(function(item) {
+        var cls = item.level === 'notice' ? 'ci-cap-item ci-cap-notice' : 'ci-cap-item';
+        var badge = item.known ? '' : '<span class="ci-cap-unknown">未登记</span>';
+        return '<div class="' + cls + '">' +
+                 '<i class="fa-solid ' + item.icon + '"></i>' +
+                 '<div class="ci-cap-body">' +
+                   '<strong>' + escapeHtml(item.label) + badge + '</strong>' +
+                   '<span>' + escapeHtml(item.description) + '</span>' +
+                 '</div>' +
+               '</div>';
+      }).join('');
+
+      var noticeCount = countNotices(caps);
+      var headNote = noticeCount > 0
+        ? '<p class="ci-cap-head">此应用将使用以下能力，其中 <strong>' + noticeCount + '</strong> 项需要你留意：</p>'
+        : '<p class="ci-cap-head">此应用将使用以下能力：</p>';
+
+      var version = app.version ? 'v' + app.version : '';
+      var author = app.author || 'ClassIntra 社区';
+      var meta = '<p class="ci-cap-meta">' + escapeHtml(author) +
+                 (version ? ' · ' + escapeHtml(version) : '') + '</p>';
+
+      return '<div class="ci-cap-wrapper">' + headNote + meta +
+             '<div class="ci-cap-list">' + rows + '</div>' +
+             '<p class="ci-cap-foot">应用安装后即可对全班成员开放。你随时可以在已安装列表中卸载它。</p>' +
+             '</div>';
     },
     updateApp: function(app) {
       this.runAction('/market/update', app, '更新成功');
@@ -303,18 +368,24 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .section-heading { margin-bottom: 14px; }
 .section-meta, .count-badge, .installed-info span, .app-title span { color: var(--text-secondary); font-size: 12px; }
 .section-meta { display: block; margin-top: 4px; }
-.count-badge { padding: 5px 9px; border-radius: 999px; background: var(--secondary-bg); }
+.count-badge { padding: 5px 9px; border-radius: var(--radius-pill); background: var(--secondary-bg); }
 .app-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
 .app-card, .installed-card { background: var(--card-bg); border: 1px solid var(--separator-color); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); }
 .app-card { padding: 18px; min-height: 160px; display: flex; flex-direction: column; justify-content: space-between; gap: 18px; }
 .app-card-header { display: flex; align-items: center; gap: 12px; }
-.app-icon { width: 48px; height: 48px; border-radius: 13px; display: flex; align-items: center; justify-content: center; color: #fff; overflow: hidden; flex-shrink: 0; }
-.app-icon.small { width: 42px; height: 42px; border-radius: 11px; }
+.app-icon { width: 48px; height: 48px; border-radius: var(--radius-pill); display: flex; align-items: center; justify-content: center; color: #fff; overflow: hidden; flex-shrink: 0; }
+.app-icon.small { width: 42px; height: 42px; border-radius: var(--radius-md); }
 .app-icon img { width: 100%; height: 100%; object-fit: cover; }
 .app-title { min-width: 0; }
 .app-title h3 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .app-title span { display: block; margin-top: 5px; }
 .app-description { min-height: 36px; line-height: 1.5; font-size: 13px; }
+/* 能力披露 chips：安装前让用户一眼看到应用会用到什么 */
+.app-caps { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.cap-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: var(--radius-pill); background: var(--secondary-bg); color: var(--text-secondary); font-size: 11px; line-height: 1.4; white-space: nowrap; }
+.cap-chip i { font-size: 10px; }
+/* notice 级：需要用户留意的能力，用警示色轻描边区分 */
+.cap-chip-notice { background: rgba(var(--warning-rgb, 255, 149, 0), 0.12); color: rgb(var(--warning-rgb, 255, 149, 0)); }
 .app-card-footer { border-top: 1px solid var(--separator-color); padding-top: 14px; }
 .installed-label { color: #34c759; font-size: 12px; }
 .app-author { color: var(--text-secondary); font-size: 12px; }
@@ -324,7 +395,7 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .installed-info { flex: 1; min-width: 0; }
 .installed-title-row { display: flex; align-items: center; gap: 8px; }
 .installed-info p { margin: 5px 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.status-badge { padding: 3px 7px; border-radius: 999px; font-size: 11px; }
+.status-badge { padding: 3px 7px; border-radius: var(--radius-pill); font-size: 11px; }
 .status-badge.enabled { color: #248a3d; background: rgba(52, 199, 89, .12); }
 .status-badge.disabled { color: #b42318; background: rgba(255, 59, 48, .12); }
 .status-hint { display: block; margin-top: 5px; color: var(--text-secondary); font-size: 11px; }

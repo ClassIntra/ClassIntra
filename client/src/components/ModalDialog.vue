@@ -6,7 +6,9 @@
           <h3 class="modal-title">{{ title }}</h3>
         </div>
         <div class="modal-body">
-          <p v-if="message" class="modal-message">{{ message }}</p>
+          <p v-if="message && !html" class="modal-message">{{ message }}</p>
+          <!-- html 为已净化的 HTML 片段（调用方负责转义动态内容） -->
+          <div v-else-if="html" class="modal-html" v-html="html"></div>
           <div v-if="type === 'prompt'" class="modal-input-wrapper">
             <input
               ref="promptInput"
@@ -47,6 +49,9 @@ export default {
       type: 'alert',
       title: '',
       message: '',
+      // 富文本内容（HTML 字符串）。设置后优先于 message 渲染。
+      // 调用方必须自行转义所有动态内容。
+      html: '',
       inputValue: '',
       placeholder: '',
       confirmText: '确定',
@@ -80,6 +85,7 @@ export default {
       self.type = 'alert';
       self.title = opts.title || '提示';
       self.message = opts.message || '';
+      self.html = opts.html || '';
       self.confirmText = opts.confirmText || '确定';
       self.closeOnOverlay = opts.closeOnOverlay !== false;
       self.visible = true;
@@ -94,6 +100,7 @@ export default {
       self.type = 'confirm';
       self.title = opts.title || '确认';
       self.message = opts.message || '';
+      self.html = opts.html || '';
       self.confirmText = opts.confirmText || '确定';
       self.cancelText = opts.cancelText || '取消';
       self.closeOnOverlay = false;
@@ -109,6 +116,7 @@ export default {
       self.type = 'prompt';
       self.title = opts.title || '输入';
       self.message = opts.message || '';
+      self.html = opts.html || '';
       self.placeholder = opts.placeholder || '';
       self.inputValue = opts.defaultValue || '';
       self.confirmText = opts.confirmText || '确定';
@@ -187,7 +195,8 @@ export default {
   max-width: 440px;
   width: 90%;
   overflow: hidden;
-  animation: modal-enter 0.4s var(--ease-spring);
+  /* 弹窗入场：snappy（利落），不用 bouncy 以免玩具感 */
+  animation: modal-enter 0.4s var(--motion-spring-snappy);
 }
 
 @keyframes modal-enter {

@@ -436,7 +436,7 @@ export default {
   border-radius: var(--radius-md);
   padding: 16px;
   border: 1px solid var(--border-color);
-  transition: border-color 0.15s var(--ease-standard);
+  transition: border-color var(--duration-fast) var(--ease-standard);
 }
 .integration-item:hover {
   border-color: var(--primary-color);
@@ -503,7 +503,7 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.15s var(--ease-standard);
+  transition: background var(--duration-fast) var(--ease-standard);
 }
 .btn-icon:hover {
   background: rgba(var(--primary-rgb), 0.18);

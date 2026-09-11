@@ -1420,7 +1420,7 @@ export default {
   color: var(--text-primary);
   background: transparent;
   cursor: pointer;
-  transition: all var(--duration-normal) var(--ease-standard);
+  transition: background-color var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
 }
 
 .btn-outline:hover {
@@ -1443,7 +1443,7 @@ export default {
   color: var(--danger-color);
   background: transparent;
   cursor: pointer;
-  transition: all var(--duration-normal) var(--ease-standard);
+  transition: background-color var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
 }
 
 .btn-danger-outline:hover {
@@ -1475,7 +1475,7 @@ export default {
   background: transparent;
   border: none;
   border-radius: var(--radius-xs);
-  transition: all var(--duration-fast) var(--ease-standard);
+  transition: background-color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
   flex: 1;
 }
 
@@ -1537,7 +1537,7 @@ export default {
   font-weight: var(--font-weight-regular);
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all var(--duration-fast) var(--ease-standard);
+  transition: background-color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1931,21 +1931,6 @@ export default {
 }
 
 /* Section transition */
-.section-fade-enter-active,
-.section-fade-leave-active {
-  transition: opacity 0.2s, transform 0.2s;
-}
-
-.section-fade-enter {
-  opacity: 0;
-  transform: translateX(10px);
-}
-
-.section-fade-leave-to {
-  opacity: 0;
-  transform: translateX(-10px);
-}
-
 /* 等级卡片 */
 .level-card {
   display: flex;
@@ -1996,6 +1981,7 @@ export default {
   height: 100%;
   background: linear-gradient(90deg, var(--primary-color), var(--primary-color));
   border-radius: var(--radius-pill);
+  /* 规范例外：进度条填充/滚动条，宽度即语义；scaleX 会拉伸圆角胶囊（§5.5.2 形状形变豁免） */
   transition: width var(--duration-slow) var(--ease-standard);
 }
 
@@ -2032,7 +2018,7 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all var(--duration-fast) var(--ease-standard);
+  transition: background-color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
   flex-shrink: 0;
 }
 
@@ -2085,6 +2071,7 @@ export default {
   height: 100%;
   background: linear-gradient(90deg, var(--warning-color), var(--danger-color));
   border-radius: var(--radius-pill);
+  /* 规范例外：进度条填充/滚动条，宽度即语义；scaleX 会拉伸圆角胶囊（§5.5.2 形状形变豁免） */
   transition: width var(--duration-slow) var(--ease-standard);
 }
 
@@ -2323,7 +2310,7 @@ export default {
 
 .birthday-confirm-info {
   background: var(--bg-color);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   padding: 16px;
   margin-bottom: 12px;
 }
@@ -2363,7 +2350,7 @@ export default {
   gap: 8px;
   background: rgba(255, 193, 7, 0.1);
   border: 1px solid rgba(255, 193, 7, 0.3);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   padding: 10px 12px;
   font-size: 13px;
   color: var(--text-secondary);
@@ -2411,7 +2398,7 @@ export default {
 
 .modal-panel {
   background: var(--card-bg);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   width: 90%;
   max-width: 480px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
@@ -2458,16 +2445,6 @@ export default {
   gap: 8px;
   padding: 12px 20px;
   border-top: 0.5px solid var(--separator-color);
-}
-
-.modal-fade-enter-active,
-.modal-fade-leave-active {
-  transition: opacity 0.25s ease;
-}
-
-.modal-fade-enter-from,
-.modal-fade-leave-to {
-  opacity: 0;
 }
 
 /* ========== 生日输入禁用态 ========== */

@@ -384,7 +384,7 @@ export default {
   font-size: 14px;
   color: #fff;
   background: var(--primary-color);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   flex-shrink: 0;
 }
 .action-icon--blue {
@@ -441,7 +441,7 @@ export default {
   font-size: 14px;
   cursor: pointer;
   padding: 6px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   -webkit-tap-highlight-color: transparent;
 }
 .widget-list-remove:active {
@@ -506,7 +506,7 @@ export default {
   color: var(--text-secondary);
   cursor: pointer;
   padding: 4px 8px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   -webkit-tap-highlight-color: transparent;
 }
 .widget-picker-close:active {

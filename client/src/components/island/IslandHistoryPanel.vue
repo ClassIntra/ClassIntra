@@ -2,6 +2,10 @@
   <div class="island-body">
     <div class="panel-head">
       <span class="panel-title">通知记录</span>
+      <div class="panel-head-actions">
+        <button v-if="broadcastUnreadCount > 0" class="panel-readall" @click.stop="$emit('read-all-broadcasts')">全部已读</button>
+        <button v-if="history.length > 0" class="panel-clear" @click.stop="$emit('clear-history')">清空</button>
+      </div>
     </div>
     <div class="htabs">
       <button class="htab" :class="{ active: filter === 'all' }" @click.stop="$emit('update-filter', 'all')">全部</button>
@@ -29,7 +33,16 @@
         </div>
         <div class="hitem-time">{{ formatTime(item.timestamp) }}</div>
       </div>
-      <div v-if="filteredHistory.length === 0" class="hlist-empty">暂无通知记录</div>
+      <div v-if="filteredHistory.length === 0" class="hlist-empty">
+        <i class="fa-solid fa-bell-slash empty-icon"></i>
+        <p class="empty-title">{{ history.length === 0 ? '暂无通知记录' : '该分类下暂无记录' }}</p>
+        <p v-if="history.length === 0" class="empty-hint">收到通知后会自动记录，可用以下方式随时回看：</p>
+        <ul v-if="history.length === 0" class="empty-tips">
+          <li>长按超能岛</li>
+          <li>桌面空白处双击</li>
+          <li>桌面右键超能岛</li>
+        </ul>
+      </div>
     </div>
   </div>
 </template>
@@ -39,7 +52,8 @@ export default {
   name: 'IslandHistoryPanel',
   props: {
     history: { type: Array, default: function() { return []; } },
-    filter: { type: String, default: 'all' }
+    filter: { type: String, default: 'all' },
+    broadcastUnreadCount: { type: Number, default: 0 }
   },
   computed: {
     filteredHistory: function() {
@@ -120,7 +134,7 @@ export default {
   align-items: center;
   gap: 10px;
   padding: 10px 8px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   transition: background var(--duration-fast) var(--ease-standard);
 }
@@ -173,9 +187,85 @@ export default {
 
 .hlist-empty {
   text-align: center;
-  padding: 30px 0;
+  padding: 26px 12px 30px;
   font-size: 13px;
-  opacity: 0.4;
+  opacity: 0.5;
+}
+
+.empty-icon {
+  font-size: 22px;
+  opacity: 0.6;
+}
+
+.empty-title {
+  margin: 10px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.empty-hint {
+  margin: 12px 0 6px;
+  font-size: 12px;
+  opacity: 0.8;
+  line-height: 1.6;
+}
+
+.empty-tips {
+  margin: 0 auto;
+  padding: 0;
+  list-style: none;
+  display: inline-block;
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.9;
+  opacity: 0.75;
+}
+
+.empty-tips li::before {
+  content: '·';
+  margin-right: 6px;
+  opacity: 0.7;
+}
+
+/* 清空按钮：面板头右侧的次要操作 */
+.panel-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.panel-readall {
+  border: none;
+  background: rgba(59, 130, 246, 0.2);
+  padding: 3px 8px;
+  border-radius: var(--radius-xs);
+  font-size: 12px;
+  color: var(--island-text);
+  opacity: 0.9;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard);
+}
+
+.panel-readall:hover {
+  background: rgba(59, 130, 246, 0.32);
+  opacity: 1;
+}
+
+.panel-clear {
+  border: none;
+  background: transparent;
+  padding: 2px 8px;
+  border-radius: var(--radius-xs);
+  font-size: 12px;
+  color: var(--island-text);
+  opacity: 0.5;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard);
+}
+
+.panel-clear:hover {
+  background: rgba(255, 255, 255, 0.08);
+  opacity: 0.9;
 }
 
 .ptag {
@@ -201,7 +291,7 @@ export default {
 
 .scrollbar-thin::-webkit-scrollbar { width: 4px; }
 .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
-.scrollbar-thin::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 2px; }
+.scrollbar-thin::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: var(--radius-pill); }
 
 @media (max-width: 480px) {
   .hlist { max-height: 280px; }
