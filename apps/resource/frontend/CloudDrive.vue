@@ -718,7 +718,7 @@ export default {
   background: transparent;
   border: none;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--duration-fast) var(--ease-standard);
 }
 .nav-action-btn:hover { background: var(--primary-light); }
 .nav-action-btn:active { transform: scale(0.94); opacity: 0.7; }
@@ -764,7 +764,7 @@ export default {
   font-size: var(--font-size-sm);
   cursor: pointer;
   min-height: 32px;
-  transition: opacity 0.15s, transform 0.15s;
+  transition: opacity var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
 }
 .code-refresh-btn:active { transform: scale(0.94); opacity: 0.7; }
 .code-refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -843,7 +843,7 @@ export default {
   font-size: var(--font-size-sm);
   cursor: pointer;
   white-space: nowrap;
-  transition: all 0.15s;
+  transition: background-color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
 }
 .folder-tab.active {
   background: var(--primary-color);
@@ -874,7 +874,7 @@ export default {
   align-items: center;
   justify-content: center;
   margin-left: 4px;
-  transition: all 0.15s;
+  transition: background-color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
 }
 .folder-add-btn:hover { border-color: var(--primary-color); color: var(--primary-color); }
 
@@ -950,7 +950,7 @@ export default {
   overflow: hidden;
   position: relative;
   box-shadow: var(--shadow-sm);
-  transition: transform 0.15s, box-shadow 0.15s;
+  transition: transform var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
   cursor: pointer;
 }
 .file-card:active { transform: scale(0.97); }
@@ -1022,7 +1022,7 @@ export default {
   justify-content: center;
   cursor: pointer;
   opacity: 0;
-  transition: opacity 0.2s;
+  transition: opacity var(--duration-normal) var(--ease-standard);
 }
 .file-card:active .file-delete { opacity: 1; }
 
@@ -1081,7 +1081,7 @@ export default {
   width: 100%;
   max-width: 500px;
   max-height: 70vh;
-  border-radius: 16px 16px 0 0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   padding: 20px;
   overflow-y: auto;
 }
@@ -1195,7 +1195,7 @@ export default {
   font-size: var(--font-size-body);
   cursor: pointer;
   width: 100%;
-  transition: all 0.15s;
+  transition: background-color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
 }
 .import-btn:hover { border-color: var(--primary-color); color: var(--primary-color); }
 .import-btn i { margin-right: 6px; }

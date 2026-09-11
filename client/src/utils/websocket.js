@@ -24,7 +24,13 @@ var WebSocketManager = function() {
   this._transport = this._x5Browser ? 'poll' : 'ws';     // 'ws' or 'poll'
   this._pollTimer = null;
   this._pollLastTs = 0;       // 上次 poll 拉到的事件 ts（兼容旧服务端）
-  this._pollLastSeq = 0;      // 上次 poll 拉到的事件序号（主游标，单调递增）
+  // 上次 poll 拉到的事件序号（主游标，单调递增）。
+  // ⚠️ 必须持久化：此前是内存变量，刷新/重新进入 CI 即归零，首次 poll since_seq=0
+  // 会把服务端队列里 5 分钟 TTL 内的全部事件（含用户刚看过、刚弹过通知的私聊）重发一遍，
+  // 表现为「明明看过了，重新进入又弹通知」。持久化游标后刷新不再重复投递。
+  var storedPollSeq = 0;
+  try { storedPollSeq = parseInt(localStorage.getItem('classintra_poll_seq'), 10) || 0; } catch (e) {}
+  this._pollLastSeq = storedPollSeq;
   this._pollInFlight = false;
   this._pollStopped = false;
   this._pollRetryDelay = 1000; // 错误重试延迟（指数退避，初始 1s，最大 30s）
@@ -363,8 +369,11 @@ WebSocketManager.prototype._startPolling = function() {
     }
     var data = result.data;
     self._pollLastTs = data.server_time || Date.now();
-    // 序号游标从 0 开始：register 响应中的历史消息不经 poll 队列，无需推进 seq
-    self._pollLastSeq = 0;
+    // ⚠️ 序号游标不得清零：这是「看过的消息重新进入又弹通知」的直接原因。
+    // 此前每次 poll 重连都把 _pollLastSeq 归零，首次 poll since_seq=0 会把服务端
+    // 队列中 5 分钟 TTL 内的残留事件（含刚看过并弹过通知的私聊）整批重发。
+    // 正确行为：沿用构造时从 localStorage 恢复的游标，只消费真正的增量。
+    // 漏投防御：服务端 seq 回退（重启）由下方 cur_seq 检测兜底。
     self._lastConnectedData = data;
     self.authenticated = true;
     self.connected = true;
@@ -421,9 +430,21 @@ WebSocketManager.prototype._doPoll = function() {
     headers: self._getPollHeaders(),
     credentials: 'same-origin'
   }).then(function(response) {
-    if (!response.ok) throw new Error('poll failed: ' + response.status);
+    if (!response.ok) {
+      // 401 = 服务端已丢失本用户的 poller 注册（TTL 清理 / 服务端重启）。
+      // 只会盲目重试的话将永久 401 死锁：收不到推送、发送被静默丢弃。
+      // 触发一次完整的重新 register 后继续正常 poll。
+      if (response.status === 401) {
+        console.warn('[Poll] 401 (stale poller), re-registering');
+        self._pollInFlight = false;
+        self._startPolling();
+        return null;
+      }
+      throw new Error('poll failed: ' + response.status);
+    }
     return response.json();
   }).then(function(result) {
+    if (!result) return; // 401 触发 re-register，本轮回合结束
     if (!result || result.code !== 200 || !result.data) {
       throw new Error('poll invalid response');
     }
@@ -448,6 +469,14 @@ WebSocketManager.prototype._doPoll = function() {
     if (typeof result.data.last_seq === 'number' && result.data.last_seq > (self._pollLastSeq || 0)) {
       self._pollLastSeq = result.data.last_seq;
     }
+    // 服务端 seq 回退检测：服务端重启且未用时间基 seq 时，当前计数会小于客户端
+    // 持久化游标 → 若不重置，客户端将永久过滤掉所有新事件（漏投全部 poll 消息）。
+    if (typeof result.data.cur_seq === 'number' && result.data.cur_seq < (self._pollLastSeq || 0)) {
+      console.warn('[Poll] Server seq regressed (restart?), resetting cursor:', self._pollLastSeq, '->', result.data.cur_seq);
+      self._pollLastSeq = result.data.cur_seq;
+    }
+    // 持久化游标：刷新/重开后从上次位置继续，不重复投递队列残留事件
+    try { localStorage.setItem('classintra_poll_seq', String(self._pollLastSeq || 0)); } catch (e) {}
     // 时间戳仅作兼容兜底（服务端未回传 last_seq 的旧版本）
     if (result.data.last_seq === undefined && result.data.server_time && result.data.server_time > self._pollLastTs) {
       self._pollLastTs = result.data.server_time;

@@ -10,6 +10,9 @@
       @touchmove.passive="onTouchMove"
       @touchend="onTouchEnd"
       @mousedown="onMouseDown"
+      @mouseup="onMouseUp"
+      @mouseleave="onMouseUp"
+      @contextmenu="onContextMenu"
     >
       <transition name="island-content">
         <!-- Compact Mode -->
@@ -63,8 +66,11 @@
           key="history"
           :history="notificationHistory"
           :filter="historyFilter"
+          :broadcast-unread-count="broadcastUnreadCount"
           @update-filter="historyFilter = $event"
           @history-click="handleHistoryClick"
+          @clear-history="clearHistory"
+          @read-all-broadcasts="markAllBroadcastsRead"
         />
 
         <!-- Browser Mode -->
@@ -204,6 +210,8 @@ export default {
     },
     compactIcon: function() {
       if (this.hasMusicPlaying && this.islandMode === 'compact' && !this.musicIslandDismissed) return 'fa-solid fa-music';
+      // 判据是「当前有无在播的广播」，而不是「有没有未读」——
+      // 广播是滚动播报，看过也仍应在屏幕上可见（见 island-notifications.js 的语义说明）
       if (this.isOnDesktop && this.broadcastText && this.activeActivities.length === 0) return 'fa-solid fa-bell';
       if (this.activeActivities.length > 0) return this.activeActivities[0].icon;
       return 'fa-solid fa-circle';
@@ -319,6 +327,16 @@ export default {
       if (newSong && (!oldSong || newSong.id !== oldSong.id)) {
         this.musicIslandDismissed = false;
       }
+    },
+    // 外部唤出请求（Desktop 双击空白处 → commit island/OPEN_HISTORY）。
+    // 用 $store.watch 而非普通 watcher：historyRequestSeq 是根状态 island/ 下的字段，
+    // 普通 watcher 只在组件自己的 data/props/computed 上生效，会静默失效。
+    '$store.state.island.historyRequestSeq': function() {
+      this.openHistory();
+    },
+    // 别处（公告中心等）标记已读后重算未读快讯，避免收起态继续显示已看过的那条
+    '$store.state.island.readStateSeq': function() {
+      this.reloadBroadcastDisplay();
     }
   },
   created: function() {
@@ -387,6 +405,8 @@ export default {
 
     handleClick: function() {
       if (this.isDismissing) return;
+      // 长按（含右键）已处理过本次交互，抑制浏览器补发的 click
+      if (this.longPressFired) return;
       var self = this;
       if (self.islandMode === 'weather-compact') {
         // 点击天气预警岛 → 跳转天气页
@@ -408,6 +428,11 @@ export default {
         }
         self.dismissNotification();
       } else if (self.islandMode === 'compact' || self.islandMode === 'split') {
+        // 点击广播 → 标记已读，作用是「以后这条不再弹通知」，
+        // 但**不清空收起态内容** —— 广播是滚动播报，看过仍应在屏上可见。
+        if (self.latestBroadcast && self.latestBroadcast.id !== undefined) {
+          self.markBroadcastRead(self.latestBroadcast.id);
+        }
         if (self.isOnDesktop && self.browserEnabled) {
           self.islandMode = 'actions';
         } else if (self.isOnDesktop) {
@@ -501,6 +526,10 @@ export default {
     handleHistoryClick: function(item) {
       var self = this;
       self.islandMode = 'compact';
+      // 从历史点进快讯同样算已读，否则点完回来超能岛还挂着同一条
+      if (item && item.category === 'system' && item.broadcastId !== undefined) {
+        self.markBroadcastRead(item.broadcastId);
+      }
       if (item.route) {
         if (item.chatId) {
           self.$store.commit('chat/SET_CURRENT_CHAT', item.chatId);
@@ -666,7 +695,9 @@ export default {
 }
 
 .island-mode-actions {
-  min-width: 280px;
+  /* 快捷操作现只有 2 个入口（公告页 / 浏览器），
+     原 280px 是按 3 列排布定的，会留下明显空档，收窄到 200px。 */
+  min-width: 200px;
   border-radius: var(--radius-3xl);
   padding: 16px;
 }
@@ -936,8 +967,9 @@ export default {
   .island-mode-notification {
     min-width: 260px;
   }
+  /* 2 个入口在窄屏也不需要加宽：按钮本身有内边距，横向 2 列足够 */
   .island-mode-actions {
-    min-width: 260px;
+    min-width: 190px;
   }
   .island-mode-history {
     width: 300px;

@@ -80,14 +80,22 @@ var TOKENS = {
     xl: '0 24px 80px rgba(0,0,0,0.5)'
   },
   motion: {
+    // Spring 近似（iOS 17+ 语义）——详见 client/src/styles/global.scss 的曲线注释块
+    // 命名对应 iOS 官方预设：snappy / bouncy / smooth / interactiveSpring
     easeStandard: 'cubic-bezier(0.25, 0.1, 0.25, 1)',
     easeDecelerate: 'cubic-bezier(0, 0, 0.2, 1)',
     easeAccelerate: 'cubic-bezier(0.4, 0, 1, 1)',
     easeSpring: 'cubic-bezier(0.34, 1.56, 0.64, 1)',
     easeEmphasized: 'cubic-bezier(0.32, 0.72, 0, 1)',
+    springSnappy: 'cubic-bezier(0.32, 1.28, 0.5, 1)',
+    springBouncy: 'cubic-bezier(0.34, 1.72, 0.52, 1)',
+    springSmooth: 'cubic-bezier(0.22, 1, 0.36, 1)',
+    springInteractive: 'cubic-bezier(0.2, 0.9, 0.3, 1)',
+    durationInstant: '0.1s',
     durationFast: '0.15s',
-    durationNormal: '0.25s',
-    durationSlow: '0.35s'
+    durationNormal: '0.22s',
+    durationSlow: '0.30s',
+    durationStagger: '0.05s'
   }
 };
 

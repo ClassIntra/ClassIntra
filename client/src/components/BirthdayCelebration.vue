@@ -374,12 +374,12 @@ export default {
 .balloon-string {
   width: 1.5px;
   background: rgba(255, 255, 255, 0.5);
-  border-radius: 1px;
+  border-radius: var(--radius-pill);
 }
 
 .balloon-body {
   position: relative;
-  border-radius: 50% 50% 50% 50% / 40% 40% 60% 60%;
+  border-radius: 50% 50% 50% 50% / 40% 40% 60% 60%; /* 规范例外：气球异形圆角，非令牌可表达的形状 */
   box-shadow:
     inset -4px -6px 12px rgba(0, 0, 0, 0.12),
     inset 3px 3px 8px rgba(255, 255, 255, 0.35),
@@ -404,7 +404,7 @@ export default {
   width: 10px;
   height: 8px;
   background: inherit;
-  border-radius: 0 0 3px 3px;
+  border-radius: 0 0 var(--radius-xs) var(--radius-xs);
   clip-path: polygon(20% 0%, 80% 0%, 100% 100%, 0% 100%);
 }
 
@@ -415,9 +415,10 @@ export default {
   left: 50%;
   transform: translate(-50%, -50%) scale(0.5);
   opacity: 0;
-  /* 回弹反馈（§5.5.1 第 8 项）：用 --ease-spring 取代写死的 overshoot 曲线 */
-  transition: transform var(--duration-slow) var(--ease-spring),
-              opacity var(--duration-slow) var(--ease-spring);
+  /* 庆祝弹跳（iOS .bouncy，response 0.5 / damping 0.7）：生日祝福是
+     最典型的「值得回弹」场景，用 bouncy 档位而非通用 spring。 */
+  transition: transform var(--duration-slow) var(--motion-spring-bouncy),
+              opacity var(--duration-slow) var(--motion-spring-bouncy);
   pointer-events: none;
 }
 
@@ -504,7 +505,7 @@ export default {
   transform: translateX(-50%) translateY(10px);
   opacity: 0;
   /* 延时出现（节奏参数，保留）；曲线走令牌 */
-  transition: transform var(--duration-normal) var(--ease-decelerate) 0.5s
+  transition: transform var(--duration-normal) var(--ease-decelerate) 0.5s,
               opacity 0.5s var(--ease-decelerate) 0.5s;
   color: rgba(255, 255, 255, 0.6);
   font-size: 13px;

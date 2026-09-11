@@ -97,11 +97,18 @@ function _initData() {
     }
   }
 
-  // ========== 默认广播 ==========
-  var insertBroadcast = db.prepare(
-    'INSERT OR IGNORE INTO broadcasts (content, priority) VALUES (?, ?)'
-  );
-  insertBroadcast.run('欢迎使用 ClassIntra 系统！', 'normal');
+  // ========== 默认广播（仅首次，永不重复插入） ==========
+  // ⚠️ 曾用 `INSERT OR IGNORE`，但 broadcasts 表**没有任何唯一约束**，
+  //    OR IGNORE 只在「存在唯一索引冲突」时才生效 —— 结果每次服务端启动都插一条，
+  //    累积出 2141 条重复欢迎语（1649 条 ClassIntra + 492 条 ClassNet）。
+  //    正确做法：显式判存在。若表为空才插入，保证：
+  //      ① 全新空库有初始广播 ② 已有数据时启动不新增 ③ 超能岛始终显示最近一条
+  var bcCount = db.prepare('SELECT COUNT(*) AS c FROM broadcasts').get();
+  if (!bcCount || bcCount.c === 0) {
+    db.prepare('INSERT INTO broadcasts (content, priority) VALUES (?, ?)')
+      .run('欢迎使用 ClassIntra 系统！', 'normal');
+    console.log('[init-db] broadcasts 为空，已写入初始欢迎广播');
+  }
 
   // ========== 班级群创建 ==========
   // 按班级分组预注册成员（动态提取 6 位 YYCCNN 格式中的 CC 班级号）
@@ -185,7 +192,7 @@ function _initData() {
     { type: 'message_reactions', query: 'SELECT MAX(id) as max_id FROM message_reactions' },
     { type: 'community_bookmarks', query: 'SELECT MAX(id) as max_id FROM community_bookmarks' },
     { type: 'exp_log', query: 'SELECT MAX(id) as max_id FROM exp_log' },
-    { type: 'broadcasts', query: 'SELECT MAX(rowid) as max_id FROM broadcasts' }
+    { type: 'broadcasts', query: 'SELECT MAX(id) as max_id FROM broadcasts' }
   ];
   var initWatermarkStmt = db.prepare('INSERT OR IGNORE INTO sync_watermarks (data_type, watermark) VALUES (?, ?)');
   for (var wi = 0; wi < watermarkTypes.length; wi++) {

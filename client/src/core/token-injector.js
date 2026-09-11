@@ -36,7 +36,7 @@ var TOKEN_EXACT = [
   '--border-color', '--separator-color', '--divider-color',
   // 圆角
   '--radius-xs', '--radius-sm', '--radius-md', '--radius-lg', '--radius-xl',
-  '--radius-2xl', '--radius-3xl', '--radius-full',
+  '--radius-2xl', '--radius-3xl', '--radius-pill',
   // 字号
   '--font-size-caption2', '--font-size-caption1', '--font-size-footnote',
   '--font-size-subheadline', '--font-size-body', '--font-size-headline',
@@ -51,8 +51,11 @@ var TOKEN_EXACT = [
   '--spacing-xs', '--spacing-sm', '--spacing-md', '--spacing-lg',
   '--spacing-xl', '--spacing-2xl',
   // 动效
-  '--duration-fast', '--duration-normal', '--duration-slow',
+  '--duration-instant', '--duration-fast', '--duration-normal', '--duration-slow', '--duration-stagger',
   '--ease-standard', '--ease-emphasized', '--ease-spring',
+  '--ease-decelerate', '--ease-accelerate',
+  '--motion-spring-snappy', '--motion-spring-bouncy',
+  '--motion-spring-smooth', '--motion-spring-interactive',
   // 毛玻璃
   '--glass-blur-container', '--glass-blur-nav', '--glass-blur-card',
   // 阴影

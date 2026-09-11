@@ -174,12 +174,12 @@ export default {
 <style scoped>
 .user-ban-widget {
   height: 100%;
-  border-radius: 18px;
+  border-radius: var(--radius-xl);
   overflow: hidden;
   background: var(--card-bg);
   border: 1px solid var(--separator-color);
   box-shadow: var(--shadow-sm);
-  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s;
+  transition: transform var(--duration-normal) var(--ease-spring), box-shadow var(--duration-normal) var(--ease-standard);
 }
 .user-ban-widget:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
 .user-ban-widget:active { transform: scale(0.98); }
@@ -234,7 +234,7 @@ export default {
 .ubw-icon {
   width: 34px;
   height: 34px;
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: linear-gradient(135deg, #FF3B30, #FF6B6B);
   color: #fff;
   display: flex;
@@ -279,12 +279,12 @@ export default {
   gap: 2px;
   padding: 6px 10px;
   border: none;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   color: #fff;
   font-size: var(--font-size-caption);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition: transform 0.15s var(--ease-standard), opacity 0.15s;
+  transition: transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard);
   min-width: 44px;
 }
 .ubw-btn i { font-size: 14px; }

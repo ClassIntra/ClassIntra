@@ -233,7 +233,7 @@ export default {
 }
 
 .folder-tile-app {
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
   display: flex;
   align-items: center;

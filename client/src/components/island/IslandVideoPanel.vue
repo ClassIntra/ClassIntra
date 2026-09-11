@@ -247,7 +247,7 @@ export default {
 .video-progress {
   height: 4px;
   background: rgba(255, 255, 255, 0.1);
-  border-radius: 2px;
+  border-radius: var(--radius-pill);
   cursor: pointer;
   overflow: hidden;
   margin-bottom: 6px;
@@ -256,7 +256,7 @@ export default {
   width: 100%;
   height: 100%;
   background: linear-gradient(90deg, #f43f5e, #fb923c);
-  border-radius: 2px;
+  border-radius: var(--radius-pill);
   transform: scaleX(0);
   transform-origin: left center;
   transition: transform var(--duration-normal) var(--ease-standard);

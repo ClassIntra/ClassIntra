@@ -3963,7 +3963,7 @@ export default {
   background: var(--bg-color);
   color: var(--text-tertiary);
   border: 1px solid var(--border-color);
-  transition: background 0.15s var(--ease-standard), color 0.15s var(--ease-standard), border-color 0.15s var(--ease-standard);
+  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard);
 }
 
 .perm-tag.active {
@@ -4223,7 +4223,8 @@ export default {
 .progress-fill {
   height: 100%;
   border-radius: var(--radius-xs);
-  transition: width 0.5s var(--ease-standard);
+  /* 规范例外：进度条宽度即语义，面积 < 200px²（§5.5.2 形状形变豁免） */
+  transition: width var(--duration-slow) var(--ease-standard);
 }
 
 .progress-fill.normal {
@@ -4356,7 +4357,7 @@ export default {
 .breadcrumb a {
   color: var(--primary-color);
   cursor: pointer;
-  transition: opacity 0.15s;
+  transition: opacity var(--duration-fast) var(--ease-standard);
 }
 
 .breadcrumb a:hover {
@@ -4373,7 +4374,7 @@ export default {
   font-size: var(--font-size-sm);
   color: var(--text-primary);
   background: var(--card-bg);
-  transition: border-color 0.2s;
+  transition: border-color var(--duration-normal) var(--ease-standard);
 }
 
 .search-input-sm:focus {
@@ -4394,7 +4395,7 @@ export default {
   padding: 12px 20px;
   border-bottom: 0.5px solid var(--separator-color);
   font-size: var(--font-size-sm);
-  transition: background 0.15s;
+  transition: background var(--duration-fast) var(--ease-standard);
 }
 
 .resource-row:last-child {
@@ -4606,7 +4607,7 @@ export default {
   cursor: pointer;
   font-size: var(--font-size-sm);
   color: var(--text-primary);
-  transition: background 0.15s;
+  transition: background var(--duration-fast) var(--ease-standard);
 }
 
 .move-browser-item:hover {
@@ -4838,30 +4839,16 @@ export default {
 }
 
 /* ====== Transitions ====== */
+/* 标签页切换走 mode="out-in"（先退场再入场，两段串行）。
+   用 fast 档，否则 0.22 + 0.22 ≈ 0.44s 观感明显偏慢。 */
 .tab-fade-enter-active,
 .tab-fade-leave-active {
-  transition: opacity 0.2s var(--ease-standard);
+  transition: opacity var(--duration-fast) var(--ease-standard);
 }
 
 .tab-fade-enter,
 .tab-fade-leave-to {
   opacity: 0;
-}
-
-.modal-fade-enter-active {
-  transition: opacity 0.25s var(--ease-standard), transform 0.3s var(--ease-spring);
-}
-.modal-fade-leave-active {
-  transition: opacity 0.15s var(--ease-accelerate), transform 0.15s var(--ease-accelerate);
-}
-
-.modal-fade-enter {
-  opacity: 0;
-  transform: scale(0.92) translateY(8px);
-}
-.modal-fade-leave-to {
-  opacity: 0;
-  transform: scale(0.97) translateY(-4px);
 }
 
 /* ====== Responsive: Tablet (768px - 1024px) ====== */
@@ -4941,7 +4928,7 @@ export default {
     display: block;
     margin-bottom: 12px;
     border: 1px solid var(--border-color);
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     padding: 12px;
     background: var(--card-bg);
   }
@@ -5374,7 +5361,7 @@ export default {
   color: var(--text-secondary);
   cursor: pointer;
   font-size: var(--font-size-sm);
-  transition: background 0.2s var(--ease-standard), color 0.2s var(--ease-standard), border-color 0.2s var(--ease-standard);
+  transition: background var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -5400,7 +5387,7 @@ export default {
   color: var(--text-secondary);
   cursor: pointer;
   font-size: var(--font-size-sm);
-  transition: background 0.2s var(--ease-standard), color 0.2s var(--ease-standard), border-color 0.2s var(--ease-standard);
+  transition: background var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -5451,7 +5438,7 @@ export default {
   min-width: 220px;
   flex: 1 1 220px;
   max-width: 320px;
-  transition: background 0.2s var(--ease-standard);
+  transition: background var(--duration-normal) var(--ease-standard);
 }
 .app-control-card:active {
   background: var(--border-color);

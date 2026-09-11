@@ -1390,7 +1390,7 @@ export default {
   padding: 10px 14px;
   border-radius: var(--radius-md);
   cursor: pointer;
-  transition: background 0.2s var(--ease-standard);
+  transition: background var(--duration-normal) var(--ease-standard);
   contain: layout style;
 }
 
@@ -1636,7 +1636,7 @@ export default {
   overflow: hidden;
   flex-shrink: 0;
   box-shadow: var(--shadow-sm);
-  transition: border-radius 0.3s var(--ease-standard);
+  transition: border-radius var(--duration-slow) var(--ease-standard);
 }
 
 .mini-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -1701,7 +1701,7 @@ export default {
 
 .mini-slide-enter-active,
 .mini-slide-leave-active {
-  transition: transform 0.35s cubic-bezier(0, 0, 0.2, 1), opacity 0.25s var(--ease-standard);
+  transition: transform var(--duration-slow) var(--ease-decelerate), opacity var(--duration-normal) var(--ease-standard);
 }
 
 .mini-slide-enter,
@@ -1840,7 +1840,7 @@ export default {
   padding: 10px 14px;
   border-radius: var(--radius-md);
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
   color: var(--text-secondary);
   font-size: var(--font-size-sm);
 }
@@ -1954,6 +1954,8 @@ export default {
 }
 
 .player-bg-image-next {
+  /* 规范例外：背景图交叉淡入 1.2s 属节奏参数（§5.5.1 第 9 项），
+     filter 0.6s 同理 —— 长时长是有意的缓慢过渡 */
   transition: filter 0.6s var(--ease-standard), opacity 1.2s var(--ease-standard);
 }
 
@@ -2213,11 +2215,11 @@ export default {
   position: relative;
   width: 100%;
   height: 100%;
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
   z-index: 1;
   box-shadow: var(--shadow-xl);
-  transition: transform 0.4s cubic-bezier(0, 0, 0.2, 1), box-shadow 0.4s var(--ease-standard);
+  transition: transform var(--duration-slow) var(--ease-decelerate), box-shadow var(--duration-slow) var(--ease-standard);
 }
 
 .album-art-box:hover {
@@ -2300,7 +2302,8 @@ export default {
   height: 3px;
   background: rgba(0, 0, 0, 0.08);
   border-radius: var(--radius-pill);
-  transition: height 0.15s;
+  /* 规范例外：波形条高度即音量语义，scaleY 会拉伸圆角（§5.5.2 形状形变豁免） */
+  transition: height var(--duration-fast) var(--ease-standard);
 }
 
 [data-theme="dark"] .progress-track {
@@ -2321,7 +2324,8 @@ export default {
   width: 100%;
   transform-origin: 0 0;
   will-change: transform;
-  transition: height 0.15s;
+  /* 规范例外：波形条高度即音量语义，scaleY 会拉伸圆角（§5.5.2 形状形变豁免） */
+  transition: height var(--duration-fast) var(--ease-standard);
 }
 
 [data-theme="dark"] .progress-buffered {
@@ -2342,7 +2346,8 @@ export default {
   width: 100%;
   transform-origin: 0 0;
   will-change: transform;
-  transition: height 0.15s;
+  /* 规范例外：波形条高度即音量语义，scaleY 会拉伸圆角（§5.5.2 形状形变豁免） */
+  transition: height var(--duration-fast) var(--ease-standard);
 }
 
 [data-theme="dark"] .progress-fill {
@@ -2362,7 +2367,8 @@ export default {
   border-radius: 50%;
   transform: translateX(-50%);
   box-shadow: var(--shadow-sm);
-  transition: width 0.15s, height 0.15s;
+  /* 规范例外：滑块尺寸即语义，面积 < 200px²（§5.5.2 形状形变豁免） */
+  transition: width var(--duration-fast) var(--ease-standard), height var(--duration-fast) var(--ease-standard);
   pointer-events: none;
   will-change: left;
 }
@@ -2441,7 +2447,7 @@ export default {
   background: var(--primary-color);
   color: #fff;
   font-size: 20px;
-  transition: transform 0.2s cubic-bezier(0, 0, 0.2, 1), background 0.2s, box-shadow 0.2s;
+  transition: transform var(--duration-normal) var(--ease-decelerate), background var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
   box-shadow: 0 4px 15px rgba(var(--primary-rgb), 0.3);
 }
 
@@ -2556,7 +2562,8 @@ export default {
   background: var(--primary-color);
   border-radius: var(--radius-pill);
   pointer-events: none;
-  transition: height 0.15s;
+  /* 规范例外：波形条高度即音量语义，scaleY 会拉伸圆角（§5.5.2 形状形变豁免） */
+  transition: height var(--duration-fast) var(--ease-standard);
 }
 
 [data-theme="dark"] .vol-fill {
@@ -2581,7 +2588,8 @@ export default {
   transform: translateX(-50%);
   box-shadow: var(--shadow-sm);
   pointer-events: none;
-  transition: width 0.15s, height 0.15s;
+  /* 规范例外：滑块尺寸即语义，面积 < 200px²（§5.5.2 形状形变豁免） */
+  transition: width var(--duration-fast) var(--ease-standard), height var(--duration-fast) var(--ease-standard);
 }
 
 [data-theme="dark"] .vol-thumb {
@@ -2714,7 +2722,7 @@ export default {
 .lyric-line {
   padding: 10px 0;
   cursor: pointer;
-  transition: opacity 0.35s var(--ease-standard), transform 0.35s var(--ease-standard);
+  transition: opacity var(--duration-slow) var(--ease-standard), transform var(--duration-slow) var(--ease-standard);
   opacity: 0.2;
   transform: translate3d(0, 4px, 0);
   transform-origin: left center;
@@ -2884,7 +2892,7 @@ export default {
 }
 
 .lyric-line:not(.lyrics-drop) .lyric-char {
-  transition: opacity 0.3s var(--ease-standard);
+  transition: opacity var(--duration-slow) var(--ease-standard);
 }
 
 .lyric-line.lyrics-drop.lyric-active .lyric-char {
@@ -2985,7 +2993,7 @@ export default {
 }
 
 .lyric-line.lyrics-drop {
-  transition: opacity 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: opacity var(--duration-slow) var(--ease-standard) cubic-bezier(0.22, 1, 0.36, 1);
   overflow: visible;
 }
 
@@ -3006,11 +3014,11 @@ export default {
 }
 
 .player-slide-enter-active {
-  transition: transform 0.5s cubic-bezier(0, 0, 0.2, 1);
+  transition: transform var(--duration-slow) var(--ease-decelerate);
 }
 
 .player-slide-leave-active {
-  transition: transform 0.35s cubic-bezier(0.5, 0, 0.75, 0);
+  transition: transform var(--duration-slow) var(--ease-standard) cubic-bezier(0.5, 0, 0.75, 0);
 }
 
 .player-slide-enter,

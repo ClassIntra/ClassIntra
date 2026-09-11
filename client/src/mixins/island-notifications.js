@@ -6,13 +6,14 @@
  * - 通知队列管理（入队/展示/消失/排队）
  * - 进度条与时间戳更新
  * - 通知历史记录与筛选
- * - 广播消息加载
+ * - 广播消息加载（含本地已读过滤，见 utils/read-state.js）
  *
- * 依赖：vuex ($store), @/utils/websocket, @/utils/api
+ * 依赖：vuex ($store), @/utils/websocket, @/utils/api, @/utils/read-state
  * 注入到：SuperIsland.vue
  */
 import wsManager from '@/utils/websocket';
 import api from '@/utils/api';
+import readState from '@/utils/read-state';
 
 var NOTIFICATION_DURATION = 3000;
 var PROGRESS_INTERVAL = 30;
@@ -28,6 +29,9 @@ export default {
       timestampTimer: null,
       broadcastText: '',
       latestBroadcast: null,
+      // 未读快讯条数。分开存是为了让收起态角标与文案用同一个判据 ——
+      // 由 broadcastText 是否非空来推断「有没有未读」在已读过滤后不再可靠。
+      broadcastUnreadCount: 0,
       collapseTimer: null,
       notificationQueue: [],
       queueTimer: null,
@@ -84,14 +88,78 @@ export default {
   },
 
   methods: {
+    /**
+     * 加载快讯（broadcasts）并落到收起态。
+     */
     loadBroadcasts: function() {
       var self = this;
       api.get('/assets/broadcasts').then(function(response) {
+        self.applyBroadcasts(response.data.data || []);
+      }).catch(function() {
+        // 拉取失败不清空已有状态：网络抖动不该让超能岛闪一下再变回默认文案
+      });
+    },
+
+    /**
+     * 把后端返回的快讯列表落到组件状态。
+     *
+     * ⚠️ 语义纠偏（第十四轮二次修订）：
+     *   初版把「显示最新一条广播」改成了「只显示未读的」，结果用户点过一次之后
+     *   永不再显示 —— 因为 broadcasts 是**滚动播报**，不是待办事项。
+     *   广播与公告的语义不同：
+     *     - 公告（announcements）是**待办式**：看过即应消掉，「已读」决定**是否还提示**
+     *     - 快讯（broadcasts）是**播报式**：代表「当前在播什么」，「已读」只应决定
+     *       **是否弹通知**，不应决定**是否显示内容**
+     *   现语义：
+     *     - broadcastText 永远取最新一条（恢复原始行为），保证滚动播报可见
+     *     - broadcastUnreadCount 只统计未读，供「是否弹通知 / 角标」使用
+     *     - 已读不再清空 broadcastText
+     */
+    applyBroadcasts: function(list) {
+      if (!list || !list.length) return;
+      // 后端按 created_at DESC 返回，首条即最新
+      var latest = list[0];
+      this.latestBroadcast = latest;
+      this.broadcastText = latest.content || '';
+      // 未读数仅用于「是否弹通知」，不影响内容展示
+      this.broadcastUnreadCount = readState.countUnread('broadcast', list, 'id');
+    },
+
+    /**
+     * 标记某条快讯为已读。
+     * 只影响「后续是否再弹通知」，不再清空收起态内容 ——
+     * 广播是滚动播报，看过不代表要把它从屏幕上抹掉。
+     */
+    markBroadcastRead: function(id) {
+      if (id === undefined || id === null) return;
+      readState.markRead('broadcast', id);
+    },
+
+    /**
+     * 已读状态变更后重新拉一次快讯列表，刷新未读计数。
+     */
+    reloadBroadcastDisplay: function() {
+      var self = this;
+      api.get('/assets/broadcasts').then(function(response) {
+        self.applyBroadcasts(response.data.data || []);
+      }).catch(function() {});
+    },
+
+    /**
+     * 把当前未读快讯全部标记为已读（通知历史面板的「全部已读」）。
+     */
+    markAllBroadcastsRead: function() {
+      var self = this;
+      api.get('/assets/broadcasts').then(function(response) {
         var list = response.data.data || [];
-        if (list.length > 0) {
-          self.latestBroadcast = list[0];
-          self.broadcastText = list[0].content;
+        var unread = readState.filterUnread('broadcast', list, 'id');
+        var ids = [];
+        for (var i = 0; i < unread.length; i++) {
+          if (unread[i] && unread[i].id !== undefined) ids.push(unread[i].id);
         }
+        readState.markManyRead('broadcast', ids);
+        // 只清未读计数，保留 broadcastText（滚动播报继续可见）
+        self.broadcastUnreadCount = 0;
       }).catch(function() {});
     },
 
@@ -100,6 +168,10 @@ export default {
 
       self.wsListeners['private_message'] = function(data) {
         if (!data.message) return;
+        // historical：中继 catchup 兜底补回的历史消息（可能是数小时甚至一天前的）。
+        // 实时推送路径已负责过提醒，这里再弹一次会造成「明明看过又收到通知」。
+        // 消息本身由 Chat 应用侧 ADD_MESSAGE 入库显示，此处仅负责不打扰。
+        if (data.historical) return;
         var chatId = data.from_user_id;
         if (self.currentRoute === '/chat' && self.currentChatId === chatId) return;
         var senderName = data.message.sender_name || '未知用户';
@@ -119,6 +191,8 @@ export default {
       };
 
       self.wsListeners['group_message'] = function(data) {
+        // 同私聊：catchup 补同步的历史群消息不弹通知。
+        if (data.historical) return;
         var groupId = data.group_id;
         if (self.currentRoute === '/chat' && self.currentChatId === groupId) return;
         var senderName = (data.message && data.message.sender_name) || '未知用户';
@@ -244,17 +318,27 @@ export default {
         if (data && data.users) self.onlineUserCount = data.users.length;
       };
 
+      // 快讯推送：无条件顶到收起态。
+      // 快讯是「当前在播什么」的滚动播报，看过也照样显示；已读只用于抑制通知弹窗。
       self.wsListeners['broadcast'] = function(data) {
+        if (!data) return;
         self.latestBroadcast = data;
-        self.broadcastText = data.content;
+        self.broadcastText = data.content || '';
+        if (data.id !== undefined && !readState.isRead('broadcast', data.id)) {
+          self.broadcastUnreadCount = (self.broadcastUnreadCount || 0) + 1;
+        }
       };
 
       self.wsListeners['super_island_notification'] = function(data) {
         var notif = data.notification || data;
         if (notif.type === 'broadcast') {
           var prefix = notif.relayed_from ? '[CC] ' : '';
-          self.latestBroadcast = { content: prefix + notif.content, priority: notif.priority };
+          // 内容展示不受已读影响；未读计数只用于「要不要弹通知」。
+          self.latestBroadcast = { id: notif.id, content: prefix + notif.content, priority: notif.priority };
           self.broadcastText = prefix + notif.content;
+          if (notif.id !== undefined && !readState.isRead('broadcast', notif.id)) {
+            self.broadcastUnreadCount = (self.broadcastUnreadCount || 0) + 1;
+          }
         }
         self.enqueueNotification(notif);
       };
@@ -436,6 +520,14 @@ export default {
       if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前';
       if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前';
       return Math.floor(diff / 86400000) + '天前';
+    },
+
+    // 清空通知历史。历史只在内存中（不落库），清空即刻生效且不可恢复，
+    // 因此保持面板打开（让用户看到空态提示），不自动收起。
+    clearHistory: function() {
+      this.notificationHistory = [];
+      this.historyFilter = 'all';
+      this.$store.commit('toast/SHOW_TOAST', { message: '已清空通知记录', type: 'success' });
     },
 
     cleanupNotificationTimers: function() {

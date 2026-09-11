@@ -6,6 +6,7 @@
     @touchmove="onDesktopTouchMove"
     @touchend="onDesktopTouchEnd"
     @mousedown="onDesktopMouseDown"
+    @dblclick="onDesktopDblClick"
   >
     <template v-if="videoWallpaperSrc && !videoWallpaperFailed">
       <video
@@ -302,6 +303,7 @@
 
 <script>
 import api from '@/utils/api';
+import readState from '@/utils/read-state';
 import updateChecker from '@/utils/update-checker';
 import AppIcon from '@/components/AppIcon.vue';
 import DesktopFolder from '@/components/DesktopFolder.vue';
@@ -426,12 +428,9 @@ export default {
     },
     appBadges: function() {
       var badges = {};
-      var unread = this.$store.state.chat.unread || {};
-      var totalChat = 0;
-      var keys = Object.keys(unread);
-      for (var i = 0; i < keys.length; i++) {
-        totalChat += unread[keys[i]] || 0;
-      }
+      // 走 store 的 unreadTotal getter：与超能岛收起态共用同一判据，
+      // 避免两处各自遍历导致角标数字不一致。
+      var totalChat = this.$store.getters['chat/unreadTotal'] || 0;
       if (totalChat > 0) {
         badges['chat'] = totalChat > 99 ? '99+' : totalChat;
       }
@@ -647,6 +646,11 @@ export default {
           video.play().catch(function() {});
         }
       }
+    },
+    // 外部页面（公告中心）标记已读后，桌面浮窗同步刷新，
+    // 否则会出现「公告中心看完了，回桌面浮窗还挂着同一条」。
+    '$store.state.island.readStateSeq': function() {
+      this.loadUnreadAnnouncements();
     }
   },
   methods: {
@@ -954,6 +958,15 @@ export default {
         this.onPointerDown(e);
       }
     },
+    // 桌面空白处双击 → 唤出通知记录。
+    // 与「长按超能岛」「快捷操作面板入口」「右键超能岛」并列，作为历史面板的第 4 个入口
+    // （移动端以长按为主，此处主要服务接了鼠标/触控板的平板）。
+    // 只在空白处生效：双击应用图标应走图标自身的打开语义，不劫持。
+    onDesktopDblClick: function(e) {
+      if (this.isEditMode) return;
+      if (typeof this._isClickOnBlank === 'function' && !this._isClickOnBlank(e)) return;
+      this.$store.commit('island/OPEN_HISTORY');
+    },
     // ===== 应用元数据 =====
     appMeta: function(name) {
       return this.$store.getters['desktop/appByName'](name);
@@ -1114,21 +1127,14 @@ export default {
       var self = this;
       api.get('/assets/announcements').then(function(response) {
         var announcements = response.data.data || [];
-        var readIds = [];
-        try {
-          var stored = localStorage.getItem('classintra_read_announcements');
-          if (stored) {
-            readIds = JSON.parse(stored);
-          }
-        } catch (e) {
-          readIds = [];
-        }
-        self.unreadAnnouncements = announcements.filter(function(a) {
-          return readIds.indexOf(a.id) === -1;
-        });
+        // 统一走 utils/read-state：原先这里自己 try/catch 读 localStorage，
+        // 与公告中心的写入不同源，容易出现「一边写一边读不到」。
+        self.unreadAnnouncements = readState.filterUnread('announcement', announcements, 'id');
         if (self.unreadAnnouncements.length > 0) {
           self.currentAnnouncementIndex = 0;
           self.showAnnouncementFloat = true;
+        } else {
+          self.showAnnouncementFloat = false;
         }
       }).catch(function() {
         self.unreadAnnouncements = [];
@@ -1265,19 +1271,7 @@ export default {
       var self = this;
       var current = self.currentAnnouncement;
       if (!current) return;
-      var readIds = [];
-      try {
-        var stored = localStorage.getItem('classintra_read_announcements');
-        if (stored) {
-          readIds = JSON.parse(stored);
-        }
-      } catch (e) {
-        readIds = [];
-      }
-      if (readIds.indexOf(current.id) === -1) {
-        readIds.push(current.id);
-      }
-      localStorage.setItem('classintra_read_announcements', JSON.stringify(readIds));
+      readState.markRead('announcement', current.id);
       self.unreadAnnouncements.splice(self.currentAnnouncementIndex, 1);
       if (self.unreadAnnouncements.length === 0) {
         self.showAnnouncementFloat = false;
@@ -1285,28 +1279,22 @@ export default {
       } else if (self.currentAnnouncementIndex >= self.unreadAnnouncements.length) {
         self.currentAnnouncementIndex = self.unreadAnnouncements.length - 1;
       }
+      // 通知其他页面（公告中心可能正开着）已读状态变了
+      self.$store.commit('island/READ_STATE_CHANGED');
     },
     dismissAllAnnouncements: function() {
       var self = this;
-      var readIds = [];
-      try {
-        var stored = localStorage.getItem('classintra_read_announcements');
-        if (stored) {
-          readIds = JSON.parse(stored);
-        }
-      } catch (e) {
-        readIds = [];
-      }
+      var ids = [];
       for (var i = 0; i < self.unreadAnnouncements.length; i++) {
-        var id = self.unreadAnnouncements[i].id;
-        if (readIds.indexOf(id) === -1) {
-          readIds.push(id);
+        if (self.unreadAnnouncements[i] && self.unreadAnnouncements[i].id !== undefined) {
+          ids.push(self.unreadAnnouncements[i].id);
         }
       }
-      localStorage.setItem('classintra_read_announcements', JSON.stringify(readIds));
+      readState.markManyRead('announcement', ids);
       self.unreadAnnouncements = [];
       self.showAnnouncementFloat = false;
       self.currentAnnouncementIndex = 0;
+      self.$store.commit('island/READ_STATE_CHANGED');
     },
     goToAnnouncements: function() {
       var self = this;
@@ -1402,7 +1390,7 @@ export default {
 .desktop-widget {
   position: relative;
   min-height: 0;
-  border-radius: 22px;
+  border-radius: var(--radius-2xl);
   overflow: hidden;
   transition: transform var(--duration-fast) var(--ease-standard);
   /* 兜底背景，避免 widget 内部组件未设背景时与壁纸融合看不清 */
@@ -1722,7 +1710,7 @@ export default {
   font-weight: 700;
   color: #fff;
   background: var(--danger-color);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   padding: 0 5px;
   -webkit-box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
@@ -2081,7 +2069,7 @@ export default {
   width: 100%;
   padding: 8px 12px;
   border: 1px solid var(--border-color, rgba(0,0,0,0.1));
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--bg-color, #f2f2f7);
   color: var(--text-primary);
   font-size: 14px;
@@ -2100,7 +2088,7 @@ export default {
 .wc-switch {
   width: 44px;
   height: 26px;
-  border-radius: 13px;
+  border-radius: var(--radius-pill);
   border: none;
   background: var(--separator-color, #e9e9ea);
   position: relative;
@@ -2141,7 +2129,7 @@ export default {
 }
 .wc-btn {
   padding: var(--spacing-sm) var(--spacing-lg);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   border: none;
   font-size: 14px;
   font-weight: 600;

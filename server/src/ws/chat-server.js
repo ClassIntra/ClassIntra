@@ -126,6 +126,15 @@ if (!RELAY_SERVER_ID) {
 }
 var relayPeers = [];
 var remoteOnlineUsers = {};
+// ===== 中继发送缓冲队列 =====
+// 缘起：中继连接每约 65 秒会因对端/网络原因断开一次（code 1006），
+// 重连+认证约需 3.5~4.5 秒。旧实现 relayToPeers() 在 relayPeers 为空时直接
+// return，这段时间内发出的消息被**静默丢弃**，接收方只能靠刷新页面从库里拉到。
+// 现改为入队缓冲，连接恢复后按序补发。队列有上限与过期淘汰，避免内存无界增长。
+var RELAY_OUTBOX_MAX = 500;              // 队列最多缓存条数
+var RELAY_OUTBOX_TTL = 5 * 60 * 1000;    // 超过 5 分钟的消息不再补发（已由 catchup 兜底）
+var relayOutbox = [];                    // [{ message, queuedAt }]
+var relayOutboxDropped = 0;              // 因超限/过期被丢弃的计数（诊断用）
 var CLASS_GROUP_IDS = [];
 function loadClassGroupIds() {
   try {
@@ -231,6 +240,10 @@ function ensureUserInClassGroups(userId) {
 var relayCallbacks = {};
 
 function checkWsRateLimit(userId, maxCount, windowMs) {
+  // 机器人账号（astrbot-relay 的 linxi_ai）分段回复频繁，放宽到 8 倍额度，避免「发送过于频繁」吞掉 bot 消息
+  if (userId === 'linxi_ai') {
+    maxCount = maxCount * 8;
+  }
   var now = Date.now();
   if (!messageRateLimit[userId] || now - messageRateLimit[userId].windowStart > windowMs) {
     messageRateLimit[userId] = { count: 1, windowStart: now };
@@ -452,9 +465,13 @@ function generateRelayMsgId() {
 
 function relayToPeers(message) {
   if (!relayEnabled) return;
-  if (relayPeers.length === 0) return;
   if (!message.relay_msg_id) {
     message.relay_msg_id = generateRelayMsgId();
+  }
+  // 连接未就绪时不丢弃，改为入队，待重连后补发（见 flushRelayOutbox）。
+  if (relayPeers.length === 0) {
+    enqueueRelayOutbox(message);
+    return;
   }
   var category = message.category || (message.payload && message.payload.type) || 'unknown';
   console.log('[Relay-Send] category=' + category + ' relay_msg_id=' + message.relay_msg_id + ' peers=' + relayPeers.length + ' peerIds=[' + relayPeers.map(function(p) { return p.serverId; }).join(',') + ']');
@@ -482,6 +499,151 @@ function relayToPeers(message) {
   }
   for (var j = disconnected.length - 1; j >= 0; j--) {
     relayPeers.splice(disconnected[j], 1);
+  }
+  // 一个 peer 都没发出去（全部在 CONNECTING 或已断开）→ 入队等待重连
+  if (Object.keys(sentTo).length === 0 && relayEnabled) {
+    enqueueRelayOutbox(message);
+  }
+}
+
+/**
+ * 消息入缓冲队列。超过上限时淘汰最旧的（并计数，便于诊断）。
+ */
+function enqueueRelayOutbox(message) {
+  try {
+    relayOutbox.push({ message: message, queuedAt: Date.now() });
+    while (relayOutbox.length > RELAY_OUTBOX_MAX) {
+      relayOutbox.shift();
+      relayOutboxDropped++;
+    }
+    var cat = message.category || (message.payload && message.payload.type) || 'unknown';
+    console.log('[Relay-Queue] buffered category=' + cat + ' size=' + relayOutbox.length +
+      (relayOutboxDropped ? ' droppedTotal=' + relayOutboxDropped : ''));
+  } catch (e) {
+    console.error('[Relay-Queue] enqueue failed:', e.message);
+  }
+}
+
+/**
+ * 连接恢复后补发缓冲消息。由 relay_auth_ok 之后调用。
+ * 过期（> RELAY_OUTBOX_TTL）的直接丢弃 —— 这段时间的数据已由 catchup 同步兜底，
+ * 补发旧消息反而可能与 catchup 写入的数据重复。
+ */
+function flushRelayOutbox() {
+  if (!relayOutbox.length) return;
+  if (relayPeers.length === 0) return;
+  var now = Date.now();
+  var pending = relayOutbox;
+  relayOutbox = [];
+  var sent = 0;
+  var expired = 0;
+  for (var i = 0; i < pending.length; i++) {
+    var item = pending[i];
+    if (now - item.queuedAt > RELAY_OUTBOX_TTL) {
+      expired++;
+      continue;
+    }
+    try {
+      relayToPeers(item.message);
+      sent++;
+    } catch (e) {
+      console.error('[Relay-Queue] flush item failed:', e.message);
+    }
+  }
+  if (sent || expired) {
+    console.log('[Relay-Queue] flushed ' + sent + ' buffered message(s)' +
+      (expired ? ', expired ' + expired : '') + ' after reconnect');
+  }
+}
+
+/**
+ * catchup 同步完成后，把本次「新入库」的消息补推给在线接收方。
+ *
+ * 背景：applySyncData 只写 sqlite，不触碰客户端连接。原先 catchup 补回来的
+ * 消息在库里存在但界面上不出现，用户只能刷新页面 —— 这正是「跨班聊天不实时、
+ * 要反复刷新」的主因之一。
+ *
+ * 去重：sendToClient → pushToPollQueue 内部对「同 type 同 message.id」有相邻去重；
+ * 且直接中继路径已入库的消息在 applySyncData 中会被 pmCheck 命中而跳过，
+ * 因此不会出现「直接推 + 补推」双份。
+ *
+ * ⚠️ 本函数所有推送一律带 `historical: true` —— 这是「兜底补数据」而非「新消息提醒」。
+ *    实测案例：2026-09-10 09:56 的两条私聊，因中继断连漏同步，直到次日 10:37 才被
+ *    catchup 补回；若照样弹通知，用户会收到「明明已经看过的消息又弹一遍」。
+ *    实时消息的提醒由 relay-handlers.js 的直接推送路径负责，本函数不承担该职责。
+ */
+function pushNewlyAppliedFromSync(syncResult) {
+  if (!syncResult || !syncResult.newly_applied) return;
+  var applied = syncResult.newly_applied;
+  var pushed = 0;
+
+  // 私聊：只推给接收方
+  if (applied.private_messages && applied.private_messages.length) {
+    for (var i = 0; i < applied.private_messages.length; i++) {
+      var pm = applied.private_messages[i];
+      if (!pm.receiver_id) continue;
+      try {
+        sendToClient(pm.receiver_id, {
+          type: 'private_message',
+          // historical：本次推送的目的是「把 catchup 兜底补回的数据落到界面」，
+          // 不是「通知用户有新消息」。补回来的可能是数小时甚至一天前的消息
+          // （实时中继断连期间漏掉的），若照常弹通知，用户会反复收到
+          // 「明明看过的消息又弹一遍」。前端见 historical 只入库、不弹窗不计未读。
+          historical: true,
+          from_user_id: pm.sender_id,
+          message: {
+            id: pm.id,
+            type: pm.type,
+            content: pm.content,
+            sender_id: pm.sender_id,
+            from_user_id: pm.sender_id,
+            to_user_id: pm.receiver_id,
+            created_at: pm.created_at
+          }
+        });
+        pushed++;
+      } catch (e) { /* 单个失败不影响其余 */ }
+    }
+  }
+
+  // 群聊：推给除发送者外的所有成员
+  if (applied.group_messages && applied.group_messages.length) {
+    for (var g = 0; g < applied.group_messages.length; g++) {
+      var gm = applied.group_messages[g];
+      if (!gm.group_id) continue;
+      var memberIds = [];
+      try {
+        var grp = db.prepare('SELECT members_json FROM groups WHERE id = ?').get(gm.group_id);
+        if (grp) memberIds = parseMembersJson(grp.members_json);
+      } catch (e) { memberIds = []; }
+      for (var k = 0; k < memberIds.length; k++) {
+        if (memberIds[k] === gm.sender_id) continue;
+        try {
+          sendToClient(memberIds[k], {
+            type: 'group_message',
+            // 同私聊：catchup 补同步的历史群消息静默入库，不触发通知与未读。
+            historical: true,
+            group_id: gm.group_id,
+            message: {
+              id: gm.id,
+              type: gm.type,
+              content: gm.content,
+              sender_id: gm.sender_id,
+              sender_name: gm.sender_name || '',
+              recalled: 0,
+              created_at: gm.created_at
+            }
+          });
+          pushed++;
+        } catch (e) { /* 单个失败不影响其余 */ }
+      }
+    }
+  }
+
+  if (pushed > 0) {
+    // 标注 historical：便于日志判读「这次补推没有触发用户通知」，
+    // 与实时推送路径（relay-handlers/正常 sendToClient）区分开。
+    console.log('[Relay] Pushed ' + pushed + ' recovered message(s) to online clients after catchup (historical, silent)');
   }
 }
 
@@ -761,6 +923,8 @@ function handleRelayConnection(ws) {
       try {
         var syncResult = relaySync.applySyncData(syncData);
         console.log('[Relay] Applied sync data from', data.server_id, ':', JSON.stringify(syncResult));
+        // 补推：与出站路径同理 —— catchup 只写库不推客户端，不补推则必须刷新页面
+        pushNewlyAppliedFromSync(syncResult);
 
         if (hasMore && nextState) {
           var batchState = Object.assign({}, remoteSyncState);
@@ -879,7 +1043,7 @@ function connectToRelayPeers() {
       } catch (e) {}
 
       var reconnectAttempts = 0;
-      var maxReconnectDelay = 60000;
+      var maxReconnectDelay = 5000; // 原 60000：65s 断连周期下 60s 退避导致消息延迟分钟级；压平到 5s 让断连窗口收敛到 ~10s
       var lastConnectTime = 0;
       var relayHeartbeat = null;
       var lastErrorTime = 0;
@@ -941,6 +1105,9 @@ function connectToRelayPeers() {
             relayPeers.push({ ws: relayWs, serverId: remoteServerId, connectedAt: Date.now(), state: peerState });
             console.log('[Relay] After outbound push, relayPeers:', relayPeers.map(function(p) { return p.serverId; }).join(','));
             console.log('[Relay] Authenticated with:', remoteServerId);
+
+            // 连接就绪 → 立即补发断线期间缓冲的消息（避免接收方要靠刷新才能看到）
+            try { flushRelayOutbox(); } catch (e) { console.error('[Relay-Queue] flush error:', e.message); }
 
             var onlineUsersList = [];
             for (var uid in onlineUsers) {
@@ -1086,6 +1253,9 @@ function connectToRelayPeers() {
             try {
               var syncResult = relaySync.applySyncData(syncData);
               console.log('[Relay] Applied sync data from', data.server_id, ':', JSON.stringify(syncResult));
+              // 补推：catchup 只把数据写进库，不推客户端 —— 不补推的话在线用户
+              // 必须刷新页面才能看到这些消息（跨班聊天"不实时"的直接原因之一）。
+              pushNewlyAppliedFromSync(syncResult);
 
               if (hasMore && nextState) {
                 var batchState = Object.assign({}, remoteSyncState);
@@ -2818,6 +2988,13 @@ wss.on('close', function() {
 function broadcastToIsland(notification) {
   if (notification.type === 'broadcast') {
     relayBus.emitLocal('broadcast_event', { notification: notification });
+    // 跨班广播互通（2026-09-11）：广播从 localOnly 升级为实时中继。
+    // 对端收到后由其 broadcast_event handler 插库并推送给对端用户（带 [CC] 来源标识）。
+    // 防环：relay_msg_id 去重（processRelayed）+ 对端 handler 不再二次中继；
+    // 防重：对端 5 分钟内容时间窗去重 + 系统欢迎语拒收。
+    try { relayBus.relayOnly('broadcast_event', { notification: notification }); } catch (e) {
+      console.error('[Relay] broadcast relay failed:', e.message);
+    }
   } else {
     broadcast({
       type: 'super_island_notification',
@@ -2832,7 +3009,27 @@ var pollQueues = {};
 var POLL_QUEUE_MAX = 200;           // 单用户队列上限，防止内存泄漏
 var POLL_QUEUE_TTL_MS = 5 * 60 * 1000; // 5 分钟无 poll 视为离线
 var pollLastSeen = {};              // pollLastSeen[user_id] = ms timestamp
-var pollSeqCounter = 0;             // 全局单调递增事件序号，供客户端做游标
+// poll 事件序号：基于「毫秒时间戳 ×1000 + 同毫秒计数」生成。
+// ⚠️ 为什么不能用从 0 开始的计数器：客户端现已把 since_seq 持久化到 localStorage
+//（修复「看过的消息重新进入又弹通知」），若服务端重启后 seq 归零重新计数，
+// 新事件的 seq 将全部小于客户端持久游标 → 客户端过滤掉一切新事件（漏投全部 poll 消息）。
+// 时间基 seq 在重启后天然大于重启前，游标跨重启依然单调有效。
+// 数值规模：1.8×10^12 ms ×1000 ≈ 1.8×10^15 < 2^53，JS number 安全。
+var pollSeqLastMs = 0;
+var pollSeqSameMs = 0;
+function nextPollSeq() {
+  var now = Date.now();
+  if (now === pollSeqLastMs) {
+    pollSeqSameMs++;
+  } else {
+    pollSeqLastMs = now;
+    pollSeqSameMs = 0;
+  }
+  return now * 1000 + pollSeqSameMs;
+}
+function getCurrentPollSeq() {
+  return pollSeqLastMs > 0 ? (pollSeqLastMs * 1000 + pollSeqSameMs) : 0;
+}
 
 function pushToPollQueue(userId, event) {
   if (!userId || !event) return;
@@ -2848,7 +3045,7 @@ function pushToPollQueue(userId, event) {
       return;
     }
   }
-  queue.push({ ts: Date.now(), seq: ++pollSeqCounter, event: event });
+  queue.push({ ts: Date.now(), seq: nextPollSeq(), event: event });
   if (queue.length > POLL_QUEUE_MAX) {
     queue.splice(0, queue.length - POLL_QUEUE_MAX);
   }
@@ -3070,6 +3267,7 @@ module.exports = {
   registerPoller: registerPoller,
   unregisterPoller: unregisterPoller,
   consumePollEvents: consumePollEvents,
+  getCurrentPollSeq: getCurrentPollSeq,
   handleHttpMessage: handleHttpMessage,
   isPoller: function(userId) { return !!pollQueues[userId]; },
   getRelayEnabled: function() { return relayEnabled; },

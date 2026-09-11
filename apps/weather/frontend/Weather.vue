@@ -416,7 +416,7 @@ export default {
   height: 44px;
   border-radius: 50%;
   color: rgba(255,255,255,0.8);
-  transition: background 0.2s, transform 0.15s, opacity 0.15s;
+  transition: background var(--duration-normal) var(--ease-standard), transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard);
 }
 .nav-btn:hover { background: rgba(255,255,255,0.15); }
 .nav-btn:disabled { opacity: 0.4; }
@@ -457,7 +457,7 @@ export default {
   border-radius: var(--radius-xl);
   color: #fff;
   font-size: var(--font-size-sm);
-  transition: background 0.2s, transform 0.15s, opacity 0.15s;
+  transition: background var(--duration-normal) var(--ease-standard), transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard);
 }
 .btn-retry:hover { background: rgba(255,255,255,0.25); }
 .btn-retry:active { transform: scale(0.94); opacity: 0.7; }
@@ -478,7 +478,7 @@ export default {
 }
 .scroll-all::-webkit-scrollbar { width: 2px; }
 .scroll-all::-webkit-scrollbar-track { background: transparent; }
-.scroll-all::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 1px; }
+.scroll-all::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: var(--radius-pill); }
 
 .hero {
   display: flex;
@@ -570,7 +570,7 @@ export default {
   -webkit-overflow-scrolling: touch;
 }
 .hourly-scroll::-webkit-scrollbar { height: 2px; }
-.hourly-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 1px; }
+.hourly-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: var(--radius-pill); }
 
 .hourly-item {
   flex-shrink: 0;
@@ -581,7 +581,7 @@ export default {
   gap: 1px;
   padding: 3px 2px;
   border-radius: var(--radius-md);
-  transition: background 0.2s;
+  transition: background var(--duration-normal) var(--ease-standard);
 }
 .hourly-item.now { background: rgba(255,255,255,0.07); }
 .h-time { font-size: var(--font-size-caption2); opacity: 0.4; }
@@ -606,7 +606,7 @@ export default {
   flex: 1;
   height: 2.5px;
   background: rgba(255,255,255,0.07);
-  border-radius: 2px;
+  border-radius: var(--radius-pill);
   position: relative;
   overflow: hidden;
   min-width: 12px;
@@ -616,7 +616,7 @@ export default {
   top: 0;
   height: 100%;
   background: linear-gradient(90deg, #64B5F6, #FFB74D);
-  border-radius: 2px;
+  border-radius: var(--radius-pill);
 }
 .d-hi { width: 22px; font-size: var(--font-size-caption2); font-weight: 500; flex-shrink: 0; }
 

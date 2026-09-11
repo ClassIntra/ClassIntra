@@ -106,7 +106,7 @@ export default {
   border: 1px solid rgba(128, 128, 128, 0.35);
   background: transparent;
   color: inherit;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   padding: 6px 12px;
   cursor: pointer;
   font-size: 13px;
@@ -121,7 +121,7 @@ export default {
 }
 .ba-tip {
   padding: 10px 14px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: rgba(94, 92, 230, 0.12);
   margin-bottom: 10px;
   font-size: 13px;
@@ -133,7 +133,7 @@ export default {
   flex: 1;
   width: 100%;
   border: 1px solid rgba(128, 128, 128, 0.25);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: #fff;
 }
 </style>

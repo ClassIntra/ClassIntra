@@ -1235,7 +1235,7 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.15s, color 0.15s;
+  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
 }
 .converter-close:hover { background: var(--bg-color); color: var(--text-primary); }
 .converter-body {
@@ -1257,7 +1257,7 @@ export default {
   color: var(--text-secondary);
   font-size: 13px;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background-color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
 }
 .converter-cat-btn:hover { background: var(--bg-color); }
 .converter-cat-btn.active {
@@ -1281,7 +1281,7 @@ export default {
   background: var(--bg-color);
   outline: none;
   min-width: 0;
-  transition: border-color 0.15s;
+  transition: border-color var(--duration-fast) var(--ease-standard);
 }
 .converter-input:focus { border-color: var(--primary-color); }
 .converter-output {
@@ -1317,7 +1317,7 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform 0.25s, background 0.15s, color 0.15s;
+  transition: transform var(--duration-normal) var(--ease-standard), background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
 }
 .converter-swap:hover { transform: rotate(180deg); background: var(--primary-color); color: #fff; }
 /* 换算提示 */
@@ -1332,11 +1332,11 @@ export default {
 }
 /* 入场动画 */
 .converter-fade-enter-active, .converter-fade-leave-active {
-  transition: opacity 0.2s;
+  transition: opacity var(--duration-normal) var(--ease-standard);
 }
 .converter-fade-enter-active .converter-panel,
 .converter-fade-leave-active .converter-panel {
-  transition: transform 0.25s cubic-bezier(0.32, 0.72, 0, 1);
+  transition: transform var(--duration-normal) var(--ease-emphasized);
 }
 .converter-fade-enter, .converter-fade-leave-to {
   opacity: 0;

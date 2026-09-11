@@ -5,8 +5,15 @@
  * - 触摸事件处理（touchstart/move/end）
  * - 长按检测（500ms）
  * - 滑动手势（水平滑动关闭通知、上滑关闭音乐）
- * - 鼠标按下时间记录
+ * - 鼠标按下时间记录 / 右键
  * - FLIP 高度过渡动画（Web Animations API）
+ *
+ * 长按语义（第十三轮扩充，入口从 1 条扩到 4 条）：
+ *   1. 通知展示时长按    → 进入历史（原有）
+ *   2. 任意模式长按      → 直接进入历史（新增，用户的「长按超能岛」）
+ *   3. 快捷操作面板      → 面板内「通知记录」按钮（新增，见 IslandActionsPanel）
+ *   4. 桌面空白双击      → 进入历史（新增，见 Desktop.vue）
+ *   5. 右键 / 长按鼠标   → 桌面环境下等效长按（新增）
  *
  * 依赖：无外部依赖，需要宿主组件提供 islandMode/goCompact 等方法
  * 注入到：SuperIsland.vue
@@ -24,7 +31,9 @@ export default {
       longPressTimer: null,
       isSwiping: false,
       swipeDy: 0,
-      mouseDownTime: 0
+      mouseDownTime: 0,
+      // 长按已触发标记：用于抑制随后的 click（避免长按后又走一遍 handleClick）
+      longPressFired: false
     };
   },
 
@@ -35,8 +44,10 @@ export default {
       this.touchStartTime = Date.now();
       this.isSwiping = false;
       this.swipeDy = 0;
+      this.longPressFired = false;
       var self = this;
       this.longPressTimer = setTimeout(function() {
+        self.longPressFired = true;
         self.onLongPress();
       }, LONG_PRESS_MS);
     },
@@ -109,27 +120,68 @@ export default {
       }
       this.isSwiping = false;
       this.swipeDy = 0;
+      // 长按已触发时，300ms 内抑制 click（浏览器仍会补发 click）
+      if (this.longPressFired) {
+        var guard = this;
+        setTimeout(function() { guard.longPressFired = false; }, 320);
+      }
     },
 
     onMouseDown: function() {
       this.mouseDownTime = Date.now();
+      // 桌面端没有 touchstart，用 mousedown 计时补上长按能力
+      var self = this;
+      this.longPressFired = false;
+      if (this.longPressTimer) clearTimeout(this.longPressTimer);
+      this.longPressTimer = setTimeout(function() {
+        self.longPressFired = true;
+        self.onLongPress();
+      }, LONG_PRESS_MS);
+    },
+
+    onMouseUp: function() {
+      if (this.longPressTimer) {
+        clearTimeout(this.longPressTimer);
+        this.longPressTimer = null;
+      }
+      if (this.longPressFired) {
+        var guard = this;
+        setTimeout(function() { guard.longPressFired = false; }, 320);
+      }
+    },
+
+    // 右键 / 长按鼠标 → 历史（桌面端主要入口）
+    onContextMenu: function(e) {
+      if (e && typeof e.preventDefault === 'function') e.preventDefault();
+      this.openHistory();
+    },
+
+    /**
+     * 统一的「唤出通知历史」入口。
+     * 无论当前处于哪个模式，都能一步进入历史面板 —— 这是本轮扩充的核心。
+     * 无历史记录时给出提示而非静默失败（否则用户以为没反应）。
+     */
+    openHistory: function() {
+      if (!this.notificationHistory || this.notificationHistory.length === 0) {
+        // 无记录时给反馈而非静默返回；空态本身也会在面板里展示入口说明。
+        if (this.$store) {
+          this.$store.commit('toast/SHOW_TOAST', { message: '暂无通知记录', type: 'info' });
+        }
+        return;
+      }
+      // 已是历史模式则不重复切换（避免 FLIP 抖动）
+      if (this.islandMode === 'history') return;
+      this.prevMode = this.islandMode;
+      this.islandMode = 'history';
     },
 
     onLongPress: function() {
-      if (this.islandMode === 'notification') {
-        if (this.notificationHistory.length > 0) {
-          this.islandMode = 'history';
-        }
-      } else if (this.islandMode === 'compact' || this.islandMode === 'split') {
-        if (this.isOnDesktop && this.browserEnabled) {
-          this.islandMode = 'compact';
-          this.$router.push({ name: 'Browser' }).catch(function() {});
-        } else if (this.isOnDesktop) {
-          this.$router.push('/announcements').catch(function() {});
-        } else {
-          this.islandMode = 'actions';
-        }
-      }
+      // 任意模式长按 === 唤出通知历史。
+      // 原实现只在 notification 模式生效，导致通知收起后没有任何回看入口（第十三轮修复）。
+      // 例外：浏览器/分享胶囊等有自身输入语义的面板，长按不劫持。
+      var passthrough = ['browser', 'share-capsule'];
+      if (passthrough.indexOf(this.islandMode) !== -1) return;
+      this.openHistory();
     },
 
     /**

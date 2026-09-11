@@ -425,7 +425,7 @@ export default {
 .esc-hint {
   font-size: 11px;
   padding: 3px 7px;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   background: rgba(0, 0, 0, 0.06);
   color: var(--text-secondary);
   font-family: ui-monospace, monospace;
@@ -725,7 +725,7 @@ export default {
 
 .search-body::-webkit-scrollbar-thumb {
   background: rgba(0, 0, 0, 0.15);
-  border-radius: 3px;
+  border-radius: var(--radius-xs);
 }
 
 .is-dark .search-body::-webkit-scrollbar-thumb {

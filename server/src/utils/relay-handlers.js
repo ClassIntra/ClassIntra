@@ -235,23 +235,24 @@ bus.register('private_message', function(payload, ctx) {
       ctx.db.prepare('UPDATE private_messages SET extra_json = ? WHERE id = ?').run(JSON.stringify(extraObj), result.lastInsertRowid);
     }
     // 只推送给接收方（发送方在源服务器已收到private_message_sent）
-    if (ctx.clients[pm.to_user_id]) {
-      ctx.sendToClient(pm.to_user_id, {
-        type: 'private_message',
+    // ⚠️ 不能前置判断 ctx.clients[to_user_id] —— poll 传输（腾讯 X5 平板）的用户
+    //    不在 clients 里，只在 pollQueues 里。sendToClient 内部已做 WS→poll 双路回退，
+    //    前置判断会让平板端收不到实时推送，只能靠刷新页面拉历史。
+    ctx.sendToClient(pm.to_user_id, {
+      type: 'private_message',
+      from_user_id: pm.from_user_id || pm.sender_id,
+      message: {
+        id: result.lastInsertRowid,
+        type: pm.type || 'text',
+        content: pm.content,
+        sender_id: pm.from_user_id || pm.sender_id,
+        sender_name: pm.sender_name || '',
         from_user_id: pm.from_user_id || pm.sender_id,
-        message: {
-          id: result.lastInsertRowid,
-          type: pm.type || 'text',
-          content: pm.content,
-          sender_id: pm.from_user_id || pm.sender_id,
-          sender_name: pm.sender_name || '',
-          from_user_id: pm.from_user_id || pm.sender_id,
-          to_user_id: pm.to_user_id,
-          reply_to: pm.reply_to || null,
-          created_at: pm.created_at || null
-        }
-      });
-    }
+        to_user_id: pm.to_user_id,
+        reply_to: pm.reply_to || null,
+        created_at: pm.created_at || null
+      }
+    });
   } catch (e) { console.error('[RelayBus] private_message error:', e.message); }
 });
 
@@ -313,9 +314,9 @@ bus.register('group_message', function(payload, ctx) {
     };
     for (var j = 0; j < allMemberIds.length; j++) {
       if (allMemberIds[j] === gm.sender_id) continue;
-      if (ctx.clients[allMemberIds[j]]) {
-        ctx.sendToClient(allMemberIds[j], { type: 'group_message', group_id: gmGroupId, message: fallbackMsg });
-      }
+      // 同 private_message：不前置判断 ctx.clients，poll 传输的用户只在 pollQueues 里。
+      // sendToClient 内部已有 WS→poll 双路回退。
+      ctx.sendToClient(allMemberIds[j], { type: 'group_message', group_id: gmGroupId, message: fallbackMsg });
     }
   }
 });
@@ -425,7 +426,7 @@ bus.register('user_typing', function(payload, ctx) {
           }
         }
       }
-    } else if (payload.target_user_id && ctx.clients[payload.target_user_id]) {
+    } else if (payload.target_user_id) {
       ctx.sendToClient(payload.target_user_id, {
         type: 'user_typing', from_user_id: payload.from_user_id,
         from_user_name: payload.from_user_name, is_typing: payload.is_typing
@@ -739,21 +740,37 @@ bus.register('community_group_created', function(payload, ctx) {
 
 bus.register('broadcast_event', function(payload, ctx) {
   var bn = payload.notification || {};
+  // 系统欢迎语拒收（与 relay-sync 接收侧同防）：对端历史欢迎语不应通过实时通道进来
+  var bcContent = bn.content || '';
+  if (bcContent.indexOf('欢迎使用 ') === 0 && bcContent.indexOf(' 系统！') === bcContent.length - 4) return;
   try {
-    ctx.db.prepare("INSERT INTO broadcasts (content, priority, created_at) VALUES (?, ?, datetime('now'))").run(
-      bn.content || '', bn.priority || 'normal'
+    // 内容时间窗去重：admin 路径（routes/admin.js）已先行入库（需要 lastInsertRowid
+    // 返回给前端），随后 broadcastToIsland → emitLocal 走到这里若再插一次，会因
+    // datetime('now') 与首次插入的时间戳不同而绕开 (content, created_at) 唯一索引，
+    // 同一条广播在库里出现两份（超能岛列表重复）。5 分钟内同内容视为同一次广播。
+    var winStart = new Date(Date.now() - 5 * 60 * 1000).toISOString().replace('T', ' ').substring(0, 19);
+    var bcDup = ctx.db.prepare('SELECT rowid FROM broadcasts WHERE content = ? AND created_at >= ? LIMIT 1').get(
+      bcContent, winStart
     );
+    if (!bcDup) {
+      var bcRes = ctx.db.prepare("INSERT OR IGNORE INTO broadcasts (content, priority, created_at) VALUES (?, ?, datetime('now'))").run(
+        bcContent, bn.priority || 'normal'
+      );
+      // 回填本库 id：前端未读计数（read-state）依赖 id 判重
+      if (bcRes && bcRes.lastInsertRowid) bn.id = bcRes.lastInsertRowid;
+    }
   } catch (e) { console.error('[RelayBus] broadcast_event error:', e.message); }
   ctx.broadcast({
     type: 'super_island_notification',
     notification: {
       type: 'broadcast',
+      id: bn.id,
       content: bn.content,
       priority: bn.priority,
       relayed_from: ctx.sourceServer
     }
   });
-}, { localOnly: true });
+});
 
 // ===================================================================
 // 消息反应 & 收藏
@@ -931,11 +948,10 @@ bus.register('group_transferred', function(payload, ctx) {
 
 bus.register('private_message_read', function(payload, ctx) {
   try {
-    if (ctx.clients[payload.target_user_id]) {
-      ctx.sendToClient(payload.target_user_id, {
-        type: 'message_read', reader_id: payload.reader_id, message_ids: payload.message_ids || []
-      });
-    }
+    // 同上：poll 传输用户不在 clients 里，不能前置判断（否则已读状态不实时）
+    ctx.sendToClient(payload.target_user_id, {
+      type: 'message_read', reader_id: payload.reader_id, message_ids: payload.message_ids || []
+    });
   } catch (e) { console.error('[RelayBus] private_message_read error:', e.message); }
 });
 

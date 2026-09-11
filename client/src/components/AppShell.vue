@@ -299,7 +299,7 @@ export default {
 
 .app-shell-actions button {
   border: 0;
-  border-radius: var(--radius-sm, 10px);
+  border-radius: var(--radius-sm, 8px);
   padding: 10px 16px;
   color: #fff;
   background: var(--primary-color, #007aff);

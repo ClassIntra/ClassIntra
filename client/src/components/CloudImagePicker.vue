@@ -49,10 +49,10 @@
           >
             <img v-if="getFileType(file) === 'image'" :src="file.url + '?w=300'" :alt="file.name" loading="lazy" class="picker-img" />
             <div v-else-if="getFileType(file) === 'video'" class="picker-icon-card">
-              <i class="fa-solid fa-video"></i>
+              <span class="picker-icon-card-inner"><i class="fa-solid fa-video"></i></span>
             </div>
             <div v-else-if="getFileType(file) === 'audio'" class="picker-icon-card picker-audio-card">
-              <i class="fa-solid fa-music"></i>
+              <span class="picker-icon-card-inner"><i class="fa-solid fa-music"></i></span>
             </div>
             <div class="picker-name">{{ file.display_name || file.name }}</div>
           </div>
@@ -310,7 +310,7 @@ export default {
 }
 /* 美化分组标签滚动条 */
 .picker-folder-tabs::-webkit-scrollbar { height: 3px; }
-.picker-folder-tabs::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 2px; }
+.picker-folder-tabs::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: var(--radius-pill); }
 .picker-folder-tabs::-webkit-scrollbar-track { background: transparent; }
 .picker-folder-tab {
   padding: 4px 10px; border-radius: var(--radius-pill);
@@ -324,10 +324,17 @@ export default {
   border-color: var(--primary-color);
 }
 
-/* 视频/音频图标卡片 */
+/* 视频/音频图标卡片
+   注：不用 aspect-ratio（Chrome 88+；本机目标内核含 Chrome 80），
+   改用 padding-top 100% 撑出正方形，见 .picker-icon-card-inner */
 .picker-icon-card {
-  width: 100%; aspect-ratio: 1;
+  position: relative;
+  width: 100%;
+  padding-top: 100%;
   border-radius: var(--radius-sm); background: var(--bg-color);
+}
+.picker-icon-card-inner {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
   display: flex; align-items: center; justify-content: center;
   font-size: 28px; color: var(--text-secondary);
 }

@@ -980,7 +980,7 @@ export default {
 .upload-progress-bar {
   width: 100%;
   height: 4px;
-  border-radius: 2px;
+  border-radius: var(--radius-pill);
   background: var(--bg-elevated, rgba(255,255,255,0.2));
   overflow: hidden;
   margin-top: 8px;

@@ -559,18 +559,25 @@ export default {
 }
 
 /* iPadOS 风格路由切换：从右滑入 + 微缩放（仿 iOS push view controller）
-   - 进入：translateX(40px) + scale(0.96) → 0 + 1，0.45s ease-out（强减速曲线）
-   - 离开：translateX(0) → translateX(-20px) + scale(0.98)，0.22s ease-in（加速曲线）
-   - 注意：先离开再进入（mode="out-in"），避免两层重叠导致 backdrop-filter 性能问题 */
+   - 进入：translateX(40px) + scale(0.96) → 0 + 1，--duration-normal + 强减速曲线
+   - 离开：translateX(0) → translateX(-20px) + scale(0.98)，--duration-fast + 加速曲线
+   - 注意：先离开再进入（mode="out-in"），避免两层重叠导致 backdrop-filter 性能问题。
+
+   关键：out-in 是串行的——总观感时长 = leave + enter。
+   若 leave 取 0.15s + enter 取 0.22s，则新页面要等 0.37s 才完全静止，
+   期间屏幕处于「旧页已淡出、新页还在滑」的半空状态，这正是「切换太慢」的来源。
+   因此把 leave 压到 instant 档（0.1s，纯让位，不需要被看清），
+   enter 保留 normal（新内容需要被看清，且减速曲线前段位移大、观感本身就快）。
+   调整后总时长约 0.32s，且「空白期」从 0.15s 降到 0.1s。 */
 .page-fade-enter-active {
-  transition: opacity var(--duration-normal) var(--ease-decelerate)
+  transition: opacity var(--duration-normal) var(--ease-decelerate),
               transform var(--duration-normal) var(--ease-decelerate);
   /* 进入时提升合成层，避免 backdrop-filter 闪烁 */
   will-change: transform, opacity;
 }
 .page-fade-leave-active {
-  transition: opacity var(--duration-fast) var(--ease-accelerate))
-              transform 0.22s var(--ease-accelerate);
+  transition: opacity var(--duration-instant) var(--ease-accelerate),
+              transform var(--duration-instant) var(--ease-accelerate);
   will-change: transform, opacity;
 }
 .page-fade-enter {
@@ -641,7 +648,8 @@ export default {
   .toast-fade-leave-to { transform: translateX(-50%); }
 }
 .toast-fade-enter-active {
-  transition: opacity var(--duration-normal) var(--ease-emphasized), transform var(--duration-normal) var(--ease-spring);
+  /* 弹层入场（iOS 语义）：snappy 利落收起，不用 bouncy 以免玩具感 */
+  transition: opacity var(--duration-normal) var(--ease-emphasized), transform var(--duration-normal) var(--motion-spring-snappy);
 }
 .toast-fade-leave-active {
   transition: opacity var(--duration-fast) var(--ease-emphasized), transform var(--duration-fast) var(--ease-accelerate);

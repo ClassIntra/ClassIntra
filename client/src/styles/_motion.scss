@@ -12,15 +12,26 @@
 // ========== 单档动画曲线 ==========
 // 与 global.scss :root 中的 --ease-standard 保持一致
 // 提供给 SCSS 编译期使用的静态值（运行期用 CSS 变量）
+//
+// Spring 档位对应 iOS 17+ 官方预设（详见 global.scss 的曲线注释块）：
+//   snappy      .snappy      response 0.5 / damping 0.85   日常弹性
+//   bouncy      .bouncy      response 0.5 / damping 0.70   庆祝回弹
+//   smooth      .smooth      response 0.5 / damping 1.00   无弹跳顺滑
+//   interactive .interactive response 0.15 / damping 0.86  跟手
 $ease-standard: cubic-bezier(0.25, 0.1, 0.25, 1);
 $ease-decelerate: cubic-bezier(0, 0, 0.2, 1);
 $ease-accelerate: cubic-bezier(0.4, 0, 1, 1);
 $ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 $ease-emphasized: cubic-bezier(0.32, 0.72, 0, 1);
+$ease-spring-snappy: cubic-bezier(0.32, 1.28, 0.5, 1);
+$ease-spring-bouncy: cubic-bezier(0.34, 1.72, 0.52, 1);
+$ease-spring-smooth: cubic-bezier(0.22, 1, 0.36, 1);
+$ease-spring-interactive: cubic-bezier(0.2, 0.9, 0.3, 1);
 
 $duration-fast: 0.15s;
 $duration-normal: 0.25s;
 $duration-slow: 0.35s;
+$duration-stagger: 0.05s;
 
 // ========== Mixin ==========
 
@@ -47,6 +58,54 @@ $duration-slow: 0.35s;
 // 强调过渡（如按钮缩放/卡片抬起，比 standard 更有力度）
 @mixin motion-emphasized($properties: transform, $duration: $duration-fast) {
   transition: $properties $duration $ease-emphasized;
+}
+
+// ========== Spring 档位 Mixin（iOS 17+ 语义） ==========
+
+// 日常弹性（≈ .snappy）：列表项、卡片、按钮反馈
+@mixin motion-snappy($properties: transform, $duration: $duration-normal) {
+  transition: $properties $duration $ease-spring-snappy;
+}
+
+// 庆祝回弹（≈ .bouncy）：点赞、发帖成功、徽章点亮
+// 注意：仅用于偶发的正向反馈，滥用会导致眩晕（iOS HIG 明确警示）
+@mixin motion-bouncy($properties: transform, $duration: $duration-normal) {
+  transition: $properties $duration $ease-spring-bouncy;
+}
+
+// 无弹跳顺滑（≈ .smooth）：面板尺寸、层级展开等不应有玩具感的场景
+@mixin motion-smooth($properties: transform, $duration: $duration-normal) {
+  transition: $properties $duration $ease-spring-smooth;
+}
+
+// 跟手（≈ .interactiveSpring）：拖拽跟手、长按反馈
+@mixin motion-interactive($properties: transform, $duration: $duration-fast) {
+  transition: $properties $duration $ease-spring-interactive;
+}
+
+// ========== 错开编舞（stagger） ==========
+// iOS 高级感的来源不是单一动画，而是「多个动画在不同时间、
+// 用不同 spring 参数错开执行」。
+//
+// 用法：容器加 .ci-stagger，子项自动获得 0 / 50 / 100 / 150ms ... 的
+// 递增延时。子项自身仍需声明 transition 与初始态。
+//
+// 实现说明：用 nth-child 生成，最多覆盖 12 项（列表首屏足够）。
+// 延时值属「节奏参数」，规范 §5.5.1 第 9 项允许硬编码。
+.ci-stagger > * {
+  --ci-stagger-delay: 0s;
+  transition-delay: var(--ci-stagger-delay);
+}
+
+@for $i from 1 through 12 {
+  .ci-stagger > *:nth-child(#{$i}) {
+    --ci-stagger-delay: #{($i - 1) * 0.05}s;
+  }
+}
+
+// 关闭动画时同时清掉编舞延时，避免「等一会才出现」的假死感
+[data-no-motion="true"] .ci-stagger > * {
+  transition-delay: 0s !important;
 }
 
 // ========== 关闭开关：[data-no-motion="true"] ==========

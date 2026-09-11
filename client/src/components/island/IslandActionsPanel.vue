@@ -3,7 +3,7 @@
     <div class="panel-head">
       <span class="panel-title">快捷操作</span>
     </div>
-    <div class="action-grid" style="grid-template-columns: repeat(2, 1fr)">
+    <div class="action-grid">
       <button class="action-btn action-btn-stagger" style="--stagger-index:0" @click.stop="$emit('navigate', '/announcements')">
         <div class="action-icon" style="background:rgba(234,179,8,0.15)"><i class="fa-solid fa-bullhorn" style="color:#eab308"></i></div>
         <span class="action-label">公告页</span>
@@ -38,7 +38,9 @@ export default {
 
 .action-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  /* 两列：公告页 / 浏览器。通知记录已从本面板移除（改由长按/双击/右键唤出），
+     故列数由 3 改 2，避免空槽位。 */
+  grid-template-columns: repeat(2, 1fr);
   gap: 8px;
 }
 

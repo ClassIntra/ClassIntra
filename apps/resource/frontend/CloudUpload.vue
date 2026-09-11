@@ -828,7 +828,7 @@ export default {
   gap: 4px;
   color: var(--text-secondary, #8e8e93);
   cursor: pointer;
-  transition: color 0.2s;
+  transition: color var(--duration-normal) var(--ease-standard);
   border-bottom: 2px solid transparent;
 }
 .mode-tab i { font-size: 20px; }
@@ -856,7 +856,7 @@ export default {
 .folder-select {
   flex: 1;
   padding: 8px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--separator-color, #e5e5ea);
   background: var(--bg-color, #f2f2f7);
   font-size: 14px;
@@ -1093,7 +1093,7 @@ export default {
   align-items: center;
   justify-content: center;
   box-shadow: 0 4px 16px rgba(255, 59, 48, 0.3);
-  transition: transform 0.15s;
+  transition: transform var(--duration-fast) var(--ease-standard);
   position: relative;
 }
 .record-btn:active { transform: scale(0.94); }
@@ -1161,7 +1161,7 @@ export default {
   gap: 8px;
   padding: 6px 16px;
   background: rgba(0,0,0,0.6);
-  border-radius: 20px;
+  border-radius: var(--radius-xl);
   color: #fff;
   font-size: 15px;
   font-family: 'SF Mono', 'Menlo', monospace;
@@ -1209,7 +1209,7 @@ export default {
   background: var(--primary-color, #007aff);
   color: #fff;
   border: none;
-  border-radius: 24px;
+  border-radius: var(--radius-2xl);
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
@@ -1255,7 +1255,7 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: border-color 0.2s var(--ease-standard, ease);
+  transition: border-color var(--duration-normal) var(--ease-standard);
   flex-shrink: 0;
 }
 .vf-btn-inner {
@@ -1263,13 +1263,13 @@ export default {
   height: 100%;
   border-radius: 50%;
   background: #fff;
-  transition: all 0.3s var(--ease-standard, ease);
+  transition: background-color var(--duration-slow) var(--ease-standard), border-color var(--duration-slow) var(--ease-standard), color var(--duration-slow) var(--ease-standard), transform var(--duration-slow) var(--ease-standard), opacity var(--duration-slow) var(--ease-standard), box-shadow var(--duration-slow) var(--ease-standard);
 }
 .vf-record-btn.recording {
   border-color: #ff3b30;
 }
 .vf-record-btn.recording .vf-btn-inner {
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   background: #ff3b30;
   transform: scale(0.45);
 }
@@ -1343,14 +1343,15 @@ export default {
   width: 200px;
   height: 6px;
   background: var(--separator-color, #e5e5ea);
-  border-radius: 3px;
+  border-radius: var(--radius-xs);
   overflow: hidden;
 }
 .upload-progress-fill {
   height: 100%;
   background: var(--primary-color, #007aff);
-  border-radius: 3px;
-  transition: width 0.3s var(--ease-standard, ease);
+  border-radius: var(--radius-xs);
+  /* 规范例外：进度条填充/滚动条，宽度即语义；scaleX 会拉伸圆角胶囊（§5.5.2 形状形变豁免） */
+  transition: width var(--duration-slow) var(--ease-standard);
 }
 
 /* 加载按钮 */
@@ -1380,7 +1381,7 @@ export default {
 .toast-msg.success { background: var(--success-color, #34c759); }
 .toast-msg.error { background: var(--danger-color, #ff3b30); }
 .toast-fade-enter-active, .toast-fade-leave-active {
-  transition: opacity 0.3s, transform 0.3s;
+  transition: opacity var(--duration-slow) var(--ease-standard), transform var(--duration-slow) var(--ease-standard);
 }
 .toast-fade-enter, .toast-fade-leave-to {
   opacity: 0;
