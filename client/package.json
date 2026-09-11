@@ -23,7 +23,7 @@
     "videojs-mobile-ui": "^1.2.7",
     "vue": "^2.7.16",
     "vue-router": "^3.6.5",
-    "vuex": "^3.6.2"
+    "vuex": "^4.1.0"
   },
   "devDependencies": {
     "@vitejs/plugin-legacy": "^6.1.1",
