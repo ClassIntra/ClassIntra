@@ -1,5 +1,6 @@
 var axios = require('axios');
 var config = require('../config');
+var db = require('../utils/db');
 
 var MAX_RETRIES = 2;
 var RETRY_DELAY = 1000;
@@ -9,31 +10,109 @@ function sleep(ms) {
   return new Promise(function(resolve) { setTimeout(resolve, ms); });
 }
 
-function getProvider(provider) {
-  if (provider === 'deepseek') {
+// ============================================================
+// 模型注册表（ai_models 表，见 migration 006）
+// 任意 OpenAI 兼容 API 均可接入；DB 配置优先，env 兜底。
+// 表不存在（旧库未跑迁移）时回退旧的双 provider 行为。
+// ============================================================
+
+function getEnabledModels() {
+  try {
+    return db.prepare('SELECT * FROM ai_models WHERE enabled = 1 ORDER BY sort_order ASC, id ASC').all();
+  } catch (e) {
+    return null; // 表不存在
+  }
+}
+
+function getAllModels() {
+  try {
+    return db.prepare('SELECT * FROM ai_models ORDER BY sort_order ASC, id ASC').all();
+  } catch (e) {
+    return null;
+  }
+}
+
+function getModelRow(id) {
+  if (!id) return null;
+  try {
+    return db.prepare('SELECT * FROM ai_models WHERE id = ?').get(String(id));
+  } catch (e) {
+    return null;
+  }
+}
+
+function getDefaultModelId() {
+  try {
+    var row = db.prepare('SELECT id FROM ai_models WHERE is_default = 1 AND enabled = 1 LIMIT 1').get();
+    if (row) return row.id;
+  } catch (e) {}
+  return 'default';
+}
+
+// 将 ai_models 行解析为可直接使用的模型配置（含 env 兜底）
+function resolveModel(modelId) {
+  var row = getModelRow(modelId);
+  if (row) {
+    var mc = {
+      id: row.id,
+      label: row.label,
+      color: row.color || '#6366f1',
+      apiStyle: row.api_style === 'deepseek' ? 'deepseek' : 'openai',
+      supportsThinking: !!row.supports_thinking,
+      supportsSearch: !!row.supports_search,
+      isFree: !!row.is_free,
+      enabled: !!row.enabled,
+      isDefault: !!row.is_default,
+      builtin: !!row.builtin,
+      apiUrl: row.api_url || '',
+      apiKey: row.api_key || '',
+      model: row.model || ''
+    };
+    // 内置模型空值继承 env（config 仍是内置模型的 source of truth）
+    if (row.id === 'default') {
+      mc.apiUrl = mc.apiUrl || config.ai.apiUrl;
+      mc.apiKey = mc.apiKey || config.ai.apiKey;
+      mc.model = mc.model || config.ai.model;
+    } else if (row.id === 'deepseek') {
+      mc.apiUrl = mc.apiUrl || config.deepseek.apiUrl;
+      mc.apiKey = mc.apiKey || config.deepseek.apiKey;
+      mc.model = mc.model || config.deepseek.model;
+    }
+    return mc;
+  }
+
+  // 回退：表不存在或未知 id —— 兼容旧调用（provider='default'|'deepseek'）
+  if (modelId === 'deepseek' && config.deepseek.apiKey) {
     return {
-      apiUrl: config.deepseek.apiUrl,
-      apiKey: config.deepseek.apiKey,
-      model: config.deepseek.model
+      id: 'deepseek', label: 'DeepSeek', color: '#10b981', apiStyle: 'deepseek',
+      supportsThinking: true, supportsSearch: true, isFree: false, enabled: true,
+      isDefault: false, builtin: true,
+      apiUrl: config.deepseek.apiUrl, apiKey: config.deepseek.apiKey, model: config.deepseek.model
     };
   }
   return {
-    apiUrl: config.ai.apiUrl,
-    apiKey: config.ai.apiKey,
-    model: config.ai.model
+    id: 'default', label: 'GPT', color: '#f59e0b', apiStyle: 'openai',
+    supportsThinking: false, supportsSearch: false, isFree: true, enabled: true,
+    isDefault: true, builtin: true,
+    apiUrl: config.ai.apiUrl, apiKey: config.ai.apiKey, model: config.ai.model
   };
 }
 
-function buildRequestBody(messages, options, provider) {
-  var p = getProvider(provider);
+// 按 options 解析模型配置：新 modelId 优先，旧 provider 字段兼容
+function resolveModelForOptions(opts) {
+  var modelId = opts.modelId || opts.provider || 'default';
+  return resolveModel(modelId);
+}
+
+function buildRequestBody(messages, options, mc) {
   var body = {
-    model: options.model || p.model,
+    model: options.model || mc.model,
     messages: messages,
     stream: !!options.stream
   };
 
-  if (provider === 'deepseek') {
-    if (options.thinking) {
+  if (mc.apiStyle === 'deepseek') {
+    if (options.thinking && mc.supportsThinking) {
       body.thinking = { type: 'enabled' };
       if (options.reasoningEffort) {
         body.reasoning_effort = options.reasoningEffort;
@@ -54,9 +133,13 @@ function buildRequestBody(messages, options, provider) {
   } else {
     body.temperature = options.temperature || 0.7;
     body.max_tokens = options.maxTokens || 2000;
+    if (options.tools && options.tools.length > 0) {
+      body.tools = options.tools;
+      body.tool_choice = options.toolChoice || 'auto';
+    }
   }
 
-  return { url: p.apiUrl, headers: { 'Authorization': 'Bearer ' + p.apiKey, 'Content-Type': 'application/json' }, body: body };
+  return { url: mc.apiUrl, headers: { 'Authorization': 'Bearer ' + mc.apiKey, 'Content-Type': 'application/json' }, body: body };
 }
 
 // Error thrown when API returns HTTP 200 but body contains an error object
@@ -94,7 +177,8 @@ function checkApiResponseBody(data) {
 function chatWithAI(messages, options) {
   var opts = options || {};
   var retryCount = opts._retryCount || 0;
-  var req = buildRequestBody(messages, opts, opts.provider);
+  var mc = resolveModelForOptions(opts);
+  var req = buildRequestBody(messages, opts, mc);
 
   return axios.post(req.url, req.body, {
     headers: req.headers,
@@ -135,13 +219,17 @@ function chatWithAIStream(messages, res, options) {
   var onContent = opts.onContent || null;
   var onReasoning = opts.onReasoning || null;
   var enableThinking = !!opts.thinking;
-  var req = buildRequestBody(messages, Object.assign({}, opts, { stream: true }), opts.provider);
+  var mc = resolveModelForOptions(opts);
+  var req = buildRequestBody(messages, Object.assign({}, opts, { stream: true }), mc);
 
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
-  res.flushHeaders();
+  // fallback 重试时 SSE 头可能已发送，不能重复设置（ERR_HTTP_HEADERS_SENT）
+  if (!res.headersSent) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+  }
 
   function sendSSE(data) {
     res.write('data: ' + JSON.stringify(data) + '\n\n');
@@ -298,4 +386,12 @@ function chatWithAIStream(messages, res, options) {
   });
 }
 
-module.exports = { chatWithAI: chatWithAI, chatWithAIStream: chatWithAIStream };
+module.exports = {
+  chatWithAI: chatWithAI,
+  chatWithAIStream: chatWithAIStream,
+  getEnabledModels: getEnabledModels,
+  getAllModels: getAllModels,
+  getModelRow: getModelRow,
+  getDefaultModelId: getDefaultModelId,
+  resolveModel: resolveModel
+};

@@ -97,29 +97,27 @@
           </button>
           <span class="aichat-title">{{ currentTitle }}</span>
           <div class="header-actions">
-            <div class="model-status">
-              <span v-if="currentModel === 'default'" class="model-badge model-badge-default" title="GPT">
-                <i class="fa-solid fa-circle" style="font-size:6px;color:#f59e0b"></i> GPT
-              </span>
-              <span v-else-if="currentModel === 'deepseek'" class="model-badge model-badge-ds" title="DeepSeek V4 Flash">
-                <i class="fa-solid fa-circle" style="font-size:6px;color:#10b981"></i> DS
-              </span>
-            </div>
-            <div v-if="currentModel === 'default' && availableGptModels.length >= 1" class="gpt-model-select">
-              <select v-model="gptModel" @change="onGptModelChange" class="gpt-model-dropdown">
-                <option v-for="m in availableGptModels" :key="m" :value="m">{{ formatModelName(m) }}</option>
-              </select>
-            </div>
-            <div v-if="deepseekEnabled" class="model-switcher">
-              <button class="model-btn" :class="{ active: currentModel === 'default' }" @click="switchModel('default')" title="默认模型（免费）">GPT</button>
-              <button class="model-btn" :class="{ active: currentModel === 'deepseek' }" @click="switchModel('deepseek')" title="DeepSeek V4 Flash">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-1px"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
-                DS
+            <!-- 统一模型选择器 -->
+            <div class="model-picker">
+              <button class="model-picker-btn" @click="showModelPanel = true" title="切换模型">
+                <span class="model-dot" :style="{ background: currentModelInfo.color }"></span>
+                <span class="model-picker-label">{{ currentModelInfo.label }}</span>
+                <i class="fa-solid fa-chevron-down model-picker-chevron"></i>
               </button>
-              <button v-if="currentModel === 'deepseek'" class="model-btn thinking-btn" :class="{ active: thinkingMode }" @click="toggleThinkingMode" title="思考模式">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+              <button
+                v-if="currentModelInfo.supports_thinking"
+                class="model-think-btn"
+                :class="{ active: thinkingMode }"
+                @click="toggleThinkingMode"
+                title="思考模式"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 1 1 7.072 0l-.548.547A3.374 3.374 0 0 0 14 18.469V19a2 2 0 1 1-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+                <span>思考</span>
               </button>
             </div>
+            <button v-if="isAdmin" class="header-icon-btn" @click="openAdminPanel" title="模型管理">
+              <i class="fa-solid fa-cubes"></i>
+            </button>
             <button v-if="currentConvId" class="header-icon-btn" @click="openConvSettings" title="对话设置">
               <i class="fa-solid fa-gear"></i>
             </button>
@@ -273,6 +271,202 @@
       </div>
     </div>
 
+    <!-- Model Picker Panel -->
+    <div v-if="showModelPanel" class="model-selector-overlay" @click.self="showModelPanel = false">
+      <div class="model-panel">
+        <div class="conv-settings-header">
+          <h3 class="panel-title">选择模型</h3>
+          <button class="conv-settings-close" @click="showModelPanel = false">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+        <div class="model-list scrollbar-thin">
+          <div
+            v-for="m in availableModels"
+            :key="m.id"
+            class="model-item"
+            :class="{ active: m.id === currentModel }"
+            @click="switchModel(m.id)"
+          >
+            <span class="model-dot model-dot-lg" :style="{ background: m.color }"></span>
+            <div class="model-item-info">
+              <div class="model-item-label">
+                <span>{{ m.label }}</span>
+                <span v-if="m.is_default" class="model-tag model-tag-default">默认</span>
+                <span v-if="m.is_free" class="model-tag model-tag-free">免费</span>
+              </div>
+              <div class="model-item-caps">
+                <span v-if="m.supports_thinking"><i class="fa-solid fa-lightbulb"></i> 深度思考</span>
+                <span v-if="m.supports_search"><i class="fa-solid fa-magnifying-glass"></i> 联网搜索</span>
+                <span v-if="!m.supports_thinking && !m.supports_search">通用对话</span>
+              </div>
+            </div>
+            <i v-if="m.id === currentModel" class="fa-solid fa-check model-item-check"></i>
+          </div>
+        </div>
+        <div v-if="isAdmin" class="model-panel-footer">
+          <button class="model-admin-entry" @click="openAdminPanel">
+            <i class="fa-solid fa-cubes"></i>
+            <span>管理模型</span>
+            <i class="fa-solid fa-chevron-right model-admin-arrow"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Admin Model Management Panel -->
+    <div v-if="showAdminPanel" class="model-selector-overlay" @click.self="closeAdminPanel">
+      <div class="admin-panel">
+        <div class="conv-settings-header">
+          <h3 class="panel-title">{{ adminEditing ? (adminEditing === 'new' ? '接入新模型' : '编辑模型') : 'AI 模型管理' }}</h3>
+          <button class="conv-settings-close" @click="closeAdminPanel">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+        <div class="admin-panel-body scrollbar-thin">
+          <!-- 编辑/新建表单 -->
+          <div v-if="adminEditing" class="admin-form">
+            <div class="settings-section">
+              <div class="settings-label"><i class="fa-solid fa-tag"></i><span>基本信息</span></div>
+              <div class="admin-form-row">
+                <div class="admin-form-field admin-form-field-half">
+                  <label class="admin-field-label">模型名称 <span class="required">*</span></label>
+                  <input class="admin-field-input" v-model="adminForm.label" placeholder="如：智谱 GLM-4-Flash" maxlength="30" />
+                </div>
+                <div class="admin-form-field admin-form-field-half">
+                  <label class="admin-field-label">模型 ID</label>
+                  <input class="admin-field-input" v-model="adminForm.id" placeholder="如 glm-4-flash（英文/数字）" maxlength="32" :disabled="adminEditing !== 'new'" />
+                </div>
+              </div>
+              <div class="admin-form-row">
+                <div class="admin-form-field">
+                  <label class="admin-field-label">API 地址 <span class="required">*</span></label>
+                  <input class="admin-field-input" v-model="adminForm.api_url" placeholder="https://open.bigmodel.cn/api/paas/v4/chat/completions" />
+                  <div v-if="adminForm.builtin" class="admin-field-hint">内置模型留空 = 使用服务器环境变量配置（.env）</div>
+                </div>
+              </div>
+              <div class="admin-form-row">
+                <div class="admin-form-field admin-form-field-half">
+                  <label class="admin-field-label">模型标识 <span class="required">*</span></label>
+                  <input class="admin-field-input" v-model="adminForm.model" placeholder="请求体中的 model 参数，如 glm-4-flash" />
+                </div>
+                <div class="admin-form-field admin-form-field-half">
+                  <label class="admin-field-label">API Key</label>
+                  <input class="admin-field-input" type="password" v-model="adminForm.api_key" :placeholder="adminForm.key_from_env ? '当前来自环境变量，留空保持不变' : (adminForm.has_key ? '已设置，留空不修改' : 'sk-...（无鉴权服务可留空）')" autocomplete="new-password" />
+                </div>
+              </div>
+            </div>
+            <div class="settings-section">
+              <div class="settings-label"><i class="fa-solid fa-sliders"></i><span>能力与外观</span></div>
+              <div class="admin-check-row">
+                <label class="admin-checkbox">
+                  <input type="checkbox" v-model="adminForm.supports_thinking" />
+                  <span class="admin-checkbox-box"><i class="fa-solid fa-check"></i></span>
+                  <span>深度思考</span>
+                </label>
+                <label v-if="adminForm.supports_thinking" class="admin-inline-select-wrap">
+                  <select class="admin-inline-select" v-model="adminForm.api_style">
+                    <option value="deepseek">思考参数：DeepSeek / GLM 风格</option>
+                    <option value="openai">思考参数：无（OpenAI 标准）</option>
+                  </select>
+                </label>
+              </div>
+              <div class="admin-check-row">
+                <label class="admin-checkbox">
+                  <input type="checkbox" v-model="adminForm.supports_search" />
+                  <span class="admin-checkbox-box"><i class="fa-solid fa-check"></i></span>
+                  <span>联网搜索（需已配置 Tavily）</span>
+                </label>
+              </div>
+              <div class="admin-check-row">
+                <label class="admin-checkbox">
+                  <input type="checkbox" v-model="adminForm.is_free" />
+                  <span class="admin-checkbox-box"><i class="fa-solid fa-check"></i></span>
+                  <span>免费标记</span>
+                </label>
+                <label class="admin-checkbox">
+                  <input type="checkbox" v-model="adminForm.enabled" />
+                  <span class="admin-checkbox-box"><i class="fa-solid fa-check"></i></span>
+                  <span>启用（用户可见）</span>
+                </label>
+              </div>
+              <div class="admin-form-row">
+                <div class="admin-form-field admin-form-field-half">
+                  <label class="admin-field-label">徽章颜色</label>
+                  <div class="admin-color-row">
+                    <button
+                      v-for="c in adminColorChoices"
+                      :key="c"
+                      class="admin-color-dot"
+                      :class="{ selected: adminForm.color === c }"
+                      :style="{ background: c }"
+                      @click="adminForm.color = c"
+                    ></button>
+                  </div>
+                </div>
+                <div class="admin-form-field admin-form-field-half">
+                  <label class="admin-field-label">排序权重（小者靠前）</label>
+                  <input class="admin-field-input" type="number" v-model.number="adminForm.sort_order" min="0" max="9999" />
+                </div>
+              </div>
+            </div>
+            <div v-if="adminTestResult" class="admin-test-result" :class="{ ok: adminTestResult.ok }">
+              <i :class="adminTestResult.ok ? 'fa-solid fa-circle-check' : 'fa-solid fa-circle-exclamation'"></i>
+              <span>{{ adminTestResult.message }}</span>
+              <span v-if="adminTestResult.latency_ms" class="admin-test-latency">{{ adminTestResult.latency_ms }}ms</span>
+            </div>
+          </div>
+          <!-- 模型列表 -->
+          <div v-else class="settings-section">
+            <div class="admin-toolbar">
+              <span class="admin-hint">用户只能使用「已启用」的模型；默认模型为用户未选择时兜底。</span>
+              <button class="admin-add-btn" @click="startAddModel"><i class="fa-solid fa-plus"></i> 接入新模型</button>
+            </div>
+            <div v-if="adminLoading" class="admin-loading"><div class="spinner-sm"></div><span>加载中...</span></div>
+            <div v-else-if="adminModels.length === 0" class="admin-empty">
+              <i class="fa-solid fa-cubes"></i>
+              <span>暂无模型，点击「接入新模型」添加</span>
+            </div>
+            <div v-for="m in adminModels" :key="m.id" class="admin-model-item" :class="{ disabled: !m.enabled }">
+              <span class="model-dot model-dot-lg" :style="{ background: m.color }"></span>
+              <div class="admin-model-info">
+                <div class="admin-model-label">
+                  <span>{{ m.label }}</span>
+                  <span v-if="m.is_default" class="model-tag model-tag-default">默认</span>
+                  <span v-if="m.is_free" class="model-tag model-tag-free">免费</span>
+                  <span v-if="!m.enabled" class="model-tag model-tag-off">已停用</span>
+                </div>
+                <div class="admin-model-meta">
+                  <span class="admin-model-id">{{ m.id }}</span>
+                  <span v-if="m.supports_thinking"><i class="fa-solid fa-lightbulb"></i> 思考</span>
+                  <span v-if="m.supports_search"><i class="fa-solid fa-magnifying-glass"></i> 搜索</span>
+                  <span v-if="m.has_key"><i class="fa-solid fa-key"></i> {{ m.key_from_env ? 'Key: env' : m.api_key_masked }}</span>
+                </div>
+              </div>
+              <div class="admin-model-actions">
+                <button v-if="!m.is_default" class="admin-icon-btn" :class="{ disabled: !m.enabled }" @click="setDefaultAdminModel(m)" title="设为默认"><i class="fa-regular fa-star"></i></button>
+                <button v-else class="admin-icon-btn starred" title="当前默认"><i class="fa-solid fa-star"></i></button>
+                <button class="admin-icon-btn" @click="startEditModel(m)" title="编辑"><i class="fa-solid fa-pen"></i></button>
+                <button class="admin-icon-btn" :class="{ off: m.enabled }" @click="toggleAdminModel(m)" :title="m.enabled ? '停用' : '启用'"><i :class="m.enabled ? 'fa-solid fa-toggle-on' : 'fa-solid fa-toggle-off'"></i></button>
+                <button class="admin-icon-btn danger" @click="confirmDeleteAdminModel(m)" title="删除"><i class="fa-solid fa-trash-can"></i></button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div v-if="adminEditing" class="admin-panel-footer admin-panel-footer-actions">
+          <button class="admin-test-btn" :disabled="adminTesting" @click="testAdminModel">
+            <div v-if="adminTesting" class="send-spinner spinner-xs"></div>
+            <i v-else class="fa-solid fa-plug"></i>
+            测试连接
+          </button>
+          <div class="admin-footer-right">
+            <button class="btn-reset" @click="cancelAdminEdit">取消</button>
+            <button class="btn-save-prompt" @click="saveAdminModel">保存</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- System Prompt Panel -->
     <div v-if="showSystemPrompt" class="model-selector-overlay" @click.self="showSystemPrompt = false">
       <div class="model-selector-panel">
@@ -373,7 +567,7 @@
     <transition name="toast-slide">
       <div v-if="showFallbackNotice" class="fallback-notice">
         <i class="fa-solid fa-triangle-exclamation"></i>
-        <span>默认模型暂时不可用，已自动切换到 DeepSeek</span>
+        <span>{{ fallbackNoticeText }}</span>
         <button class="fallback-notice-close" @click="showFallbackNotice = false"><i class="fa-solid fa-xmark"></i></button>
       </div>
     </transition>
@@ -500,12 +694,21 @@ export default {
       convSearchQuery: '',
       pinnedConvIds: [],
       aiSettingsLoaded: false,
-      deepseekEnabled: false,
       currentModel: 'default',
-      gptModel: '',
-      availableGptModels: [],
+      availableModels: [],
+      defaultModelId: 'default',
+      showModelPanel: false,
       thinkingMode: false,
       showThinkingWarning: false,
+      showAdminPanel: false,
+      adminModels: [],
+      adminLoading: false,
+      adminEditing: null,
+      adminForm: {},
+      adminTesting: false,
+      adminTestResult: null,
+      adminColorChoices: ['#f59e0b', '#10b981', '#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#06b6d4', '#84cc16'],
+      fallbackNoticeText: '当前模型暂时不可用，已自动切换到备用模型',
       showConvSettings: false,
       convPersona: '',
       showFallbackNotice: false,
@@ -525,6 +728,17 @@ export default {
     };
   },
   computed: {
+    isAdmin: function() {
+      return this.$store.getters.isAdmin === true;
+    },
+    currentModelInfo: function() {
+      var self = this;
+      for (var i = 0; i < self.availableModels.length; i++) {
+        if (self.availableModels[i].id === self.currentModel) return self.availableModels[i];
+      }
+      // 兜底：模型列表未加载或当前模型已被移除
+      return { id: self.currentModel, label: self.currentModel === 'default' ? 'GPT' : self.currentModel, color: '#6366f1', supports_thinking: false, supports_search: false, is_free: false };
+    },
     greetingText: function() {
       var hour = new Date().getHours();
       if (hour >= 5 && hour < 12) return '早上好～新的一天，元气满满';
@@ -656,14 +870,9 @@ export default {
             }
           } catch (e) {}
         }
-        self.deepseekEnabled = !!data.deepseek_enabled;
-        self.currentModel = data.model || 'default';
-        if (self.currentModel === 'deepseek' && !self.deepseekEnabled) {
-          self.currentModel = 'default';
-        }
-        self.gptModel = data.gpt_model || '';
-        self.availableGptModels = data.available_gpt_models || [];
+        if (data.model) self.currentModel = data.model;
         self.aiSettingsLoaded = true;
+        self.loadModels();
       }).catch(function() {
         var localPrompt = localStorage.getItem('ai_system_prompt');
         if (localPrompt) self.customSystemPrompt = localPrompt;
@@ -672,7 +881,35 @@ export default {
           if (localPinned.length > 0) self.pinnedConvIds = localPinned;
         } catch (e) {}
         self.aiSettingsLoaded = true;
+        self.loadModels();
       });
+    },
+    loadModels: function() {
+      var self = this;
+      api.get('/ai-chat/models').then(function(response) {
+        var data = response.data.data || {};
+        self.availableModels = data.models || [];
+        self.defaultModelId = data.default_model || 'default';
+        // 当前模型不可用（被禁用/删除/未加载）→ 回落全局默认
+        var found = false;
+        for (var i = 0; i < self.availableModels.length; i++) {
+          if (self.availableModels[i].id === self.currentModel) { found = true; break; }
+        }
+        if (!found) {
+          self.currentModel = self.defaultModelId;
+          if (self.availableModels.length > 0) {
+            var defFound = false;
+            for (var j = 0; j < self.availableModels.length; j++) {
+              if (self.availableModels[j].id === self.currentModel) { defFound = true; break; }
+            }
+            if (!defFound) self.currentModel = self.availableModels[0].id;
+          }
+        }
+        // 新模型不支持思考时关闭思考模式
+        if (self.thinkingMode && !self.currentModelInfo.supports_thinking) {
+          self.thinkingMode = false;
+        }
+      }).catch(function() {});
     },
     handleResize: function() {
       this.isMobile = window.innerWidth <= 768;
@@ -958,7 +1195,7 @@ export default {
         content: '',
         error: null
       };
-      var isThinking = self.thinkingMode && self.currentModel === 'deepseek';
+      var isThinking = self.thinkingMode && self.currentModelInfo.supports_thinking;
       if (isThinking) {
         aiMsg.reasoning = '';
         aiMsg._showReasoning = false;
@@ -994,9 +1231,8 @@ export default {
           conversation_id: self.currentConvId,
           message: question,
           system_prompt: self.customSystemPrompt || undefined,
-          model: self.currentModel !== 'default' ? self.currentModel : undefined,
-          gpt_model: self.currentModel === 'default' ? self.gptModel || undefined : undefined,
-          thinking: self.thinkingMode && self.currentModel === 'deepseek' ? true : undefined
+          model: self.currentModel,
+          thinking: self.thinkingMode && self.currentModelInfo.supports_thinking ? true : undefined
         }),
         signal: self.abortController.signal
       }).then(function(response) {
@@ -1054,6 +1290,7 @@ export default {
                   return;
                 }
                 if (parsed.fallback) {
+                  self.fallbackNoticeText = (parsed.model_label || '备用模型') + ' 已接管本次回复（原模型暂时不可用）';
                   self.showFallbackNotice = true;
                   setTimeout(function() { self.showFallbackNotice = false; }, 8000);
                 }
@@ -1105,10 +1342,6 @@ export default {
             aiMsg.error = '网络连接失败，请检查网络后重试';
           } else {
             aiMsg.error = err.message || '请求发送失败';
-          }
-          if (self.currentModel === 'default' && self.deepseekEnabled) {
-            self.showFallbackNotice = true;
-            setTimeout(function() { self.showFallbackNotice = false; }, 8000);
           }
         }
         self.isStreaming = false;
@@ -1426,30 +1659,215 @@ export default {
       });
       api.put('/ai-chat/conversations/' + conv.id + '/messages', { messages: syncMsgs }).catch(function() {});
     },
-    switchModel: function(model) {
+    switchModel: function(modelId) {
       var self = this;
-      if (model === self.currentModel) return;
-      if (model !== 'deepseek') {
+      if (modelId === self.currentModel) {
+        self.showModelPanel = false;
+        return;
+      }
+      self.currentModel = modelId;
+      self.showModelPanel = false;
+      // 新模型不支持思考时关闭思考模式
+      if (self.thinkingMode && !self.currentModelInfo.supports_thinking) {
         self.thinkingMode = false;
       }
-      api.put('/ai-chat/settings', { model: model }).then(function(response) {
-        self.currentModel = model;
-      }).catch(function(err) {
-        if (err.response && err.response.status === 403) {
-          self.$store.commit('toast/SHOW_TOAST', { message: 'DeepSeek 模型未启用，请联系管理员', type: 'error' });
-        }
+      api.put('/ai-chat/settings', { model: modelId }).catch(function() {
+        self.$store.commit('toast/SHOW_TOAST', { message: '模型偏好保存失败，本次会话仍生效', type: 'info' });
       });
     },
-    formatModelName: function(modelId) {
-      var map = {
-        'gpt-4o-mini-2024-07-18': 'GPT-4o Mini (0718)',
-        'gpt-4o-mini': 'GPT-4o Mini'
-      };
-      return map[modelId] || modelId;
-    },
-    onGptModelChange: function() {
+    // ============================================================
+    // 管理端：模型管理
+    // ============================================================
+    openAdminPanel: function() {
       var self = this;
-      api.put('/ai-chat/settings', { gpt_model: self.gptModel }).catch(function() {});
+      self.showAdminPanel = true;
+      self.showModelPanel = false;
+      self.adminEditing = null;
+      self.loadAdminModels();
+    },
+    closeAdminPanel: function() {
+      this.showAdminPanel = false;
+      this.adminEditing = null;
+      this.adminTestResult = null;
+    },
+    loadAdminModels: function() {
+      var self = this;
+      self.adminLoading = true;
+      api.get('/ai-chat/admin/models').then(function(response) {
+        self.adminModels = (response.data.data && response.data.data.models) || [];
+        self.adminLoading = false;
+      }).catch(function() {
+        self.adminLoading = false;
+        self.$store.commit('toast/SHOW_TOAST', { message: '模型列表加载失败', type: 'error' });
+      });
+    },
+    startAddModel: function() {
+      this.adminEditing = 'new';
+      this.adminTestResult = null;
+      this.adminForm = {
+        id: '',
+        label: '',
+        api_url: '',
+        api_key: '',
+        model: '',
+        color: this.adminColorChoices[this.adminModels.length % this.adminColorChoices.length],
+        api_style: 'openai',
+        supports_thinking: false,
+        supports_search: false,
+        is_free: false,
+        enabled: true,
+        sort_order: 100,
+        builtin: false,
+        has_key: false,
+        key_from_env: false
+      };
+    },
+    startEditModel: function(m) {
+      this.adminEditing = m.id;
+      this.adminTestResult = null;
+      this.adminForm = {
+        id: m.id,
+        label: m.label,
+        api_url: m.api_url || '',
+        api_key: '',
+        model: m.model || '',
+        color: m.color || '#6366f1',
+        api_style: m.api_style === 'deepseek' ? 'deepseek' : 'openai',
+        supports_thinking: !!m.supports_thinking,
+        supports_search: !!m.supports_search,
+        is_free: !!m.is_free,
+        enabled: !!m.enabled,
+        sort_order: m.sort_order || 0,
+        builtin: !!m.builtin,
+        has_key: !!m.has_key,
+        key_from_env: !!m.key_from_env
+      };
+    },
+    cancelAdminEdit: function() {
+      this.adminEditing = null;
+      this.adminTestResult = null;
+    },
+    testAdminModel: function() {
+      var self = this;
+      var f = self.adminForm;
+      self.adminTesting = true;
+      self.adminTestResult = null;
+      var payload;
+      if (self.adminEditing !== 'new' && f.builtin && !f.api_url && !f.model) {
+        // 内置模型未覆盖任何字段 → 测已保存配置
+        payload = { id: f.id };
+      } else {
+        payload = {
+          api_url: f.api_url,
+          api_key: f.api_key || undefined,
+          model: f.model
+        };
+        // 编辑场景 Key 留空 = 沿用已保存的 Key
+        if (self.adminEditing !== 'new' && !f.api_key && f.has_key) payload.id = f.id;
+        if (payload.id) { delete payload.api_key; }
+      }
+      api.post('/ai-chat/admin/models/test', payload).then(function(response) {
+        self.adminTestResult = (response.data.data) || { ok: false, message: '测试无结果' };
+        self.adminTesting = false;
+      }).catch(function(err) {
+        self.adminTestResult = { ok: false, message: (err.response && err.response.data && err.response.data.message) || '测试请求失败' };
+        self.adminTesting = false;
+      });
+    },
+    saveAdminModel: function() {
+      var self = this;
+      var f = self.adminForm;
+      if (!f.label || !f.label.trim()) {
+        self.$store.commit('toast/SHOW_TOAST', { message: '模型名称不能为空', type: 'error' });
+        return;
+      }
+      if (!f.model || !f.model.trim()) {
+        self.$store.commit('toast/SHOW_TOAST', { message: '模型标识（请求体 model 参数）不能为空', type: 'error' });
+        return;
+      }
+      if (!f.builtin && (!f.api_url || !f.api_url.trim())) {
+        self.$store.commit('toast/SHOW_TOAST', { message: 'API 地址不能为空', type: 'error' });
+        return;
+      }
+      var payload = {
+        label: f.label.trim(),
+        api_url: (f.api_url || '').trim(),
+        model: (f.model || '').trim(),
+        color: f.color,
+        api_style: f.supports_thinking ? f.api_style : 'openai',
+        supports_thinking: f.supports_thinking,
+        supports_search: f.supports_search,
+        is_free: f.is_free,
+        enabled: f.enabled,
+        sort_order: f.sort_order
+      };
+      if (f.api_key && f.api_key.trim()) payload.api_key = f.api_key.trim();
+      if (self.adminEditing === 'new') {
+        payload.id = (f.id || '').trim();
+        payload.is_default = false;
+        api.post('/ai-chat/admin/models', payload).then(function() {
+          self.$store.commit('toast/SHOW_TOAST', { message: '模型已接入', type: 'success' });
+          self.adminEditing = null;
+          self.loadAdminModels();
+          self.loadModels();
+        }).catch(function(err) {
+          self.$store.commit('toast/SHOW_TOAST', { message: (err.response && err.response.data && err.response.data.message) || '接入失败', type: 'error' });
+        });
+      } else {
+        api.put('/ai-chat/admin/models/' + f.id, payload).then(function() {
+          self.$store.commit('toast/SHOW_TOAST', { message: '模型已保存', type: 'success' });
+          self.adminEditing = null;
+          self.loadAdminModels();
+          self.loadModels();
+        }).catch(function(err) {
+          self.$store.commit('toast/SHOW_TOAST', { message: (err.response && err.response.data && err.response.data.message) || '保存失败', type: 'error' });
+        });
+      }
+    },
+    confirmDeleteAdminModel: function(m) {
+      var self = this;
+      self.confirmDialogTitle = '删除模型';
+      self.confirmDialogMessage = '确定删除「' + m.label + '」？正在使用该模型的用户将自动回落到默认模型。';
+      self.confirmCallback = function() {
+        api.delete('/ai-chat/admin/models/' + m.id).then(function() {
+          self.$store.commit('toast/SHOW_TOAST', { message: '模型已删除', type: 'success' });
+          self.showConfirmDialog = false;
+          self.loadAdminModels();
+          self.loadModels();
+        }).catch(function() {
+          self.$store.commit('toast/SHOW_TOAST', { message: '删除失败', type: 'error' });
+          self.showConfirmDialog = false;
+        });
+      };
+      self.showConfirmDialog = true;
+    },
+    toggleAdminModel: function(m) {
+      var self = this;
+      api.put('/ai-chat/admin/models/' + m.id + '/toggle', { enabled: !m.enabled }).then(function() {
+        self.loadAdminModels();
+        self.loadModels();
+        if (m.enabled) {
+          self.$store.commit('toast/SHOW_TOAST', { message: '「' + m.label + '」已停用', type: 'info' });
+        } else {
+          self.$store.commit('toast/SHOW_TOAST', { message: '「' + m.label + '」已启用', type: 'success' });
+        }
+      }).catch(function() {
+        self.$store.commit('toast/SHOW_TOAST', { message: '操作失败', type: 'error' });
+      });
+    },
+    setDefaultAdminModel: function(m) {
+      var self = this;
+      if (!m.enabled) {
+        self.$store.commit('toast/SHOW_TOAST', { message: '请先启用该模型', type: 'error' });
+        return;
+      }
+      api.put('/ai-chat/admin/models/default', { id: m.id }).then(function() {
+        self.$store.commit('toast/SHOW_TOAST', { message: '「' + m.label + '」已设为默认模型', type: 'success' });
+        self.loadAdminModels();
+        self.loadModels();
+      }).catch(function() {
+        self.$store.commit('toast/SHOW_TOAST', { message: '设置失败', type: 'error' });
+      });
     },
     toggleThinkingMode: function() {
       if (!this.thinkingMode) {
@@ -2005,66 +2423,589 @@ export default {
   flex-shrink: 0;
 }
 
-.model-switcher {
-  display: flex;
-  background: var(--bg-color);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-}
-
-.model-btn {
-  padding: 4px 10px;
-  font-size: var(--font-size-caption);
-  font-weight: 600;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: background-color var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
+/* ===== 统一模型选择器 ===== */
+.model-picker {
   display: flex;
   align-items: center;
-  gap: 3px;
-  white-space: nowrap;
+  gap: 6px;
 }
 
-.model-btn.active {
+.model-picker-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-pill);
+  background: var(--bg-color);
+  color: var(--text-primary);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  cursor: pointer;
+  max-width: 160px;
+  transition: background-color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.model-picker-btn:hover {
+  border-color: var(--primary-color);
+  background: rgba(var(--primary-rgb), 0.05);
+}
+
+.model-picker-btn:active {
+  transform: scale(0.97);
+}
+
+.model-picker-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.model-picker-chevron {
+  font-size: 9px;
+  color: var(--text-tertiary);
+}
+
+.model-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.model-dot-lg {
+  width: 12px;
+  height: 12px;
+}
+
+.model-think-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 9px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-pill);
+  background: var(--bg-color);
+  color: var(--text-secondary);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.model-think-btn:hover {
+  border-color: var(--warning-color);
+  color: var(--warning-color);
+}
+
+.model-think-btn.active {
+  background: var(--warning-color);
+  border-color: var(--warning-color);
+  color: #fff;
+}
+
+/* ===== 模型选择面板 ===== */
+.model-panel {
+  background: var(--bg-color);
+  border-radius: var(--radius-lg);
+  width: min(400px, calc(100vw - 32px));
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: var(--shadow-lg, 0 8px 32px rgba(0, 0, 0, 0.12));
+}
+
+.model-list {
+  padding: 8px 12px 12px;
+  overflow-y: auto;
+}
+
+.model-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background-color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.model-item:hover {
+  background: rgba(var(--primary-rgb), 0.05);
+}
+
+.model-item.active {
+  background: rgba(var(--primary-rgb), 0.08);
+}
+
+.model-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.model-item-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.model-item-caps {
+  display: flex;
+  gap: 10px;
+  margin-top: 3px;
+  font-size: var(--font-size-caption);
+  color: var(--text-tertiary);
+}
+
+.model-item-caps i {
+  font-size: 10px;
+  margin-right: 2px;
+}
+
+.model-item-check {
+  color: var(--primary-color);
+  font-size: 14px;
+}
+
+.model-tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.5;
+  flex-shrink: 0;
+}
+
+.model-tag-default {
+  background: rgba(var(--primary-rgb), 0.12);
+  color: var(--primary-color);
+}
+
+.model-tag-free {
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+}
+
+.model-tag-off {
+  background: rgba(148, 163, 184, 0.15);
+  color: #94a3b8;
+}
+
+.model-panel-footer {
+  border-top: 1px solid var(--border-color);
+  padding: 6px 12px;
+}
+
+.model-admin-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 10px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.model-admin-entry:hover {
+  background: rgba(var(--primary-rgb), 0.05);
+  color: var(--primary-color);
+}
+
+.model-admin-arrow {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-tertiary);
+}
+
+/* ===== 管理面板 ===== */
+.admin-panel {
+  background: var(--bg-color);
+  border-radius: var(--radius-lg);
+  width: min(520px, calc(100vw - 32px));
+  max-height: 82vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: var(--shadow-lg, 0 8px 32px rgba(0, 0, 0, 0.12));
+}
+
+.admin-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 16px 16px;
+}
+
+.admin-panel-footer {
+  border-top: 1px solid var(--border-color);
+  padding: 10px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.admin-panel-footer-actions {
+  display: flex;
+}
+
+.admin-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.admin-hint {
+  font-size: var(--font-size-caption);
+  color: var(--text-tertiary);
+  line-height: 1.5;
+}
+
+.admin-add-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border: none;
+  border-radius: var(--radius-sm);
   background: var(--primary-color);
   color: #fff;
-}
-
-.model-btn:hover:not(.active) {
-  background: rgba(var(--primary-rgb), 0.06);
-}
-
-.thinking-btn.active {
-  background: var(--warning-color);
-  color: #fff;
-}
-
-.thinking-btn.active:hover {
-  background: #d97706;
-}
-
-.gpt-model-select {
-  margin: 0 4px;
-}
-
-.gpt-model-dropdown {
-  padding: 3px 6px;
-  font-size: 11px;
+  font-size: var(--font-size-caption);
   font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.admin-add-btn:active {
+  transform: scale(0.97);
+}
+
+.admin-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 24px 0;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
+}
+
+.admin-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 32px 0;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
+}
+
+.admin-empty i {
+  font-size: 24px;
+  opacity: 0.5;
+}
+
+.admin-model-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  margin-bottom: 8px;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
+.admin-model-item.disabled {
+  opacity: 0.55;
+}
+
+.admin-model-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.admin-model-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.admin-model-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 3px;
+  font-size: var(--font-size-caption);
+  color: var(--text-tertiary);
+}
+
+.admin-model-meta i {
+  font-size: 10px;
+  margin-right: 2px;
+}
+
+.admin-model-id {
+  font-family: monospace;
+  font-size: 10px;
+  background: rgba(148, 163, 184, 0.12);
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+}
+
+.admin-model-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.admin-icon-btn {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.admin-icon-btn:hover {
+  background: rgba(var(--primary-rgb), 0.08);
+  color: var(--primary-color);
+}
+
+.admin-icon-btn.starred {
+  color: var(--warning-color);
+}
+
+.admin-icon-btn.off {
+  color: var(--text-tertiary);
+}
+
+.admin-icon-btn.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.admin-icon-btn.danger:hover {
+  background: rgba(239, 68, 68, 0.08);
+  color: #ef4444;
+}
+
+/* 管理表单 */
+.admin-form-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.admin-form-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.admin-form-field-half {
+  flex: 1;
+}
+
+.admin-field-label {
+  display: block;
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 5px;
+}
+
+.admin-field-label .required {
+  color: #ef4444;
+}
+
+.admin-field-input {
+  width: 100%;
+  padding: 8px 10px;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   background: var(--bg-color);
   color: var(--text-primary);
-  cursor: pointer;
+  font-size: var(--font-size-sm);
   outline: none;
-  max-width: 130px;
+  box-sizing: border-box;
+  transition: border-color var(--duration-fast) var(--ease-standard);
 }
 
-.gpt-model-dropdown:focus {
+.admin-field-input:focus {
   border-color: var(--primary-color);
+}
+
+.admin-field-input:disabled {
+  opacity: 0.55;
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.admin-field-hint {
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  line-height: 1.4;
+}
+
+.admin-check-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.admin-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.admin-checkbox input {
+  display: none;
+}
+
+.admin-checkbox-box {
+  width: 17px;
+  height: 17px;
+  border: 1.5px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: transparent;
+  transition: background-color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.admin-checkbox input:checked + .admin-checkbox-box {
+  background: var(--primary-color);
+  border-color: var(--primary-color);
+  color: #fff;
+}
+
+.admin-inline-select-wrap {
+  display: flex;
+  align-items: center;
+}
+
+.admin-inline-select {
+  padding: 4px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-color);
+  color: var(--text-primary);
+  font-size: var(--font-size-caption);
+  outline: none;
+}
+
+.admin-color-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.admin-color-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-pill);
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.admin-color-dot.selected {
+  border-color: var(--text-primary);
+  transform: scale(1.12);
+}
+
+.admin-test-result {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-caption);
+  background: rgba(239, 68, 68, 0.08);
+  color: #ef4444;
+  line-height: 1.5;
+}
+
+.admin-test-result.ok {
+  background: rgba(16, 185, 129, 0.08);
+  color: #10b981;
+}
+
+.admin-test-latency {
+  margin-left: auto;
+  font-family: monospace;
+  opacity: 0.75;
+  flex-shrink: 0;
+}
+
+.admin-footer-right {
+  display: flex;
+  gap: 8px;
+}
+
+.admin-test-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-color);
+  color: var(--text-secondary);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.admin-test-btn:hover {
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+}
+
+.admin-test-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.spinner-xs {
+  width: 11px;
+  height: 11px;
+  border-width: 2px;
 }
 
 .reasoning-block {
@@ -3126,35 +4067,6 @@ export default {
   .prompt-item { padding: 10px 12px; font-size: var(--font-size-caption); }
 }
 
-.model-status {
-  display: flex;
-  align-items: center;
-  margin-right: 4px;
-}
-
-.model-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 10px;
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-caption2);
-  font-weight: 600;
-  letter-spacing: 0.3px;
-}
-
-.model-badge-default {
-  background: rgba(var(--warning-rgb), 0.1);
-  color: var(--warning-color);
-  border: 1px solid rgba(var(--warning-rgb), 0.2);
-}
-
-.model-badge-ds {
-  background: rgba(16, 185, 129, 0.1);
-  color: #059669;
-  border: 1px solid rgba(16, 185, 129, 0.2);
-}
-
 .header-icon-btn {
   display: flex;
   align-items: center;
@@ -3411,8 +4323,18 @@ export default {
 }
 
 @media (max-width: 768px) {
-  .model-status {
+  .model-picker-label {
+    max-width: 72px;
+  }
+  .model-think-btn span {
     display: none;
+  }
+  .admin-panel-body {
+    padding: 4px 12px 12px;
+  }
+  .admin-form-row {
+    flex-direction: column;
+    gap: 0;
   }
   .conv-settings-panel {
     max-width: 100vw;

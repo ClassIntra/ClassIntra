@@ -4,13 +4,13 @@ var db = require('../../../server/src/utils/db');
 var auth = require('../../../server/src/middleware/auth');
 var aiService = require('../../../server/src/services/ai-chat');
 var tavilyService = require('../../../server/src/services/tavily');
+var axios = require('axios');
 var uuid = require('uuid');
 var time = require('../../../server/src/utils/time');
 var config = require('../../../server/src/config');
 
 var SYSTEM_PROMPT_PREFIX = '你是小深，专业且温暖的AI助手。规则：1.每段对话独立，绝不引用其他对话内容；2.不确定时坦诚说明；3.回答准确有条理，善用结构化表达；4.用中文；5.用户消息开头的[当前时间]为真实时间，回答时间/日期问题时直接自然地说出，绝不提及"根据您提供的信息""根据消息"等来源表述，就像你自己知道一样；你的知识截止于2025年中。仅在用户明确要求查最新新闻/实时数据时才调用web_search，其余一律直接回答。';
-var DEFAULT_SYSTEM_PROMPT_DS = SYSTEM_PROMPT_PREFIX + '风格：专业严谨，擅长学术、编程、数学、深度分析与高质量写作，回答详尽有深度。';
-var DEFAULT_SYSTEM_PROMPT_GPT = SYSTEM_PROMPT_PREFIX + '风格：温暖亲切，擅长日常交流、情感陪伴与轻松对话，像一位关心你的朋友。';
+var DEFAULT_SYSTEM_PROMPT = SYSTEM_PROMPT_PREFIX + '风格：专业严谨，擅长学术、编程、数学、深度分析与高质量写作，回答详尽有深度。';
 var MAX_CONTEXT_TOKENS = 10000;
 var SUMMARY_TRIGGER_COUNT = 16;
 var SUMMARY_KEEP_RECENT = 4;
@@ -38,8 +38,8 @@ var SEARCH_TOOL = {
   }
 };
 
-function shouldEnableSearch(provider) {
-  return provider === 'deepseek' && config.tavily && config.tavily.apiKey;
+function shouldEnableSearch(mc) {
+  return !!mc && !!mc.supportsSearch && !!config.tavily && !!config.tavily.apiKey;
 }
 
 async function executeSearchTool(toolCall) {
@@ -76,22 +76,20 @@ function estimateTokens(text) {
 }
 
 // Translate API body errors (from ApiBodyError) into user-friendly Chinese messages
-function translateApiError(msg, code, provider) {
+function translateApiError(msg, code, modelLabel) {
   var m = (msg || '').toLowerCase();
   var c = (code || '').toLowerCase();
+  var label = modelLabel || 'AI';
 
   if (m.indexOf('quota') > -1 || m.indexOf('insufficient') > -1 || c.indexOf('insufficient_quota') > -1) {
-    if (provider === 'default') return 'GPT 模型免费额度已用完，请切换到 DeepSeek 后重试';
-    return 'AI 模型额度已用完，请联系管理员';
+    return label + ' 模型额度已用完，请切换其他模型后重试';
   }
   if (m.indexOf('rate') > -1 || m.indexOf('429') > -1) return '请求过于频繁，请稍后再试';
   if (m.indexOf('invalid') > -1 || m.indexOf('token') > -1 || m.indexOf('key') > -1 || m.indexOf('auth') > -1) {
-    if (provider === 'default') return 'GPT API 密钥无效，请联系管理员更新配置';
-    return 'API 密钥无效，请联系管理员';
+    return label + ' API 密钥无效，请联系管理员';
   }
   if (m.indexOf('invalid_response') > -1 || m.indexOf('stream_expected') > -1) {
-    if (provider === 'default') return 'GPT 服务返回异常，可能已失效，请切换到 DeepSeek 后重试';
-    return 'AI 服务返回异常，请稍后重试';
+    return label + ' 服务返回异常，请切换其他模型或稍后重试';
   }
   // Fallback: use the original message if it's short enough, otherwise generic
   if (msg && msg.length < 100) return 'AI 服务错误：' + msg;
@@ -127,21 +125,23 @@ function extractApiError(err) {
   return { message: err.message || '', code: err.code || '', isApiError: false };
 }
 
+// ============================================================
+// 用户设置（user_settings.ai_settings_json）
+// model 字段存 ai_models.id（'default' / 'deepseek' / 自定义 id）
+// ============================================================
+
 function getUserAiSettings(userId) {
   var row = db.prepare('SELECT ai_settings_json, deepseek_enabled FROM user_settings WHERE user_id = ?').get(userId);
-  var settings = { system_prompt: '', pinned_conversations: [], model: 'default', gpt_model: config.ai.model };
+  var settings = { system_prompt: '', pinned_conversations: [], model: '' };
   if (row && row.ai_settings_json) {
     try {
       var parsed = JSON.parse(row.ai_settings_json);
       settings.system_prompt = parsed.system_prompt || '';
       settings.pinned_conversations = parsed.pinned_conversations || [];
-      settings.model = parsed.model || 'default';
-      settings.gpt_model = parsed.gpt_model || config.ai.model;
+      settings.model = parsed.model || '';
     } catch (e) {}
   }
-  if (config.ai.availableModels.indexOf(settings.gpt_model) < 0) {
-    settings.gpt_model = config.ai.model;
-  }
+  // 兼容读取旧数据里的 deepseek_enabled（旧版控制开关；新版以模型表 enabled 为准）
   settings.deepseek_enabled = row && row.deepseek_enabled === 1;
   return settings;
 }
@@ -151,49 +151,77 @@ function saveUserAiSettings(userId, settings) {
   var jsonStr = JSON.stringify({
     system_prompt: settings.system_prompt || '',
     pinned_conversations: settings.pinned_conversations || [],
-    model: settings.model || 'default',
-    gpt_model: settings.gpt_model || config.ai.model
+    model: settings.model || ''
   });
   if (existing) {
     db.prepare("UPDATE user_settings SET ai_settings_json = ?, updated_at = datetime('now') WHERE user_id = ?")
       .run(jsonStr, userId);
   } else {
-    db.prepare("INSERT INTO user_settings (user_id, ai_settings_json, created_at, updated_at) VALUES (?, ?, datetime('now'), datetime('now'))")
+    // 注意：user_settings 表无 created_at 列（见 migration 000 baseline），新用户首存走此分支
+    db.prepare("INSERT INTO user_settings (user_id, ai_settings_json, updated_at) VALUES (?, ?, datetime('now'))")
       .run(userId, jsonStr);
   }
 }
 
-// Resolve the actual GPT model to use: user preference > config default
-function getGptModel(userId, requestedModel) {
-  if (requestedModel && config.ai.availableModels.indexOf(requestedModel) >= 0) {
-    return requestedModel;
+// ============================================================
+// 模型解析（统一入口）
+// ============================================================
+
+// 用户可见的模型行（表不存在时回退 env 双 provider，兼容未迁移的库）
+function getUserVisibleModels() {
+  var list = aiService.getEnabledModels();
+  if (list === null) {
+    list = [{ id: 'default', label: 'GPT', color: '#f59e0b', supports_thinking: 0, supports_search: 0, is_free: 1 }];
+    if (config.deepseek.apiKey) {
+      list.push({ id: 'deepseek', label: 'DeepSeek', color: '#10b981', supports_thinking: 1, supports_search: 1, is_free: 0 });
+    }
   }
-  var settings = getUserAiSettings(userId);
-  if (settings.gpt_model && config.ai.availableModels.indexOf(settings.gpt_model) >= 0) {
-    return settings.gpt_model;
-  }
-  return config.ai.model;
+  return list || [];
 }
 
-function getProviderForUser(userId, requestedModel) {
-  var settings = getUserAiSettings(userId);
-  var model = requestedModel || settings.model || 'default';
+// 为用户解析实际使用的模型：
+// 请求模型 > 用户保存的偏好 > 全局默认 > 第一个可用模型
+function resolveUserModel(userId, requestedModel) {
+  var visible = getUserVisibleModels();
+  if (visible.length === 0) return null;
 
-  if (model === 'deepseek') {
-    if (!settings.deepseek_enabled) {
-      return { provider: 'default', reason: 'deepseek_not_enabled' };
+  var candidates = [];
+  if (requestedModel) candidates.push(requestedModel);
+  var saved = getUserAiSettings(userId).model;
+  if (saved) candidates.push(saved);
+  candidates.push(aiService.getDefaultModelId());
+
+  for (var i = 0; i < candidates.length; i++) {
+    for (var j = 0; j < visible.length; j++) {
+      if (visible[j].id === candidates[i]) {
+        return aiService.resolveModel(visible[j].id);
+      }
     }
-    if (!config.deepseek.apiKey) {
-      return { provider: 'default', reason: 'deepseek_not_configured' };
-    }
-    return { provider: 'deepseek' };
   }
-
-  return { provider: 'default' };
+  return aiService.resolveModel(visible[0].id);
 }
 
-function getDefaultPrompt(provider) {
-  return provider === 'deepseek' ? DEFAULT_SYSTEM_PROMPT_DS : DEFAULT_SYSTEM_PROMPT_GPT;
+// 主模型失败后的替代模型：全局默认（若不同）> 其他可用模型
+function getFallbackModel(primaryId) {
+  var defaultId = aiService.getDefaultModelId();
+  if (defaultId && defaultId !== primaryId) {
+    var defMc = aiService.resolveModel(defaultId);
+    if (defMc.enabled && defMc.apiUrl) return defMc;
+  }
+  var visible = getUserVisibleModels();
+  for (var i = 0; i < visible.length; i++) {
+    if (visible[i].id !== primaryId) {
+      var mc = aiService.resolveModel(visible[i].id);
+      if (mc.enabled && mc.apiUrl) return mc;
+    }
+  }
+  return null;
+}
+
+function getEffectiveSystemPrompt(convPersona, userSystemPrompt) {
+  if (convPersona && convPersona.trim()) return convPersona.trim();
+  if (userSystemPrompt && userSystemPrompt.trim()) return userSystemPrompt.trim();
+  return DEFAULT_SYSTEM_PROMPT;
 }
 
 function buildAiMessages(messages, summary, systemPrompt, userMessage, enableThinking) {
@@ -206,7 +234,7 @@ function buildAiMessages(messages, summary, systemPrompt, userMessage, enableThi
   aiMessages.push({ role: 'system', content: SYSTEM_PROMPT_PREFIX });
 
   // Layer 2: Variable persona suffix - only if different from immutable prefix
-  var effectivePrompt = systemPrompt || DEFAULT_SYSTEM_PROMPT_DS;
+  var effectivePrompt = systemPrompt || DEFAULT_SYSTEM_PROMPT;
   if (effectivePrompt !== SYSTEM_PROMPT_PREFIX) {
     aiMessages.push({ role: 'system', content: effectivePrompt });
   }
@@ -311,21 +339,6 @@ function formatMessageForApi(msg, enableThinking) {
   return formatted;
 }
 
-function cleanMessagesForApi(messages) {
-  var cleaned = [];
-  for (var i = 0; i < messages.length; i++) {
-    var m = { role: messages[i].role, content: messages[i].content };
-    cleaned.push(m);
-  }
-  return cleaned;
-}
-
-function getEffectiveSystemPrompt(convPersona, userSystemPrompt, provider) {
-  if (convPersona && convPersona.trim()) return convPersona.trim();
-  if (userSystemPrompt && userSystemPrompt.trim()) return userSystemPrompt.trim();
-  return getDefaultPrompt(provider || 'default');
-}
-
 function appendMessageAtomic(conversationId, message) {
   var current = db.prepare('SELECT messages_json FROM conversations WHERE id = ?').get(conversationId);
   if (!current) return null;
@@ -365,9 +378,15 @@ function generateSummaryAsync(conversationId, messages, existingSummary) {
 
   summaryPrompt.push({ role: 'user', content: conversationText });
 
-  // Use free default model for summary to save costs, fallback to deepseek only if it fails
-  aiService.chatWithAI(summaryPrompt, { maxTokens: 200, temperature: 0.3, userId: 'system-summary' }).catch(function() {
-    return aiService.chatWithAI(summaryPrompt, { maxTokens: 200, temperature: 0.3, provider: 'deepseek', userId: 'system-summary' });
+  // Use default model for summary to save costs, fallback to any other enabled model
+  var defaultId = aiService.getDefaultModelId();
+  aiService.chatWithAI(summaryPrompt, { maxTokens: 200, temperature: 0.3, modelId: defaultId, userId: 'system-summary' }).catch(function() {
+    var list = aiService.getEnabledModels() || [];
+    for (var fi = 0; fi < list.length; fi++) {
+      if (list[fi].id === defaultId) continue;
+      return aiService.chatWithAI(summaryPrompt, { maxTokens: 200, temperature: 0.3, modelId: list[fi].id, userId: 'system-summary' });
+    }
+    throw new Error('no available model for summary');
   }).then(function(data) {
     var summary = '';
     if (data.choices && data.choices[0] && data.choices[0].message) {
@@ -383,6 +402,10 @@ function generateSummaryAsync(conversationId, messages, existingSummary) {
 }
 
 router.use(auth.requireAuth);
+
+// ============================================================
+// 对话 CRUD（不变）
+// ============================================================
 
 router.get('/conversations', function(req, res) {
   var stmt = db.prepare('SELECT id, user_id, title, summary, persona, created_at, updated_at FROM conversations WHERE user_id = ? ORDER BY updated_at DESC');
@@ -457,13 +480,336 @@ router.put('/conversations/:id/messages', function(req, res) {
   res.json({ code: 200, message: 'ok' });
 });
 
+// ============================================================
+// 模型 API（用户端）
+// ============================================================
+
+router.get('/models', function(req, res) {
+  var visible = getUserVisibleModels();
+  var defaultId = aiService.getDefaultModelId();
+  var models = visible.map(function(row) {
+    return {
+      id: row.id,
+      label: row.label,
+      color: row.color || '#6366f1',
+      is_free: !!row.is_free,
+      supports_thinking: !!row.supports_thinking,
+      supports_search: !!row.supports_search,
+      is_default: row.id === defaultId
+    };
+  });
+  var settings = getUserAiSettings(req.user.user_id);
+  res.json({ code: 200, message: 'ok', data: { models: models, default_model: defaultId, user_model: settings.model || '' } });
+});
+
+// ============================================================
+// 用户设置 API
+// ============================================================
+
+router.get('/settings', function(req, res) {
+  var settings = getUserAiSettings(req.user.user_id);
+  // deepseek_enabled：旧前端兼容字段（新版以 /models 为准）
+  var visible = getUserVisibleModels();
+  for (var i = 0; i < visible.length; i++) {
+    if (visible[i].id === 'deepseek') { settings.deepseek_enabled = true; break; }
+  }
+  res.json({ code: 200, message: 'ok', data: settings });
+});
+
+router.put('/settings', function(req, res) {
+  var current = getUserAiSettings(req.user.user_id);
+  if (req.body.system_prompt !== undefined) {
+    current.system_prompt = req.body.system_prompt;
+  }
+  if (req.body.pinned_conversations !== undefined) {
+    current.pinned_conversations = req.body.pinned_conversations;
+  }
+  if (req.body.model !== undefined) {
+    var visible = getUserVisibleModels();
+    var found = false;
+    for (var i = 0; i < visible.length; i++) {
+      if (visible[i].id === req.body.model) { found = true; break; }
+    }
+    if (!found) {
+      return res.status(400).json({ code: 400, message: '该模型不可用' });
+    }
+    current.model = req.body.model;
+  }
+  saveUserAiSettings(req.user.user_id, current);
+  res.json({ code: 200, message: 'ok', data: current });
+});
+
+// ============================================================
+// 管理端：AI 模型管理（仅 is_admin=1，班干不可用 —— 涉及 API Key）
+// ============================================================
+
+var adminGate = function(req, res, next) {
+  if (req.user && req.user.is_admin === 1) return next();
+  return res.status(403).json({ code: 403, message: '仅系统管理员可管理 AI 模型' });
+};
+router.use('/admin', adminGate);
+
+function maskKey(key) {
+  if (!key) return '';
+  if (key.length <= 8) return '****';
+  return key.substring(0, 4) + '****' + key.substring(key.length - 4);
+}
+
+// 管理端校验并规范化模型字段；errText 非空表示校验失败
+function validateModelInput(body, isCreate) {
+  var out = {};
+  if (isCreate || body.label !== undefined) {
+    var label = String(body.label || '').trim();
+    if (!label) return { error: '模型名称不能为空' };
+    if (label.length > 30) return { error: '模型名称过长（最多 30 字）' };
+    out.label = label;
+  }
+  if (isCreate || body.api_url !== undefined) {
+    var url = String(body.api_url || '').trim();
+    if (isCreate && !url) return { error: 'API 地址不能为空（内置模型可留空以使用环境变量配置）' };
+    if (url && !/^https?:\/\//i.test(url)) return { error: 'API 地址必须以 http:// 或 https:// 开头' };
+    out.api_url = url;
+  }
+  if (isCreate || body.model !== undefined) {
+    var model = String(body.model || '').trim();
+    if (!model && isCreate) return { error: '模型标识（请求体 model 参数）不能为空' };
+    out.model = model;
+  }
+  if (isCreate || body.api_key !== undefined) {
+    out.api_key = String(body.api_key || '').trim();
+  }
+  if (body.color !== undefined) {
+    var color = String(body.color || '').trim();
+    out.color = /^#[0-9a-fA-F]{6}$/.test(color) ? color : '#6366f1';
+  }
+  if (body.api_style !== undefined) {
+    out.api_style = body.api_style === 'deepseek' ? 'deepseek' : 'openai';
+  }
+  if (body.supports_thinking !== undefined) out.supports_thinking = body.supports_thinking ? 1 : 0;
+  if (body.supports_search !== undefined) out.supports_search = body.supports_search ? 1 : 0;
+  if (body.is_free !== undefined) out.is_free = body.is_free ? 1 : 0;
+  if (body.enabled !== undefined) out.enabled = body.enabled ? 1 : 0;
+  if (body.sort_order !== undefined) {
+    var so = parseInt(body.sort_order, 10);
+    out.sort_order = isNaN(so) ? 0 : Math.max(0, Math.min(9999, so));
+  }
+  return { value: out };
+}
+
+// 全局默认迁移：defaultId 为新的默认模型（需 enabled），无可用模型则清空默认
+function setDefaultModelId(newId) {
+  db.prepare('UPDATE ai_models SET is_default = 0 WHERE is_default = 1').run();
+  if (!newId) return;
+  var row = db.prepare('SELECT enabled FROM ai_models WHERE id = ?').get(newId);
+  if (row && row.enabled) {
+    db.prepare('UPDATE ai_models SET is_default = 1, updated_at = datetime(\'now\') WHERE id = ?').run(newId);
+  }
+}
+
+router.get('/admin/models', function(req, res) {
+  var rows = aiService.getAllModels();
+  if (rows === null) rows = [];
+  var defaultId = aiService.getDefaultModelId();
+  var data = rows.map(function(row) {
+    var keyFromEnv = !row.api_key && (row.id === 'default' ? !!config.ai.apiKey : row.id === 'deepseek' ? !!config.deepseek.apiKey : false);
+    return {
+      id: row.id,
+      label: row.label,
+      api_url: row.api_url,
+      api_key_masked: row.api_key ? maskKey(row.api_key) : (keyFromEnv ? '（来自环境变量）' : ''),
+      has_key: !!row.api_key || keyFromEnv,
+      key_from_env: keyFromEnv,
+      model: row.model,
+      color: row.color,
+      api_style: row.api_style,
+      supports_thinking: !!row.supports_thinking,
+      supports_search: !!row.supports_search,
+      is_free: !!row.is_free,
+      enabled: !!row.enabled,
+      is_default: row.id === defaultId,
+      builtin: !!row.builtin,
+      sort_order: row.sort_order
+    };
+  });
+  res.json({ code: 200, message: 'ok', data: { models: data, default_model: defaultId } });
+});
+
+router.post('/admin/models', function(req, res) {
+  var id = String(req.body.id || '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+  if (!id) {
+    // 从 label 生成 id 兜底
+    id = 'model-' + Date.now().toString(36);
+  }
+  if (id.length > 32) id = id.substring(0, 32);
+  if (db.prepare('SELECT id FROM ai_models WHERE id = ?').get(id)) {
+    return res.status(400).json({ code: 400, message: '模型 ID「' + id + '」已存在，请换一个' });
+  }
+  var check = validateModelInput(req.body, true);
+  if (check.error) return res.status(400).json({ code: 400, message: check.error });
+  var v = check.value;
+
+  db.prepare([
+    'INSERT INTO ai_models (id, label, api_url, api_key, model, color, api_style, supports_thinking, supports_search, is_free, enabled, is_default, builtin, sort_order)',
+    'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)'
+  ].join('\n')).run(
+    id, v.label, v.api_url || '', v.api_key || '', v.model || '',
+    v.color || '#6366f1', v.api_style || 'openai',
+    v.supports_thinking || 0, v.supports_search || 0,
+    v.is_free || 0, v.enabled === undefined ? 1 : v.enabled, v.sort_order || 100
+  );
+
+  if (req.body.is_default) setDefaultModelId(id);
+  console.log('[AI-Admin] model created: %s (%s) by %s', id, v.label, req.user.user_id);
+  res.json({ code: 200, message: 'ok', data: { id: id } });
+});
+
+// 注意：必须定义在 PUT /admin/models/:id 之前，否则 "default" 会被当作 :id 捕获
+router.put('/admin/models/default', function(req, res) {
+  var id = String(req.body.id || '');
+  var row = aiService.getModelRow(id);
+  if (!row) return res.status(404).json({ code: 404, message: '模型不存在' });
+  if (!row.enabled) return res.status(400).json({ code: 400, message: '该模型已停用，请先启用' });
+  setDefaultModelId(id);
+  console.log('[AI-Admin] default model set: %s by %s', id, req.user.user_id);
+  res.json({ code: 200, message: 'ok' });
+});
+
+router.put('/admin/models/:id', function(req, res) {
+  var row = aiService.getModelRow(req.params.id);
+  if (!row) return res.status(404).json({ code: 404, message: '模型不存在' });
+
+  var check = validateModelInput(req.body, false);
+  if (check.error) return res.status(400).json({ code: 400, message: check.error });
+  var v = check.value;
+
+  var sets = [];
+  var params = [];
+  var allowed = ['label', 'api_url', 'model', 'color', 'api_style', 'supports_thinking', 'supports_search', 'is_free', 'enabled', 'sort_order'];
+  for (var i = 0; i < allowed.length; i++) {
+    var field = allowed[i];
+    if (v[field] !== undefined) {
+      sets.push(field + ' = ?');
+      params.push(v[field]);
+    }
+  }
+  // api_key：非空才更新（留空 = 不修改，避免管理面板误清空）
+  if (v.api_key) {
+    sets.push('api_key = ?');
+    params.push(v.api_key);
+  }
+  // 自定义模型 api_url 不能清空
+  if (v.api_url === '' && !row.builtin) {
+    return res.status(400).json({ code: 400, message: '自定义模型的 API 地址不能为空' });
+  }
+  if (sets.length > 0) {
+    params.push(row.id);
+    // better-sqlite3 铁律：stmt 方法必须 apply(stmt, ...) 绑定 this，否则 Illegal invocation
+    var stmt = db.prepare("UPDATE ai_models SET " + sets.join(', ') + ", updated_at = datetime('now') WHERE id = ?");
+    stmt.run.apply(stmt, params);
+  }
+
+  if (req.body.is_default === true) setDefaultModelId(row.id);
+  console.log('[AI-Admin] model updated: %s by %s', row.id, req.user.user_id);
+  res.json({ code: 200, message: 'ok' });
+});
+
+router.delete('/admin/models/:id', function(req, res) {
+  var row = aiService.getModelRow(req.params.id);
+  if (!row) return res.status(404).json({ code: 404, message: '模型不存在' });
+
+  db.prepare('DELETE FROM ai_models WHERE id = ?').run(row.id);
+  // 被删模型若是全局默认 → 迁移到剩余可用模型
+  var remaining = aiService.getEnabledModels() || [];
+  setDefaultModelId(remaining.length > 0 ? remaining[0].id : null);
+  console.log('[AI-Admin] model deleted: %s by %s', row.id, req.user.user_id);
+  res.json({ code: 200, message: 'ok' });
+});
+
+router.put('/admin/models/:id/toggle', function(req, res) {
+  var row = aiService.getModelRow(req.params.id);
+  if (!row) return res.status(404).json({ code: 404, message: '模型不存在' });
+
+  var enabled = req.body.enabled ? 1 : 0;
+  db.prepare("UPDATE ai_models SET enabled = ?, updated_at = datetime('now') WHERE id = ?").run(enabled, row.id);
+  // 禁用了默认模型 → 默认迁移
+  if (!enabled && row.is_default) {
+    var remaining = aiService.getEnabledModels() || [];
+    setDefaultModelId(remaining.length > 0 ? remaining[0].id : null);
+  }
+  console.log('[AI-Admin] model %s: %s by %s', enabled ? 'enabled' : 'disabled', row.id, req.user.user_id);
+  res.json({ code: 200, message: 'ok' });
+});
+
+// 测试连接：body 可带 { id }（测已保存配置）或完整配置（测未保存的新模型）
+router.post('/admin/models/test', function(req, res) {
+  var apiUrl, apiKey, modelName;
+  if (req.body.id) {
+    var row = aiService.getModelRow(req.body.id);
+    if (!row) return res.status(404).json({ code: 404, message: '模型不存在' });
+    var mc = aiService.resolveModel(row.id);
+    apiUrl = mc.apiUrl; apiKey = mc.apiKey; modelName = mc.model;
+  } else {
+    apiUrl = String(req.body.api_url || '').trim();
+    apiKey = String(req.body.api_key || '').trim();
+    modelName = String(req.body.model || '').trim();
+  }
+  if (!apiUrl) return res.status(400).json({ code: 400, message: 'API 地址不能为空' });
+  if (!modelName) return res.status(400).json({ code: 400, message: '模型标识不能为空' });
+
+  var startedAt = Date.now();
+  axios.post(apiUrl, {
+    model: modelName,
+    messages: [{ role: 'user', content: '你好，请回复"连接正常"四个字' }],
+    max_tokens: 20,
+    stream: false
+  }, {
+    headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+    timeout: 15000
+  }).then(function(response) {
+    var latency = Date.now() - startedAt;
+    var data = response.data || {};
+    var reply = '';
+    if (data.choices && data.choices[0] && data.choices[0].message) reply = (data.choices[0].message.content || '').trim();
+    if (data.error) {
+      var errMsg = typeof data.error === 'object' ? (data.error.message || JSON.stringify(data.error)) : String(data.error);
+      return res.json({ code: 200, message: 'ok', data: { ok: false, message: 'API 返回错误：' + errMsg, latency_ms: latency } });
+    }
+    res.json({ code: 200, message: 'ok', data: { ok: true, message: '连接成功' + (reply ? '，模型回复：' + reply.substring(0, 50) : ''), latency_ms: latency } });
+  }).catch(function(err) {
+    var latency = Date.now() - startedAt;
+    var message = '连接失败';
+    if (err.code === 'ECONNABORTED') message = '连接超时（15 秒无响应）';
+    else if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND') message = '无法连接到该地址，请检查 URL';
+    else if (err.response) {
+      var status = err.response.status;
+      var detail = '';
+      var bodyData = err.response.data;
+      if (bodyData && bodyData.error) detail = typeof bodyData.error === 'object' ? (bodyData.error.message || '') : String(bodyData.error);
+      if (status === 401) message = 'API 密钥无效（401）' + (detail ? '：' + detail : '');
+      else if (status === 404) message = '接口或模型不存在（404）' + (detail ? '：' + detail : '');
+      else if (status === 402) message = '余额不足（402）' + (detail ? '：' + detail : '');
+      else message = 'HTTP ' + status + (detail ? '：' + detail : '');
+    }
+    res.json({ code: 200, message: 'ok', data: { ok: false, message: message, latency_ms: latency } });
+  });
+});
+
+// ============================================================
+// 聊天（/chat 与 /chat/stream）
+// ============================================================
+
+// 构造调用 aiService 的选项（统一 modelId 语义）
+function buildAiOptions(mc, userId, thinking) {
+  var opts = { modelId: mc.id, userId: userId };
+  if (thinking && mc.supportsThinking) opts.thinking = true;
+  return opts;
+}
+
 router.post('/chat', function(req, res) {
   var conversationId = req.body.conversation_id;
   var userMessage = req.body.message;
   var userSystemPrompt = req.body.system_prompt;
   var requestedModel = req.body.model;
-  var requestedGptModel = req.body.gpt_model;
-  var thinking = !!req.body.thinking;
 
   if (!userMessage) return res.status(400).json({ code: 400, message: '消息不能为空' });
   if (!conversationId) return res.status(400).json({ code: 400, message: '对话ID不能为空' });
@@ -472,12 +818,12 @@ router.post('/chat', function(req, res) {
   if (!conv) return res.status(404).json({ code: 404, message: '对话不存在' });
 
   var aiSettings = getUserAiSettings(req.user.user_id);
-  var providerInfo = getProviderForUser(req.user.user_id, requestedModel);
-  var provider = providerInfo.provider;
+  var mc = resolveUserModel(req.user.user_id, requestedModel);
+  if (!mc) return res.status(503).json({ code: 503, message: '暂无可用模型，请联系管理员启用' });
 
-  if (thinking && provider !== 'deepseek') thinking = false;
+  var thinking = !!req.body.thinking && mc.supportsThinking;
 
-  var systemPrompt = getEffectiveSystemPrompt(conv.persona, userSystemPrompt || aiSettings.system_prompt, provider);
+  var systemPrompt = getEffectiveSystemPrompt(conv.persona, userSystemPrompt || aiSettings.system_prompt);
   var messages = JSON.parse(conv.messages_json || '[]');
   var summary = conv.summary || '';
 
@@ -490,12 +836,8 @@ router.post('/chat', function(req, res) {
     timestamp: new Date().toISOString()
   });
 
-  var aiOptions = { provider: provider, userId: req.user.user_id };
-  if (provider === 'default') {
-    aiOptions.model = getGptModel(req.user.user_id, requestedGptModel);
-  }
-  if (thinking) aiOptions.thinking = true;
-  if (shouldEnableSearch(provider)) {
+  var aiOptions = buildAiOptions(mc, req.user.user_id, thinking);
+  if (shouldEnableSearch(mc)) {
     aiOptions.tools = [SEARCH_TOOL];
   }
 
@@ -531,137 +873,122 @@ router.post('/chat', function(req, res) {
       }
     }
 
-    var msgData = {
-      role: 'assistant',
+    var finalMessages = finishAssistantReply(conversationId, {
       content: aiContent,
-      timestamp: new Date().toISOString()
+      reasoning: reasoningContent,
+      isFirstMessage: isFirstMessage,
+      userMessage: userMessage,
+      summary: summary,
+      usedModelId: mc.id,
+      usage: data.usage || null
+    });
+
+    var responseData = {
+      content: aiContent,
+      title: isFirstMessage ? userMessage.substring(0, 30) : null,
+      model: mc.id,
+      model_label: mc.label
     };
-    if (reasoningContent) {
-      msgData.reasoning = reasoningContent;
-    }
-
-    var finalMessages = appendMessageAtomic(conversationId, msgData);
-
-    if (isFirstMessage) {
-      db.prepare('UPDATE conversations SET title = ? WHERE id = ?').run(userMessage.substring(0, 30), conversationId);
-    }
-
+    if (reasoningContent) responseData.reasoning = reasoningContent;
     if (finalMessages && shouldGenerateSummary(finalMessages, summary)) {
       generateSummaryAsync(conversationId, finalMessages, summary);
     }
-
-    var responseData = { content: aiContent, title: isFirstMessage ? userMessage.substring(0, 30) : null, model: provider };
-    if (reasoningContent) responseData.reasoning = reasoningContent;
-    if (data.usage) {
-      responseData.usage = {
-        prompt_tokens: data.usage.prompt_tokens || 0,
-        completion_tokens: data.usage.completion_tokens || 0,
-        cache_hit: data.usage.prompt_cache_hit_tokens || 0,
-        cache_miss: data.usage.prompt_cache_miss_tokens || 0
-      };
-      var hitRate = data.usage.prompt_tokens > 0
-        ? Math.round((data.usage.prompt_cache_hit_tokens || 0) / data.usage.prompt_tokens * 100)
-        : 0;
-      console.log('[Cache] user=%s conv=%s hit=%d miss=%d rate=%d%% provider=%s',
-        req.user.user_id, conversationId.substring(0, 8),
-        data.usage.prompt_cache_hit_tokens || 0,
-        data.usage.prompt_cache_miss_tokens || 0,
-        hitRate, provider);
-    }
     res.json({ code: 200, message: 'ok', data: responseData });
   }).catch(function(err) {
-    if (provider === 'default' && aiSettings.deepseek_enabled && config.deepseek.apiKey) {
-      console.log('[Fallback] Default model failed, retrying with DeepSeek...');
-      var fallbackOptions = { provider: 'deepseek', userId: req.user.user_id };
-      if (thinking) fallbackOptions.thinking = true;
-      return aiService.chatWithAI(aiMessages, fallbackOptions).then(function(data) {
+    // 主模型失败 → 尝试替代模型（全局默认或其他可用模型）
+    var fbMc = getFallbackModel(mc.id);
+    if (fbMc) {
+      console.log('[Fallback] %s failed (%s), retrying with %s...', mc.id, err.message, fbMc.id);
+      var fbThinking = thinking && fbMc.supportsThinking;
+      var fbOptions = buildAiOptions(fbMc, req.user.user_id, fbThinking);
+      return aiService.chatWithAI(aiMessages, fbOptions).then(function(data) {
         var aiContent = '';
         var reasoningContent = '';
         if (data.choices && data.choices[0] && data.choices[0].message) {
           aiContent = data.choices[0].message.content || '';
-          if (thinking) {
+          if (fbThinking) {
             reasoningContent = data.choices[0].message.reasoning_content || '';
           }
         }
-        var msgData = { role: 'assistant', content: aiContent, timestamp: new Date().toISOString() };
-        if (reasoningContent) msgData.reasoning = reasoningContent;
-        var finalMessages = appendMessageAtomic(conversationId, msgData);
-        if (isFirstMessage) {
-          db.prepare('UPDATE conversations SET title = ? WHERE id = ?').run(userMessage.substring(0, 30), conversationId);
-        }
+        var finalMessages = finishAssistantReply(conversationId, {
+          content: aiContent,
+          reasoning: reasoningContent,
+          isFirstMessage: isFirstMessage,
+          userMessage: userMessage,
+          summary: summary,
+          usedModelId: fbMc.id,
+          usage: data.usage || null
+        });
+        var responseData = { content: aiContent, title: isFirstMessage ? userMessage.substring(0, 30) : null, model: fbMc.id, model_label: fbMc.label, fallback: true };
+        if (reasoningContent) responseData.reasoning = reasoningContent;
         if (finalMessages && shouldGenerateSummary(finalMessages, summary)) {
           generateSummaryAsync(conversationId, finalMessages, summary);
-        }
-        var responseData = { content: aiContent, title: isFirstMessage ? userMessage.substring(0, 30) : null, model: 'deepseek', fallback: true };
-        if (reasoningContent) responseData.reasoning = reasoningContent;
-        if (data.usage) {
-          responseData.usage = {
-            prompt_tokens: data.usage.prompt_tokens || 0,
-            completion_tokens: data.usage.completion_tokens || 0,
-            cache_hit: data.usage.prompt_cache_hit_tokens || 0,
-            cache_miss: data.usage.prompt_cache_miss_tokens || 0
-          };
-          var hitRate2 = data.usage.prompt_tokens > 0
-            ? Math.round((data.usage.prompt_cache_hit_tokens || 0) / data.usage.prompt_tokens * 100)
-            : 0;
-          console.log('[Cache] user=%s conv=%s hit=%d miss=%d rate=%d%% provider=deepseek(fallback)',
-            req.user.user_id, conversationId.substring(0, 8),
-            data.usage.prompt_cache_hit_tokens || 0,
-            data.usage.prompt_cache_miss_tokens || 0,
-            hitRate2);
         }
         res.json({ code: 200, message: 'ok', data: responseData });
       }).catch(function(fallbackErr) {
         console.error('AI chat fallback error:', fallbackErr.message);
         var fbApiErr = extractApiError(fallbackErr);
-        var errorMsg;
-        if (fbApiErr.isApiError) {
-          errorMsg = translateApiError(fbApiErr.message, fbApiErr.code, 'deepseek');
-        } else if (fallbackErr.code === 'ECONNABORTED') errorMsg = 'AI 响应超时，请稍后重试';
-        else if (fallbackErr.code === 'ECONNREFUSED' || fallbackErr.code === 'ERR_NETWORK') errorMsg = '无法连接到 AI 服务，请检查网络';
-        else if (fallbackErr.response) {
-          var fbStatus = fallbackErr.response.status;
-          if (fbStatus === 401) errorMsg = 'API 密钥无效';
-          else if (fbStatus === 402 || fbStatus === 403) errorMsg = 'AI 服务余额不足，请联系管理员';
-          else if (fbStatus === 429) errorMsg = '请求过于频繁，请稍后再试';
-          else if (fbStatus >= 500) errorMsg = 'AI 服务内部错误，请稍后重试';
-          else errorMsg = 'AI 服务错误（' + fbStatus + '），请稍后重试';
-        } else {
-          errorMsg = 'AI 服务暂时不可用，请稍后重试';
-        }
+        var errorMsg = fbApiErr.isApiError
+          ? translateApiError(fbApiErr.message, fbApiErr.code, fbMc.label)
+          : mapNetworkError(fallbackErr);
         res.status(502).json({ code: 502, message: errorMsg });
       });
     }
     console.error('AI chat error:', err.message);
     var apiErr = extractApiError(err);
-    var errorMsg;
-    if (apiErr.isApiError) {
-      errorMsg = translateApiError(apiErr.message, apiErr.code, provider);
-    } else if (err.code === 'ECONNABORTED') errorMsg = 'AI 响应超时，请稍后重试';
-    else if (err.code === 'ECONNREFUSED' || err.code === 'ERR_NETWORK') errorMsg = '无法连接到 AI 服务，请检查网络';
-    else if (err.response) {
-      var status = err.response.status;
-      if (status === 401) errorMsg = 'API 密钥无效，请联系管理员更新配置';
-      else if (status === 402) errorMsg = 'AI 服务余额不足，请联系管理员';
-      else if (status === 403) errorMsg = 'GPT 服务访问被拒绝，可能配额已用完，请切换到 DeepSeek 后重试';
-      else if (status === 429) errorMsg = '请求过于频繁，请稍后再试';
-      else if (status === 422) errorMsg = '请求参数错误';
-      else if (status >= 500) errorMsg = 'AI 服务内部错误，请稍后重试';
-      else errorMsg = 'AI 服务错误（' + status + '），请稍后重试';
-    } else {
-      errorMsg = 'AI 服务暂时不可用，请稍后重试';
-    }
+    var errorMsg = apiErr.isApiError
+      ? translateApiError(apiErr.message, apiErr.code, mc.label)
+      : mapNetworkError(err);
     res.status(502).json({ code: 502, message: errorMsg });
   });
 });
+
+// 网络层错误 → 用户可读文案
+function mapNetworkError(err) {
+  if (err.code === 'ECONNABORTED') return 'AI 响应超时，请稍后重试';
+  if (err.code === 'ECONNREFUSED' || err.code === 'ERR_NETWORK' || err.code === 'ENOTFOUND') return '无法连接到 AI 服务，请检查网络';
+  if (err.response) {
+    var status = err.response.status;
+    if (status === 401) return 'API 密钥无效，请联系管理员更新配置';
+    if (status === 402) return 'AI 服务余额不足，请联系管理员';
+    if (status === 403) return 'AI 服务访问被拒绝，请切换其他模型后重试';
+    if (status === 429) return '请求过于频繁，请稍后再试';
+    if (status === 422) return '请求参数错误';
+    if (status >= 500) return 'AI 服务内部错误，请稍后重试';
+    return 'AI 服务错误（' + status + '），请稍后重试';
+  }
+  return 'AI 服务暂时不可用，请稍后重试';
+}
+
+// 落库助手回复 + 首条消息命名 + usage 日志（chat 与 fallback 共用）
+function finishAssistantReply(conversationId, p) {
+  if (!p.content) {
+    db.prepare("UPDATE conversations SET updated_at = datetime('now') WHERE id = ?").run(conversationId);
+    return null;
+  }
+  var msgData = { role: 'assistant', content: p.content, timestamp: new Date().toISOString() };
+  if (p.reasoning) msgData.reasoning = p.reasoning;
+  var finalMessages = appendMessageAtomic(conversationId, msgData);
+  if (p.isFirstMessage) {
+    db.prepare('UPDATE conversations SET title = ? WHERE id = ?').run(p.userMessage.substring(0, 30), conversationId);
+  }
+  if (p.usage) {
+    var hitRate = p.usage.prompt_tokens > 0
+      ? Math.round((p.usage.prompt_cache_hit_tokens || 0) / p.usage.prompt_tokens * 100)
+      : 0;
+    console.log('[Cache] conv=%s model=%s hit=%d miss=%d rate=%d%%',
+      conversationId.substring(0, 8), p.usedModelId,
+      p.usage.prompt_cache_hit_tokens || 0,
+      p.usage.prompt_cache_miss_tokens || 0, hitRate);
+  }
+  return finalMessages;
+}
 
 router.post('/chat/stream', function(req, res) {
   var conversationId = req.body.conversation_id;
   var userMessage = req.body.message;
   var userSystemPrompt = req.body.system_prompt;
   var requestedModel = req.body.model;
-  var requestedGptModel = req.body.gpt_model;
-  var thinking = !!req.body.thinking;
 
   if (!userMessage) return res.status(400).json({ code: 400, message: '消息不能为空' });
   if (!conversationId) return res.status(400).json({ code: 400, message: '对话ID不能为空' });
@@ -670,12 +997,12 @@ router.post('/chat/stream', function(req, res) {
   if (!conv) return res.status(404).json({ code: 404, message: '对话不存在' });
 
   var aiSettings = getUserAiSettings(req.user.user_id);
-  var providerInfo = getProviderForUser(req.user.user_id, requestedModel);
-  var provider = providerInfo.provider;
+  var mc = resolveUserModel(req.user.user_id, requestedModel);
+  if (!mc) return res.status(503).json({ code: 503, message: '暂无可用模型，请联系管理员启用' });
 
-  if (thinking && provider !== 'deepseek') thinking = false;
+  var thinking = !!req.body.thinking && mc.supportsThinking;
 
-  var systemPrompt = getEffectiveSystemPrompt(conv.persona, userSystemPrompt || aiSettings.system_prompt, provider);
+  var systemPrompt = getEffectiveSystemPrompt(conv.persona, userSystemPrompt || aiSettings.system_prompt);
   var messages = JSON.parse(conv.messages_json || '[]');
   var summary = conv.summary || '';
 
@@ -726,28 +1053,22 @@ router.post('/chat/stream', function(req, res) {
     }
   });
 
-  var aiOptions = {
-    provider: provider,
-    userId: req.user.user_id,
-    onContent: function(content) {
-      fullContent += content;
-    },
-    onReasoning: function(reasoning) {
-      fullReasoning += reasoning;
-    }
+  var aiOptions = buildAiOptions(mc, req.user.user_id, thinking);
+  aiOptions.onContent = function(content) {
+    fullContent += content;
   };
-  if (provider === 'default') {
-    aiOptions.model = getGptModel(req.user.user_id, requestedGptModel);
-  }
-  if (thinking) aiOptions.thinking = true;
-  if (shouldEnableSearch(provider)) {
+  aiOptions.onReasoning = function(reasoning) {
+    fullReasoning += reasoning;
+  };
+  var enableSearch = shouldEnableSearch(mc);
+  if (enableSearch) {
     aiOptions.tools = [SEARCH_TOOL];
   }
 
   // For stream mode with search enabled, we need to handle tool_calls.
   // Strategy: Use non-stream for the first call to detect tool_calls,
   // then stream the final response after search results are injected.
-  if (shouldEnableSearch(provider)) {
+  if (enableSearch) {
     var nonStreamOptions = Object.assign({}, aiOptions);
     delete nonStreamOptions.stream;
     delete nonStreamOptions.onContent;
@@ -808,7 +1129,7 @@ router.post('/chat/stream', function(req, res) {
       console.error('AI stream+search error:', err.message);
       if (!res.writableEnded) {
         var ssApiErr = extractApiError(err);
-        var ssErrMsg = ssApiErr.isApiError ? translateApiError(ssApiErr.message, ssApiErr.code, provider) : 'AI 服务暂时不可用';
+        var ssErrMsg = ssApiErr.isApiError ? translateApiError(ssApiErr.message, ssApiErr.code, mc.label) : 'AI 服务暂时不可用';
         res.write('data: ' + JSON.stringify({ error: ssErrMsg }) + '\n\n');
         res.write('data: ' + JSON.stringify({ done: true }) + '\n\n');
         res.end();
@@ -819,26 +1140,26 @@ router.post('/chat/stream', function(req, res) {
     aiService.chatWithAIStream(aiMessages, res, aiOptions).then(function() {
       saveAssistantMessage();
     }).catch(function(streamErr) {
-      if (provider === 'default' && aiSettings.deepseek_enabled && config.deepseek.apiKey) {
-        console.log('[Fallback] Default model stream failed (' + (streamErr ? streamErr.message : 'unknown') + '), retrying with DeepSeek...');
-        res.write('data: ' + JSON.stringify({ fallback: true, model: 'deepseek' }) + '\n\n');
-        var fallbackOptions = {
-          provider: 'deepseek',
-          userId: req.user.user_id,
-          onContent: function(content) {
-            fullContent += content;
-          },
-          onReasoning: function(reasoning) {
-            if (thinking) fullReasoning += reasoning;
-          }
+      // chatWithAIStream 失败时可能已自行结束响应（sendSSE error + res.end），
+      // 此时不能再 fallback，否则触发 ERR_STREAM_WRITE_AFTER_END 崩溃
+      var fbMc = res.writableEnded ? null : getFallbackModel(mc.id);
+      if (fbMc) {
+        console.log('[Fallback] %s stream failed (%s), retrying with %s...', mc.id, streamErr ? streamErr.message : 'unknown', fbMc.id);
+        res.write('data: ' + JSON.stringify({ fallback: true, model: fbMc.id, model_label: fbMc.label }) + '\n\n');
+        var fbThinking = thinking && fbMc.supportsThinking;
+        var fallbackOptions = buildAiOptions(fbMc, req.user.user_id, fbThinking);
+        fallbackOptions.onContent = function(content) {
+          fullContent += content;
         };
-        if (thinking) fallbackOptions.thinking = true;
+        fallbackOptions.onReasoning = function(reasoning) {
+          if (fbThinking) fullReasoning += reasoning;
+        };
         aiService.chatWithAIStream(aiMessages, res, fallbackOptions).then(function() {
           saveAssistantMessage();
         }).catch(function(fbErr) {
           if (!res.writableEnded) {
             var fbApiErr = extractApiError(fbErr);
-            var fbErrMsg = fbApiErr.isApiError ? translateApiError(fbApiErr.message, fbApiErr.code, 'deepseek') : 'AI 服务暂时不可用，请稍后重试';
+            var fbErrMsg = fbApiErr.isApiError ? translateApiError(fbApiErr.message, fbApiErr.code, fbMc.label) : 'AI 服务暂时不可用，请稍后重试';
             res.write('data: ' + JSON.stringify({ error: fbErrMsg }) + '\n\n');
             res.write('data: ' + JSON.stringify({ done: true }) + '\n\n');
           }
@@ -847,7 +1168,7 @@ router.post('/chat/stream', function(req, res) {
       } else {
         if (!res.writableEnded) {
           var seApiErr = streamErr ? extractApiError(streamErr) : { isApiError: false };
-          var seErrMsg = seApiErr.isApiError ? translateApiError(seApiErr.message, seApiErr.code, provider) : 'AI 服务暂时不可用，请稍后重试';
+          var seErrMsg = seApiErr.isApiError ? translateApiError(seApiErr.message, seApiErr.code, mc.label) : 'AI 服务暂时不可用，请稍后重试';
           res.write('data: ' + JSON.stringify({ error: seErrMsg }) + '\n\n');
           res.write('data: ' + JSON.stringify({ done: true }) + '\n\n');
         }
@@ -855,36 +1176,6 @@ router.post('/chat/stream', function(req, res) {
       }
     });
   }
-});
-
-router.get('/settings', function(req, res) {
-  var settings = getUserAiSettings(req.user.user_id);
-  settings.available_gpt_models = config.ai.availableModels;
-  res.json({ code: 200, message: 'ok', data: settings });
-});
-
-router.put('/settings', function(req, res) {
-  var current = getUserAiSettings(req.user.user_id);
-  if (req.body.system_prompt !== undefined) {
-    current.system_prompt = req.body.system_prompt;
-  }
-  if (req.body.pinned_conversations !== undefined) {
-    current.pinned_conversations = req.body.pinned_conversations;
-  }
-  if (req.body.model !== undefined) {
-    if (req.body.model === 'deepseek' && !current.deepseek_enabled) {
-      return res.status(403).json({ code: 403, message: 'DeepSeek 模型未启用，请联系管理员' });
-    }
-    current.model = req.body.model;
-  }
-  if (req.body.gpt_model !== undefined) {
-    if (config.ai.availableModels.indexOf(req.body.gpt_model) < 0) {
-      return res.status(400).json({ code: 400, message: '不支持的 GPT 模型' });
-    }
-    current.gpt_model = req.body.gpt_model;
-  }
-  saveUserAiSettings(req.user.user_id, current);
-  res.json({ code: 200, message: 'ok', data: current });
 });
 
 module.exports = router;
