@@ -281,6 +281,10 @@
           </button>
         </div>
         <div class="model-list scrollbar-thin">
+          <div v-if="availableModels.length === 0" class="admin-empty">
+            <i class="fa-solid fa-cubes"></i>
+            <span>暂无可用模型，请联系管理员在「模型管理」中启用</span>
+          </div>
           <div
             v-for="m in availableModels"
             :key="m.id"
@@ -326,6 +330,14 @@
         <div class="admin-panel-body scrollbar-thin">
           <!-- 编辑/新建表单 -->
           <div v-if="adminEditing" class="admin-form">
+            <div v-if="adminEditing === 'new'" class="admin-preset-row">
+              <label class="admin-field-label admin-preset-label">从厂商模板快速填充</label>
+              <select class="admin-inline-select admin-preset-select" v-model="adminPreset" @change="applyVendorPreset">
+                <option value="">手动填写（任意 OpenAI 兼容源）</option>
+                <option v-for="p in vendorPresets" :key="p.name" :value="p.name">{{ p.name }}</option>
+              </select>
+              <div class="admin-field-hint">模板自动填入地址 / 模型名 / 能力位，接口以厂商最新文档为准；接入数量不限，每个模型可来自不同源。</div>
+            </div>
             <div class="settings-section">
               <div class="settings-label"><i class="fa-solid fa-tag"></i><span>基本信息</span></div>
               <div class="admin-form-row">
@@ -419,7 +431,7 @@
           <!-- 模型列表 -->
           <div v-else class="settings-section">
             <div class="admin-toolbar">
-              <span class="admin-hint">用户只能使用「已启用」的模型；默认模型为用户未选择时兜底。</span>
+              <span class="admin-hint">用户只能使用「已启用」的模型；默认模型为用户未选择时兜底。<template v-if="adminModels.length > 0">共 {{ adminModels.length }} 个，启用 {{ adminModels.filter(function(m) { return m.enabled; }).length }} 个。</template></span>
               <button class="admin-add-btn" @click="startAddModel"><i class="fa-solid fa-plus"></i> 接入新模型</button>
             </div>
             <div v-if="adminLoading" class="admin-loading"><div class="spinner-sm"></div><span>加载中...</span></div>
@@ -709,6 +721,15 @@ export default {
       adminTestResult: null,
       adminColorChoices: ['#f59e0b', '#10b981', '#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#06b6d4', '#84cc16'],
       fallbackNoticeText: '当前模型暂时不可用，已自动切换到备用模型',
+      adminPreset: '',
+      vendorPresets: [
+        { name: '智谱 GLM（bigmodel.cn）', api_url: 'https://open.bigmodel.cn/api/paas/v4/chat/completions', model: 'glm-4-flash', color: '#6366f1', supports_thinking: true, api_style: 'deepseek', is_free: true, label: '智谱 GLM-4-Flash' },
+        { name: 'DeepSeek 官方', api_url: 'https://api.deepseek.com/chat/completions', model: 'deepseek-chat', color: '#10b981', supports_thinking: true, api_style: 'deepseek', is_free: false, label: 'DeepSeek' },
+        { name: '月之暗面 Kimi', api_url: 'https://api.moonshot.cn/v1/chat/completions', model: 'moonshot-v1-8k', color: '#111827', supports_thinking: false, is_free: false, label: 'Kimi' },
+        { name: '阿里 Qwen（百炼兼容模式）', api_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', model: 'qwen-plus', color: '#8b5cf6', supports_thinking: false, is_free: false, label: 'Qwen' },
+        { name: '硅基流动 SiliconFlow', api_url: 'https://api.siliconflow.cn/v1/chat/completions', model: 'deepseek-ai/DeepSeek-V3', color: '#06b6d4', supports_thinking: false, is_free: false, label: 'SiliconFlow' },
+        { name: 'OpenAI 官方', api_url: 'https://api.openai.com/v1/chat/completions', model: 'gpt-4o-mini', color: '#f59e0b', supports_thinking: false, is_free: false, label: 'GPT' }
+      ],
       showConvSettings: false,
       convPersona: '',
       showFallbackNotice: false,
@@ -729,7 +750,13 @@ export default {
   },
   computed: {
     isAdmin: function() {
-      return this.$store.getters.isAdmin === true;
+      // 与服务端 requireAuth 的提升逻辑一致：班管（user_id 以 00 结尾，
+      // 登录响应带 is_class_admin）也有管理权；user.is_admin 是登录时的
+      // 静态快照，班管场景下为 0，不能只看它
+      var u = this.$store.state.auth.user;
+      if (!u) return false;
+      if (u.is_admin === 1) return true;
+      return u.is_class_admin === true || u.is_class_admin === 1;
     },
     currentModelInfo: function() {
       var self = this;
@@ -1704,6 +1731,7 @@ export default {
     startAddModel: function() {
       this.adminEditing = 'new';
       this.adminTestResult = null;
+      this.adminPreset = '';
       this.adminForm = {
         id: '',
         label: '',
@@ -1721,6 +1749,39 @@ export default {
         has_key: false,
         key_from_env: false
       };
+    },
+    applyVendorPreset: function() {
+      var self = this;
+      if (!self.adminPreset) return;
+      var preset = null;
+      for (var i = 0; i < self.vendorPresets.length; i++) {
+        if (self.vendorPresets[i].name === self.adminPreset) { preset = self.vendorPresets[i]; break; }
+      }
+      if (!preset) return;
+      self.adminForm.label = preset.label;
+      self.adminForm.api_url = preset.api_url;
+      self.adminForm.model = preset.model;
+      self.adminForm.color = preset.color;
+      self.adminForm.supports_thinking = !!preset.supports_thinking;
+      self.adminForm.api_style = preset.supports_thinking ? (preset.api_style || 'openai') : 'openai';
+      self.adminForm.is_free = !!preset.is_free;
+      // 根据厂商名自动起 ID（已占用时后端会提示，用户可改）
+      var map = { '智谱': 'glm', 'DeepSeek': 'deepseek', '月之暗面': 'kimi', '阿里': 'qwen', '硅基流动': 'siliconflow', 'OpenAI': 'gpt' };
+      var slug = 'model';
+      for (var key in map) {
+        if (preset.name.indexOf(key) === 0) { slug = map[key]; break; }
+      }
+      var candidate = slug;
+      var n = 2;
+      function idTaken(id) {
+        for (var j = 0; j < self.adminModels.length; j++) {
+          if (self.adminModels[j].id === id) return true;
+        }
+        return false;
+      }
+      while (idTaken(candidate)) { candidate = slug + '-' + n; n++; }
+      self.adminForm.id = candidate;
+      self.$store.commit('toast/SHOW_TOAST', { message: '已按模板填充，请补充 API Key（地址与模型名以厂商文档为准）', type: 'info' });
     },
     startEditModel: function(m) {
       this.adminEditing = m.id;
@@ -2815,6 +2876,24 @@ export default {
 }
 
 /* 管理表单 */
+.admin-preset-row {
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  margin-bottom: 14px;
+  background: rgba(var(--primary-rgb), 0.03);
+}
+
+.admin-preset-label {
+  margin-bottom: 6px;
+}
+
+.admin-preset-select {
+  width: 100%;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
 .admin-form-row {
   display: flex;
   gap: 10px;

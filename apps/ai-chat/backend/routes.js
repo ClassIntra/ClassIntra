@@ -499,7 +499,17 @@ router.get('/models', function(req, res) {
     };
   });
   var settings = getUserAiSettings(req.user.user_id);
-  res.json({ code: 200, message: 'ok', data: { models: models, default_model: defaultId, user_model: settings.model || '' } });
+  res.json({
+    code: 200,
+    message: 'ok',
+    data: {
+      models: models,
+      default_model: defaultId,
+      user_model: settings.model || '',
+      // 服务端权威判定（班管经 requireAuth 动态提升），前端管理入口以此为准
+      can_manage: req.user.is_admin === 1
+    }
+  });
 });
 
 // ============================================================
