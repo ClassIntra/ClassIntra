@@ -228,12 +228,15 @@ function getUserVisibleModels() {
 // 为用户解析实际使用的模型：
 // 请求模型 > 用户保存的偏好 > 全局默认 > 第一个可用模型
 // 全程受策略约束：不在策略允许集合内的模型视为不可用
-function resolveUserModel(userId, requestedModel) {
+// allowed 由调用方传入（管理员豁免时传 null）；缺省时内部计算
+function resolveUserModel(userId, requestedModel, allowed) {
   var visible = getUserVisibleModels();
   if (visible.length === 0) return null;
 
   var settings = getUserAiSettings(userId);
-  var allowed = getPolicyAllowedIds(settings.policy_id); // null = 不限制
+  if (allowed === undefined) {
+    allowed = getPolicyAllowedIds(settings.policy_id);
+  }
 
   function usable(id) {
     for (var i = 0; i < visible.length; i++) {
@@ -556,7 +559,22 @@ router.put('/conversations/:id/messages', function(req, res) {
 
 router.get('/models', function(req, res) {
   var visible = getUserVisibleModels();
+  var settings = getUserAiSettings(req.user.user_id);
+  // 按用户策略过滤（与 chat 的 resolveUserModel 同一语义）：
+  // 策略外的模型对用户完全不可见，而非仅发消息时静默回落
+  var isSuperAdmin = req.user.is_admin === 1;
+  var allowed = isSuperAdmin ? null : getPolicyAllowedIds(settings.policy_id);
+  if (allowed !== null) {
+    visible = visible.filter(function(row) {
+      return allowed.indexOf(row.id) >= 0;
+    });
+  }
   var defaultId = aiService.getDefaultModelId();
+  // 默认模型在策略外时，取策略内第一个可见模型作为展示默认
+  var defaultVisible = visible.some(function(row) { return row.id === defaultId; });
+  if (!defaultVisible && visible.length > 0) {
+    defaultId = visible[0].id;
+  }
   var models = visible.map(function(row) {
     return {
       id: row.id,
@@ -568,7 +586,6 @@ router.get('/models', function(req, res) {
       is_default: row.id === defaultId
     };
   });
-  var settings = getUserAiSettings(req.user.user_id);
   res.json({
     code: 200,
     message: 'ok',
@@ -576,6 +593,10 @@ router.get('/models', function(req, res) {
       models: models,
       default_model: defaultId,
       user_model: settings.model || '',
+      policy_label: (function() {
+        var pRow = settings.policy_id ? getPolicyRow(settings.policy_id) : getDefaultPolicyRow();
+        return pRow ? pRow.label : '';
+      })(),
       // 服务端权威判定（班管经 requireAuth 动态提升），前端管理入口以此为准
       can_manage: req.user.is_admin === 1
     }
@@ -1151,7 +1172,8 @@ router.post('/chat', function(req, res) {
   if (!conv) return res.status(404).json({ code: 404, message: '对话不存在' });
 
   var aiSettings = getUserAiSettings(req.user.user_id);
-  var mc = resolveUserModel(req.user.user_id, requestedModel);
+  var policyAllowed = req.user.is_admin === 1 ? null : getPolicyAllowedIds(aiSettings.policy_id);
+  var mc = resolveUserModel(req.user.user_id, requestedModel, policyAllowed);
   if (!mc) return res.status(503).json({ code: 503, message: '暂无可用模型，请联系管理员启用' });
 
   var thinking = !!req.body.thinking && mc.supportsThinking;
@@ -1229,7 +1251,7 @@ router.post('/chat', function(req, res) {
     res.json({ code: 200, message: 'ok', data: responseData });
   }).catch(function(err) {
     // 主模型失败 → 尝试替代模型（全局默认或其他可用模型）
-    var fbMc = getFallbackModel(mc.id, getPolicyAllowedIds(aiSettings.policy_id));
+    var fbMc = getFallbackModel(mc.id, policyAllowed);
     if (fbMc) {
       console.log('[Fallback] %s failed (%s), retrying with %s...', mc.id, err.message, fbMc.id);
       var fbThinking = thinking && fbMc.supportsThinking;
@@ -1330,7 +1352,8 @@ router.post('/chat/stream', function(req, res) {
   if (!conv) return res.status(404).json({ code: 404, message: '对话不存在' });
 
   var aiSettings = getUserAiSettings(req.user.user_id);
-  var mc = resolveUserModel(req.user.user_id, requestedModel);
+  var policyAllowed = req.user.is_admin === 1 ? null : getPolicyAllowedIds(aiSettings.policy_id);
+  var mc = resolveUserModel(req.user.user_id, requestedModel, policyAllowed);
   if (!mc) return res.status(503).json({ code: 503, message: '暂无可用模型，请联系管理员启用' });
 
   var thinking = !!req.body.thinking && mc.supportsThinking;
@@ -1475,7 +1498,7 @@ router.post('/chat/stream', function(req, res) {
     }).catch(function(streamErr) {
       // chatWithAIStream 失败时可能已自行结束响应（sendSSE error + res.end），
       // 此时不能再 fallback，否则触发 ERR_STREAM_WRITE_AFTER_END 崩溃
-      var fbMc = res.writableEnded ? null : getFallbackModel(mc.id, getPolicyAllowedIds(aiSettings.policy_id));
+      var fbMc = res.writableEnded ? null : getFallbackModel(mc.id, policyAllowed);
       if (fbMc) {
         console.log('[Fallback] %s stream failed (%s), retrying with %s...', mc.id, streamErr ? streamErr.message : 'unknown', fbMc.id);
         res.write('data: ' + JSON.stringify({ fallback: true, model: fbMc.id, model_label: fbMc.label }) + '\n\n');

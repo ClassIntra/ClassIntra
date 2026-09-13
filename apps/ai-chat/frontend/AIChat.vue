@@ -277,6 +277,7 @@
             <i class="fa-solid fa-xmark"></i>
           </button>
         </div>
+        <div v-if="currentPolicyLabel" class="model-policy-hint"><i class="fa-solid fa-shield-halved"></i> 当前策略：{{ currentPolicyLabel }}</div>
         <div class="model-list scrollbar-thin">
           <div v-if="availableModels.length === 0" class="admin-empty">
             <i class="fa-solid fa-cubes"></i>
@@ -544,6 +545,7 @@ export default {
       aiSettingsLoaded: false,
       currentModel: 'default',
       availableModels: [],
+      currentPolicyLabel: '',
       defaultModelId: 'default',
       showModelPanel: false,
       thinkingMode: false,
@@ -735,6 +737,7 @@ export default {
         var data = response.data.data || {};
         self.availableModels = data.models || [];
         self.defaultModelId = data.default_model || 'default';
+        self.currentPolicyLabel = data.policy_label || '';
         // 当前模型不可用（被禁用/删除/未加载）→ 回落全局默认
         var found = false;
         for (var i = 0; i < self.availableModels.length; i++) {
@@ -2172,6 +2175,23 @@ export default {
   flex-direction: column;
   overflow: hidden;
   box-shadow: var(--shadow-lg, 0 8px 32px rgba(0, 0, 0, 0.12));
+}
+
+.model-policy-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 12px 0;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(var(--primary-rgb), 0.05);
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+}
+
+.model-policy-hint i {
+  color: var(--primary-color);
+  font-size: 11px;
 }
 
 .model-list {
