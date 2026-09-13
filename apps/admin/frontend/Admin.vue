@@ -1670,6 +1670,11 @@ export default {
   watch: {
     activeTab: function(newVal, oldVal) {
       this.loadTabData(newVal);
+      // 策略可能刚在「AI 模型」tab 改过，切到用户管理时始终刷新，
+      // 避免 loadedTabs 懒加载守卫导致策略按钮组停留在旧数据
+      if (newVal === 'users' && this.isAdmin) {
+        this.loadPolicies();
+      }
       if (newVal === 'relay') {
         this.loadRelayStatus();
         this.startRelayRefreshTimer();
