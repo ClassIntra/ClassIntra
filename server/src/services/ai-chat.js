@@ -49,6 +49,20 @@ function getDefaultModelId() {
   return 'default';
 }
 
+// OpenAI 兼容端点归一化：填到 /v1 即可自动补全 /chat/completions
+//   https://api.x.com            → https://api.x.com/v1/chat/completions
+//   https://api.x.com/v1         → https://api.x.com/v1/chat/completions
+//   https://open.bigmodel.cn/api/paas/v4 → …/v4/chat/completions
+//   完整端点（以 /chat/completions 结尾）→ 原样
+function normalizeEndpoint(url) {
+  var u = String(url || '').trim();
+  if (!u) return u;
+  u = u.replace(/\/+$/, '');
+  if (/\/chat\/completions$/i.test(u)) return u;
+  if (/\/v\d+[a-z]*$/i.test(u)) return u + '/chat/completions';
+  return u + '/v1/chat/completions';
+}
+
 // 将 ai_models 行解析为可直接使用的模型配置（含 env 兜底）
 function resolveModel(modelId) {
   var row = getModelRow(modelId);
@@ -64,6 +78,9 @@ function resolveModel(modelId) {
       enabled: !!row.enabled,
       isDefault: !!row.is_default,
       builtin: !!row.builtin,
+      maxContextTokens: row.max_context_tokens || 0,
+      maxOutputTokens: row.max_output_tokens || 0,
+      reasoningEffort: row.reasoning_effort || '',
       apiUrl: row.api_url || '',
       apiKey: row.api_key || '',
       model: row.model || ''
@@ -78,6 +95,7 @@ function resolveModel(modelId) {
       mc.apiKey = mc.apiKey || config.deepseek.apiKey;
       mc.model = mc.model || config.deepseek.model;
     }
+    mc.apiUrl = normalizeEndpoint(mc.apiUrl);
     return mc;
   }
 
@@ -86,15 +104,15 @@ function resolveModel(modelId) {
     return {
       id: 'deepseek', label: 'DeepSeek', color: '#10b981', apiStyle: 'deepseek',
       supportsThinking: true, supportsSearch: true, isFree: false, enabled: true,
-      isDefault: false, builtin: true,
-      apiUrl: config.deepseek.apiUrl, apiKey: config.deepseek.apiKey, model: config.deepseek.model
+      isDefault: false, builtin: true, maxContextTokens: 0, maxOutputTokens: 0, reasoningEffort: '',
+      apiUrl: normalizeEndpoint(config.deepseek.apiUrl), apiKey: config.deepseek.apiKey, model: config.deepseek.model
     };
   }
   return {
     id: 'default', label: 'GPT', color: '#f59e0b', apiStyle: 'openai',
     supportsThinking: false, supportsSearch: false, isFree: true, enabled: true,
-    isDefault: true, builtin: true,
-    apiUrl: config.ai.apiUrl, apiKey: config.ai.apiKey, model: config.ai.model
+    isDefault: true, builtin: true, maxContextTokens: 0, maxOutputTokens: 0, reasoningEffort: '',
+    apiUrl: normalizeEndpoint(config.ai.apiUrl), apiKey: config.ai.apiKey, model: config.ai.model
   };
 }
 
@@ -111,17 +129,22 @@ function buildRequestBody(messages, options, mc) {
     stream: !!options.stream
   };
 
+  // 输出上限：模型行配置（>0）优先于风格默认值
+  var defaultMaxTokens = 0;
+  if (mc.maxOutputTokens > 0) defaultMaxTokens = mc.maxOutputTokens;
+
   if (mc.apiStyle === 'deepseek') {
     if (options.thinking && mc.supportsThinking) {
       body.thinking = { type: 'enabled' };
-      if (options.reasoningEffort) {
-        body.reasoning_effort = options.reasoningEffort;
+      // 思考强度：调用方显式指定 > 模型行默认配置
+      var effort = options.reasoningEffort || mc.reasoningEffort;
+      if (effort) {
+        body.reasoning_effort = effort;
       }
-      // Per DeepSeek docs: thinking mode ignores temperature/top_p/presence_penalty/frequency_penalty
-      body.max_tokens = options.maxTokens || 4096;
+      body.max_tokens = options.maxTokens || defaultMaxTokens || 4096;
     } else {
       body.temperature = options.temperature || 0.5;
-      body.max_tokens = options.maxTokens || 1500;
+      body.max_tokens = options.maxTokens || defaultMaxTokens || 1500;
     }
     if (options.userId) {
       body.user = String(options.userId);
@@ -132,7 +155,7 @@ function buildRequestBody(messages, options, mc) {
     }
   } else {
     body.temperature = options.temperature || 0.7;
-    body.max_tokens = options.maxTokens || 2000;
+    body.max_tokens = options.maxTokens || defaultMaxTokens || 2000;
     if (options.tools && options.tools.length > 0) {
       body.tools = options.tools;
       body.tool_choice = options.toolChoice || 'auto';
@@ -393,5 +416,6 @@ module.exports = {
   getAllModels: getAllModels,
   getModelRow: getModelRow,
   getDefaultModelId: getDefaultModelId,
-  resolveModel: resolveModel
+  resolveModel: resolveModel,
+  normalizeEndpoint: normalizeEndpoint
 };
