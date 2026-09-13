@@ -845,6 +845,72 @@ router.put('/admin/models/:id/toggle', function(req, res) {
   res.json({ code: 200, message: 'ok' });
 });
 
+// 批量接入（单源多模型）：一次填好源（地址+密钥+能力位），N 个模型一次提交
+// models: [{ model: 'glm-4-plus', label?: 'GLM Plus' }]；id 从 model slug 化，冲突自动加后缀
+router.post('/admin/models/batch', function(req, res) {
+  var items = Array.isArray(req.body.models) ? req.body.models : [];
+  if (items.length === 0) return res.status(400).json({ code: 400, message: 'models 不能为空' });
+  if (items.length > 50) return res.status(400).json({ code: 400, message: '单次最多接入 50 个模型' });
+
+  var apiUrl = String(req.body.api_url || '').trim();
+  if (!apiUrl) return res.status(400).json({ code: 400, message: 'API 地址不能为空' });
+  if (!/^https?:\/\//i.test(apiUrl)) return res.status(400).json({ code: 400, message: 'API 地址必须以 http:// 或 https:// 开头' });
+
+  var color = /^#[0-9a-fA-F]{6}$/.test(String(req.body.color || '')) ? req.body.color : '#6366f1';
+  var apiStyle = req.body.api_style === 'deepseek' ? 'deepseek' : 'openai';
+  var apiKey = String(req.body.api_key || '').trim();
+  var eff = ['low', 'medium', 'high'].indexOf(String(req.body.reasoning_effort || '')) >= 0 ? req.body.reasoning_effort : '';
+  var maxCtx = parseInt(req.body.max_context_tokens, 10) || 0;
+  var maxOut = parseInt(req.body.max_output_tokens, 10) || 0;
+  var sortBase = Math.max(0, Math.min(9999, parseInt(req.body.sort_order, 10) || 100));
+
+  var reuseKeyFrom = String(req.body.reuse_key_from || '');
+  var reuseKey = '';
+  if (!apiKey && reuseKeyFrom) {
+    var src = aiService.getModelRow(reuseKeyFrom);
+    if (src && src.api_key) reuseKey = src.api_key;
+  }
+
+  var existingIds = {};
+  (aiService.getAllModels() || []).forEach(function(r) { existingIds[r.id] = true; });
+
+  function slugify(modelName) {
+    return String(modelName || '').toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').substring(0, 32) || 'model';
+  }
+
+  var created = [];
+  var failed = [];
+  var insert = db.prepare([
+    'INSERT INTO ai_models (id, label, api_url, api_key, model, color, api_style, supports_thinking, supports_search, is_free, enabled, is_default, builtin, sort_order, max_context_tokens, max_output_tokens, reasoning_effort)',
+    'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?)'
+  ].join('\n'));
+
+  for (var i = 0; i < items.length; i++) {
+    var modelName = String(items[i].model || '').trim();
+    if (!modelName) { failed.push({ model: modelName, reason: '模型标识为空' }); continue; }
+    var id = slugify(modelName);
+    var n = 2;
+    while (existingIds[id]) { id = slugify(modelName) + '-' + n; n++; }
+    if (db.prepare('SELECT id FROM ai_models WHERE id = ?').get(id)) { failed.push({ model: modelName, reason: 'ID 冲突' }); continue; }
+    var label = String(items[i].label || '').trim() || modelName;
+    if (label.length > 30) label = label.substring(0, 30);
+    try {
+      insert.run(id, label, apiUrl, apiKey || reuseKey, modelName,
+        color, apiStyle,
+        req.body.supports_thinking ? 1 : 0, req.body.supports_search ? 1 : 0,
+        req.body.is_free ? 1 : 0, req.body.enabled === undefined ? 1 : (req.body.enabled ? 1 : 0),
+        sortBase + i, maxCtx, maxOut, eff);
+      existingIds[id] = true;
+      created.push({ id: id, model: modelName, label: label });
+    } catch (e) {
+      failed.push({ model: modelName, reason: e.message });
+    }
+  }
+
+  console.log('[AI-Admin] batch created %d models (failed %d) by %s', created.length, failed.length, req.user.user_id);
+  res.json({ code: 200, message: 'ok', data: { created: created, failed: failed } });
+});
+
 // ============================================================
 // 使用策略（ai_policies）：预设模型授权方案，多选用户批量应用
 // ============================================================
