@@ -115,7 +115,7 @@ router.get('/users', auth.requirePermission('manage_users'), function(req, res) 
 
   var dataStmt = db.prepare(
     'SELECT u.id, u.net_name, u.real_name, u.user_id, u.gender, u.status, u.is_admin, u.role, u.officer_title, u.officer_permissions, u.ban_expires_at, u.ban_reason, u.info_json, u.created_at, u.last_login, ' +
-    'COALESCE(s.deepseek_enabled, 0) as deepseek_enabled, COALESCE(s.ai_settings_json, \'{}\') as ai_settings_json ' +
+    'COALESCE(s.ai_settings_json, \'{}\') as ai_settings_json ' +
     'FROM users u LEFT JOIN user_settings s ON u.user_id = s.user_id ' +
     whereClause + ' ORDER BY u.created_at DESC LIMIT ? OFFSET ?'
   );
@@ -130,12 +130,13 @@ router.get('/users', auth.requirePermission('manage_users'), function(req, res) 
     users[i].is_class_admin = constants.isClassAdmin(String(users[i].user_id));
     users[i].info = JSON.parse(users[i].info_json || '{}');
     delete users[i].info_json;
-    users[i].deepseek_enabled = users[i].deepseek_enabled === 1;
     try {
       var aiSettings = JSON.parse(users[i].ai_settings_json || '{}');
-      users[i].ai_model = aiSettings.model || 'default';
+      users[i].ai_model = aiSettings.model || '';
+      users[i].ai_policy = aiSettings.policy_id || '';
     } catch (e) {
-      users[i].ai_model = 'default';
+      users[i].ai_model = '';
+      users[i].ai_policy = '';
     }
     delete users[i].ai_settings_json;
     // 统一解析 officer_permissions 为数组
@@ -1593,7 +1594,6 @@ router.get('/ai-settings', requireClassAdmin, function(req, res) {
 
   var dataStmt = db.prepare(
     'SELECT u.id, u.net_name, u.real_name, u.user_id, u.status, ' +
-    'COALESCE(s.deepseek_enabled, 0) as deepseek_enabled, ' +
     'COALESCE(s.ai_settings_json, \'{}\') as ai_settings_json ' +
     'FROM users u LEFT JOIN user_settings s ON u.user_id = s.user_id ' +
     whereClause + ' ORDER BY u.created_at DESC LIMIT ? OFFSET ?'
@@ -1602,59 +1602,23 @@ router.get('/ai-settings', requireClassAdmin, function(req, res) {
   var users = dataStmt.all.apply(dataStmt, dataParams);
 
   for (var i = 0; i < users.length; i++) {
-    users[i].deepseek_enabled = users[i].deepseek_enabled === 1;
     try {
       var aiSettings = JSON.parse(users[i].ai_settings_json || '{}');
-      users[i].ai_model = aiSettings.model || 'default';
+      users[i].ai_model = aiSettings.model || '';
+      users[i].ai_policy = aiSettings.policy_id || '';
     } catch (e) {
-      users[i].ai_model = 'default';
+      users[i].ai_model = '';
+      users[i].ai_policy = '';
     }
     delete users[i].ai_settings_json;
+    delete users[i].deepseek_enabled;
   }
 
   res.json({ code: 200, message: 'ok', data: { users: users, total: total, page: page, limit: limit } });
 });
 
-router.patch('/ai-settings/:userId/deepseek', requireClassAdmin, function(req, res) {
-  var targetUserId = req.params.userId;
-  var enabled = req.body.enabled ? 1 : 0;
-
-  var existing = db.prepare('SELECT user_id FROM user_settings WHERE user_id = ?').get(targetUserId);
-  if (existing) {
-    db.prepare('UPDATE user_settings SET deepseek_enabled = ?, updated_at = datetime(\'now\') WHERE user_id = ?')
-      .run(enabled, targetUserId);
-  } else {
-    db.prepare("INSERT INTO user_settings (user_id, deepseek_enabled, ai_settings_json, created_at, updated_at) VALUES (?, ?, '{\"system_prompt\":\"\",\"pinned_conversations\":[],\"model\":\"default\"}', datetime('now'), datetime('now'))")
-      .run(targetUserId, enabled);
-  }
-
-  logAction(req.user.user_id, 'toggle_deepseek', targetUserId, 'deepseek_enabled=' + enabled);
-  res.json({ code: 200, message: 'ok', data: { user_id: targetUserId, deepseek_enabled: enabled === 1 } });
-});
-
-router.post('/ai-settings/batch-deepseek', requireClassAdmin, function(req, res) {
-  var userIds = req.body.user_ids || [];
-  var enabled = req.body.enabled ? 1 : 0;
-
-  if (!userIds.length) {
-    return res.status(400).json({ code: 400, message: '请选择用户' });
-  }
-
-  for (var i = 0; i < userIds.length; i++) {
-    var uid = userIds[i];
-    var existing = db.prepare('SELECT user_id FROM user_settings WHERE user_id = ?').get(uid);
-    if (existing) {
-      db.prepare('UPDATE user_settings SET deepseek_enabled = ?, updated_at = datetime(\'now\') WHERE user_id = ?')
-        .run(enabled, uid);
-    } else {
-      db.prepare("INSERT INTO user_settings (user_id, deepseek_enabled, ai_settings_json, created_at, updated_at) VALUES (?, ?, '{\"system_prompt\":\"\",\"pinned_conversations\":[],\"model\":\"default\"}', datetime('now'), datetime('now'))")
-        .run(uid, enabled);
-    }
-  }
-
-  logAction(req.user.user_id, 'batch_toggle_deepseek', userIds.join(','), 'deepseek_enabled=' + enabled);
-  res.json({ code: 200, message: 'ok' });
-});
+// 旧 DeepSeek 单独开关已废弃：模型可见性由「使用策略」（ai_policies）统一管理。
+// 策略应用走 /api/ai-chat/admin/apply-policy（多选用户批量应用）。
 
 // POST /api/admin/ai-settings/batch-browser - 批量开启/关闭超能岛浏览器权限
 router.post('/ai-settings/batch-browser', requireClassAdmin, function(req, res) {

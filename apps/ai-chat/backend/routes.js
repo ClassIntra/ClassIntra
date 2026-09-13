@@ -132,18 +132,63 @@ function extractApiError(err) {
 
 function getUserAiSettings(userId) {
   var row = db.prepare('SELECT ai_settings_json, deepseek_enabled FROM user_settings WHERE user_id = ?').get(userId);
-  var settings = { system_prompt: '', pinned_conversations: [], model: '' };
+  var settings = { system_prompt: '', pinned_conversations: [], model: '', policy_id: '' };
   if (row && row.ai_settings_json) {
     try {
       var parsed = JSON.parse(row.ai_settings_json);
       settings.system_prompt = parsed.system_prompt || '';
       settings.pinned_conversations = parsed.pinned_conversations || [];
       settings.model = parsed.model || '';
+      settings.policy_id = parsed.policy_id || '';
+      // 兼容旧字段：直接写过的 allowed_models 视为自定义策略前的过渡数据，忽略
     } catch (e) {}
   }
-  // 兼容读取旧数据里的 deepseek_enabled（旧版控制开关；新版以模型表 enabled 为准）
   settings.deepseek_enabled = row && row.deepseek_enabled === 1;
   return settings;
+}
+
+// ============================================================
+// 使用策略（ai_policies）：预设模型授权方案，多选用户批量应用
+// model_ids 空数组 = 不限制；策略被删时用户回落默认策略
+// ============================================================
+
+function getAllPolicies() {
+  try {
+    return db.prepare('SELECT * FROM ai_policies ORDER BY sort_order ASC, id ASC').all();
+  } catch (e) {
+    return null;
+  }
+}
+
+function getPolicyRow(id) {
+  if (!id) return null;
+  try {
+    return db.prepare('SELECT * FROM ai_policies WHERE id = ?').get(String(id));
+  } catch (e) {
+    return null;
+  }
+}
+
+function getDefaultPolicyRow() {
+  try {
+    var row = db.prepare('SELECT * FROM ai_policies WHERE is_default = 1 LIMIT 1').get();
+    if (row) return row;
+  } catch (e) {}
+  return null;
+}
+
+// 解析用户生效策略的允许模型集合；'' = 默认策略
+// 返回 null = 不限制；空数组策略同样视为不限制（如内置「全部模型」策略）
+function getPolicyAllowedIds(policyId) {
+  var row = policyId ? getPolicyRow(policyId) : getDefaultPolicyRow();
+  if (!row) return null; // 无策略体系（表不存在）→ 不限制
+  try {
+    var arr = JSON.parse(row.model_ids || '[]');
+    if (!Array.isArray(arr) || arr.length === 0) return null;
+    return arr;
+  } catch (e) {
+    return null;
+  }
 }
 
 function saveUserAiSettings(userId, settings) {
@@ -151,7 +196,8 @@ function saveUserAiSettings(userId, settings) {
   var jsonStr = JSON.stringify({
     system_prompt: settings.system_prompt || '',
     pinned_conversations: settings.pinned_conversations || [],
-    model: settings.model || ''
+    model: settings.model || '',
+    policy_id: settings.policy_id || ''
   });
   if (existing) {
     db.prepare("UPDATE user_settings SET ai_settings_json = ?, updated_at = datetime('now') WHERE user_id = ?")
@@ -181,36 +227,58 @@ function getUserVisibleModels() {
 
 // 为用户解析实际使用的模型：
 // 请求模型 > 用户保存的偏好 > 全局默认 > 第一个可用模型
+// 全程受策略约束：不在策略允许集合内的模型视为不可用
 function resolveUserModel(userId, requestedModel) {
   var visible = getUserVisibleModels();
   if (visible.length === 0) return null;
 
+  var settings = getUserAiSettings(userId);
+  var allowed = getPolicyAllowedIds(settings.policy_id); // null = 不限制
+
+  function usable(id) {
+    for (var i = 0; i < visible.length; i++) {
+      if (visible[i].id !== id) continue;
+      if (allowed !== null && allowed.indexOf(id) < 0) return false;
+      return true;
+    }
+    return false;
+  }
+
   var candidates = [];
   if (requestedModel) candidates.push(requestedModel);
-  var saved = getUserAiSettings(userId).model;
-  if (saved) candidates.push(saved);
+  if (settings.model) candidates.push(settings.model);
   candidates.push(aiService.getDefaultModelId());
 
   for (var i = 0; i < candidates.length; i++) {
-    for (var j = 0; j < visible.length; j++) {
-      if (visible[j].id === candidates[i]) {
-        return aiService.resolveModel(visible[j].id);
-      }
+    if (usable(candidates[i])) {
+      return aiService.resolveModel(candidates[i]);
     }
   }
+
+  // 全部候选被策略排除 → 取策略允许的第一个可用模型
+  for (var j = 0; j < visible.length; j++) {
+    if (allowed === null || allowed.indexOf(visible[j].id) >= 0) {
+      return aiService.resolveModel(visible[j].id);
+    }
+  }
+  // 策略排除了全部启用模型 → 策略形同虚设，取第一个可用（宁可多给不可全禁）
   return aiService.resolveModel(visible[0].id);
 }
 
 // 主模型失败后的替代模型：全局默认（若不同）> 其他可用模型
-function getFallbackModel(primaryId) {
+// 与主选择同样受用户策略约束（故障回落不能绕过授权）
+function getFallbackModel(primaryId, allowed) {
+  function usable(id) {
+    return allowed === null || allowed.indexOf(id) >= 0;
+  }
   var defaultId = aiService.getDefaultModelId();
-  if (defaultId && defaultId !== primaryId) {
+  if (defaultId && defaultId !== primaryId && usable(defaultId)) {
     var defMc = aiService.resolveModel(defaultId);
     if (defMc.enabled && defMc.apiUrl) return defMc;
   }
   var visible = getUserVisibleModels();
   for (var i = 0; i < visible.length; i++) {
-    if (visible[i].id !== primaryId) {
+    if (visible[i].id !== primaryId && usable(visible[i].id)) {
       var mc = aiService.resolveModel(visible[i].id);
       if (mc.enabled && mc.apiUrl) return mc;
     }
@@ -224,7 +292,7 @@ function getEffectiveSystemPrompt(convPersona, userSystemPrompt) {
   return DEFAULT_SYSTEM_PROMPT;
 }
 
-function buildAiMessages(messages, summary, systemPrompt, userMessage, enableThinking) {
+function buildAiMessages(messages, summary, systemPrompt, userMessage, enableThinking, maxContextTokens) {
   // Cache optimization: Use SYSTEM_PROMPT_PREFIX as immutable first message.
   // This prefix never changes across any request/conversation/user,
   // maximizing DeepSeek KV cache prefix hits (prompt_cache_hit_tokens).
@@ -240,7 +308,9 @@ function buildAiMessages(messages, summary, systemPrompt, userMessage, enableThi
   }
 
   // Layer 3: Historical messages - keep from the beginning for prefix stability
-  var tokenBudget = MAX_CONTEXT_TOKENS - estimateTokens(SYSTEM_PROMPT_PREFIX) - estimateTokens(userMessage);
+  // 预算上限：模型行配置（>0）优先于全局默认
+  var contextBudget = maxContextTokens > 0 ? maxContextTokens : MAX_CONTEXT_TOKENS;
+  var tokenBudget = contextBudget - estimateTokens(SYSTEM_PROMPT_PREFIX) - estimateTokens(userMessage);
   if (effectivePrompt !== SYSTEM_PROMPT_PREFIX) {
     tokenBudget -= estimateTokens(effectivePrompt);
   }
@@ -603,6 +673,18 @@ function validateModelInput(body, isCreate) {
     var so = parseInt(body.sort_order, 10);
     out.sort_order = isNaN(so) ? 0 : Math.max(0, Math.min(9999, so));
   }
+  if (body.max_context_tokens !== undefined) {
+    var mct = parseInt(body.max_context_tokens, 10);
+    out.max_context_tokens = isNaN(mct) ? 0 : Math.max(0, Math.min(200000, mct));
+  }
+  if (body.max_output_tokens !== undefined) {
+    var mot = parseInt(body.max_output_tokens, 10);
+    out.max_output_tokens = isNaN(mot) ? 0 : Math.max(0, Math.min(65536, mot));
+  }
+  if (body.reasoning_effort !== undefined) {
+    var eff = String(body.reasoning_effort || '');
+    out.reasoning_effort = ['low', 'medium', 'high'].indexOf(eff) >= 0 ? eff : '';
+  }
   return { value: out };
 }
 
@@ -622,10 +704,12 @@ router.get('/admin/models', function(req, res) {
   var defaultId = aiService.getDefaultModelId();
   var data = rows.map(function(row) {
     var keyFromEnv = !row.api_key && (row.id === 'default' ? !!config.ai.apiKey : row.id === 'deepseek' ? !!config.deepseek.apiKey : false);
+    var mc = aiService.resolveModel(row.id);
     return {
       id: row.id,
       label: row.label,
       api_url: row.api_url,
+      effective_url: mc.apiUrl,
       api_key_masked: row.api_key ? maskKey(row.api_key) : (keyFromEnv ? '（来自环境变量）' : ''),
       has_key: !!row.api_key || keyFromEnv,
       key_from_env: keyFromEnv,
@@ -638,7 +722,10 @@ router.get('/admin/models', function(req, res) {
       enabled: !!row.enabled,
       is_default: row.id === defaultId,
       builtin: !!row.builtin,
-      sort_order: row.sort_order
+      sort_order: row.sort_order,
+      max_context_tokens: row.max_context_tokens || 0,
+      max_output_tokens: row.max_output_tokens || 0,
+      reasoning_effort: row.reasoning_effort || ''
     };
   });
   res.json({ code: 200, message: 'ok', data: { models: data, default_model: defaultId } });
@@ -668,6 +755,14 @@ router.post('/admin/models', function(req, res) {
     v.is_free || 0, v.enabled === undefined ? 1 : v.enabled, v.sort_order || 100
   );
 
+  // 单源多模型：从同源已有模型复制密钥（明文不出后端）
+  if (!v.api_key && req.body.reuse_key_from) {
+    var src = aiService.getModelRow(req.body.reuse_key_from);
+    if (src && src.api_key) {
+      db.prepare("UPDATE ai_models SET api_key = ? WHERE id = ?").run(src.api_key, id);
+    }
+  }
+
   if (req.body.is_default) setDefaultModelId(id);
   console.log('[AI-Admin] model created: %s (%s) by %s', id, v.label, req.user.user_id);
   res.json({ code: 200, message: 'ok', data: { id: id } });
@@ -694,7 +789,7 @@ router.put('/admin/models/:id', function(req, res) {
 
   var sets = [];
   var params = [];
-  var allowed = ['label', 'api_url', 'model', 'color', 'api_style', 'supports_thinking', 'supports_search', 'is_free', 'enabled', 'sort_order'];
+  var allowed = ['label', 'api_url', 'model', 'color', 'api_style', 'supports_thinking', 'supports_search', 'is_free', 'enabled', 'sort_order', 'max_context_tokens', 'max_output_tokens', 'reasoning_effort'];
   for (var i = 0; i < allowed.length; i++) {
     var field = allowed[i];
     if (v[field] !== undefined) {
@@ -748,6 +843,168 @@ router.put('/admin/models/:id/toggle', function(req, res) {
   }
   console.log('[AI-Admin] model %s: %s by %s', enabled ? 'enabled' : 'disabled', row.id, req.user.user_id);
   res.json({ code: 200, message: 'ok' });
+});
+
+// ============================================================
+// 使用策略（ai_policies）：预设模型授权方案，多选用户批量应用
+// ============================================================
+
+function validatePolicyInput(body, isCreate) {
+  var out = {};
+  if (isCreate || body.label !== undefined) {
+    var label = String(body.label || '').trim();
+    if (!label) return { error: '策略名称不能为空' };
+    if (label.length > 20) return { error: '策略名称过长（最多 20 字）' };
+    out.label = label;
+  }
+  if (isCreate || body.model_ids !== undefined) {
+    var ids = Array.isArray(body.model_ids) ? body.model_ids : [];
+    var clean = [];
+    for (var i = 0; i < ids.length; i++) {
+      var sid = String(ids[i] || '').trim();
+      if (sid && clean.indexOf(sid) < 0) clean.push(sid);
+    }
+    out.model_ids = JSON.stringify(clean);
+  }
+  if (body.sort_order !== undefined) {
+    var so = parseInt(body.sort_order, 10);
+    out.sort_order = isNaN(so) ? 0 : Math.max(0, Math.min(9999, so));
+  }
+  return { value: out };
+}
+
+router.get('/admin/policies', function(req, res) {
+  var rows = getAllPolicies() || [];
+  var defRow = getDefaultPolicyRow();
+  var defaultId = defRow ? defRow.id : '';
+  var data = rows.map(function(row) {
+    var ids = [];
+    try { ids = JSON.parse(row.model_ids || '[]'); } catch (e) {}
+    return {
+      id: row.id,
+      label: row.label,
+      model_ids: ids,
+      is_default: row.id === defaultId,
+      sort_order: row.sort_order
+    };
+  });
+  res.json({ code: 200, message: 'ok', data: { policies: data, default_policy: defaultId } });
+});
+
+router.post('/admin/policies', function(req, res) {
+  var id = String(req.body.id || '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+  if (!id) id = 'policy-' + Date.now().toString(36);
+  if (id.length > 32) id = id.substring(0, 32);
+  if (db.prepare('SELECT id FROM ai_policies WHERE id = ?').get(id)) {
+    return res.status(400).json({ code: 400, message: '策略 ID「' + id + '」已存在' });
+  }
+  var check = validatePolicyInput(req.body, true);
+  if (check.error) return res.status(400).json({ code: 400, message: check.error });
+  var v = check.value;
+  db.prepare('INSERT INTO ai_policies (id, label, model_ids, is_default, sort_order) VALUES (?, ?, ?, 0, ?)')
+    .run(id, v.label, v.model_ids, v.sort_order || 10);
+  if (req.body.is_default) {
+    db.prepare('UPDATE ai_policies SET is_default = 0 WHERE is_default = 1').run();
+    db.prepare("UPDATE ai_policies SET is_default = 1, updated_at = datetime('now') WHERE id = ?").run(id);
+  }
+  console.log('[AI-Admin] policy created: %s (%s) by %s', id, v.label, req.user.user_id);
+  res.json({ code: 200, message: 'ok', data: { id: id } });
+});
+
+router.put('/admin/policies/:id', function(req, res) {
+  var row = getPolicyRow(req.params.id);
+  if (!row) return res.status(404).json({ code: 404, message: '策略不存在' });
+  var check = validatePolicyInput(req.body, false);
+  if (check.error) return res.status(400).json({ code: 400, message: check.error });
+  var v = check.value;
+  var sets = [];
+  var params = [];
+  if (v.label !== undefined) { sets.push('label = ?'); params.push(v.label); }
+  if (v.model_ids !== undefined) { sets.push('model_ids = ?'); params.push(v.model_ids); }
+  if (v.sort_order !== undefined) { sets.push('sort_order = ?'); params.push(v.sort_order); }
+  if (sets.length > 0) {
+    params.push(row.id);
+    var stmt = db.prepare("UPDATE ai_policies SET " + sets.join(', ') + ", updated_at = datetime('now') WHERE id = ?");
+    stmt.run.apply(stmt, params);
+  }
+  if (req.body.is_default === true) {
+    db.prepare('UPDATE ai_policies SET is_default = 0 WHERE is_default = 1').run();
+    db.prepare("UPDATE ai_policies SET is_default = 1, updated_at = datetime('now') WHERE id = ?").run(row.id);
+  }
+  console.log('[AI-Admin] policy updated: %s by %s', row.id, req.user.user_id);
+  res.json({ code: 200, message: 'ok' });
+});
+
+router.delete('/admin/policies/:id', function(req, res) {
+  var row = getPolicyRow(req.params.id);
+  if (!row) return res.status(404).json({ code: 404, message: '策略不存在' });
+  if (row.is_default) return res.status(400).json({ code: 400, message: '默认策略不可删除' });
+  db.prepare('DELETE FROM ai_policies WHERE id = ?').run(row.id);
+  // 引用该策略的用户回落默认策略
+  var users = db.prepare('SELECT user_id, ai_settings_json FROM user_settings WHERE ai_settings_json LIKE ?').all('%"policy_id":"' + row.id + '"%');
+  for (var i = 0; i < users.length; i++) {
+    try {
+      var parsed = JSON.parse(users[i].ai_settings_json || '{}');
+      if (parsed.policy_id === row.id) {
+        parsed.policy_id = '';
+        db.prepare("UPDATE user_settings SET ai_settings_json = ?, updated_at = datetime('now') WHERE user_id = ?")
+          .run(JSON.stringify(parsed), users[i].user_id);
+      }
+    } catch (e) {}
+  }
+  console.log('[AI-Admin] policy deleted: %s (%d users reset) by %s', row.id, users.length, req.user.user_id);
+  res.json({ code: 200, message: 'ok' });
+});
+
+// 多选用户一次性应用策略（用户管理批量操作）
+router.post('/admin/apply-policy', function(req, res) {
+  var policyId = String(req.body.policy_id || '');
+  var userIds = Array.isArray(req.body.user_ids) ? req.body.user_ids : [];
+  if (userIds.length === 0) return res.status(400).json({ code: 400, message: '未选择用户' });
+  if (userIds.length > 200) return res.status(400).json({ code: 400, message: '单次最多操作 200 个用户' });
+
+  var policy = policyId ? getPolicyRow(policyId) : null;
+  if (policyId && !policy) return res.status(404).json({ code: 404, message: '策略不存在' });
+  var targetPolicyId = policyId; // 空串 = 解除限制（回落默认策略）
+
+  var applied = 0;
+  var insertRun = db.prepare("INSERT OR IGNORE INTO user_settings (user_id, ai_settings_json, updated_at) VALUES (?, ?, datetime('now'))");
+  var updateStmt = db.prepare("UPDATE user_settings SET ai_settings_json = ?, updated_at = datetime('now') WHERE user_id = ?");
+  for (var i = 0; i < userIds.length; i++) {
+    var uid = String(userIds[i] || '').trim();
+    if (!uid) continue;
+    var row = db.prepare('SELECT ai_settings_json FROM user_settings WHERE user_id = ?').get(uid);
+    var parsed = {};
+    try { parsed = JSON.parse((row && row.ai_settings_json) || '{}'); } catch (e) {}
+    parsed.policy_id = targetPolicyId;
+    var jsonStr = JSON.stringify({
+      system_prompt: parsed.system_prompt || '',
+      pinned_conversations: parsed.pinned_conversations || [],
+      model: parsed.model || '',
+      policy_id: parsed.policy_id
+    });
+    if (row) {
+      updateStmt.run(jsonStr, uid);
+    } else {
+      insertRun.run(uid, jsonStr);
+    }
+    applied++;
+  }
+  console.log('[AI-Admin] policy %s applied to %d users by %s', targetPolicyId || '(default)', applied, req.user.user_id);
+  res.json({ code: 200, message: 'ok', data: { applied: applied, policy_id: targetPolicyId } });
+});
+
+// 用户策略绑定清单（用户管理列表展示用）：user_id -> policy_id 映射
+router.get('/admin/user-policies', function(req, res) {
+  var rows = db.prepare('SELECT user_id, ai_settings_json FROM user_settings').all();
+  var map = {};
+  for (var i = 0; i < rows.length; i++) {
+    try {
+      var parsed = JSON.parse(rows[i].ai_settings_json || '{}');
+      if (parsed.policy_id) map[rows[i].user_id] = parsed.policy_id;
+    } catch (e) {}
+  }
+  res.json({ code: 200, message: 'ok', data: { map: map } });
 });
 
 // 测试连接：body 可带 { id }（测已保存配置）或完整配置（测未保存的新模型）
@@ -837,7 +1094,7 @@ router.post('/chat', function(req, res) {
   var messages = JSON.parse(conv.messages_json || '[]');
   var summary = conv.summary || '';
 
-  var aiMessages = buildAiMessages(messages, summary, systemPrompt, userMessage, thinking);
+  var aiMessages = buildAiMessages(messages, summary, systemPrompt, userMessage, thinking, mc.maxContextTokens);
   var isFirstMessage = messages.length === 0;
 
   appendMessageAtomic(conversationId, {
@@ -906,7 +1163,7 @@ router.post('/chat', function(req, res) {
     res.json({ code: 200, message: 'ok', data: responseData });
   }).catch(function(err) {
     // 主模型失败 → 尝试替代模型（全局默认或其他可用模型）
-    var fbMc = getFallbackModel(mc.id);
+    var fbMc = getFallbackModel(mc.id, getPolicyAllowedIds(aiSettings.policy_id));
     if (fbMc) {
       console.log('[Fallback] %s failed (%s), retrying with %s...', mc.id, err.message, fbMc.id);
       var fbThinking = thinking && fbMc.supportsThinking;
@@ -1016,7 +1273,7 @@ router.post('/chat/stream', function(req, res) {
   var messages = JSON.parse(conv.messages_json || '[]');
   var summary = conv.summary || '';
 
-  var aiMessages = buildAiMessages(messages, summary, systemPrompt, userMessage, thinking);
+  var aiMessages = buildAiMessages(messages, summary, systemPrompt, userMessage, thinking, mc.maxContextTokens);
   var isFirstMessage = messages.length === 0;
 
   appendMessageAtomic(conversationId, {
@@ -1152,7 +1409,7 @@ router.post('/chat/stream', function(req, res) {
     }).catch(function(streamErr) {
       // chatWithAIStream 失败时可能已自行结束响应（sendSSE error + res.end），
       // 此时不能再 fallback，否则触发 ERR_STREAM_WRITE_AFTER_END 崩溃
-      var fbMc = res.writableEnded ? null : getFallbackModel(mc.id);
+      var fbMc = res.writableEnded ? null : getFallbackModel(mc.id, getPolicyAllowedIds(aiSettings.policy_id));
       if (fbMc) {
         console.log('[Fallback] %s stream failed (%s), retrying with %s...', mc.id, streamErr ? streamErr.message : 'unknown', fbMc.id);
         res.write('data: ' + JSON.stringify({ fallback: true, model: fbMc.id, model_label: fbMc.label }) + '\n\n');

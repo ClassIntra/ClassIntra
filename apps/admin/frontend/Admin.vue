@@ -62,10 +62,15 @@
                 class="action-btn danger-btn"
                 @click="batchDeleteUsers"
               >批量删除 ({{ selectedUsers.length }})</button>
-              <span v-if="selectedUsers.length > 0 && isClassAdmin" class="btn-group">
-                <button class="action-btn btn-group-label" disabled>DeepSeek</button>
-                <button class="action-btn" @click="batchToggleDeepSeek(true)">开</button>
-                <button class="action-btn" @click="batchToggleDeepSeek(false)">关</button>
+              <span v-if="selectedUsers.length > 0 && isAdmin" class="btn-group">
+                <button class="action-btn btn-group-label" disabled>AI 策略</button>
+                <button
+                  v-for="p in policies"
+                  :key="p.id"
+                  class="action-btn"
+                  @click="applyPolicyToSelected(p.id)"
+                  :title="'将「' + p.label + '」应用到选中的 ' + selectedUsers.length + ' 个用户'"
+                >{{ p.label }}</button>
               </span>
               <span v-if="selectedUsers.length > 0 && isClassAdmin" class="btn-group">
                 <button class="action-btn btn-group-label" disabled>超能岛浏览器</button>
@@ -106,7 +111,7 @@
                   <th>真实姓名</th>
                   <th>角色</th>
                   <th>AI模型</th>
-                  <th>DeepSeek</th>
+                  <th>AI 策略</th>
                   <th>状态</th>
                   <th>操作</th>
                 </tr>
@@ -133,12 +138,11 @@
 
                     <span v-else class="role-badge user-badge">用户</span>
                   </td>
-                  <td><span class="model-tag" :class="user.ai_model">{{ user.ai_model === 'deepseek' ? 'DeepSeek' : (user.ai_model === 'default' ? 'GPT' : user.ai_model) }}</span></td>
+                  <td><span class="model-tag" :class="user.ai_model">{{ user.ai_model === 'deepseek' ? 'DeepSeek' : (user.ai_model === 'default' ? 'GPT' : (user.ai_model || '—')) }}</span></td>
                   <td>
-                    <label class="toggle-switch" @click.stop>
-                      <input type="checkbox" :checked="user.deepseek_enabled" @change="toggleDeepSeekFromList(user, $event)">
-                      <span class="toggle-slider"></span>
-                    </label>
+                    <span class="model-tag policy-tag" :class="{ restricted: user.ai_policy }">
+                      {{ user.ai_policy ? (policyLabel(user.ai_policy)) : '不限' }}
+                    </span>
                   </td>
                   <td>
                     <span class="status-badge" :class="user.status === 'disabled' ? 'disabled' : 'active'">
@@ -1032,6 +1036,16 @@
           </template>
         </div>
 
+        <!-- AI 模型管理 -->
+        <div v-if="activeTab === 'ai_models'" key="ai_models" class="admin-section">
+          <div class="section-toolbar">
+            <div class="toolbar-left">
+              <h3 class="sub-title"><i class="fa-solid fa-cubes" style="margin-right:6px"></i>AI 模型</h3>
+            </div>
+          </div>
+          <AiModelsPanel />
+        </div>
+
       </transition>
     </div>
 
@@ -1255,15 +1269,18 @@
 <script>
 import api from '@/utils/api';
 import AppNavBar from '@/components/AppNavBar.vue';
+import AiModelsPanel from './widgets/AiModelsPanel.vue';
 
 export default {
   name: 'Admin',
   components: {
-    AppNavBar: AppNavBar
+    AppNavBar: AppNavBar,
+    AiModelsPanel: AiModelsPanel
   },
   data: function() {
     return {
       activeTab: '',
+      policies: [],
       tabs: [
   { key: 'users', label: '用户管理' },
   { key: 'permissions', label: '权限管理' },
@@ -1274,6 +1291,7 @@ export default {
   { key: 'resources', label: '资源管理' },
   { key: 'weather', label: '天气提醒' },
   { key: 'app_control', label: '应用管控' },
+  { key: 'ai_models', label: 'AI 模型' },
   { key: 'logs', label: '操作日志' }
 ],
       loadedTabs: {
@@ -1286,6 +1304,7 @@ export default {
         resources: false,
         weather: false,
         app_control: false,
+        ai_models: false,
         logs: false
       },
       // Users
@@ -1502,6 +1521,7 @@ export default {
         if (tab.key === 'resources') return self.$store.getters['auth/canManage']('manage_resources');
         if (tab.key === 'weather') return self.isAdmin;
         if (tab.key === 'app_control') return self.isAdmin || self.$store.getters['auth/canManage']('manage_app_control');
+        if (tab.key === 'ai_models') return self.isAdmin;
         if (tab.key === 'logs') return self.$store.getters['auth/canManage']('view_logs');
         return false;
       });
@@ -1724,6 +1744,9 @@ export default {
         case 'app_control':
           this.loadAppControl();
           break;
+        case 'ai_models':
+          this.loadedTabs.ai_models = false;
+          break;
         case 'logs':
           this.loadAdminLogs();
           break;
@@ -1745,6 +1768,7 @@ export default {
 
     // ======== Users ========
     loadUsers: function() {
+      if (this.isAdmin) this.loadPolicies();
       var self = this;
       self.usersLoading = true;
       var params = { limit: 9999 };
@@ -2909,8 +2933,7 @@ export default {
         set_officer: '设为班干',
         remove_officer: '移除班干',
         update_officer_perms: '更新班干权限',
-        toggle_deepseek: '切换DeepSeek',
-        batch_toggle_deepseek: '批量切换DeepSeek'
+        apply_ai_policy: '应用AI策略'
       };
       return labels[action] || action;
     },
@@ -2919,36 +2942,42 @@ export default {
       if (action.indexOf('enable') >= 0 || action.indexOf('edit') >= 0) return 'log-warning';
       return 'log-info';
     },
-    toggleDeepSeekFromList: function(user, event) {
+    loadPolicies: function() {
       var self = this;
-      var enabled = event.target.checked;
-      api.patch('/admin/ai-settings/' + user.user_id + '/deepseek', { enabled: enabled }).then(function() {
-        self.$set(user, 'deepseek_enabled', enabled);
+      api.get('/ai-chat/admin/policies').then(function(response) {
+        self.policies = (response.data.data && response.data.data.policies) || [];
       }).catch(function() {
-        self.$store.commit('toast/SHOW_TOAST', { message: '操作失败', type: 'error' });
+        self.policies = [];
       });
     },
-    batchToggleDeepSeek: function(enabled) {
+    policyLabel: function(policyId) {
+      for (var i = 0; i < this.policies.length; i++) {
+        if (this.policies[i].id === policyId) return this.policies[i].label;
+      }
+      return policyId;
+    },
+    applyPolicyToSelected: function(policyId) {
       var self = this;
       if (self.selectedUsers.length === 0) {
         self.$store.commit('toast/SHOW_TOAST', { message: '请先选择用户', type: 'warning' });
         return;
       }
-      api.post('/admin/ai-settings/batch-deepseek', { user_ids: self.selectedUsers, enabled: enabled }).then(function() {
+      var label = self.policyLabel(policyId) || '默认策略';
+      api.post('/ai-chat/admin/apply-policy', { user_ids: self.selectedUsers, policy_id: policyId }).then(function() {
         for (var i = 0; i < self.users.length; i++) {
           if (self.selectedUsers.indexOf(self.users[i].user_id) !== -1) {
-            self.$set(self.users[i], 'deepseek_enabled', enabled);
+            self.$set(self.users[i], 'ai_policy', policyId);
           }
         }
         for (var j = 0; j < self.allUsersFetched.length; j++) {
           if (self.selectedUsers.indexOf(self.allUsersFetched[j].user_id) !== -1) {
-            self.$set(self.allUsersFetched[j], 'deepseek_enabled', enabled);
+            self.$set(self.allUsersFetched[j], 'ai_policy', policyId);
           }
         }
         self.selectedUsers = [];
-        self.$store.commit('toast/SHOW_TOAST', { message: (enabled ? '启用' : '禁用') + '成功', type: 'success' });
-      }).catch(function() {
-        self.$store.commit('toast/SHOW_TOAST', { message: '批量操作失败', type: 'error' });
+        self.$store.commit('toast/SHOW_TOAST', { message: '已将「' + label + '」应用到选中用户', type: 'success' });
+      }).catch(function(err) {
+        self.$store.commit('toast/SHOW_TOAST', { message: (err.response && err.response.data && err.response.data.message) || '批量操作失败', type: 'error' });
       });
     },
     batchToggleBrowser: function(enabled) {
