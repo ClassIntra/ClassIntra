@@ -16,6 +16,10 @@
         <p class="login-subtitle">智慧校园平台</p>
       </div>
       <form class="login-form" @submit.prevent="handleLogin">
+        <div v-if="isLoggedIn && currentUserLabel" class="switch-hint">
+          <i class="fa-solid fa-right-left"></i>
+          <span>当前已登录：<strong>{{ currentUserLabel }}</strong>，登录其他账号将自动切换</span>
+        </div>
         <div class="form-group">
           <div class="input-wrap" :class="{ 'input-error': accountError, 'input-focused': accountFocused }">
             <i class="fa-solid fa-user input-icon" aria-hidden="true"></i>
@@ -149,10 +153,23 @@ export default {
   computed: {
     isLoggedIn: function() {
       return !!this.$store.state.auth.token;
+    },
+    currentUserLabel: function() {
+      var u = this.$store.state.auth.user;
+      if (!u) return '';
+      var name = u.net_name || u.real_name || u.user_id || '';
+      var cc = String(u.user_id || '').substring(2, 4);
+      var classTag = /^\d{2}$/.test(cc) ? '（' + cc + '班）' : '';
+      return name + classTag;
     }
   },
   mounted: function() {
     var self = this;
+    // 记住上次登录账号（同设备切换账号时免重复输入）
+    try {
+      var last = localStorage.getItem('ci_last_account');
+      if (last && !self.account) self.account = last;
+    } catch (e) {}
     // 入场动画在下一帧触发，确保 CSS 过渡生效
     self.$nextTick(function() {
       requestAnimationFrame(function() {
@@ -217,6 +234,8 @@ export default {
           password: self.password
         })
         .then(function() {
+          // 记住本次登录账号（下次自动填充）
+          try { localStorage.setItem('ci_last_account', self.account.trim()); } catch (e) {}
           // router.push 单独捕获，避免 NavigationDuplicated 进入登录错误处理
           return self.$router.push({ name: 'Desktop' }).catch(function(navErr) {
             if (navErr && navErr.name !== 'NavigationDuplicated' && navErr.name !== 'NavigationAborted') {
@@ -372,6 +391,29 @@ export default {
   font-size: var(--font-size-callout);
   color: var(--text-secondary);
   font-weight: var(--font-weight-medium);
+}
+
+.switch-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  margin-bottom: 14px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.16);
+  color: rgba(255, 255, 255, 0.92);
+  font-size: var(--font-size-caption);
+  line-height: 1.5;
+}
+
+.switch-hint i {
+  flex-shrink: 0;
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.switch-hint strong {
+  font-weight: 500;
 }
 
 .login-form {

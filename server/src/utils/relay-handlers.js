@@ -487,8 +487,31 @@ bus.register('user_profile_updated', function(payload, ctx) {
     }
     if (fields.length > 0) {
       values.push(payload.user_id);
-      ctx.db.prepare('UPDATE users SET ' + fields.join(', ') + ', updated_at = datetime(\'now\') WHERE user_id = ?').run(values);
-      console.log('[Relay] Synced profile update for user:', payload.user_id);
+      try {
+        ctx.db.prepare('UPDATE users SET ' + fields.join(', ') + ', updated_at = datetime(\'now\') WHERE user_id = ?').run(values);
+        console.log('[Relay] Synced profile update for user:', payload.user_id);
+      } catch (updErr) {
+        // net_name / real_name 有 UNIQUE 约束：跨班同名会导致整条同步失败。
+        // 冲突时剔除名称字段重试，保证其余资料仍能同步到位（名称保持本地值）。
+        if (String(updErr.message).indexOf('UNIQUE') > -1) {
+          var safeFields = [];
+          var safeValues = [];
+          for (var si = 0; si < fields.length; si++) {
+            if (fields[si] === 'net_name = ?' || fields[si] === 'real_name = ?') continue;
+            safeFields.push(fields[si]);
+            safeValues.push(values[si]);
+          }
+          if (safeFields.length > 0) {
+            safeValues.push(payload.user_id);
+            ctx.db.prepare('UPDATE users SET ' + safeFields.join(', ') + ', updated_at = datetime(\'now\') WHERE user_id = ?').run(safeValues);
+            console.warn('[Relay] 名称冲突，已跳过 net_name/real_name 同步其余资料：user=' + payload.user_id);
+          } else {
+            console.warn('[Relay] 名称冲突且无其他字段可同步：user=' + payload.user_id);
+          }
+        } else {
+          throw updErr;
+        }
+      }
     }
     var broadcastData = { type: 'user_profile_updated', user_id: payload.user_id };
     var bFields = ['net_name', 'real_name', 'gender', 'info_json', 'wechat', 'qq', 'phone', 'address', 'signature', 'privacy_settings'];

@@ -1,4 +1,5 @@
 var db = require('./db');
+var resolveUniqueName = require('./unique-name').resolveUniqueName;
 var time = require('./time');
 
 var lastSyncResult = null;
@@ -630,11 +631,11 @@ function applySyncData(syncData) {
           var updateValues = [];
           if (user.net_name && user.net_name !== '') {
             updateFields.push('net_name = ?');
-            updateValues.push(user.net_name);
+            updateValues.push(resolveUniqueName(db, user.net_name, user.user_id, 'net_name', '用户'));
           }
           if (user.real_name && user.real_name !== '') {
             updateFields.push('real_name = ?');
-            updateValues.push(user.real_name);
+            updateValues.push(resolveUniqueName(db, user.real_name, user.user_id, 'real_name', '跨班用户'));
           }
           if (user.gender && user.gender !== '') {
             updateFields.push('gender = ?');
@@ -677,7 +678,10 @@ function applySyncData(syncData) {
           }
         } else {
           s.userInsert.run(
-            user.user_id, user.net_name, user.real_name, user.gender || '',
+            user.user_id,
+            resolveUniqueName(db, user.net_name, user.user_id, 'net_name', '用户'),
+            resolveUniqueName(db, user.real_name, user.user_id, 'real_name', '跨班用户'),
+            user.gender || '',
             '', user.status || 'active', user.is_admin || 0,
             user.info_json || '{}', user.wechat || '', user.qq || '',
             user.phone || '', user.address || '', user.signature || '',
@@ -685,7 +689,9 @@ function applySyncData(syncData) {
           );
         }
         result.users++;
-      } catch (e) {}
+      } catch (e) {
+        console.warn('[Relay-Sync] 用户同步跳过 user=' + (user && user.user_id) + ' err=' + e.message);
+      }
     }
   }
 
