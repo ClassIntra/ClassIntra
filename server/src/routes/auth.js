@@ -175,22 +175,61 @@ router.post('/login', function(req, res) {
       return res.json({ code: 400, message: '请输入账号和密码', data: null });
     }
 
-    // 1. Find user by account (check real_name, user_id, or net_name)
-    var user = db.prepare(
-      'SELECT * FROM users WHERE real_name = ? OR user_id = ? OR net_name = ?'
-    ).get(account, account, account);
+    // 1. 查找候选用户（账号 / 学号 / 网名 / 姓名都可能匹配到多行）
+    //    跨班登录会把对端用户写入本地 users 表，若与本班用户重名会命中多行；
+    //    单行 .get() 无排序，可能返回对端行导致本地用户「密码错误」登不进来。
+    //    因此取全部候选，按「学号精确 > 有本地密码 > 建号顺序」排序后逐个校验密码。
+    var candidates = db.prepare(
+      'SELECT * FROM users WHERE user_id = ? OR real_name = ? OR net_name = ?'
+    ).all(account, account, account);
+
+    if (candidates.length === 0) {
+      return tryRelayLogin(account, password, res);
+    }
+
+    candidates.sort(function(a, b) {
+      var aExact = a.user_id === account ? 0 : 1;
+      var bExact = b.user_id === account ? 0 : 1;
+      if (aExact !== bExact) return aExact - bExact;
+      var aHasPwd = a.password_hash ? 0 : 1;
+      var bHasPwd = b.password_hash ? 0 : 1;
+      if (aHasPwd !== bHasPwd) return aHasPwd - bHasPwd;
+      return (a.id || 0) - (b.id || 0);
+    });
+
+    var user = null;
+    for (var ci = 0; ci < candidates.length; ci++) {
+      if (!candidates[ci].password_hash) continue;
+      // 逐行保护：单行 password_hash 损坏（历史数据/同步异常）不能让整个登录接口 500
+      var okPwd = false;
+      try {
+        okPwd = pwdUtil.verifyPassword(password, candidates[ci].password_hash);
+      } catch (pwdErr) {
+        console.warn('[Login] 密码校验异常，跳过该候选：user_id=' + candidates[ci].user_id + ' err=' + pwdErr.message);
+        continue;
+      }
+      if (okPwd) {
+        user = candidates[ci];
+        break;
+      }
+    }
 
     if (!user) {
-      return tryRelayLogin(account, password, res);
-    }
-
-    if (!user.password_hash) {
-      return tryRelayLogin(account, password, res);
-    }
-
-    // 2. Verify password
-    if (!pwdUtil.verifyPassword(password, user.password_hash)) {
-      return res.json({ code: 401, message: '账号或密码错误', data: null });
+      // 本地无一行密码匹配。若存在「无本地密码」的候选（跨班同步行），交给中继验证；
+      // 否则说明是本班账号密码错 —— 多个同名候选时给出明确指引
+      var hasNoPwdRow = false;
+      for (var ni = 0; ni < candidates.length; ni++) {
+        if (!candidates[ni].password_hash) { hasNoPwdRow = true; break; }
+      }
+      if (hasNoPwdRow) {
+        return tryRelayLogin(account, password, res);
+      }
+      var isAmbiguous = candidates.length > 1 && candidates[0].user_id !== account;
+      return res.json({
+        code: 401,
+        message: isAmbiguous ? '密码错误（匹配到多个同名账号，建议用学号登录）' : '账号或密码错误',
+        data: null
+      });
     }
 
     // 3. Check user status (not disabled)
@@ -363,6 +402,10 @@ router.post('/relay-verify', function(req, res) {
   });
 });
 
+// 唯一名冲突消解：real_name / net_name 均有 UNIQUE 约束，共用工具实现
+// 跨班登录写入对端用户时若与本班用户同名，冲突时追加班级标记（如「张伟(18班)」）
+var resolveUniqueName = require('../utils/unique-name').resolveUniqueName;
+
 function tryRelayLogin(account, password, res) {
   var RELAY_SERVERS = config.relay.servers;
   if (!RELAY_SERVERS || RELAY_SERVERS.length === 0) {
@@ -424,27 +467,45 @@ function tryRelayLogin(account, password, res) {
         pending--;
         if (userData) {
           completed = true;
+          // 防御：对端返回数据不完整时立即返回明确错误，避免异步回调抛错导致响应挂起
+          if (!userData.user_id) {
+            console.warn('[Relay Login] 对端返回缺少 user_id，已拒绝');
+            return res.json({ code: 502, message: '中继登录响应异常，请联系管理员', data: null });
+          }
           // 防御：旧版中继服务器未返回 password_hash 时无法落库（NOT NULL 约束）
           if (!userData.password_hash) {
             console.warn('[Relay Login] 中继服务器未返回 password_hash，请升级对端版本；user_id=' + userData.user_id);
             return res.json({ code: 500, message: '中继登录暂不可用，请联系管理员升级中继服务器', data: null });
           }
-          var existingUser = db.prepare('SELECT user_id FROM users WHERE user_id = ?').get(userData.user_id);
-          if (!existingUser) {
-            db.prepare(
-              'INSERT INTO users (user_id, net_name, real_name, gender, password_hash, status, is_admin, info_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime(\'now\'))'
-            ).run(userData.user_id, userData.net_name, userData.real_name, userData.gender || '', userData.password_hash, userData.status || 'active', userData.is_admin || 0, '{}');
-          } else {
-            db.prepare('UPDATE users SET password_hash = ?, net_name = ? WHERE user_id = ?').run(userData.password_hash, userData.net_name, userData.user_id);
+          // 落库与签发全程保护：异步回调用 {，任何异常都必须回响应，否则前端挂起等超时
+          var userRow;
+          try {
+            var existingUser = db.prepare('SELECT user_id FROM users WHERE user_id = ?').get(userData.user_id);
+            // real_name / net_name 均有 UNIQUE 约束：冲突时追加班级标记，避免写入失败
+            var safeNetName = resolveUniqueName(db, userData.net_name, userData.user_id, 'net_name', '用户');
+            var safeRealName = resolveUniqueName(db, userData.real_name, userData.user_id, 'real_name', '跨班用户');
+            if (!existingUser) {
+              db.prepare(
+                'INSERT INTO users (user_id, net_name, real_name, gender, password_hash, status, is_admin, info_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime(\'now\'))'
+              ).run(userData.user_id, safeNetName, safeRealName, userData.gender || '', userData.password_hash, userData.status || 'active', userData.is_admin || 0, '{}');
+            } else {
+              db.prepare('UPDATE users SET password_hash = ?, net_name = ?, real_name = ? WHERE user_id = ?')
+                .run(userData.password_hash, safeNetName, safeRealName, userData.user_id);
+            }
+            userRow = db.prepare('SELECT * FROM users WHERE user_id = ?').get(userData.user_id);
+          } catch (relayDbErr) {
+            console.error('[Relay Login] 落库失败:', relayDbErr.message);
+            return res.json({ code: 500, message: '中继登录写入失败，请稍后重试', data: null });
           }
-          var userRow = db.prepare('SELECT * FROM users WHERE user_id = ?').get(userData.user_id);
           if (userRow) {
             db.prepare('UPDATE users SET last_login = datetime(\'now\') WHERE user_id = ?').run(userRow.user_id);
             var tokenPayload = buildTokenPayload(userRow);
             var token = jwtUtil.generateToken(tokenPayload);
             setAuthCookie(res, token);
             var user_info = buildUserInfo(userRow);
-            return res.json({ code: 200, message: '登录成功', data: { user_info: user_info, token: token } });
+            // 标记跨班登录：前端据此提示「已登录他班账号」，避免用户误以为是自己账号
+            user_info.cross_class = true;
+            return res.json({ code: 200, message: '登录成功', data: { user_info: user_info, token: token, cross_class: true } });
           }
           return res.json({ code: 401, message: '账号或密码错误', data: null });
         }

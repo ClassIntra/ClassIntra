@@ -34,6 +34,17 @@ function canAdminManageUser(adminUserId, targetUserId) {
 }
 
 // All admin routes require auth + admin
+
+// 策略 id -> 名称映射（用户列表展示用；表不存在时返回空映射）
+function buildAiPolicyLabelMap() {
+  var map = {};
+  try {
+    var rows = db.prepare('SELECT id, label FROM ai_policies').all();
+    for (var i = 0; i < rows.length; i++) map[rows[i].id] = rows[i].label;
+  } catch (e) {}
+  return map;
+}
+
 router.use(auth.requireAuth);
 router.use(auth.requireAdmin);
 
@@ -121,6 +132,7 @@ router.get('/users', auth.requirePermission('manage_users'), function(req, res) 
   );
   var dataParams = fixedParams.concat([limit, offset]);
   var users = dataStmt.all.apply(dataStmt, dataParams);
+  var aiPolicyLabelMap = buildAiPolicyLabelMap();
 
   for (var i = 0; i < users.length; i++) {
     if (users[i].created_at) users[i].created_at = time.toISOString(users[i].created_at);
@@ -134,9 +146,11 @@ router.get('/users', auth.requirePermission('manage_users'), function(req, res) 
       var aiSettings = JSON.parse(users[i].ai_settings_json || '{}');
       users[i].ai_model = aiSettings.model || '';
       users[i].ai_policy = aiSettings.policy_id || '';
+      users[i].ai_policy_label = aiPolicyLabelMap[users[i].ai_policy] || '';
     } catch (e) {
       users[i].ai_model = '';
       users[i].ai_policy = '';
+      users[i].ai_policy_label = '';
     }
     delete users[i].ai_settings_json;
     // 统一解析 officer_permissions 为数组
@@ -1600,15 +1614,18 @@ router.get('/ai-settings', requireClassAdmin, function(req, res) {
   );
   var dataParams = params.concat([limit, offset]);
   var users = dataStmt.all.apply(dataStmt, dataParams);
+  var aiPolicyLabelMap = buildAiPolicyLabelMap();
 
   for (var i = 0; i < users.length; i++) {
     try {
       var aiSettings = JSON.parse(users[i].ai_settings_json || '{}');
       users[i].ai_model = aiSettings.model || '';
       users[i].ai_policy = aiSettings.policy_id || '';
+      users[i].ai_policy_label = aiPolicyLabelMap[users[i].ai_policy] || '';
     } catch (e) {
       users[i].ai_model = '';
       users[i].ai_policy = '';
+      users[i].ai_policy_label = '';
     }
     delete users[i].ai_settings_json;
     delete users[i].deepseek_enabled;

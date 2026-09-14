@@ -68,12 +68,24 @@ var actions = {
       context.commit('SET_TOKEN', data.token);
       context.commit('SET_USER', data.user_info);
       realtime.connect();
+      // 跨班登录提示：明确告知当前登录的是他班账号，避免与自己的账号混淆
+      if (data.cross_class) {
+        try {
+          context.commit('toast/SHOW_TOAST', {
+            message: '当前为跨班登录：' + (data.user_info.real_name || data.user_info.net_name || data.user_info.user_id) + '（' + String(data.user_info.user_id).substring(2, 4) + '班）',
+            type: 'info'
+          });
+        } catch (e) {}
+      }
       return data;
     });
   },
   logout: function(context) {
     realtime.disconnect();
     context.commit('LOGOUT');
+    // 必须通知服务端清除 httpOnly cookie：仅清 localStorage 会残留登录凭据，
+    // 跨班登录后切回自己账号时可能被旧 cookie 干扰
+    return axios.post('/api/auth/logout').catch(function() { /* 网络异常不阻断登出 */ });
   }
 };
 

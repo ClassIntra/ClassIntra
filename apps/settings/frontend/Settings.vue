@@ -1025,8 +1025,8 @@ export default {
     logout: function() {
       var self = this;
       self.$modal.confirm({
-        title: '退出登录',
-        message: '确定要退出当前账号吗？',
+        title: '切换账号 / 退出登录',
+        message: '退出当前账号后可在登录页输入其他账号（含跨班账号）登录，是否继续？',
         confirmText: '退出',
         cancelText: '取消'
       }).then(function(result) {

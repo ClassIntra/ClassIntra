@@ -141,7 +141,7 @@
                   <td><span class="model-tag" :class="user.ai_model">{{ user.ai_model === 'deepseek' ? 'DeepSeek' : (user.ai_model === 'default' ? 'GPT' : (user.ai_model || '—')) }}</span></td>
                   <td>
                     <span class="model-tag policy-tag" :class="{ restricted: user.ai_policy }">
-                      {{ user.ai_policy ? (policyLabel(user.ai_policy)) : '不限' }}
+                      {{ user.ai_policy ? (user.ai_policy_label || policyLabel(user.ai_policy)) : '不限' }}
                     </span>
                   </td>
                   <td>
