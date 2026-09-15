@@ -158,7 +158,11 @@
                       </button>
                       <button v-if="isAdmin" class="table-btn sm danger" @click="deleteUser(user)">删除</button>
                     </template>
-                    <span v-else class="protected-hint"><i class="fa-solid fa-shield-halved"></i> 班管</span>
+                    <template v-else>
+                      <span class="protected-hint"><i class="fa-solid fa-shield-halved"></i> 班管</span>
+                      <!-- 班管行原本无任何操作入口：班管自己忘记密码同样需要找回，故保留重置密码 -->
+                      <button v-if="isAdmin" class="table-btn sm" @click="resetUserPassword(user)">重置密码</button>
+                    </template>
                   </td>
                 </tr>
                 <!-- User Detail Expanded Row -->
