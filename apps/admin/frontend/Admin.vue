@@ -152,6 +152,7 @@
                   <td class="action-cell" @click.stop>
                     <template v-if="!user.is_class_admin">
                       <button v-if="isAdmin" class="table-btn sm edit" @click="editUserDetail(user)">编辑</button>
+                      <button v-if="isAdmin" class="table-btn sm" @click="resetUserPassword(user)">重置密码</button>
                       <button class="table-btn sm" :class="user.status === 'disabled' ? 'enable' : 'disable'" @click="toggleUser(user)">
                         {{ user.status === 'disabled' ? '解禁' : '封禁' }}
                       </button>
@@ -1077,6 +1078,24 @@
       </div>
     </transition>
 
+    <!-- 临时密码弹窗（重置密码后展示，供管理员转告学生） -->
+    <transition name="modal-fade">
+      <div v-if="showTempPassword" class="modal-overlay" @click.self="showTempPassword = false">
+        <div class="modal-card" @click.stop>
+          <h3 class="modal-title">密码已重置</h3>
+          <p class="temp-pwd-hint">{{ tempPasswordInfo.name }}（{{ tempPasswordInfo.userId }}）的新密码：</p>
+          <div class="temp-pwd-box">
+            <code class="temp-pwd-code">{{ tempPasswordInfo.password }}</code>
+            <button class="btn-copy-pwd" @click="copyTempPassword">复制</button>
+          </div>
+          <p class="temp-pwd-hint sm">请把新密码告知该同学，并提醒其用「姓名 / 学号 / 网名 + 新密码」登录。</p>
+          <div class="modal-actions">
+            <button class="btn-confirm" @click="showTempPassword = false">知道了</button>
+          </div>
+        </div>
+      </div>
+    </transition>
+
     <!-- Move Modal -->
     <transition name="modal-fade">
       <div v-if="showMoveModal" class="modal-overlay" @click.self="showMoveModal = false">
@@ -1281,6 +1300,8 @@ export default {
     return {
       activeTab: '',
       policies: [],
+      showTempPassword: false,
+      tempPasswordInfo: {},
       tabs: [
   { key: 'users', label: '用户管理' },
   { key: 'permissions', label: '权限管理' },
@@ -2946,6 +2967,46 @@ export default {
       if (action.indexOf('disable') >= 0 || action.indexOf('delete') >= 0 || action.indexOf('clear') >= 0) return 'log-danger';
       if (action.indexOf('enable') >= 0 || action.indexOf('edit') >= 0) return 'log-warning';
       return 'log-info';
+    },
+    // 重置用户密码（管理员）：后端生成临时密码并展示给管理员
+    resetUserPassword: function(user) {
+      var self = this;
+      if (!user || !user.id) return;
+      self.$modal.confirm({
+        title: '重置密码',
+        message: '确定重置「' + (user.real_name || user.net_name || user.user_id) + '」的密码？将生成一个临时密码。'
+      }).then(function(ok) {
+        if (!ok) return;
+        api.post('/admin/users/' + user.id + '/reset-password', {}).then(function(res) {
+          var d = (res.data && res.data.data) || {};
+          self.tempPasswordInfo = {
+            name: d.real_name || user.real_name || user.net_name,
+            userId: d.user_id || user.user_id,
+            password: d.temp_password || ''
+          };
+          self.showTempPassword = true;
+        }).catch(function(err) {
+          self.$store.commit('toast/SHOW_TOAST', {
+            message: (err.response && err.response.data && err.response.data.message) || '重置失败',
+            type: 'error'
+          });
+        });
+      }).catch(function() {});
+    },
+    // 复制临时密码到剪贴板
+    copyTempPassword: function() {
+      var self = this;
+      var txt = self.tempPasswordInfo.password || '';
+      if (!txt) return;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(txt).then(function() {
+          self.$store.commit('toast/SHOW_TOAST', { message: '已复制新密码', type: 'success' });
+        }).catch(function() {
+          self.$store.commit('toast/SHOW_TOAST', { message: '复制失败，请手动记录', type: 'warning' });
+        });
+      } else {
+        self.$store.commit('toast/SHOW_TOAST', { message: '当前浏览器不支持自动复制，请手动记录', type: 'warning' });
+      }
     },
     loadPolicies: function() {
       var self = this;
@@ -4738,6 +4799,57 @@ export default {
   font-weight: 500;
   color: var(--text-secondary);
   margin-bottom: 6px;
+}
+
+/* 临时密码展示（重置密码） */
+.temp-pwd-hint {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0 0 10px;
+  line-height: 1.6;
+}
+
+.temp-pwd-hint.sm {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin: 12px 0 0;
+}
+
+.temp-pwd-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm, 8px);
+  background: rgba(var(--primary-rgb), 0.04);
+}
+
+.temp-pwd-code {
+  flex: 1;
+  font-family: var(--font-mono, monospace);
+  font-size: 18px;
+  letter-spacing: 1px;
+  color: var(--text-primary);
+  user-select: all;
+  word-break: break-all;
+}
+
+.btn-copy-pwd {
+  padding: 6px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm, 8px);
+  background: var(--bg-color);
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color var(--duration-fast, 0.15s) var(--ease-standard, ease), color var(--duration-fast, 0.15s) var(--ease-standard, ease);
+}
+
+.btn-copy-pwd:hover {
+  border-color: var(--primary-color);
+  color: var(--primary-color);
 }
 
 .modal-actions {

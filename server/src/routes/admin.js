@@ -477,6 +477,56 @@ router.patch('/users/:id', function(req, res) {
   res.json({ code: 200, message: '用户信息已更新' });
 });
 
+// POST /users/:id/reset-password —— 管理员重置用户密码
+// 不传 password 时自动生成 8 位临时密码（避开易混字符），返回给管理员转告学生。
+// 背景：学生忘记密码时此前无任何找回手段，是「登不上去」的最常见原因。
+router.post('/users/:id/reset-password', auth.requirePermission('manage_users'), function(req, res) {
+  var userId = req.params.id;
+  var pwdUtil = require('../utils/password');
+  var target = db.prepare('SELECT user_id, real_name, net_name FROM users WHERE id = ?').get(userId);
+  if (!target) return res.status(404).json({ code: 404, message: '用户不存在' });
+  if (!canAdminManageUser(req.user.user_id, target.user_id)) {
+    return res.status(403).json({ code: 403, message: '无权操作其他班级用户' });
+  }
+
+  var newPassword = String(req.body.password || '').trim();
+  var generated = false;
+  if (!newPassword) {
+    var crypto = require('crypto');
+    var upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+    var lower = 'abcdefghijkmnpqrstuvwxyz';
+    var digit = '23456789';
+    var all = upper + lower + digit;
+    // 首位保证字母，含大小写与数字，长度 10 位
+    newPassword = upper[crypto.randomInt(upper.length)] + lower[crypto.randomInt(lower.length)] + digit[crypto.randomInt(digit.length)];
+    for (var i = 3; i < 10; i++) newPassword += all[crypto.randomInt(all.length)];
+    generated = true;
+  }
+
+  var strength = pwdUtil.checkPasswordStrength(newPassword);
+  if (!strength.valid) {
+    return res.status(400).json({ code: 400, message: strength.message });
+  }
+
+  db.prepare('UPDATE users SET password_hash = ?, updated_at = datetime(\'now\') WHERE id = ?')
+    .run(pwdUtil.hashPassword(newPassword), userId);
+
+  logAction(req.user.user_id, 'reset_password', target.user_id, generated ? '重置密码（自动生成）' : '重置密码（管理员指定）');
+  console.log('[Admin] 重置密码: ' + target.user_id + ' by ' + req.user.user_id + (generated ? ' (generated)' : ''));
+
+  return res.json({
+    code: 200,
+    message: '密码已重置',
+    data: {
+      user_id: target.user_id,
+      real_name: target.real_name,
+      net_name: target.net_name,
+      temp_password: newPassword,
+      generated: generated
+    }
+  });
+});
+
 // DELETE /api/admin/users/:id - Delete user
 router.delete('/users/:id', function(req, res) {
   var userId = req.params.id;
