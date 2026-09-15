@@ -269,6 +269,45 @@ router.post('/save', requireSetupAuth, function(req, res) {
       adminIds = syncedAdminIds;
     }
 
+    // 覆盖保护：名单人数骤减时拒绝写入（防止误操作/空表单把完整名单覆盖掉，
+    // 历史事故：setup 保存时仅提交 1 条记录，51 人名单被覆盖为 1 人，导致其余人无法注册）
+    var oldCount = 0;
+    try {
+      if (fs.existsSync(PRE_RECORDS_PATH)) {
+        var oldData = JSON.parse(fs.readFileSync(PRE_RECORDS_PATH, 'utf8'));
+        Object.keys(oldData).forEach(function(k) {
+          if (Array.isArray(oldData[k])) oldCount += oldData[k].length;
+        });
+      }
+    } catch (e) {
+      oldCount = 0;
+    }
+    var newCount = Object.keys(allUserIds).length;
+    if (oldCount >= 10 && newCount < oldCount * 0.5 && req.body.force !== true) {
+      console.warn('[Setup] 阻止名单覆盖：' + oldCount + ' → ' + newCount);
+      return res.status(400).json({
+        code: 400,
+        message: '预注册名单将从 ' + oldCount + ' 人缩减为 ' + newCount + ' 人，已阻止覆盖以免误删。如确认无误，请勾选「强制保存」后重试。',
+        old_count: oldCount,
+        new_count: newCount
+      });
+    }
+
+    // 覆盖前自动备份（按天，每日首份，避免文件膨胀）
+    // 命名必须匹配 pre-records*.json（.gitignore / .stignore 双重忽略，避免隐私名单外泄）
+    try {
+      if (fs.existsSync(PRE_RECORDS_PATH)) {
+        var dayStamp = new Date().toISOString().slice(0, 10);
+        var bakFile = path.join(path.dirname(PRE_RECORDS_PATH), 'pre-records.bak-' + dayStamp + '.json');
+        if (!fs.existsSync(bakFile)) {
+          fs.copyFileSync(PRE_RECORDS_PATH, bakFile);
+          console.log('[Setup] 名单备份 → ' + path.basename(bakFile));
+        }
+      }
+    } catch (e) {
+      console.warn('[Setup] 名单备份失败（不影响保存）:', e.message);
+    }
+
     // 写入 pre-records.json
     fs.writeFileSync(PRE_RECORDS_PATH, JSON.stringify(preRecordsData, null, 2), 'utf8');
 
