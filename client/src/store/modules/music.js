@@ -15,7 +15,9 @@ var state = {
   lyrics: null,
   currentLyricIndex: -1,
   showPlayer: false,
-  bufferedEnd: 0
+  bufferedEnd: 0,
+  ncmPlayError: null, // 网易云换流失败的提示信息（由页面 watch 后弹 toast）
+  ncmQuality: '' // 网易云音质偏好：空 = 跟随服务器配置
 };
 
 var mutations = {
@@ -57,22 +59,33 @@ var mutations = {
   },
   SET_BUFFERED_END: function (state, end) {
     state.bufferedEnd = end;
+  },
+  SET_PLAY_ERROR: function (state, message) {
+    state.ncmPlayError = message;
+  },
+  SET_NCM_QUALITY: function (state, quality) {
+    state.ncmQuality = quality || '';
   }
 };
 
 // 播放入口：网易云歌曲需先向插件换取同源播放地址（带短时票据），本地歌曲直接播放
-function startPlayback(dispatch, song) {
+function startPlayback(commit, dispatch, state, song) {
   if (song && song.source === 'netease' && song.ncmId) {
-    api.get('/netease-music/song/url', { params: { id: song.ncmId } }).then(function (res) {
+    api.get('/netease-music/song/url', { params: { id: song.ncmId, quality: state.ncmQuality || undefined } }).then(function (res) {
       var body = res.data || {};
       var item = body.data && body.data[0];
       if (body.code === 200 && item && item.url) {
         song.audioUrl = item.url;
+        commit('SET_PLAY_ERROR', null);
         audioManager.playSong(song);
         dispatch('fetchLyrics', song);
+      } else {
+        // 无可用地址（VIP / 无版权等）：置错误提示，由页面 watch 弹 toast
+        commit('SET_PLAY_ERROR', '该歌曲暂无可用播放地址（可能需要 VIP 或无版权）');
       }
-      // 获取失败（VIP/无版权等）时静默停止，不打断队列
-    }).catch(function () {});
+    }).catch(function () {
+      commit('SET_PLAY_ERROR', '获取播放地址失败，请检查网络后重试');
+    });
     return;
   }
   audioManager.playSong(song);
@@ -112,8 +125,9 @@ var actions = {
   play: function (_ref, song) {
     var commit = _ref.commit;
     var dispatch = _ref.dispatch;
+    var state = _ref.state;
     var isNcm = song && song.source === 'netease' && song.ncmId;
-    startPlayback(dispatch, song);
+    startPlayback(commit, dispatch, state, song);
     commit('SET_CURRENT_SONG', song);
     // 在线歌曲需异步换流，待 audioManager 真正起播后再标记播放态
     if (!isNcm) commit('SET_PLAYING', true);
@@ -150,7 +164,7 @@ var actions = {
     }
     commit('SET_CURRENT_LYRIC_INDEX', -1);
     commit('SET_LYRICS', null);
-    startPlayback(dispatch, nextSong);
+    startPlayback(commit, dispatch, state, nextSong);
   },
   prev: function (_ref) {
     var commit = _ref.commit;
@@ -165,7 +179,7 @@ var actions = {
     var prevSong = queue[prevIdx];
     commit('SET_CURRENT_LYRIC_INDEX', -1);
     commit('SET_LYRICS', null);
-    startPlayback(dispatch, prevSong);
+    startPlayback(commit, dispatch, state, prevSong);
   },
   seek: function (_ref, time) {
     audioManager.seek(time);

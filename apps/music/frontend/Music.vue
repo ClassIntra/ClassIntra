@@ -77,10 +77,24 @@
           <div class="list-search">
             <div class="search-box">
               <i class="fa-solid fa-magnifying-glass"></i>
-              <input v-model="searchQuery" :placeholder="isNcmTab ? '搜索网易云音乐，回车搜索' : '搜索歌曲或艺术家'" @keyup.enter="onSearchEnter" />
+              <input
+                v-model="searchQuery"
+                :placeholder="isNcmTab ? '搜索网易云音乐，回车搜索' : '搜索歌曲或艺术家'"
+                @keyup.enter="onSearchEnter"
+                @input="onNcmInput"
+                @focus="onNcmFocus"
+                @blur="onNcmBlur"
+              />
               <button v-if="searchQuery" class="search-clear" @click="searchQuery = ''">
                 <i class="fa-solid fa-xmark"></i>
               </button>
+            </div>
+            <div v-if="isNcmTab && ncmSuggestShow && ncmSuggest.length" class="ncm-suggest scrollbar-thin">
+              <div v-for="(sg, i) in ncmSuggest" :key="i" class="ncm-suggest-item" @mousedown.prevent="pickNcmSuggest(sg)">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <span class="ncm-suggest-name">{{ sg.name }}</span>
+                <span class="ncm-suggest-meta">{{ sg.meta }}</span>
+              </div>
             </div>
           </div>
 
@@ -106,10 +120,18 @@
           </div>
 
           <div v-if="isNcmTab" class="playlist-header">
-            <div class="playlist-header-info">
+            <div class="playlist-header-info ncm-header-info">
+              <img v-if="ncmHeaderCover" class="ncm-header-cover" :src="ncmHeaderCover" alt="" loading="lazy" decoding="async" />
               <h2 class="playlist-header-name">{{ ncmTabTitle }}</h2>
             </div>
             <div class="playlist-header-actions">
+              <select class="ncm-quality-select" :value="ncmQuality" @change="onNcmQualityChange" title="网易云音质，下一首生效">
+                <option value="">音质：跟随服务器</option>
+                <option value="standard">标准音质</option>
+                <option value="higher">较高音质</option>
+                <option value="exhigh">极高音质</option>
+                <option value="lossless">无损音质</option>
+              </select>
               <button class="playlist-action-btn" @click="playNcmAll">
                 <i class="fa-solid fa-play"></i>
                 <span>播放全部</span>
@@ -167,6 +189,13 @@
                 <i class="fa-solid fa-xmark"></i>
               </button>
             </div>
+          </div>
+
+          <div v-if="isNcmTab && ncmHasMore && !ncmLoading" class="ncm-load-more">
+            <button class="playlist-action-btn" @click="loadNcmMore">
+              <i class="fa-solid fa-chevron-down"></i>
+              <span>加载更多</span>
+            </button>
           </div>
 
           <div v-if="!songsLoading && !(isNcmTab && ncmLoading) && filteredSongs.length === 0" class="list-empty">
@@ -422,7 +451,7 @@
               </div>
             </div>
             <div class="ncm-qr-tip">使用网易云音乐 App 扫一扫登录</div>
-            <div class="ncm-qr-status">{{ ncmQrStatusText }}</div>
+            <div class="ncm-qr-status" :class="{ 'ncm-qr-status-ok': ncmQrScanned || ncmLoggedIn }">{{ ncmQrStatusText }}</div>
           </template>
           <template v-else>
             <div class="ncm-qr-tip">二维码已过期，请重新生成</div>
@@ -485,7 +514,14 @@ export default {
       ncmQr: null,
       ncmQrLoading: false,
       ncmQrExpired: false,
+      ncmQrScanned: false, // 已扫码待确认（802）
       _ncmQrTimer: null,
+      ncmSuggest: [], // 搜索联想下拉
+      ncmSuggestShow: false,
+      _ncmSuggestTimer: null,
+      ncmSearchOffset: 0, // 搜索翻页游标
+      ncmHasMore: false,
+      ncmLastKeyword: '',
       _bgCrossfadeActive: false,
       _bgCrossfadeTimer: null
     };
@@ -530,8 +566,26 @@ export default {
       return '网易云音乐';
     },
     ncmQrStatusText: function() {
-      // 由轮询结果驱动：扫码前为等待提示，成功后关闭弹窗
-      return this.ncmLoggedIn ? '登录成功' : '等待扫码中...';
+      // 由轮询结果驱动：等待扫码 → 已扫码待确认 → 登录成功（随后关闭弹窗）
+      if (this.ncmLoggedIn) return '登录成功';
+      if (this.ncmQrScanned) return '已扫码，请在手机上确认';
+      return '等待扫码中...';
+    },
+    ncmPlayError: function() {
+      return this.$store.state.music.ncmPlayError;
+    },
+    ncmQuality: function() {
+      return this.$store.state.music.ncmQuality;
+    },
+    ncmHeaderCover: function() {
+      // 网易云歌单头封面（打开歌单 tab 时展示）
+      var t = this.activeTab;
+      if (typeof t === 'string' && t.indexOf('ncm-pl-') === 0) {
+        var id = parseInt(t.substring(7), 10);
+        var pl = this.ncmPlaylists.find(function(p) { return p.id === id; });
+        return (pl && pl.coverUrl) || '';
+      }
+      return '';
     },
     filteredSongs: function() {
       var q = this.searchQuery.toLowerCase().trim();
@@ -622,6 +676,12 @@ export default {
     currentLyricIndex: function(n, o) {
       if (n !== o && n >= 0) this.scrollLyric(n);
     },
+    ncmPlayError: function(n) {
+      // 网易云换流失败：toast 提示后立即清空，避免重复弹出
+      if (!n) return;
+      if (this.$toast) this.$toast.show(n, { type: 'error' });
+      this.$store.commit('music/SET_PLAY_ERROR', null);
+    },
     currentSong: function(newSong, oldSong) {
       if (newSong && (!oldSong || newSong.id !== oldSong.id)) {
         this.fetchLyrics(newSong);
@@ -660,6 +720,7 @@ export default {
   beforeDestroy: function() {
     if (this._keyHandler) document.removeEventListener('keydown', this._keyHandler);
     if (this._bgCrossfadeTimer) { clearTimeout(this._bgCrossfadeTimer); this._bgCrossfadeTimer = null; }
+    if (this._ncmSuggestTimer) { clearTimeout(this._ncmSuggestTimer); this._ncmSuggestTimer = null; }
     this.stopQrPolling();
   },
   methods: {
@@ -1184,7 +1245,12 @@ export default {
       api.get('/netease-music/user/playlist').then(function(res) {
         var body = res.data || {};
         vm.ncmPlaylists = (body.playlist || []).map(function(p) {
-          return { id: p.id, name: p.name };
+          return {
+            id: p.id,
+            name: p.name,
+            // 保留封面，经插件图片中转，供歌单头展示
+            coverUrl: p.coverImgUrl ? ('/api/netease-music/image?u=' + encodeURIComponent(p.coverImgUrl)) : ''
+          };
         });
       }).catch(function() {});
     },
@@ -1233,9 +1299,12 @@ export default {
           vm.setNcmSongs(songs);
           vm.ncmLoading = false;
         } else {
-          vm.loadNcmToplist(); // 未登录或无推荐：回退热歌榜
+          // 未登录或无推荐：回退热歌榜并提示
+          if (vm.$toast) vm.$toast.show('未登录网易云，已为你展示热歌榜', { type: 'info' });
+          vm.loadNcmToplist();
         }
       }).catch(function() {
+        if (vm.$toast) vm.$toast.show('未登录网易云，已为你展示热歌榜', { type: 'info' });
         vm.loadNcmToplist();
       });
     },
@@ -1287,17 +1356,103 @@ export default {
     onSearchEnter: function() {
       if (!this.isNcmTab) return;
       var kw = this.searchQuery.trim();
+      this.closeNcmSuggest();
       if (!kw) return;
       var vm = this;
       vm.ncmLoading = true;
+      vm.ncmLastKeyword = kw;
+      vm.ncmSearchOffset = 0;
       api.get('/netease-music/search', { params: { keywords: kw, type: 1, limit: 50 } }).then(function(res) {
         var body = res.data || {};
-        vm.setNcmSongs((body.result && body.result.songs) || []);
+        var songs = (body.result && body.result.songs) || [];
+        var count = (body.result && body.result.songCount) || 0;
+        vm.setNcmSongs(songs);
+        vm.ncmSearchOffset = songs.length;
+        vm.ncmHasMore = songs.length > 0 && songs.length < count;
         vm.ncmLoading = false;
       }).catch(function() {
         vm.ncmSongs = [];
+        vm.ncmHasMore = false;
         vm.ncmLoading = false;
       });
+    },
+    // 搜索结果追加翻页（跳过与当前列表重复的歌曲）
+    loadNcmMore: function() {
+      if (!this.ncmHasMore || this.ncmLoading || !this.ncmLastKeyword) return;
+      var vm = this;
+      vm.ncmLoading = true;
+      api.get('/netease-music/search', { params: { keywords: vm.ncmLastKeyword, type: 1, limit: 50, offset: vm.ncmSearchOffset } }).then(function(res) {
+        var body = res.data || {};
+        var songs = (body.result && body.result.songs) || [];
+        var count = (body.result && body.result.songCount) || 0;
+        for (var i = 0; i < songs.length; i++) {
+          if (!songs[i] || !songs[i].id) continue;
+          var nid = 'ncm-' + songs[i].id;
+          var dup = vm.ncmSongs.some(function(s) { return s.id === nid; });
+          if (!dup) vm.ncmSongs.push(vm.normalizeNcmSong(songs[i]));
+        }
+        vm.ncmSearchOffset += songs.length;
+        vm.ncmHasMore = songs.length > 0 && vm.ncmSearchOffset < count;
+        vm.fillNcmFavoriteState();
+        vm.ncmLoading = false;
+      }).catch(function() {
+        vm.ncmLoading = false;
+      });
+    },
+    /* --- 搜索联想（仅网易云 tab，400ms 防抖） --- */
+    onNcmInput: function() {
+      var vm = this;
+      if (vm._ncmSuggestTimer) { clearTimeout(vm._ncmSuggestTimer); vm._ncmSuggestTimer = null; }
+      var kw = vm.searchQuery.trim();
+      if (!vm.isNcmTab || !kw) { vm.closeNcmSuggest(); return; }
+      vm._ncmSuggestTimer = setTimeout(function() {
+        vm._ncmSuggestTimer = null;
+        api.get('/netease-music/search/suggest', { params: { keywords: kw } }).then(function(res) {
+          var body = res.data || {};
+          var result = body.result || {};
+          var items = [];
+          var songs = result.songs || [];
+          for (var i = 0; i < songs.length && items.length < 8; i++) {
+            var names = [];
+            var ar = songs[i].artists || [];
+            for (var a = 0; a < ar.length; a++) { if (ar[a] && ar[a].name) names.push(ar[a].name); }
+            items.push({ name: songs[i].name, meta: names.join(' / ') || '歌曲' });
+          }
+          var artists = result.artists || [];
+          for (var j = 0; j < artists.length && items.length < 8; j++) {
+            items.push({ name: artists[j].name, meta: '歌手' });
+          }
+          var albums = result.albums || [];
+          for (var k = 0; k < albums.length && items.length < 8; k++) {
+            items.push({ name: albums[k].name, meta: '专辑' });
+          }
+          vm.ncmSuggest = items;
+          vm.ncmSuggestShow = items.length > 0;
+        }).catch(function() { vm.closeNcmSuggest(); });
+      }, 400);
+    },
+    onNcmFocus: function() {
+      if (this.isNcmTab && this.ncmSuggest.length) this.ncmSuggestShow = true;
+    },
+    onNcmBlur: function() {
+      // 延迟关闭，避免与下拉点击冲突（mousedown.prevent 已兜底）
+      var vm = this;
+      setTimeout(function() { vm.ncmSuggestShow = false; }, 200);
+    },
+    pickNcmSuggest: function(sg) {
+      this.searchQuery = sg.name;
+      this.closeNcmSuggest();
+      this.onSearchEnter();
+    },
+    closeNcmSuggest: function() {
+      this.ncmSuggestShow = false;
+    },
+    // 音质切换：写入 store，下一次换流请求生效
+    onNcmQualityChange: function(e) {
+      var val = e.target.value || '';
+      this.$store.commit('music/SET_NCM_QUALITY', val);
+      var label = val === '' ? '跟随服务器' : e.target.options[e.target.selectedIndex].text;
+      if (this.$toast) this.$toast.show('音质已切换为「' + label + '」，下一首生效', { type: 'info' });
     },
     playNcmAll: function() {
       if (this.ncmSongs.length === 0) return;
@@ -1307,6 +1462,7 @@ export default {
       var vm = this;
       vm.showNcmLogin = true;
       vm.ncmQrExpired = false;
+      vm.ncmQrScanned = false;
       vm.ncmQr = null;
       vm.ncmQrLoading = true;
       vm.stopQrPolling();
@@ -1342,8 +1498,10 @@ export default {
           } else if (code === 800) {
             vm.stopQrPolling();
             vm.ncmQrExpired = true;
+          } else if (code === 802) {
+            vm.ncmQrScanned = true; // 已扫码待确认，绿色提示
           }
-          // 801 等待扫码 / 802 已扫待确认：继续轮询
+          // 801 等待扫码：继续轮询
         }).catch(function() {});
       }, 2500);
     },
@@ -3642,5 +3800,96 @@ export default {
 .ncm-qr-status {
   font-size: var(--font-size-caption);
   color: var(--text-tertiary);
+}
+
+.ncm-qr-status-ok { color: var(--success-color); font-weight: var(--font-weight-medium); }
+
+/* ========== 网易云搜索联想下拉 ========== */
+.ncm-suggest {
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  top: 64px;
+  z-index: 5;
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--nav-bg);
+  backdrop-filter: var(--glass-blur-container);
+  -webkit-backdrop-filter: var(--glass-blur-container);
+  border: 0.5px solid var(--separator-color);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+.ncm-suggest-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+
+.ncm-suggest-item:hover { background: var(--primary-lighter); }
+.ncm-suggest-item i { color: var(--text-tertiary); font-size: var(--font-size-caption); }
+
+.ncm-suggest-name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ncm-suggest-meta {
+  flex-shrink: 0;
+  font-size: var(--font-size-caption);
+  color: var(--text-tertiary);
+  max-width: 40%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ========== 网易云 tab 头（封面 + 音质） ========== */
+.ncm-header-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ncm-header-info .playlist-header-name { min-width: 0; flex-shrink: 1; }
+
+.ncm-header-cover {
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.ncm-quality-select {
+  min-height: 44px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  border: 0.5px solid var(--separator-color);
+  background: var(--primary-lighter);
+  color: var(--text-secondary);
+  font-size: var(--font-size-caption);
+  cursor: pointer;
+  transition: border-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
+  outline: none;
+}
+
+.ncm-quality-select:hover { border-color: var(--primary-color); color: var(--primary-color); }
+
+/* ========== 网易云搜索加载更多 ========== */
+.ncm-load-more {
+  display: flex;
+  justify-content: center;
+  padding: 8px 24px 20px;
 }
 </style>
