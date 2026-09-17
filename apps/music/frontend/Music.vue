@@ -13,61 +13,81 @@
       <div class="list-layout">
         <div class="list-sidebar scrollbar-thin">
           <div class="sidebar-nav">
-            <div class="sidebar-item" :class="{ active: activeTab === 'all' }" @click="activeTab = 'all'">
-              <i class="fa-solid fa-music"></i>
-              <span>全部歌曲</span>
+            <!-- 库切换器：插件已安装时显示，网易云为主库 -->
+            <div v-if="ncmAvailable" class="library-switch">
+              <button class="library-switch-btn" :class="{ active: librarySource === 'ncm' }" @click="switchLibrary('ncm')">
+                <i class="fa-solid fa-cloud"></i>
+                <span>网易云</span>
+              </button>
+              <button class="library-switch-btn" :class="{ active: librarySource === 'local' }" @click="switchLibrary('local')">
+                <i class="fa-solid fa-hard-drive"></i>
+                <span>本地音乐</span>
+              </button>
             </div>
-            <div class="sidebar-item" :class="{ active: activeTab === 'favorites' }" @click="activeTab = 'favorites'">
-              <i class="fa-solid fa-heart"></i>
-              <span>我的收藏</span>
-            </div>
-            <div class="sidebar-divider"></div>
-            <div class="sidebar-label">歌单</div>
-            <div
-              v-for="pl in playlists"
-              :key="pl.id"
-              class="sidebar-item"
-              :class="{ active: typeof activeTab === 'number' && activeTab === pl.id }"
-              @click="openPlaylistDetail(pl)"
-            >
-              <i class="fa-solid fa-list"></i>
-              <span class="sidebar-item-name">{{ pl.name }}</span>
-            </div>
-            <div v-if="playlists.length === 0" class="sidebar-empty">暂无歌单</div>
-            <div class="sidebar-divider"></div>
-            <div class="sidebar-label">网易云音乐</div>
-            <div class="sidebar-item" :class="{ active: activeTab === 'ncm-daily' }" @click="openNcmTab('ncm-daily')">
-              <i class="fa-solid fa-calendar-day"></i>
-              <span>每日推荐</span>
-            </div>
-            <div class="sidebar-item" :class="{ active: activeTab === 'ncm-top' }" @click="openNcmTab('ncm-top')">
-              <i class="fa-solid fa-fire"></i>
-              <span>热歌排行榜</span>
-            </div>
-            <div class="sidebar-item" :class="{ active: activeTab === 'ncm-fav' }" @click="openNcmTab('ncm-fav')">
-              <i class="fa-solid fa-heart"></i>
-              <span>网易云收藏</span>
-            </div>
-            <div
-              v-for="pl in ncmPlaylists"
-              :key="'ncm-pl-' + pl.id"
-              class="sidebar-item"
-              :class="{ active: activeTab === 'ncm-pl-' + pl.id }"
-              @click="openNcmTab('ncm-pl-' + pl.id)"
-            >
-              <i class="fa-solid fa-cloud"></i>
-              <span class="sidebar-item-name">{{ pl.name }}</span>
-            </div>
-            <div v-if="!ncmLoggedIn" class="sidebar-item" @click="startQrLogin">
-              <i class="fa-solid fa-qrcode"></i>
-              <span>扫码登录网易云</span>
-            </div>
-            <div v-else class="sidebar-item" @click="ncmLogout" title="点击退出网易云登录">
-              <i class="fa-solid fa-circle-user"></i>
-              <span class="sidebar-item-name">{{ ncmProfile && ncmProfile.nickname ? ncmProfile.nickname : '已登录' }}</span>
-            </div>
+
+            <!-- 本地音乐页面 -->
+            <template v-if="!ncmAvailable || librarySource === 'local'">
+              <div class="sidebar-item" :class="{ active: activeTab === 'all' }" @click="activeTab = 'all'">
+                <i class="fa-solid fa-music"></i>
+                <span>全部歌曲</span>
+              </div>
+              <div class="sidebar-item" :class="{ active: activeTab === 'favorites' }" @click="activeTab = 'favorites'">
+                <i class="fa-solid fa-heart"></i>
+                <span>我的收藏</span>
+              </div>
+              <div class="sidebar-divider"></div>
+              <div class="sidebar-label">歌单</div>
+              <div
+                v-for="pl in playlists"
+                :key="pl.id"
+                class="sidebar-item"
+                :class="{ active: typeof activeTab === 'number' && activeTab === pl.id }"
+                @click="openPlaylistDetail(pl)"
+              >
+                <i class="fa-solid fa-list"></i>
+                <span class="sidebar-item-name">{{ pl.name }}</span>
+              </div>
+              <div v-if="playlists.length === 0" class="sidebar-empty">暂无歌单</div>
+            </template>
+
+            <!-- 网易云音乐页面 -->
+            <template v-else>
+              <div class="sidebar-label">在线音乐</div>
+              <div class="sidebar-item" :class="{ active: activeTab === 'ncm-daily' }" @click="openNcmTab('ncm-daily')">
+                <i class="fa-solid fa-calendar-day"></i>
+                <span>每日推荐</span>
+              </div>
+              <div class="sidebar-item" :class="{ active: activeTab === 'ncm-top' }" @click="openNcmTab('ncm-top')">
+                <i class="fa-solid fa-fire"></i>
+                <span>热歌排行榜</span>
+              </div>
+              <div class="sidebar-item" :class="{ active: activeTab === 'ncm-fav' }" @click="openNcmTab('ncm-fav')">
+                <i class="fa-solid fa-heart"></i>
+                <span>网易云收藏</span>
+              </div>
+              <div class="sidebar-divider"></div>
+              <div class="sidebar-label">网易云歌单</div>
+              <div
+                v-for="pl in ncmPlaylists"
+                :key="'ncm-pl-' + pl.id"
+                class="sidebar-item"
+                :class="{ active: activeTab === 'ncm-pl-' + pl.id }"
+                @click="openNcmTab('ncm-pl-' + pl.id)"
+              >
+                <i class="fa-solid fa-cloud"></i>
+                <span class="sidebar-item-name">{{ pl.name }}</span>
+              </div>
+              <div v-if="!ncmLoggedIn" class="sidebar-item" @click="startQrLogin">
+                <i class="fa-solid fa-qrcode"></i>
+                <span>扫码登录网易云</span>
+              </div>
+              <div v-else class="sidebar-item" @click="ncmLogout" title="点击退出网易云登录">
+                <i class="fa-solid fa-circle-user"></i>
+                <span class="sidebar-item-name">{{ ncmProfile && ncmProfile.nickname ? ncmProfile.nickname : '已登录' }}</span>
+              </div>
+            </template>
           </div>
-          <button class="sidebar-create-btn" @click="showCreatePlaylist = true">
+          <button v-if="!ncmAvailable || librarySource === 'local'" class="sidebar-create-btn" @click="showCreatePlaylist = true">
             <i class="fa-solid fa-plus"></i>
             <span>新建歌单</span>
           </button>
@@ -514,6 +534,8 @@ export default {
       shufflePool: [],
       playlists: [],
       activeTab: 'all',
+      librarySource: 'local', // 当前库页面：'ncm' = 网易云（主库）/ 'local' = 本地音乐
+      ncmAvailable: false, // 网易云插件是否安装（启动时探测 /status）
       showCreatePlaylist: false,
       newPlaylistName: '',
       newPlaylistDesc: '',
@@ -721,6 +743,7 @@ export default {
   },
   mounted: function() {
     audioManager.init(this.$store);
+    this._mountedAt = Date.now(); // 用于「插件安装时自动以网易云为主库」的时间窗判断
     this.fetchSongs();
     this.fetchPlaylists();
     this.fetchNcmStatus();
@@ -1266,10 +1289,30 @@ export default {
       var vm = this;
       api.get('/netease-music/status').then(function(res) {
         var d = res.data || {};
+        vm.ncmAvailable = true; // 插件已安装
         vm.ncmLoggedIn = !!d.loggedIn;
         vm.ncmProfile = d.profile || null;
+        // 插件安装时以网易云为主库：启动 10 秒内用户未主动切换过页面则自动进入网易云页
+        if (!vm._libSwitched && vm.activeTab === 'all' && Date.now() - (vm._mountedAt || 0) < 10000) {
+          vm.switchLibrary('ncm');
+        }
         if (vm.ncmLoggedIn) vm.loadNcmPlaylists();
-      }).catch(function() {});
+      }).catch(function() {
+        vm.ncmAvailable = false; // 插件未安装：仅显示本地库
+      });
+    },
+    // 库切换：网易云与本地音乐分属两个页面，插件安装时网易云为主库
+    switchLibrary: function(source) {
+      if (source === this.librarySource) return;
+      this._libSwitched = true;
+      this.librarySource = source;
+      this.searchQuery = '';
+      this.closeNcmSuggest();
+      if (source === 'ncm') {
+        this.openNcmTab('ncm-daily');
+      } else {
+        this.activeTab = 'all';
+      }
     },
     loadNcmPlaylists: function() {
       var vm = this;
@@ -1653,6 +1696,51 @@ export default {
   flex: 1;
   padding: 12px 8px;
 }
+
+/* 库切换器（iPadOS 分段控件风格）：网易云为主库 / 本地音乐 */
+.library-switch {
+  display: flex;
+  gap: 3px;
+  margin: 0 6px 10px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--primary-lighter);
+}
+
+.library-switch-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.library-switch-btn i { font-size: 11px; }
+
+.library-switch-btn.active {
+  background: var(--card-bg);
+  color: var(--text-primary);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="dark"] .library-switch-btn.active {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.library-switch-btn:not(.active):hover { color: var(--text-primary); }
 
 .sidebar-item {
   display: flex;
