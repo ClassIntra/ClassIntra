@@ -60,12 +60,63 @@ var mutations = {
   }
 };
 
+// 播放入口：网易云歌曲需先向插件换取同源播放地址（带短时票据），本地歌曲直接播放
+function startPlayback(dispatch, song) {
+  if (song && song.source === 'netease' && song.ncmId) {
+    api.get('/netease-music/song/url', { params: { id: song.ncmId } }).then(function (res) {
+      var body = res.data || {};
+      var item = body.data && body.data[0];
+      if (body.code === 200 && item && item.url) {
+        song.audioUrl = item.url;
+        audioManager.playSong(song);
+        dispatch('fetchLyrics', song);
+      }
+      // 获取失败（VIP/无版权等）时静默停止，不打断队列
+    }).catch(function () {});
+    return;
+  }
+  audioManager.playSong(song);
+  dispatch('fetchLyrics', song);
+}
+
+// 合并网易云官方翻译歌词：tlyric 按时间戳（≤0.5s）对齐写入 line.translation
+function mergeTranslation(parsed, tlyricText) {
+  if (!tlyricText || !parsed || !parsed.lines || !parsed.lines.length) return parsed;
+  var tLines = [];
+  var raw = tlyricText.split('\n');
+  for (var i = 0; i < raw.length; i++) {
+    var line = raw[i].trim();
+    if (!line) continue;
+    var m = line.match(/^\[(\d{1,3}:\d{2}(?:\.\d{1,3})?)\]/);
+    if (!m) continue;
+    var text = line.substring(m[0].length).trim();
+    if (!text) continue;
+    var parts = m[1].split(':');
+    tLines.push({ time: parseInt(parts[0], 10) * 60 + parseFloat(parts[1]), text: text });
+  }
+  if (!tLines.length) return parsed;
+  var lines = parsed.lines;
+  for (var j = 0; j < lines.length; j++) {
+    if (lines[j].translation) continue;
+    for (var k = 0; k < tLines.length; k++) {
+      if (Math.abs(tLines[k].time - lines[j].time) <= 0.5) {
+        lines[j].translation = tLines[k].text;
+        break;
+      }
+    }
+  }
+  return parsed;
+}
+
 var actions = {
   play: function (_ref, song) {
     var commit = _ref.commit;
-    audioManager.playSong(song);
+    var dispatch = _ref.dispatch;
+    var isNcm = song && song.source === 'netease' && song.ncmId;
+    startPlayback(dispatch, song);
     commit('SET_CURRENT_SONG', song);
-    commit('SET_PLAYING', true);
+    // 在线歌曲需异步换流，待 audioManager 真正起播后再标记播放态
+    if (!isNcm) commit('SET_PLAYING', true);
   },
   pause: function (_ref) {
     var commit = _ref.commit;
@@ -99,8 +150,7 @@ var actions = {
     }
     commit('SET_CURRENT_LYRIC_INDEX', -1);
     commit('SET_LYRICS', null);
-    audioManager.playSong(nextSong);
-    dispatch('fetchLyrics', nextSong);
+    startPlayback(dispatch, nextSong);
   },
   prev: function (_ref) {
     var commit = _ref.commit;
@@ -115,8 +165,7 @@ var actions = {
     var prevSong = queue[prevIdx];
     commit('SET_CURRENT_LYRIC_INDEX', -1);
     commit('SET_LYRICS', null);
-    audioManager.playSong(prevSong);
-    dispatch('fetchLyrics', prevSong);
+    startPlayback(dispatch, prevSong);
   },
   seek: function (_ref, time) {
     audioManager.seek(time);
@@ -147,6 +196,26 @@ var actions = {
     var commit = _ref.commit;
     var state = _ref.state;
     if (!song) return;
+    // 网易云歌曲：走插件歌词接口，并合并官方翻译（tlyric）
+    if (song.source === 'netease' && song.ncmId) {
+      commit('SET_LYRICS', null);
+      api.get('/netease-music/lyric', { params: { id: song.ncmId } }).then(function (res) {
+        if (state.currentSong && state.currentSong.id === song.id) {
+          var body = res.data || {};
+          var lrcText = body.lrc && body.lrc.lyric;
+          if (body.code === 200 && lrcText) {
+            commit('SET_LYRICS', Object.freeze(mergeTranslation(lrcParser.parseLRC(lrcText), body.tlyric && body.tlyric.lyric)));
+          } else {
+            commit('SET_LYRICS', null);
+          }
+        }
+      }).catch(function () {
+        if (state.currentSong && state.currentSong.id === song.id) {
+          commit('SET_LYRICS', null);
+        }
+      });
+      return;
+    }
     if (!song.hasLyrics || !song.lyricsUrl) {
       commit('SET_LYRICS', null);
       return;
