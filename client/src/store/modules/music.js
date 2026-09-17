@@ -17,7 +17,8 @@ var state = {
   showPlayer: false,
   bufferedEnd: 0,
   ncmPlayError: null, // 网易云换流失败的提示信息（由页面 watch 后弹 toast）
-  ncmQuality: '' // 网易云音质偏好：空 = 跟随服务器配置
+  ncmQuality: '', // 网易云音质偏好：空 = 跟随服务器配置
+  ncmLevel: '' // 当前播放网易云歌曲的实际音质（standard/higher/exhigh/lossless...）
 };
 
 var mutations = {
@@ -65,18 +66,23 @@ var mutations = {
   },
   SET_NCM_QUALITY: function (state, quality) {
     state.ncmQuality = quality || '';
+  },
+  SET_NCM_LEVEL: function (state, level) {
+    state.ncmLevel = level || '';
   }
 };
 
 // 播放入口：网易云歌曲需先向插件换取同源播放地址（带短时票据），本地歌曲直接播放
 function startPlayback(commit, dispatch, state, song) {
   if (song && song.source === 'netease' && song.ncmId) {
+    commit('SET_NCM_LEVEL', ''); // 换流前清掉上一首的音质标记
     api.get('/netease-music/song/url', { params: { id: song.ncmId, quality: state.ncmQuality || undefined } }).then(function (res) {
       var body = res.data || {};
       var item = body.data && body.data[0];
       if (body.code === 200 && item && item.url) {
         song.audioUrl = item.url;
         commit('SET_PLAY_ERROR', null);
+        commit('SET_NCM_LEVEL', item.level || '');
         audioManager.playSong(song);
         dispatch('fetchLyrics', song);
       } else {
@@ -88,6 +94,7 @@ function startPlayback(commit, dispatch, state, song) {
     });
     return;
   }
+  commit('SET_NCM_LEVEL', ''); // 本地歌曲无网易云音质标记
   audioManager.playSong(song);
   dispatch('fetchLyrics', song);
 }

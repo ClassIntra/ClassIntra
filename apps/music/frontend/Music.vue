@@ -154,7 +154,7 @@
               @contextmenu.prevent="onSongContextMenu(song)"
             >
               <div class="song-row-cover">
-                <img v-if="song.coverUrl" :src="song.coverUrl" loading="lazy" decoding="async" />
+                <img v-if="song.coverUrl" :src="song.coverUrl" loading="lazy" decoding="async" @error="onCoverError(song)" />
                 <div v-else class="cover-fallback-sm" :style="coverFallbackStyle(song)">
                   <i class="fa-solid fa-music"></i>
                 </div>
@@ -208,7 +208,7 @@
       <transition name="mini-slide">
         <div v-if="currentSong" class="mini-player" @click="openPlayer">
           <div class="mini-cover" :class="{ 'mini-cover-spin': isPlaying }">
-            <img v-if="currentSong.coverUrl" :src="currentSong.coverUrl" />
+            <img v-if="currentSong.coverUrl" :src="currentSong.coverUrl" @error="onCoverError(currentSong)" />
             <div v-else class="mini-cover-fallback">
               <i class="fa-solid fa-music"></i>
             </div>
@@ -258,15 +258,33 @@
               <div class="album-art-wrap">
                 <div class="album-shadow" :style="albumShadowStyle"></div>
                 <div class="album-art-box">
-                  <img v-if="currentSong.coverUrl" :src="currentSong.coverUrl" class="album-art" />
+                  <img v-if="currentSong.coverUrl" :src="currentSong.coverUrl" class="album-art" @error="onCoverError(currentSong)" />
                   <div v-else class="album-art-fallback" :style="placeholderStyle">
                     <i class="fa-solid fa-music"></i>
                   </div>
                 </div>
               </div>
               <div class="song-meta">
-                <h2 class="song-meta-title">{{ currentSong.title }}</h2>
-                <p class="song-meta-artist">{{ currentSong.artist }}</p>
+                <div class="song-meta-title-row">
+                  <h2 class="song-meta-title">{{ currentSong.title }}</h2>
+                  <span v-if="currentSong.format === 'VIP'" class="song-meta-badge song-meta-badge-vip">VIP</span>
+                  <span v-if="ncmLevelLabel" class="song-meta-badge song-meta-badge-level">{{ ncmLevelLabel }}</span>
+                </div>
+                <p class="song-meta-artist">
+                  <span class="song-meta-artist-name">{{ currentSong.artist }}</span>
+                  <span v-if="currentSong.source === 'netease'" class="song-meta-source"><i class="fa-solid fa-cloud"></i>网易云</span>
+                </p>
+                <div class="song-meta-sub">
+                  <span v-if="currentSong.album" class="song-meta-album">{{ currentSong.album }}</span>
+                  <button class="song-meta-fav" @click.stop="toggleFavorite(currentSong)" :title="currentSong.isFavorite ? '取消收藏' : '收藏'">
+                    <i
+                      v-if="currentSong.source === 'netease'"
+                      :class="currentSong.isFavorite ? 'fa-solid fa-heart' : 'fa-regular fa-heart'"
+                      :style="currentSong.isFavorite ? 'color: var(--danger-color)' : ''"
+                    ></i>
+                    <i v-else :class="currentSong.isFavorite ? 'fa-solid fa-star' : 'fa-regular fa-star'" :style="currentSong.isFavorite ? 'color: var(--primary-color)' : ''"></i>
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -577,6 +595,15 @@ export default {
     ncmQuality: function() {
       return this.$store.state.music.ncmQuality;
     },
+    ncmLevel: function() {
+      return this.$store.state.music.ncmLevel;
+    },
+    ncmLevelLabel: function() {
+      // 换流返回的实际音质 → 中文标签（仅网易云歌曲显示）
+      var map = { standard: '标准', higher: '较高', exhigh: '极高', lossless: '无损', hires: 'Hi-Res', jyeffect: '高清环绕', sky: '沉浸环绕' };
+      if (!this.ncmLevel) return '';
+      return map[this.ncmLevel] || this.ncmLevel;
+    },
     ncmHeaderCover: function() {
       // 网易云歌单头封面（打开歌单 tab 时展示）
       var t = this.activeTab;
@@ -734,6 +761,10 @@ export default {
       var h = hue(song.title);
       var l = this.isDark ? 22 : 82;
       return { background: 'linear-gradient(135deg, hsl(' + h + ',45%,' + l + '%), hsl(' + ((h + 50) % 360) + ',35%,' + (l - 6) + '%))' };
+    },
+    // 封面加载失败（图片中转断网等）：清空地址让占位渐变兜底
+    onCoverError: function(song) {
+      if (song && song.coverUrl) song.coverUrl = '';
     },
     lyricLineClass: function(index) {
       var d = Math.abs(index - this.currentLyricIndex);
@@ -2824,15 +2855,121 @@ export default {
 }
 
 .song-meta-artist {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   font-size: var(--font-size-footnote);
   font-weight: var(--font-weight-regular);
   color: var(--text-secondary);
   margin: 4px 0 0;
+  letter-spacing: 0.01em;
+  min-width: 0;
+}
+
+.song-meta-artist-name {
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  letter-spacing: 0.01em;
 }
+
+.song-meta-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.song-meta-title-row .song-meta-title { min-width: 0; flex-shrink: 1; }
+
+.song-meta-badge {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0.03em;
+  line-height: 1.5;
+  vertical-align: middle;
+}
+
+.song-meta-badge-vip {
+  color: #b8860b;
+  background: rgba(255, 200, 60, 0.18);
+  border: 0.5px solid rgba(255, 200, 60, 0.45);
+}
+
+[data-theme="dark"] .song-meta-badge-vip {
+  color: #ffd700;
+  background: rgba(255, 215, 0, 0.12);
+}
+
+.song-meta-badge-level {
+  color: var(--primary-color);
+  background: var(--primary-lighter);
+  border: 0.5px solid var(--primary-color);
+}
+
+.song-meta-source {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: var(--font-weight-medium);
+  color: #c20c0c;
+  background: rgba(194, 12, 12, 0.08);
+  border: 0.5px solid rgba(194, 12, 12, 0.35);
+}
+
+.song-meta-source i { font-size: 9px; }
+
+[data-theme="dark"] .song-meta-source {
+  color: #ff6b6b;
+  background: rgba(255, 107, 107, 0.1);
+  border-color: rgba(255, 107, 107, 0.35);
+}
+
+.song-meta-sub {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.song-meta-album {
+  min-width: 0;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.song-meta-fav {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 14px;
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard), background var(--duration-fast) var(--ease-standard);
+}
+
+.song-meta-fav:hover { background: var(--primary-lighter); transform: scale(1.08); }
+.song-meta-fav:active { transform: scale(0.92); }
 
 [data-theme="dark"] .song-meta-artist {
   color: rgba(255, 255, 255, 0.45);
