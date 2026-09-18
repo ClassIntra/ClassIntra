@@ -1853,12 +1853,14 @@ export default {
   backdrop-filter: var(--glass-blur-container);
   -webkit-backdrop-filter: var(--glass-blur-container);
   border-right: 0.5px solid var(--separator-color);
-  overflow-y: auto;
+  overflow: hidden; /* 滚动收敛到 sidebar-nav，新建歌单按钮常驻底部 */
   -webkit-app-region: no-drag;
 }
 
 .sidebar-nav {
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   padding: 12px 8px;
 }
 
@@ -2063,6 +2065,11 @@ export default {
   background: var(--nav-bg);
   backdrop-filter: var(--glass-blur-container);
   -webkit-backdrop-filter: var(--glass-blur-container);
+}
+
+/* 搜索框超宽屏不无限拉伸 */
+.list-search .search-box {
+  max-width: 640px;
 }
 
 .search-box {
@@ -3658,7 +3665,9 @@ export default {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 0 24px 0 0;
+  max-width: 620px;
+  margin: 0 auto; /* 超宽屏歌词居中，避免长行拉伸 */
+  padding: 0 24px;
   -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 10%, black 92%, transparent 100%);
   mask-image: linear-gradient(to bottom, transparent 0%, black 10%, black 92%, transparent 100%);
   scroll-behavior: smooth;
@@ -4104,6 +4113,8 @@ export default {
   .song-meta-title { font-size: 24px; }
   .song-meta-artist { font-size: 16px; }
 
+  .lyrics-scroll { max-width: 700px; }
+
   .lyric-text { font-size: 30px; }
   .lyric-word { font-size: 30px; }
   .lyric-char { font-size: 30px; }
@@ -4136,6 +4147,8 @@ export default {
 
   .song-meta { max-width: 400px; }
   .song-meta-title { font-size: 26px; }
+
+  .lyrics-scroll { max-width: 760px; }
 
   .lyric-text { font-size: 32px; }
   .lyric-word { font-size: 32px; }
