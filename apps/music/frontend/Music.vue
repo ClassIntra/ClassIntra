@@ -93,7 +93,7 @@
           </button>
         </div>
 
-        <div class="list-content scrollbar-thin">
+        <div class="list-content scrollbar-thin" ref="listBody">
           <div class="list-search">
             <div class="search-box">
               <i class="fa-solid fa-magnifying-glass"></i>
@@ -214,10 +214,10 @@
             </div>
           </div>
 
-          <div v-if="isNcmTab && ncmHasMore && !ncmLoading" class="ncm-load-more">
-            <button class="playlist-action-btn" @click="loadNcmMore">
-              <i class="fa-solid fa-chevron-down"></i>
-              <span>加载更多</span>
+          <div v-if="isNcmTab && ncmHasMore" class="ncm-load-more">
+            <button class="playlist-action-btn" :disabled="ncmLoadingMore" @click="loadNcmMore">
+              <i :class="ncmLoadingMore ? 'fa-solid fa-spinner fa-spin' : 'fa-solid fa-chevron-down'"></i>
+              <span>{{ ncmLoadingMore ? '加载中...' : '加载更多' }}</span>
             </button>
           </div>
 
@@ -617,6 +617,7 @@ export default {
       _ncmSuggestTimer: null,
       ncmSearchOffset: 0, // 搜索翻页游标
       ncmHasMore: false,
+      ncmLoadingMore: false, // 搜索追加翻页加载中（按钮内联态，避免列表抖动）
       ncmLastKeyword: '',
       _bgCrossfadeActive: false,
       _bgCrossfadeTimer: null
@@ -781,6 +782,20 @@ export default {
     currentLyricIndex: function(n, o) {
       if (n !== o && n >= 0) this.scrollLyric(n);
     },
+    // 音量 / 播放模式偏好持久化（刷新后保持）
+    volume: function(v) {
+      try { localStorage.setItem('music.volume', String(v)); } catch (e) { /* 隐私模式下不可用 */ }
+    },
+    playMode: function(m) {
+      try { localStorage.setItem('music.playMode', String(m)); } catch (e) { /* 隐私模式下不可用 */ }
+    },
+    // 切换列表页后回到顶部，避免残留上一页滚动位置
+    activeTab: function() {
+      var vm = this;
+      vm.$nextTick(function() {
+        if (vm.$refs.listBody) vm.$refs.listBody.scrollTop = 0;
+      });
+    },
     ncmPlayError: function(n) {
       // 网易云换流失败：toast 提示后立即清空，避免重复弹出
       if (!n) return;
@@ -800,6 +815,7 @@ export default {
   mounted: function() {
     audioManager.init(this.$store);
     this._mountedAt = Date.now(); // 用于「插件安装时自动以网易云为主库」的时间窗判断
+    this.restoreAudioPrefs();
     this.fetchSongs();
     this.fetchPlaylists();
     this.fetchNcmStatus();
@@ -1358,6 +1374,27 @@ export default {
         vm.ncmAvailable = false; // 插件未安装：仅显示本地库
       });
     },
+    // 从 localStorage 恢复音量 / 播放模式偏好（默认 sequence / 0.8）
+    restoreAudioPrefs: function() {
+      var v = this.loadPref('music.volume', '0.8');
+      var pv = parseFloat(v);
+      if (!isNaN(pv)) {
+        pv = Math.max(0, Math.min(1, pv));
+        this.$store.commit('music/SET_VOLUME', pv);
+        try { audioManager.setVolume(pv); } catch (e) {}
+      }
+      var m = this.loadPref('music.playMode', 'sequence');
+      if (m === 'shuffle' || m === 'repeat-one' || m === 'sequence') {
+        this.$store.commit('music/SET_PLAY_MODE', m);
+      }
+    },
+    // localStorage 包装（隐私模式等异常吞掉）
+    loadPref: function(key, def) {
+      try {
+        var v = localStorage.getItem(key);
+        return v === null || v === undefined ? def : v;
+      } catch (e) { return def; }
+    },
     // 库切换：网易云与本地音乐分属两个页面，插件安装时网易云为主库
     switchLibrary: function(source) {
       if (source === this.librarySource) return;
@@ -1509,9 +1546,9 @@ export default {
     },
     // 搜索结果追加翻页（跳过与当前列表重复的歌曲）
     loadNcmMore: function() {
-      if (!this.ncmHasMore || this.ncmLoading || !this.ncmLastKeyword) return;
+      if (!this.ncmHasMore || this.ncmLoadingMore || !this.ncmLastKeyword) return;
       var vm = this;
-      vm.ncmLoading = true;
+      vm.ncmLoadingMore = true;
       api.get('/netease-music/search', { params: { keywords: vm.ncmLastKeyword, type: 1, limit: 50, offset: vm.ncmSearchOffset } }).then(function(res) {
         var body = res.data || {};
         var songs = (body.result && body.result.songs) || [];
@@ -1525,9 +1562,9 @@ export default {
         vm.ncmSearchOffset += songs.length;
         vm.ncmHasMore = songs.length > 0 && vm.ncmSearchOffset < count;
         vm.fillNcmFavoriteState();
-        vm.ncmLoading = false;
+        vm.ncmLoadingMore = false;
       }).catch(function() {
-        vm.ncmLoading = false;
+        vm.ncmLoadingMore = false;
       });
     },
     /* --- 搜索联想（仅网易云 tab，400ms 防抖） --- */
@@ -2130,6 +2167,12 @@ export default {
   font-weight: var(--font-weight-medium);
   cursor: pointer;
   transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
+}
+
+.playlist-action-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+  transform: none;
 }
 
 .playlist-action-btn:hover {
