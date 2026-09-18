@@ -31,6 +31,10 @@
                 <i class="fa-solid fa-music"></i>
                 <span>全部歌曲</span>
               </div>
+              <div class="sidebar-item" :class="{ active: activeTab === 'recent' }" @click="activeTab = 'recent'">
+                <i class="fa-solid fa-clock-rotate-left"></i>
+                <span>最近播放</span>
+              </div>
               <div class="sidebar-item" :class="{ active: activeTab === 'favorites' }" @click="activeTab = 'favorites'">
                 <i class="fa-solid fa-heart"></i>
                 <span>我的收藏</span>
@@ -285,13 +289,31 @@
           <div class="player-bg-overlay"></div>
         </div>
 
-        <div class="player-header">
+        <div class="player-header" @click="sleepMenuShow = false">
           <button class="player-back-btn" @click="closePlayer">
             <i class="fa-solid fa-chevron-down"></i>
           </button>
           <div class="player-header-center">
-            <span class="player-header-label">正在播放</span>
+            <span class="player-header-label">正在播放<span v-if="queuePosLabel"> · {{ queuePosLabel }}</span></span>
             <span class="player-header-song">{{ currentSong.title }} — {{ currentSong.artist }}</span>
+          </div>
+          <div class="player-sleep-wrap">
+            <button
+              class="player-effect-btn player-sleep-btn"
+              :class="{ on: sleepTimerEnd > 0 }"
+              @click.stop="sleepMenuShow = !sleepMenuShow"
+              :title="sleepTimerEnd ? '睡眠定时：' + sleepTimerLabel : '睡眠定时'"
+            >
+              <i class="fa-solid fa-moon"></i>
+              <span class="effect-label">{{ sleepTimerLabel }}</span>
+            </button>
+            <div v-if="sleepMenuShow" class="sleep-menu">
+              <button class="sleep-menu-item" @click="setSleepTimer(15)">15 分钟后暂停</button>
+              <button class="sleep-menu-item" @click="setSleepTimer(30)">30 分钟后暂停</button>
+              <button class="sleep-menu-item" @click="setSleepTimer(60)">60 分钟后暂停</button>
+              <button class="sleep-menu-item" @click="setSleepTimer(90)">90 分钟后暂停</button>
+              <button v-if="sleepTimerEnd > 0" class="sleep-menu-item sleep-menu-cancel" @click="cancelSleepTimer">取消定时</button>
+            </div>
           </div>
           <button class="player-effect-btn" @click="toggleEffectMode" :title="effectModeLabel">
             <i class="fa-solid fa-wand-magic-sparkles"></i>
@@ -401,18 +423,21 @@
           </div>
 
           <div class="player-right">
-            <div v-if="showPlayerTabs" class="player-panel-tabs">
+            <div class="player-panel-tabs">
               <button class="player-panel-tab" :class="{ active: playerTab === 'lyrics' }" @click="openPlayerTab('lyrics')">
                 <i class="fa-solid fa-align-left"></i>歌词
               </button>
-              <button class="player-panel-tab" :class="{ active: playerTab === 'comments' }" @click="openPlayerTab('comments')">
+              <button class="player-panel-tab" :class="{ active: playerTab === 'queue' }" @click="openPlayerTab('queue')">
+                <i class="fa-solid fa-list-ul"></i>队列<span v-if="playQueue.length" class="player-panel-tab-badge">{{ playQueue.length }}</span>
+              </button>
+              <button v-if="showPlayerTabs" class="player-panel-tab" :class="{ active: playerTab === 'comments' }" @click="openPlayerTab('comments')">
                 <i class="fa-regular fa-comment-dots"></i>评论
               </button>
-              <button class="player-panel-tab" :class="{ active: playerTab === 'artist' }" :disabled="!currentArtists.length" @click="openPlayerTab('artist')">
+              <button v-if="showPlayerTabs && currentArtists.length" class="player-panel-tab" :class="{ active: playerTab === 'artist' }" @click="openPlayerTab('artist')">
                 <i class="fa-solid fa-user-astronaut"></i>歌手
               </button>
             </div>
-            <div v-show="hasLyrics && (!showPlayerTabs || playerTab === 'lyrics')" class="lyrics-container">
+            <div v-show="playerTab === 'lyrics' && hasLyrics" class="lyrics-container">
               <div class="lyrics-mode-bar">
                 <div class="lyrics-mode-capsule">
                   <button class="lyrics-mode-btn" :class="{ active: lyricsMode === 'scroll' }" @click="setLyricsMode('scroll')">滚动</button>
@@ -458,9 +483,43 @@
                 <div class="lyrics-pad-bottom"></div>
               </div>
             </div>
-            <div v-if="(!showPlayerTabs || playerTab === 'lyrics') && !hasLyrics" class="no-lyrics-hint">
+            <div v-if="playerTab === 'lyrics' && !hasLyrics" class="no-lyrics-hint">
               <i class="fa-solid fa-music"></i>
               <span>暂无歌词</span>
+            </div>
+
+            <!-- 播放队列面板（本地 / 在线歌曲通用，不依赖网易云插件） -->
+            <div v-if="playerTab === 'queue'" class="player-queue-panel scrollbar-thin">
+              <div class="player-queue-head">
+                <span class="player-queue-title">当前播放（{{ playQueue.length }} 首）</span>
+                <button v-if="playQueue.length" class="player-queue-clear" @click="clearPlayQueue">
+                  <i class="fa-solid fa-trash-can"></i>清空
+                </button>
+              </div>
+              <div v-if="!playQueue.length" class="list-empty-mini">
+                <i class="fa-solid fa-list-ul"></i>
+                <span>播放队列为空，播放列表或歌单后可在此管理</span>
+              </div>
+              <div
+                v-for="(s, qi) in playQueue"
+                :key="s.id"
+                class="player-queue-item"
+                :class="{ active: currentSong && currentSong.id === s.id }"
+                @click="playSong(s)"
+              >
+                <span class="player-queue-idx">
+                  <i v-if="currentSong && currentSong.id === s.id && isPlaying" class="fa-solid fa-volume-high"></i>
+                  <template v-else>{{ qi + 1 }}</template>
+                </span>
+                <div class="player-queue-info">
+                  <span class="player-queue-song">{{ s.title }}</span>
+                  <span class="player-queue-artist">{{ s.artist }}</span>
+                </div>
+                <span v-if="s.format === 'VIP'" class="player-queue-vip">VIP</span>
+                <button class="player-queue-remove" title="从队列移除" @click.stop="removeFromQueue(qi)">
+                  <i class="fa-solid fa-xmark"></i>
+                </button>
+              </div>
             </div>
 
             <!-- 评论面板 -->
@@ -723,7 +782,11 @@ export default {
       isLoggedIn: true, // 登录态：本地歌单/收藏走服务端；游客走 localStorage（本机保存）
       editingPlaylistId: null, // 非空 = 编辑歌单模式（复用新建歌单弹窗）
       librarySource: 'local', // 当前库页面：'ncm' = 网易云（主库）/ 'local' = 本地音乐
-      playerTab: 'lyrics', // 播放页右栏面板：lyrics / comments / artist（网易云歌曲可切）
+      playerTab: 'lyrics', // 播放页右栏面板：lyrics / queue / comments / artist
+      recentSongs: [], // 最近播放（localStorage 持久化，最多 100 条，插件无关）
+      sleepMenuShow: false, // 睡眠定时菜单
+      sleepTimerEnd: 0, // 睡眠定时结束时间戳（0 = 未设置）
+      nowTick: 0, // 每秒心跳（驱动睡眠定时倒计时显示与到点检查）
       ncmComments: { songId: null, total: 0, hot: [], list: [], hasMore: false, offset: 0, loading: false, loaded: false },
       ncmArtist: { artistId: null, info: null, desc: '', intro: [], songs: [], loading: false, loaded: false, descExpanded: false },
       ncmAvailable: false, // 网易云插件是否安装（启动时探测 /status）
@@ -788,6 +851,25 @@ export default {
     currentArtists: function() {
       return (this.currentSong && this.currentSong.artists) || [];
     },
+    // 睡眠定时按钮文案：未设置显示「定时」，已设置显示剩余倒计时
+    sleepTimerLabel: function() {
+      if (!this.sleepTimerEnd) return '定时';
+      var remain = this.sleepTimerEnd - this.nowTick;
+      if (remain <= 0) return '定时';
+      var m = Math.floor(remain / 60000);
+      var s = Math.floor((remain % 60000) / 1000);
+      return m + ':' + (s < 10 ? '0' : '') + s;
+    },
+    // 当前歌曲在播放队列中的位置（如 3/25），无队列时为空
+    queuePosLabel: function() {
+      var q = this.playQueue;
+      if (!q.length || !this.currentSong) return '';
+      var idx = -1;
+      for (var i = 0; i < q.length; i++) {
+        if (q[i].id === this.currentSong.id) { idx = i; break; }
+      }
+      return idx >= 0 ? (idx + 1) + '/' + q.length : '';
+    },
     playQueue: function() { return this.$store.state.music.playQueue; },
     bufferedEnd: function() { return this.$store.state.music.bufferedEnd; },
     currentPlaylist: function() {
@@ -847,6 +929,8 @@ export default {
       var list;
       if (vm.activeTab === 'all') {
         list = vm.songs;
+      } else if (vm.activeTab === 'recent') {
+        list = vm.recentSongs;
       } else if (vm.activeTab === 'favorites') {
         list = vm.songs.filter(function(s) { return s.isFavorite; });
       } else if (typeof vm.activeTab === 'number') {
@@ -1021,6 +1105,21 @@ export default {
     // 游客模式：无 token 时本机歌单/收藏存 localStorage，网易云板块不可用
     this.isLoggedIn = !!localStorage.getItem('token');
     this._guestFav = [];
+    // 恢复最近播放记录（localStorage，插件无关）
+    try {
+      var recent = JSON.parse(localStorage.getItem('music.recent-played') || '[]');
+      if (Array.isArray(recent)) this.recentSongs = recent;
+    } catch (e) {}
+    // 每秒心跳：驱动睡眠定时倒计时显示与到点自动暂停
+    this._sleepTick = setInterval(function() {
+      var vm = this;
+      vm.nowTick = Date.now();
+      if (vm.sleepTimerEnd && vm.nowTick >= vm.sleepTimerEnd) {
+        vm.sleepTimerEnd = 0;
+        audioManager.pause();
+        vm.showNcmMsg('睡眠定时时间到，已暂停播放', { type: 'info' });
+      }
+    }.bind(this), 1000);
     this.restoreAudioPrefs();
     this.fetchSongs();
     if (this.isLoggedIn) {
@@ -1051,6 +1150,7 @@ export default {
   },
   beforeDestroy: function() {
     if (this._keyHandler) document.removeEventListener('keydown', this._keyHandler);
+    if (this._sleepTick) { clearInterval(this._sleepTick); this._sleepTick = null; }
     this.stopLyricEngine();
     if (this._bgCrossfadeTimer) { clearTimeout(this._bgCrossfadeTimer); this._bgCrossfadeTimer = null; }
     if (this._ncmSuggestTimer) { clearTimeout(this._ncmSuggestTimer); this._ncmSuggestTimer = null; }
@@ -1121,6 +1221,7 @@ export default {
           this.$store.commit('music/SET_PLAY_QUEUE', [song]);
         }
         this.$store.dispatch('music/play', song);
+        this.recordRecent(song);
         this.openPlayer();
         return;
       }
@@ -1130,7 +1231,38 @@ export default {
       }
       audioManager.playSong(song);
       this.fetchLyrics(song);
+      this.recordRecent(song);
       this.openPlayer();
+    },
+    // 记录最近播放：去重置顶，最多 100 条，localStorage 持久化（不依赖网易云插件）
+    recordRecent: function(song) {
+      if (!song || !song.id) return;
+      var list = this.recentSongs.filter(function(s) { return s.id !== song.id; });
+      list.unshift(song);
+      if (list.length > 100) list = list.slice(0, 100);
+      this.recentSongs = list;
+      try { localStorage.setItem('music.recent-played', JSON.stringify(list)); } catch (e) {}
+    },
+    // ===== 播放队列管理（播放页队列面板） =====
+    removeFromQueue: function(idx) {
+      var q = this.playQueue.slice();
+      q.splice(idx, 1);
+      this.$store.commit('music/SET_PLAY_QUEUE', q);
+    },
+    clearPlayQueue: function() {
+      this.$store.commit('music/SET_PLAY_QUEUE', []);
+      this.showNcmMsg('已清空播放队列', { type: 'info' });
+    },
+    // ===== 睡眠定时：到点自动暂停播放 =====
+    setSleepTimer: function(minutes) {
+      this.sleepTimerEnd = Date.now() + minutes * 60 * 1000;
+      this.sleepMenuShow = false;
+      this.showNcmMsg('将在 ' + minutes + ' 分钟后暂停播放', { type: 'info' });
+    },
+    cancelSleepTimer: function() {
+      this.sleepTimerEnd = 0;
+      this.sleepMenuShow = false;
+      this.showNcmMsg('已取消睡眠定时', { type: 'info' });
     },
     openPlayer: function() { this.$store.commit('music/SET_SHOW_PLAYER', true); },
     togglePlay: function() {
@@ -2093,10 +2225,18 @@ export default {
       }).catch(function() {
         vm.ncmSongs = [];
         vm.ncmLoading = false;
+        vm.showNcmMsg('热歌榜加载失败，请检查网络后重试', { type: 'error' });
       });
     },
     loadNcmFavorites: function() {
       var vm = this;
+      // 网易云收藏列表来自网易云账号，未登录时直接提示
+      if (!vm.ncmLoggedIn) {
+        vm.ncmSongs = [];
+        vm.ncmLoading = false;
+        vm.showNcmMsg('网易云收藏需要登录后查看', { type: 'info' });
+        return;
+      }
       vm.ncmLoading = true;
       api.get('/netease-music/like/list').then(function(res) {
         var body = res.data || {};
@@ -2114,6 +2254,7 @@ export default {
       }).catch(function() {
         vm.ncmSongs = [];
         vm.ncmLoading = false;
+        vm.showNcmMsg('网易云收藏加载失败，请稍后重试', { type: 'error' });
       });
     },
     loadNcmPlaylistTracks: function(id) {
@@ -2126,6 +2267,7 @@ export default {
       }).catch(function() {
         vm.ncmSongs = [];
         vm.ncmLoading = false;
+        vm.showNcmMsg('歌单加载失败，请稍后重试', { type: 'error' });
       });
     },
     onSearchEnter: function() {
@@ -4438,6 +4580,238 @@ export default {
 .player-panel-tab:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* 队列 tab 徽标（队列歌曲数） */
+.player-panel-tab-badge {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--primary-color);
+  color: #fff;
+  font-size: 10px;
+  font-weight: var(--font-weight-bold);
+  line-height: 16px;
+  text-align: center;
+}
+
+/* 睡眠定时（播放页标题栏） */
+.player-sleep-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.player-sleep-btn.on {
+  color: var(--primary-color);
+}
+
+.sleep-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  min-width: 150px;
+  padding: 6px;
+  border-radius: var(--radius-xl);
+  background: var(--nav-bg);
+  backdrop-filter: var(--glass-blur-container);
+  -webkit-backdrop-filter: var(--glass-blur-container);
+  border: 0.5px solid var(--separator-color);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.16);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sleep-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-size: var(--font-size-footnote);
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-lg);
+  padding: 9px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+
+.sleep-menu-item:hover {
+  background: var(--primary-light);
+  color: var(--primary-color);
+}
+
+.sleep-menu-cancel {
+  color: var(--danger-color);
+}
+
+/* 播放队列面板（本地 / 在线通用） */
+.player-queue-panel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 6px 24px 20px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.player-queue-panel > * {
+  max-width: 640px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.player-queue-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0 10px;
+}
+
+.player-queue-title {
+  font-size: var(--font-size-footnote);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-secondary);
+}
+
+.player-queue-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-lg);
+  padding: 5px 10px;
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--ease-standard), background var(--duration-fast) var(--ease-standard);
+}
+
+.player-queue-clear:hover {
+  color: var(--danger-color);
+  background: rgba(0, 0, 0, 0.04);
+}
+
+[data-theme="dark"] .player-queue-clear:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.player-queue-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+
+.player-queue-item:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+[data-theme="dark"] .player-queue-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.player-queue-item.active {
+  background: var(--primary-light);
+}
+
+[data-theme="dark"] .player-queue-item.active {
+  background: rgba(33, 150, 243, 0.18);
+}
+
+.player-queue-idx {
+  flex-shrink: 0;
+  width: 24px;
+  text-align: center;
+  font-size: var(--font-size-caption);
+  color: var(--text-tertiary);
+}
+
+.player-queue-item.active .player-queue-idx {
+  color: var(--primary-color);
+}
+
+.player-queue-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.player-queue-song {
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.player-queue-item.active .player-queue-song {
+  color: var(--primary-color);
+  font-weight: var(--font-weight-medium);
+}
+
+.player-queue-artist {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.player-queue-vip {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: var(--font-weight-bold);
+  color: #b8860b;
+  background: rgba(255, 200, 60, 0.18);
+  border: 0.5px solid rgba(255, 200, 60, 0.45);
+}
+
+[data-theme="dark"] .player-queue-vip {
+  color: #ffd700;
+  background: rgba(255, 215, 0, 0.12);
+}
+
+.player-queue-remove {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-standard), background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
+}
+
+.player-queue-item:hover .player-queue-remove {
+  opacity: 1;
+}
+
+.player-queue-remove:hover {
+  color: var(--danger-color);
+  background: rgba(0, 0, 0, 0.05);
+}
+
+/* 触屏设备移除按钮常显（无 hover） */
+@media (hover: none) {
+  .player-queue-remove { opacity: 0.6; }
 }
 
 /* 面板空态（mini 版本：播放页空间有限） */
