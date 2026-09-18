@@ -223,9 +223,12 @@ var actions = {
       api.get('/netease-music/lyric', { params: { id: song.ncmId } }).then(function (res) {
         if (state.currentSong && state.currentSong.id === song.id) {
           var body = res.data || {};
+          // 优先网易云原生逐字歌词（yrc，字级时间戳）；无 yrc 回退标准 LRC
+          var yrcText = body.yrc && body.yrc.lyric;
           var lrcText = body.lrc && body.lrc.lyric;
-          if (body.code === 200 && lrcText) {
-            commit('SET_LYRICS', Object.freeze(mergeTranslation(lrcParser.parseLRC(lrcText), body.tlyric && body.tlyric.lyric)));
+          if (body.code === 200 && (yrcText || lrcText)) {
+            var parsed = yrcText ? lrcParser.parseYRC(yrcText) : lrcParser.parseLRC(lrcText);
+            commit('SET_LYRICS', Object.freeze(mergeTranslation(parsed, body.tlyric && body.tlyric.lyric)));
           } else {
             commit('SET_LYRICS', null);
           }

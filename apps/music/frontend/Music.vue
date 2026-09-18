@@ -318,7 +318,15 @@
                   <span v-if="ncmLevelLabel" class="song-meta-badge song-meta-badge-level">{{ ncmLevelLabel }}</span>
                 </div>
                 <p class="song-meta-artist">
-                  <span class="song-meta-artist-name">{{ currentSong.artist }}</span>
+                  <template v-if="currentArtists.length">
+                    <span
+                      v-for="(a, ai) in currentArtists"
+                      :key="a.id"
+                      class="song-meta-artist-name song-meta-artist-link"
+                      @click.stop="openArtistPage(a)"
+                    >{{ a.name }}<span v-if="ai < currentArtists.length - 1" class="song-meta-artist-sep"> / </span></span>
+                  </template>
+                  <span v-else class="song-meta-artist-name">{{ currentSong.artist }}</span>
                   <span v-if="currentSong.source === 'netease'" class="song-meta-source"><i class="fa-solid fa-cloud"></i>网易云</span>
                 </p>
                 <div class="song-meta-sub">
@@ -393,7 +401,18 @@
           </div>
 
           <div class="player-right">
-            <div v-if="hasLyrics" class="lyrics-container">
+            <div v-if="showPlayerTabs" class="player-panel-tabs">
+              <button class="player-panel-tab" :class="{ active: playerTab === 'lyrics' }" @click="openPlayerTab('lyrics')">
+                <i class="fa-solid fa-align-left"></i>歌词
+              </button>
+              <button class="player-panel-tab" :class="{ active: playerTab === 'comments' }" @click="openPlayerTab('comments')">
+                <i class="fa-regular fa-comment-dots"></i>评论
+              </button>
+              <button class="player-panel-tab" :class="{ active: playerTab === 'artist' }" :disabled="!currentArtists.length" @click="openPlayerTab('artist')">
+                <i class="fa-solid fa-user-astronaut"></i>歌手
+              </button>
+            </div>
+            <div v-show="hasLyrics && (!showPlayerTabs || playerTab === 'lyrics')" class="lyrics-container">
               <div class="lyrics-mode-bar">
                 <div class="lyrics-mode-capsule">
                   <button class="lyrics-mode-btn" :class="{ active: lyricsMode === 'scroll' }" @click="setLyricsMode('scroll')">滚动</button>
@@ -439,9 +458,112 @@
                 <div class="lyrics-pad-bottom"></div>
               </div>
             </div>
-            <div v-else class="no-lyrics-hint">
+            <div v-if="(!showPlayerTabs || playerTab === 'lyrics') && !hasLyrics" class="no-lyrics-hint">
               <i class="fa-solid fa-music"></i>
               <span>暂无歌词</span>
+            </div>
+
+            <!-- 评论面板 -->
+            <div v-if="showPlayerTabs && playerTab === 'comments'" class="ncm-comments-panel scrollbar-thin">
+              <div v-if="!ncmComments.loaded && ncmComments.loading" class="list-empty-mini">
+                <i class="fa-solid fa-spinner fa-spin"></i><span>评论加载中...</span>
+              </div>
+              <template v-else-if="ncmComments.loaded">
+                <div v-if="ncmComments.hot.length" class="ncm-comments-head">精彩评论</div>
+                <div v-for="c in ncmComments.hot" :key="'hot-' + c.id" class="ncm-comment-item">
+                  <div class="ncm-comment-avatar">
+                    <i class="fa-solid fa-user"></i>
+                    <img v-if="c.avatarUrl" :src="c.avatarUrl" loading="lazy" @error="$event.target.style.display = 'none'" />
+                  </div>
+                  <div class="ncm-comment-body">
+                    <div class="ncm-comment-top">
+                      <span class="ncm-comment-user">{{ c.user }}</span>
+                      <span class="ncm-comment-time">{{ fmtCommentTime(c.time) }}</span>
+                    </div>
+                    <div class="ncm-comment-content">{{ c.content }}</div>
+                    <div v-if="c.likedCount > 0" class="ncm-comment-likes">
+                      <i class="fa-regular fa-thumbs-up"></i><span>{{ c.likedCount }}</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="ncm-comments-head">最新评论<span v-if="ncmComments.total" class="ncm-comments-total">（{{ ncmComments.total }}）</span></div>
+                <div v-for="c in ncmComments.list" :key="c.id" class="ncm-comment-item">
+                  <div class="ncm-comment-avatar">
+                    <i class="fa-solid fa-user"></i>
+                    <img v-if="c.avatarUrl" :src="c.avatarUrl" loading="lazy" @error="$event.target.style.display = 'none'" />
+                  </div>
+                  <div class="ncm-comment-body">
+                    <div class="ncm-comment-top">
+                      <span class="ncm-comment-user">{{ c.user }}</span>
+                      <span class="ncm-comment-time">{{ fmtCommentTime(c.time) }}</span>
+                    </div>
+                    <div class="ncm-comment-content">{{ c.content }}</div>
+                    <div v-if="c.likedCount > 0" class="ncm-comment-likes">
+                      <i class="fa-regular fa-thumbs-up"></i><span>{{ c.likedCount }}</span>
+                    </div>
+                  </div>
+                </div>
+                <button v-if="ncmComments.hasMore" class="ncm-load-more" :disabled="ncmComments.loading" @click="loadNcmComments(ncmComments.songId, false)">
+                  <i v-if="ncmComments.loading" class="fa-solid fa-spinner fa-spin"></i>
+                  <span>{{ ncmComments.loading ? '加载中...' : '加载更多' }}</span>
+                </button>
+                <div v-if="!ncmComments.hot.length && !ncmComments.list.length" class="list-empty-mini">
+                  <i class="fa-regular fa-comment"></i><span>还没有评论，来抢沙发</span>
+                </div>
+              </template>
+              <div v-else-if="!ncmComments.loading" class="list-empty-mini">
+                <i class="fa-solid fa-circle-exclamation"></i><span>评论加载失败，请稍后重试</span>
+              </div>
+            </div>
+
+            <!-- 歌手面板 -->
+            <div v-if="showPlayerTabs && playerTab === 'artist'" class="ncm-artist-panel scrollbar-thin">
+              <div v-if="ncmArtist.loading && !ncmArtist.loaded" class="list-empty-mini">
+                <i class="fa-solid fa-spinner fa-spin"></i><span>歌手信息加载中...</span>
+              </div>
+              <template v-else-if="ncmArtist.info">
+                <div class="ncm-artist-head">
+                  <div class="ncm-artist-avatar">
+                    <i class="fa-solid fa-user"></i>
+                    <img v-if="ncmArtist.info.avatarUrl" :src="ncmArtist.info.avatarUrl" @error="$event.target.style.display = 'none'" />
+                  </div>
+                  <div class="ncm-artist-headinfo">
+                    <div class="ncm-artist-name">{{ ncmArtist.info.name }}</div>
+                    <div v-if="ncmArtist.info.alias" class="ncm-artist-alias">{{ ncmArtist.info.alias }}</div>
+                    <div class="ncm-artist-stats">
+                      <span>单曲 {{ ncmArtist.info.musicSize }}</span>
+                      <span>专辑 {{ ncmArtist.info.albumSize }}</span>
+                      <span>MV {{ ncmArtist.info.mvSize }}</span>
+                    </div>
+                  </div>
+                </div>
+                <div
+                  v-if="ncmArtist.desc"
+                  class="ncm-artist-desc"
+                  :class="{ expanded: ncmArtist.descExpanded }"
+                  @click="ncmArtist.descExpanded = !ncmArtist.descExpanded"
+                >{{ ncmArtist.desc }}</div>
+                <div v-for="(it, ii) in ncmArtist.intro" :key="'intro-' + ii" class="ncm-artist-intro-item">
+                  <div class="ncm-artist-intro-title">{{ it.title }}</div>
+                  <div class="ncm-artist-intro-text">{{ it.text }}</div>
+                </div>
+                <div class="ncm-artist-songs-head">热门歌曲</div>
+                <div v-for="(s, si) in ncmArtist.songs" :key="s.id" class="ncm-artist-song" @click="playSong(s)">
+                  <span class="ncm-artist-song-idx">{{ si + 1 }}</span>
+                  <div class="ncm-artist-song-cover">
+                    <i class="fa-solid fa-music"></i>
+                    <img v-if="s.coverUrl" :src="s.coverUrl" loading="lazy" @error="$event.target.style.display = 'none'" />
+                  </div>
+                  <div class="ncm-artist-song-info">
+                    <span class="ncm-artist-song-title">{{ s.title }}</span>
+                    <span class="ncm-artist-song-album">{{ s.album || '未知专辑' }}</span>
+                  </div>
+                  <span v-if="s.format === 'VIP'" class="ncm-artist-song-vip">VIP</span>
+                </div>
+              </template>
+              <div v-else-if="!ncmArtist.loading" class="list-empty-mini">
+                <i class="fa-solid fa-circle-exclamation"></i><span>歌手信息加载失败，请稍后重试</span>
+              </div>
             </div>
           </div>
         </div>
@@ -601,6 +723,9 @@ export default {
       isLoggedIn: true, // 登录态：本地歌单/收藏走服务端；游客走 localStorage（本机保存）
       editingPlaylistId: null, // 非空 = 编辑歌单模式（复用新建歌单弹窗）
       librarySource: 'local', // 当前库页面：'ncm' = 网易云（主库）/ 'local' = 本地音乐
+      playerTab: 'lyrics', // 播放页右栏面板：lyrics / comments / artist（网易云歌曲可切）
+      ncmComments: { songId: null, total: 0, hot: [], list: [], hasMore: false, offset: 0, loading: false, loaded: false },
+      ncmArtist: { artistId: null, info: null, desc: '', intro: [], songs: [], loading: false, loaded: false, descExpanded: false },
       ncmAvailable: false, // 网易云插件是否安装（启动时探测 /status）
       showCreatePlaylist: false,
       newPlaylistName: '',
@@ -655,6 +780,14 @@ export default {
     playMode: function() { return this.$store.state.music.playMode; },
     showPlayer: function() { return this.$store.state.music.showPlayer; },
     lyrics: function() { return this.$store.state.music.lyrics; },
+    // 网易云歌曲播放页显示 歌词/评论/歌手 三面板切换
+    showPlayerTabs: function() {
+      return !!(this.currentSong && this.currentSong.source === 'netease');
+    },
+    // 当前歌曲的歌手列表（网易云歌曲才有 id 可跳转）
+    currentArtists: function() {
+      return (this.currentSong && this.currentSong.artists) || [];
+    },
     playQueue: function() { return this.$store.state.music.playQueue; },
     bufferedEnd: function() { return this.$store.state.music.bufferedEnd; },
     currentPlaylist: function() {
@@ -870,6 +1003,12 @@ export default {
       if (newSong && (!oldSong || newSong.id !== oldSong.id)) {
         this.fetchLyrics(newSong);
         this.triggerBgCrossfade();
+        // 切歌后停留在评论面板时自动加载新歌评论；歌手面板复位到歌词
+        if (this.playerTab === 'comments') {
+          this.openNcmComments();
+        } else if (this.playerTab === 'artist') {
+          this.playerTab = 'lyrics';
+        }
       }
     },
     effectMode: function() {
@@ -998,6 +1137,8 @@ export default {
       audioManager.toggle();
     },
     closePlayer: function() {
+      this.playerTab = 'lyrics';
+      this.ncmArtist.descExpanded = false;
       this.$store.commit('music/SET_SHOW_PLAYER', false);
     },
     nextSong: function() {
@@ -1648,12 +1789,20 @@ export default {
       }
       var album = s.al || s.album || {};
       var pic = album.picUrl || s.picUrl || '';
+      var artistList = [];
+      for (var k = 0; k < artists.length; k++) {
+        if (artists[k] && artists[k].id && artists[k].name) {
+          artistList.push({ id: artists[k].id, name: artists[k].name });
+        }
+      }
       return {
         id: 'ncm-' + s.id,
         ncmId: s.id,
         source: 'netease',
         title: s.name || ('歌曲 ' + s.id),
         artist: names.join(' / ') || '未知歌手',
+        // 歌手对象数组（带 id），播放页可点击跳转歌手主页
+        artists: artistList,
         album: album.name || '',
         coverUrl: pic ? ('/api/netease-music/image?u=' + encodeURIComponent(pic)) : '',
         hasLyrics: true,
@@ -1699,6 +1848,130 @@ export default {
         });
         vm.ncmPlaylists = list;
       }).catch(function() {});
+    },
+    // ===== 播放页右栏面板：歌词 / 评论 / 歌手 =====
+    openPlayerTab: function(tab) {
+      if (tab === 'comments') { this.openNcmComments(); return; }
+      this.playerTab = tab;
+    },
+    // 打开当前歌曲的评论面板（同歌已加载则直接展示）
+    openNcmComments: function() {
+      this.playerTab = 'comments';
+      var songId = this.currentSong && this.currentSong.ncmId;
+      if (!songId) return;
+      if (this.ncmComments.songId === songId && this.ncmComments.loaded) return;
+      this.loadNcmComments(songId, true);
+    },
+    // 拉取歌曲评论（reset=true 首次加载，否则追加下一页）
+    loadNcmComments: function(songId, reset) {
+      var vm = this;
+      var st = this.ncmComments;
+      if (st.loading) return;
+      var offset = reset ? 0 : st.offset;
+      st.loading = true;
+      if (reset) {
+        st.songId = songId;
+        st.total = 0;
+        st.hot = [];
+        st.list = [];
+        st.hasMore = false;
+        st.offset = 0;
+        st.loaded = false;
+      }
+      api.get('/netease-music/comment/music', { params: { id: songId, limit: 20, offset: offset } }).then(function(res) {
+        var body = res.data || {};
+        if (body.code !== 200) throw new Error(body.message || '评论加载失败');
+        var hot = (body.hotComments || []).map(vm.normalizeNcmComment);
+        var list = (body.comments || []).map(vm.normalizeNcmComment);
+        if (reset) {
+          st.hot = hot;
+          st.list = list;
+        } else {
+          st.list = st.list.concat(list);
+        }
+        st.total = body.total || 0;
+        st.hasMore = !!body.more;
+        st.offset = offset + list.length;
+        st.loaded = true;
+      }).catch(function(err) {
+        vm.showNcmMsg((err && err.message) || '评论加载失败', { type: 'error' });
+      }).then(function() {
+        st.loading = false;
+      });
+    },
+    // 评论数据归一化（头像必须经服务器中转）
+    normalizeNcmComment: function(c) {
+      var avatar = (c.user && (c.user.avatarUrl || '')) || '';
+      return {
+        id: c.commentId,
+        user: (c.user && c.user.nickname) || '匿名用户',
+        avatarUrl: avatar ? ('/api/netease-music/image?u=' + encodeURIComponent(avatar)) : '',
+        content: c.content || '',
+        time: c.time || 0,
+        likedCount: c.likedCount || 0
+      };
+    },
+    // 评论时间格式化：刚刚 / N分钟前 / N小时前 / N天前 / M月D日 / Y年M月D日
+    fmtCommentTime: function(ts) {
+      if (!ts) return '';
+      var d = new Date(ts);
+      var now = new Date();
+      var diff = now.getTime() - ts;
+      if (diff < 60 * 1000) return '刚刚';
+      if (diff < 3600 * 1000) return Math.floor(diff / 60000) + '分钟前';
+      if (diff < 24 * 3600 * 1000) return Math.floor(diff / 3600000) + '小时前';
+      if (diff < 7 * 24 * 3600 * 1000) return Math.floor(diff / 86400000) + '天前';
+      var sameYear = d.getFullYear() === now.getFullYear();
+      if (sameYear) return (d.getMonth() + 1) + '月' + d.getDate() + '日';
+      return d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日';
+    },
+    // 播放页点击歌手名 → 歌手面板（同歌手已加载则直接展示）
+    openArtistPage: function(artist) {
+      if (!artist || !artist.id) return;
+      this.playerTab = 'artist';
+      this.ncmArtist.descExpanded = false;
+      if (this.ncmArtist.artistId === artist.id && this.ncmArtist.loaded) return;
+      this.fetchNcmArtist(artist.id);
+    },
+    // 拉取歌手主页（信息 + 热门50首）与详细简介（并行请求）
+    fetchNcmArtist: function(artistId) {
+      var vm = this;
+      var st = this.ncmArtist;
+      st.loading = true;
+      st.artistId = artistId;
+      st.info = null;
+      st.desc = '';
+      st.intro = [];
+      st.songs = [];
+      st.loaded = false;
+      var homeReq = api.get('/netease-music/artist/home', { params: { id: artistId } }).then(function(res) {
+        var body = res.data || {};
+        if (body.code !== 200) throw new Error('歌手信息加载失败');
+        var a = body.artist || {};
+        var avatar = a.img1v1Url || a.picUrl || '';
+        st.info = {
+          id: a.id || artistId,
+          name: a.name || '未知歌手',
+          alias: (a.alias || []).join(' / '),
+          avatarUrl: avatar ? ('/api/netease-music/image?u=' + encodeURIComponent(avatar)) : '',
+          musicSize: a.musicSize || 0,
+          albumSize: a.albumSize || 0,
+          mvSize: a.mvSize || 0
+        };
+        st.songs = (body.hotSongs || []).map(vm.normalizeNcmSong);
+      });
+      var descReq = api.get('/netease-music/artist/desc', { params: { id: artistId } }).then(function(res) {
+        var body = res.data || {};
+        if (body.code !== 200) return;
+        st.desc = body.briefDesc || '';
+        st.intro = (body.introduction || []).map(function(it) {
+          return { title: it.ti || '', text: it.txt || '' };
+        }).filter(function(it) { return it.text; });
+      });
+      Promise.all([homeReq, descReq.catch(function() {})]).catch(function() {}).then(function() {
+        st.loading = false;
+        st.loaded = !!st.info;
+      });
     },
     // 从 localStorage 恢复音量 / 播放模式偏好（默认 sequence / 0.8）
     restoreAudioPrefs: function() {
@@ -3568,6 +3841,21 @@ export default {
   text-overflow: ellipsis;
 }
 
+/* 播放页可点击歌手名（跳转歌手面板） */
+.song-meta-artist-link {
+  cursor: pointer;
+  border-radius: 6px;
+  transition: color var(--duration-normal) var(--ease-standard);
+}
+
+.song-meta-artist-link:hover {
+  color: var(--primary-color);
+}
+
+.song-meta-artist-sep {
+  color: var(--text-tertiary);
+}
+
 .song-meta-title-row {
   display: flex;
   align-items: center;
@@ -4099,6 +4387,418 @@ export default {
 .no-lyrics-hint i { font-size: 48px; }
 .no-lyrics-hint span { font-size: 14px; }
 
+/* ========== 播放页 歌词/评论/歌手 面板 ========== */
+.player-panel-tabs {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  padding: 12px 24px 4px;
+  flex-shrink: 0;
+}
+
+.player-panel-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-caption2);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-tertiary);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-lg);
+  padding: 6px 16px;
+  cursor: pointer;
+  transition: color var(--duration-normal) var(--ease-standard), background var(--duration-normal) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.player-panel-tab i { font-size: 11px; }
+
+.player-panel-tab:hover { color: var(--text-secondary); }
+
+.player-panel-tab:active { transform: scale(0.94); opacity: 0.7; }
+
+.player-panel-tab.active {
+  color: var(--primary-color);
+  background: var(--primary-light);
+}
+
+[data-theme="dark"] .player-panel-tab {
+  color: rgba(255, 255, 255, 0.35);
+}
+
+[data-theme="dark"] .player-panel-tab:hover { color: rgba(255, 255, 255, 0.6); }
+
+[data-theme="dark"] .player-panel-tab.active {
+  color: #fff;
+  background: rgba(33, 150, 243, 0.25);
+}
+
+.player-panel-tab:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* 面板空态（mini 版本：播放页空间有限） */
+.list-empty-mini {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 56px 20px;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
+}
+
+.list-empty-mini i { font-size: 30px; opacity: 0.55; }
+
+/* 评论面板 */
+.ncm-comments-panel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 10px 24px 20px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.ncm-comments-panel > * {
+  max-width: 640px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.ncm-comments-head {
+  font-size: var(--font-size-footnote);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-secondary);
+  padding: 14px 0 10px;
+}
+
+.ncm-comments-total {
+  font-weight: var(--font-weight-regular);
+  color: var(--text-tertiary);
+}
+
+.ncm-comment-item {
+  display: flex;
+  gap: 12px;
+  padding: 10px 0;
+}
+
+.ncm-comment-item + .ncm-comment-item {
+  border-top: 0.5px solid var(--separator-color);
+}
+
+.ncm-comment-avatar {
+  position: relative;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--primary-lighter);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+}
+
+.ncm-comment-avatar i { font-size: 14px; }
+
+.ncm-comment-avatar img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ncm-comment-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.ncm-comment-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ncm-comment-user {
+  font-size: var(--font-size-footnote);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-secondary);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ncm-comment-time {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.ncm-comment-content {
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  line-height: 1.55;
+  margin-top: 4px;
+  word-break: break-word;
+}
+
+.ncm-comment-likes {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.ncm-comments-panel .ncm-load-more {
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: var(--primary-color);
+  font-size: var(--font-size-footnote);
+  cursor: pointer;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 0 4px;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
+.ncm-comments-panel .ncm-load-more:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* 歌手面板 */
+.ncm-artist-panel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 14px 24px 20px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.ncm-artist-panel > * {
+  max-width: 640px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.ncm-artist-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.ncm-artist-avatar {
+  position: relative;
+  flex-shrink: 0;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--primary-lighter);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+}
+
+.ncm-artist-avatar i { font-size: 28px; }
+
+.ncm-artist-avatar img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ncm-artist-headinfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.ncm-artist-name {
+  font-size: var(--font-size-title3);
+  font-weight: var(--font-weight-bold);
+  color: var(--text-primary);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ncm-artist-alias {
+  font-size: var(--font-size-footnote);
+  color: var(--text-tertiary);
+  margin-top: 2px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ncm-artist-stats {
+  display: flex;
+  gap: 14px;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.ncm-artist-stats span {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.04);
+}
+
+[data-theme="dark"] .ncm-artist-stats span {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.ncm-artist-desc {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin-top: 14px;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.ncm-artist-desc.expanded {
+  display: block;
+  -webkit-line-clamp: unset;
+}
+
+.ncm-artist-intro-item {
+  margin-top: 12px;
+}
+
+.ncm-artist-intro-title {
+  font-size: var(--font-size-footnote);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.ncm-artist-intro-text {
+  font-size: var(--font-size-sm);
+  color: var(--text-tertiary);
+  line-height: 1.6;
+  white-space: pre-line;
+}
+
+.ncm-artist-songs-head {
+  font-size: var(--font-size-footnote);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-secondary);
+  padding: 18px 0 6px;
+}
+
+.ncm-artist-song {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  cursor: pointer;
+  border-radius: var(--radius-lg);
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+
+.ncm-artist-song:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+[data-theme="dark"] .ncm-artist-song:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.ncm-artist-song-idx {
+  flex-shrink: 0;
+  width: 22px;
+  text-align: center;
+  font-size: var(--font-size-caption);
+  color: var(--text-tertiary);
+}
+
+.ncm-artist-song-cover {
+  position: relative;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--primary-lighter);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+}
+
+.ncm-artist-song-cover i { font-size: 13px; }
+
+.ncm-artist-song-cover img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ncm-artist-song-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ncm-artist-song-title {
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ncm-artist-song-album {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ncm-artist-song-vip {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: var(--font-weight-bold);
+  color: #b8860b;
+  background: rgba(255, 200, 60, 0.18);
+  border: 0.5px solid rgba(255, 200, 60, 0.45);
+}
+
+[data-theme="dark"] .ncm-artist-song-vip {
+  color: #ffd700;
+  background: rgba(255, 215, 0, 0.12);
+}
+
 .lyrics-scroll {
   flex: 1;
   overflow-y: auto;
@@ -4615,6 +5315,14 @@ export default {
   .sidebar-item:active,
   .playlist-action-btn:active {
     background: var(--primary-light);
+  }
+
+  /* 触屏设备：播放页面板交互用按压态代替 hover */
+  .player-panel-tab:active,
+  .ncm-artist-song:active,
+  .song-meta-artist-link:active {
+    background: var(--primary-light);
+    opacity: 0.7;
   }
 }
 
