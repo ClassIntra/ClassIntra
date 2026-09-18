@@ -2,8 +2,10 @@ var express = require('express');
 var router = express.Router();
 var path = require('path');
 var fs = require('fs');
+var jwt = require('jsonwebtoken');
 var auth = require('../../../server/src/middleware/auth');
 var config = require('../../../server/src/config');
+var constants = require('../../../server/src/utils/constants');
 var db = require('../../../server/src/utils/db');
 
 var MUSIC_DIR = path.join(config.resourcesDir, 'music');
@@ -31,9 +33,22 @@ function parseSongInfo(baseName) {
   return { title: baseName, artist: '未知艺术家' };
 }
 
-router.use(auth.requireAuth);
+// 游客可读（歌曲列表 / 歌词）：有 token 时轻量解析身份（仅用于收藏标记），无效/缺失按游客处理
+function optionalAuth(req, res, next) {
+  var token = constants.extractToken(req);
+  req.user = null;
+  if (token) {
+    try {
+      req.user = jwt.verify(token, config.jwt.secret);
+    } catch (e) {
+      req.user = null;
+    }
+  }
+  next();
+}
 
-router.get('/list', function(req, res) {
+// 公开读取接口：游客可用（列表中收藏标记按游客=未收藏处理）
+router.get('/list', optionalAuth, function(req, res) {
   if (!fs.existsSync(MUSIC_DIR)) {
     return res.json({ code: 200, data: { songs: [] } });
   }
@@ -155,7 +170,7 @@ router.get('/list', function(req, res) {
   res.json({ code: 200, data: { songs: songs } });
 });
 
-router.get('/lyrics', function(req, res) {
+router.get('/lyrics', optionalAuth, function(req, res) {
   var file = req.query.file;
   if (!file) {
     return res.status(400).json({ code: 400, message: '参数错误' });
@@ -176,7 +191,8 @@ router.get('/lyrics', function(req, res) {
   res.json({ code: 200, data: { content: content } });
 });
 
-router.post('/favorite', function(req, res) {
+// 以下为用户数据接口：需要登录（游客的收藏与歌单保存在前端 localStorage）
+router.post('/favorite', auth.requireAuth, function(req, res) {
   var userId = req.user.user_id;
   var songId = req.body.songId;
   if (!songId) return res.status(400).json({ code: 400, message: '参数错误' });
@@ -195,7 +211,7 @@ router.post('/favorite', function(req, res) {
   }
 });
 
-router.get('/favorites', function(req, res) {
+router.get('/favorites', auth.requireAuth, function(req, res) {
   var userId = req.user.user_id;
   try {
     var rows = db.prepare('SELECT song_id FROM music_favorites WHERE user_id = ? ORDER BY created_at DESC').all(userId);
@@ -207,7 +223,7 @@ router.get('/favorites', function(req, res) {
   }
 });
 
-router.post('/playlist/create', function(req, res) {
+router.post('/playlist/create', auth.requireAuth, function(req, res) {
   var userId = req.user.user_id;
   var name = (req.body.name || '').trim();
   if (!name) return res.status(400).json({ code: 400, message: '歌单名称不能为空' });
@@ -221,7 +237,7 @@ router.post('/playlist/create', function(req, res) {
   }
 });
 
-router.get('/playlists', function(req, res) {
+router.get('/playlists', auth.requireAuth, function(req, res) {
   var userId = req.user.user_id;
   try {
     var playlists = db.prepare(
@@ -235,7 +251,7 @@ router.get('/playlists', function(req, res) {
   }
 });
 
-router.post('/playlist/update', function(req, res) {
+router.post('/playlist/update', auth.requireAuth, function(req, res) {
   var userId = req.user.user_id;
   var playlistId = req.body.playlistId;
   var name = (req.body.name || '').trim();
@@ -253,7 +269,7 @@ router.post('/playlist/update', function(req, res) {
   }
 });
 
-router.post('/playlist/delete', function(req, res) {
+router.post('/playlist/delete', auth.requireAuth, function(req, res) {
   var userId = req.user.user_id;
   var playlistId = req.body.playlistId;
   if (!playlistId) return res.status(400).json({ code: 400, message: '参数错误' });
@@ -269,7 +285,7 @@ router.post('/playlist/delete', function(req, res) {
   }
 });
 
-router.post('/playlist/add-song', function(req, res) {
+router.post('/playlist/add-song', auth.requireAuth, function(req, res) {
   var userId = req.user.user_id;
   var playlistId = req.body.playlistId;
   var songId = req.body.songId;
@@ -293,7 +309,7 @@ router.post('/playlist/add-song', function(req, res) {
   }
 });
 
-router.post('/playlist/remove-song', function(req, res) {
+router.post('/playlist/remove-song', auth.requireAuth, function(req, res) {
   var userId = req.user.user_id;
   var playlistId = req.body.playlistId;
   var songId = req.body.songId;
@@ -311,7 +327,7 @@ router.post('/playlist/remove-song', function(req, res) {
   }
 });
 
-router.get('/playlist/detail', function(req, res) {
+router.get('/playlist/detail', auth.requireAuth, function(req, res) {
   var playlistId = req.query.playlistId;
   if (!playlistId) return res.status(400).json({ code: 400, message: '参数错误' });
 

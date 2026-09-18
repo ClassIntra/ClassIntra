@@ -12,7 +12,10 @@
   "frontend": {
     "route": "/music",
     "routeName": "Music",
-    "component": "./frontend/Music.vue"
+    "component": "./frontend/Music.vue",
+    "meta": {
+      "requiresAuth": false
+    }
   },
   "backend": {
     "mountPath": "/api/music",
