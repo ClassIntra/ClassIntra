@@ -266,6 +266,9 @@
         <div class="player-bg">
           <div class="player-bg-image" :style="bgImageStyle"></div>
           <div class="player-bg-image player-bg-image-next" :style="bgImageNextStyle"></div>
+          <!-- 漂移光斑：纯 transform 动画（GPU 合成），色相随歌曲变化 -->
+          <div class="player-bg-blob player-bg-blob-a" :style="bgBlobStyleA"></div>
+          <div class="player-bg-blob player-bg-blob-b" :style="bgBlobStyleB"></div>
           <div class="player-bg-glow"></div>
           <div class="player-bg-noise"></div>
           <div class="player-bg-overlay"></div>
@@ -386,7 +389,7 @@
                   <button class="lyrics-mode-btn" :class="{ active: lyricsMode === 'drop' }" @click="setLyricsMode('drop')">逐字</button>
                 </div>
               </div>
-              <div class="lyrics-scroll scrollbar-thin" ref="lyricsBody">
+              <div class="lyrics-scroll scrollbar-thin" ref="lyricsBody" @wheel="onLyricsUserScroll" @touchstart="onLyricsUserScroll">
                 <div class="lyrics-pad-top"></div>
                 <div
                   v-for="(line, index) in lyrics.lines"
@@ -409,12 +412,11 @@
                   </template>
                   <template v-else-if="line.words && line.words.length > 0">
                     <span class="lyric-words">
+                      <!-- 逐字点亮由歌词引擎直接写 DOM（--wp-pct），不经过 Vue 响应式，长歌词也不卡 -->
                       <span
                         v-for="(word, wi) in line.words"
                         :key="wi"
                         class="lyric-word"
-                        :class="wordHighlightClass(line, word, index)"
-                        :style="wordHighlightStyle(line, word, index)"
                       >{{ word.text }}</span>
                     </span>
                   </template>
@@ -754,6 +756,22 @@ export default {
       var h = this.currentSong ? hue(this.currentSong.title) : 220;
       return { background: 'linear-gradient(135deg, hsl(' + h + ',40%,15%), hsl(' + ((h + 60) % 360) + ',30%,10%))', opacity: 1 };
     },
+    // 漂移光斑：色相由歌曲标题派生（与占位封面同源），纯径向渐变 + transform 动画，GPU 合成零重绘
+    bgBlobStyleA: function() {
+      var h = this.currentSong ? hue(this.currentSong.title) : 220;
+      return {
+        background: 'radial-gradient(circle at center, hsla(' + h + ', 75%, 58%, 0.30) 0%, transparent 68%)',
+        opacity: (this.effectMode === 'blur' || this.effectMode === 'none') ? 0 : 1
+      };
+    },
+    bgBlobStyleB: function() {
+      var h = this.currentSong ? hue(this.currentSong.title) : 220;
+      var h2 = (h + 55) % 360;
+      return {
+        background: 'radial-gradient(circle at center, hsla(' + h2 + ', 70%, 55%, 0.24) 0%, transparent 66%)',
+        opacity: (this.effectMode === 'blur' || this.effectMode === 'none') ? 0 : 1
+      };
+    },
     albumShadowStyle: function() {
       if (this.currentSong && this.currentSong.coverUrl) {
         return { backgroundImage: "url('" + this.currentSong.coverUrl + "')" };
@@ -780,7 +798,36 @@ export default {
   },
   watch: {
     currentLyricIndex: function(n, o) {
-      if (n !== o && n >= 0) this.scrollLyric(n);
+      if (n !== o && n >= 0) {
+        this.scrollLyric(n);
+        // 行切换：重新捕获当前行的词节点并立即刷新逐字状态
+        this.captureActiveWords();
+      }
+    },
+    // 歌词整体替换（切歌 / 翻译合并完成）后重置逐字引擎缓存
+    lyrics: function() {
+      this.captureActiveWords();
+    },
+    // 滚动 / 逐字模式切换后 DOM 重建，重新捕获
+    lyricsMode: function() {
+      this.captureActiveWords();
+    },
+    // 暂停时引擎停转，拖拽/点击跳转后手动刷新一次逐字状态
+    currentTime: function() {
+      if (!this.isPlaying) this.updateWordProgress();
+    },
+    // 播放页开关 + 播放状态：控制逐字引擎启停
+    showPlayer: function(open) {
+      if (open) {
+        this.captureActiveWords();
+        if (this.isPlaying) this.startLyricEngine();
+      } else {
+        this.stopLyricEngine();
+      }
+    },
+    isPlaying: function(playing) {
+      if (playing && this.showPlayer) this.startLyricEngine();
+      else this.stopLyricEngine();
     },
     // 音量 / 播放模式偏好持久化（刷新后保持）
     volume: function(v) {
@@ -841,6 +888,7 @@ export default {
   },
   beforeDestroy: function() {
     if (this._keyHandler) document.removeEventListener('keydown', this._keyHandler);
+    this.stopLyricEngine();
     if (this._bgCrossfadeTimer) { clearTimeout(this._bgCrossfadeTimer); this._bgCrossfadeTimer = null; }
     if (this._ncmSuggestTimer) { clearTimeout(this._ncmSuggestTimer); this._ncmSuggestTimer = null; }
     if (this._ncmCaptchaTimer) { clearInterval(this._ncmCaptchaTimer); this._ncmCaptchaTimer = null; }
@@ -868,17 +916,6 @@ export default {
       if (d === 1) return 'lyric-near';
       if (d <= 2) return 'lyric-far';
       return 'lyric-distant';
-    },
-    wordHighlightClass: function(line, word, lineIndex) {
-      if (lineIndex !== this.currentLyricIndex) return '';
-      var p = lrcParser.getWordProgress(line, word, this.currentTime);
-      return p > 0 ? 'word-lit' : '';
-    },
-    wordHighlightStyle: function(line, word, lineIndex) {
-      if (lineIndex !== this.currentLyricIndex) return null;
-      var p = lrcParser.getWordProgress(line, word, this.currentTime);
-      if (p <= 0) return null;
-      return { '--wp': Math.min(1, p), '--wp-pct': Math.round(Math.min(1, p) * 100) + '%' };
     },
     fetchSongs: function() {
       var vm = this;
@@ -1131,9 +1168,86 @@ export default {
       });
     },
     seekToLine: function(line) { if (line && line.time !== undefined) audioManager.seek(line.time); },
+    // 用户手动滚动歌词后 4s 内不自动回拉，避免「抢滚动条」
+    onLyricsUserScroll: function() {
+      this._lyricUserScrollAt = Date.now();
+    },
+    /* ========== 歌词逐字引擎（直接 DOM 写入，脱离 Vue 响应式） ========== */
+    startLyricEngine: function() {
+      if (this._lyricRaf) return;
+      var vm = this;
+      var loop = function() {
+        vm._lyricRaf = requestAnimationFrame(loop);
+        vm.updateWordProgress();
+      };
+      vm._lyricRaf = requestAnimationFrame(loop);
+    },
+    stopLyricEngine: function() {
+      if (this._lyricRaf) {
+        cancelAnimationFrame(this._lyricRaf);
+        this._lyricRaf = null;
+      }
+    },
+    // 捕获当前激活行的词节点：仅在行切换 / 歌词替换时执行一次
+    captureActiveWords: function() {
+      var vm = this;
+      vm._wordLine = null;
+      vm._wordEls = null;
+      vm._wordIdx = -1;
+      if (!vm.hasLyrics || vm.lyricsMode !== 'scroll') return;
+      var idx = vm.currentLyricIndex;
+      if (idx < 0) return;
+      var line = vm.lyrics.lines[idx];
+      if (!line || !line.words || !line.words.length) return;
+      vm.$nextTick(function() {
+        var body = vm.$refs.lyricsBody;
+        if (!body) return;
+        var el = body.children[idx + 1]; // +1 跳过顶部占位
+        if (!el) return;
+        vm._wordLine = line;
+        vm._wordEls = el.querySelectorAll('.lyric-word');
+        vm._wordIdx = -1;
+        vm.updateWordProgress();
+      });
+    },
+    // 逐字进度：读 audio.currentTime 直接写当前行词节点的 --wp-pct，
+    // 不触碰 Vue 响应式 —— 歌词列表只在行切换时重渲染，长歌词也保持流畅
+    updateWordProgress: function() {
+      var words = this._wordLine && this._wordLine.words;
+      var els = this._wordEls;
+      if (!words || !els || !els.length) return;
+      var t = audioManager.getAudio().currentTime;
+      var idx = this._wordIdx;
+      while (idx + 1 < words.length && t >= words[idx + 1].startTime) idx++;
+      while (idx >= 0 && t < words[idx].startTime) idx--;
+      if (idx !== this._wordIdx) {
+        // 词边界跨越（含拖动回退）：一次性校正所有词的点亮状态
+        for (var i = 0; i < words.length; i++) {
+          var el = els[i];
+          if (!el) continue;
+          if (i < idx) {
+            el.classList.add('word-lit');
+            el.style.setProperty('--wp-pct', '100%');
+          } else if (i > idx) {
+            el.classList.remove('word-lit');
+            el.style.removeProperty('--wp-pct');
+          }
+        }
+        this._wordIdx = idx;
+      }
+      if (idx < 0) return;
+      var w = words[idx];
+      var el = els[idx];
+      if (!el) return;
+      var p = w.endTime > w.startTime ? (t - w.startTime) / (w.endTime - w.startTime) : 1;
+      p = Math.min(1, Math.max(0, p));
+      el.classList.add('word-lit');
+      el.style.setProperty('--wp-pct', Math.round(p * 100) + '%');
+    },
     scrollLyric: function(index) {
       var vm = this;
       vm.$nextTick(function() {
+        if (vm._lyricUserScrollAt && Date.now() - vm._lyricUserScrollAt < 4000) return;
         var lyricsBody = vm.$refs.lyricsBody;
         if (!lyricsBody) return;
         var el = lyricsBody.children[index + 1];
@@ -2863,6 +2977,56 @@ export default {
   opacity: 0;
 }
 
+/* 漂移光斑：径向渐变一次绘制进纹理，仅 transform 动画（GPU 合成，零重绘）；
+   播放时运行、暂停冻结；色相由内联样式随歌曲派生 */
+.player-bg-blob {
+  position: absolute;
+  width: 88vmax;
+  height: 88vmax;
+  border-radius: 50%;
+  pointer-events: none;
+  will-change: transform;
+  animation-play-state: paused;
+  transition: opacity 0.8s var(--ease-standard);
+}
+
+.player-page.playing .player-bg-blob {
+  animation-play-state: running;
+}
+
+.player-bg-blob-a {
+  top: -32%;
+  left: -18%;
+  animation: blobDriftA 46s ease-in-out infinite alternate;
+}
+
+.player-bg-blob-b {
+  top: auto;
+  left: auto;
+  bottom: -38%;
+  right: -22%;
+  animation: blobDriftB 58s ease-in-out infinite alternate;
+}
+
+@keyframes blobDriftA {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to { transform: translate3d(16%, 12%, 0) scale(1.16); }
+}
+
+@keyframes blobDriftB {
+  from { transform: translate3d(0, 0, 0) scale(1.08); }
+  to { transform: translate3d(-12%, -9%, 0) scale(0.94); }
+}
+
+.effect-blur .player-bg-blob,
+.effect-none .player-bg-blob {
+  opacity: 0 !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .player-bg-blob { animation: none; }
+}
+
 .player-bg-glow {
   position: absolute;
   top: 0; right: 0; bottom: 0; left: 0;
@@ -3332,6 +3496,11 @@ export default {
   transform-origin: 0 0;
   will-change: transform;
   /* 规范例外：波形条高度即音量语义，scaleY 会拉伸圆角（§5.5.2 形状形变豁免） */
+  transition: height var(--duration-fast) var(--ease-standard), transform 0.22s linear;
+}
+
+/* 拖拽时禁用进度过渡，让滑块实时跟手 */
+.progress-track-wrap.dragging .progress-fill {
   transition: height var(--duration-fast) var(--ease-standard);
 }
 
@@ -3353,9 +3522,14 @@ export default {
   transform: translateX(-50%);
   box-shadow: var(--shadow-sm);
   /* 规范例外：滑块尺寸即语义，面积 < 200px²（§5.5.2 形状形变豁免） */
-  transition: width var(--duration-fast) var(--ease-standard), height var(--duration-fast) var(--ease-standard);
+  transition: width var(--duration-fast) var(--ease-standard), height var(--duration-fast) var(--ease-standard), left 0.22s linear;
   pointer-events: none;
   will-change: left;
+}
+
+/* 拖拽时禁用位置过渡，让滑块实时跟手 */
+.progress-track-wrap.dragging .progress-thumb {
+  transition: width var(--duration-fast) var(--ease-standard), height var(--duration-fast) var(--ease-standard);
 }
 
 [data-theme="dark"] .progress-thumb {
@@ -3697,7 +3871,6 @@ export default {
   mask-image: linear-gradient(to bottom, transparent 0%, black 10%, black 92%, transparent 100%);
   scroll-behavior: smooth;
   -webkit-overflow-scrolling: touch;
-  will-change: scroll-position;
 }
 
 .lyrics-scroll::-webkit-scrollbar { display: none; }
@@ -3709,24 +3882,24 @@ export default {
 .lyric-line {
   padding: 10px 0;
   cursor: pointer;
-  transition: opacity var(--duration-slow) var(--ease-standard), transform var(--duration-slow) var(--ease-standard);
-  opacity: 0.2;
+  transition: opacity 0.45s cubic-bezier(0.22, 1, 0.36, 1), transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+  opacity: 0.22;
   transform: translate3d(0, 4px, 0);
   transform-origin: left center;
 }
 
 .lyric-line.lyric-near {
-  opacity: 0.5;
+  opacity: 0.55;
   transform: translate3d(0, 2px, 0);
 }
 
 .lyric-line.lyric-far {
-  opacity: 0.3;
+  opacity: 0.35;
   transform: translate3d(0, 1px, 0);
 }
 
 .lyric-line.lyric-distant {
-  opacity: 0.2;
+  opacity: 0.22;
   transform: translate3d(0, 4px, 0);
 }
 
@@ -3784,12 +3957,19 @@ export default {
   color: rgba(0, 0, 0, 0.3);
 }
 
+/* 激活行未唱词保持「待点亮」的暗态，与点亮词形成清晰的卡拉OK对比 */
 .lyric-line.lyric-active .lyric-word {
   letter-spacing: -0.02em;
+  color: rgba(0, 0, 0, 0.32);
 }
 
-[data-theme="light"] .lyric-line.lyric-active .lyric-word {
-  color: var(--text-primary);
+[data-theme="dark"] .lyric-line.lyric-active .lyric-word {
+  color: rgba(255, 255, 255, 0.25);
+}
+
+/* 词点亮时的柔过渡（颜色由 --wp-pct 渐变驱动） */
+.lyric-word {
+  transition: color 0.3s var(--ease-standard);
 }
 
 .lyric-line.lyric-active .lyric-word.word-lit {
