@@ -61,6 +61,7 @@
               <div class="sidebar-item" :class="{ active: activeTab === 'ncm-daily' }" @click="openNcmTab('ncm-daily')">
                 <i class="fa-solid fa-calendar-day"></i>
                 <span>每日推荐</span>
+                <i v-if="!ncmLoggedIn" class="fa-solid fa-lock sidebar-item-lock" title="需登录网易云"></i>
               </div>
               <div class="sidebar-item" :class="{ active: activeTab === 'ncm-top' }" @click="openNcmTab('ncm-top')">
                 <i class="fa-solid fa-fire"></i>
@@ -232,7 +233,7 @@
           </div>
 
           <div v-if="!songsLoading && !(isNcmTab && ncmLoading) && filteredSongs.length === 0" class="list-empty">
-            <template v-if="isNcmTab && !ncmLoggedIn && !searchQuery">
+            <template v-if="isNcmTab && !ncmLoggedIn && !searchQuery && (activeTab === 'ncm-fav' || activeTab === 'ncm-daily')">
               <i class="fa-solid fa-cloud"></i>
               <p>登录网易云，开启每日推荐与海量在线曲库</p>
               <button class="playlist-action-btn" @click="startQrLogin">
@@ -858,7 +859,11 @@ export default {
     ncmPlayError: function(n) {
       // 网易云换流失败：toast 提示后立即清空，避免重复弹出
       if (!n) return;
-      this.showNcmMsg(n, { type: 'error' });
+      // 未登录网易云：VIP / 会员音质歌曲需要登录后（含会员）才能解锁，附加引导
+      var msg = (!this.ncmLoggedIn && this.currentSong && this.currentSong.source === 'netease')
+        ? n + '，登录网易云后可解锁更多歌曲'
+        : n;
+      this.showNcmMsg(msg, { type: 'error' });
       this.$store.commit('music/SET_PLAY_ERROR', null);
     },
     currentSong: function(newSong, oldSong) {
@@ -1783,6 +1788,7 @@ export default {
       var vm = this;
       // 每日推荐是网易云个性化接口，未登录必然失败：直接提示并转热歌榜
       if (!vm.ncmLoggedIn) {
+        vm.activeTab = 'ncm-top'; // 标题与内容保持一致（回退后不再显示「每日推荐」）
         vm.showNcmMsg('每日推荐需要登录网易云，已为你展示热歌排行榜', { type: 'info' });
         vm.loadNcmToplist();
         return;
@@ -2258,8 +2264,7 @@ export default {
   color: var(--text-secondary);
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
-  -webkit-user-select: none;
-  user-select: none;
+  -webkit-user-select: none;  user-select: none;
 }
 
 .sidebar-item i {
@@ -2286,6 +2291,15 @@ export default {
   background: var(--primary-light);
   color: var(--primary-color);
   font-weight: var(--font-weight-semibold);
+}
+
+/* 侧栏项右侧的「需登录」小锁标（如未登录网易云时的每日推荐） */
+.sidebar-item-lock {
+  margin-left: auto;
+  font-size: 10px !important;
+  width: auto !important;
+  color: var(--text-tertiary);
+  opacity: 0.7;
 }
 
 .sidebar-divider {
