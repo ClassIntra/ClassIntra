@@ -142,7 +142,10 @@
           <div v-if="isNcmTab" class="playlist-header">
             <div class="playlist-header-info ncm-header-info">
               <img v-if="ncmHeaderCover" class="ncm-header-cover" :src="ncmHeaderCover" alt="" loading="lazy" decoding="async" />
-              <h2 class="playlist-header-name">{{ ncmTabTitle }}</h2>
+              <div class="ncm-header-text">
+                <h2 class="playlist-header-name">{{ ncmTabTitle }}</h2>
+                <span class="ncm-header-sub">{{ ncmSongs.length }} 首 · 来自网易云音乐</span>
+              </div>
             </div>
             <div class="playlist-header-actions">
               <select class="ncm-quality-select" :value="ncmQuality" @change="onNcmQualityChange" title="网易云音质，下一首生效">
@@ -219,8 +222,18 @@
           </div>
 
           <div v-if="!songsLoading && !(isNcmTab && ncmLoading) && filteredSongs.length === 0" class="list-empty">
-            <i class="fa-solid fa-music"></i>
-            <p>{{ searchQuery ? '未找到匹配的歌曲' : (activeTab === 'favorites' ? '暂无收藏' : (typeof activeTab === 'number' ? '歌单为空' : (isNcmTab ? '暂无内容' : '暂无歌曲'))) }}</p>
+            <template v-if="isNcmTab && !ncmLoggedIn && !searchQuery">
+              <i class="fa-solid fa-cloud"></i>
+              <p>登录网易云，开启每日推荐与海量在线曲库</p>
+              <button class="playlist-action-btn" @click="startQrLogin">
+                <i class="fa-solid fa-right-to-bracket"></i>
+                <span>扫码 / 手机号登录</span>
+              </button>
+            </template>
+            <template v-else>
+              <i class="fa-solid fa-music"></i>
+              <p>{{ searchQuery ? '未找到匹配的歌曲' : (activeTab === 'favorites' ? '暂无收藏' : (typeof activeTab === 'number' ? '歌单为空' : (isNcmTab ? '暂无内容' : '暂无歌曲'))) }}</p>
+            </template>
           </div>
         </div>
       </div>
@@ -476,11 +489,17 @@
       </div>
     </div>
 
-    <!-- Modal: 网易云扫码登录 -->
+    <!-- Modal: 网易云登录（扫码 / 手机密码 / 手机验证码） -->
     <div v-if="showNcmLogin" class="modal-overlay" @click.self="closeNcmLogin">
-      <div class="modal-box">
-        <div class="modal-title">网易云音乐扫码登录</div>
-        <div class="ncm-qr-wrap">
+      <div class="modal-box ncm-login-box">
+        <div class="modal-title">网易云音乐登录</div>
+        <div class="ncm-login-tabs">
+          <button :class="{ active: ncmLoginMode === 'qr' }" @click="switchNcmLoginMode('qr')"><i class="fa-solid fa-qrcode"></i><span>扫码</span></button>
+          <button :class="{ active: ncmLoginMode === 'password' }" @click="switchNcmLoginMode('password')"><i class="fa-solid fa-lock"></i><span>密码登录</span></button>
+          <button :class="{ active: ncmLoginMode === 'captcha' }" @click="switchNcmLoginMode('captcha')"><i class="fa-solid fa-comment-sms"></i><span>验证码</span></button>
+        </div>
+
+        <div v-if="ncmLoginMode === 'qr'" class="ncm-qr-wrap">
           <div v-if="ncmQrLoading" class="ncm-qr-tip">正在生成二维码...</div>
           <template v-else-if="ncmQr && !ncmQrExpired">
             <div class="ncm-qr-box">
@@ -496,6 +515,38 @@
             <button class="modal-btn modal-btn-primary" @click="startQrLogin">刷新二维码</button>
           </template>
         </div>
+
+        <div v-else class="ncm-login-form">
+          <div class="ncm-login-row">
+            <select v-model="ncmLoginForm.countrycode" class="ncm-login-cc" title="国家 / 地区码">
+              <option value="86">+86</option>
+              <option value="852">+852</option>
+              <option value="853">+853</option>
+              <option value="886">+886</option>
+              <option value="65">+65</option>
+              <option value="60">+60</option>
+              <option value="1">+1</option>
+              <option value="44">+44</option>
+              <option value="81">+81</option>
+              <option value="82">+82</option>
+            </select>
+            <input v-model="ncmLoginForm.phone" class="ncm-login-input" type="tel" placeholder="网易云手机号" maxlength="20" />
+          </div>
+          <div v-if="ncmLoginMode === 'password'" class="ncm-login-row">
+            <input v-model="ncmLoginForm.password" class="ncm-login-input" type="password" placeholder="网易云密码" autocomplete="off" @keyup.enter="submitNcmLogin" />
+          </div>
+          <div v-else class="ncm-login-row">
+            <input v-model="ncmLoginForm.captcha" class="ncm-login-input" type="text" inputmode="numeric" placeholder="短信验证码" maxlength="6" @keyup.enter="submitNcmLogin" />
+            <button class="ncm-captcha-btn" :disabled="ncmCaptchaCountdown > 0 || !ncmLoginForm.phone.trim()" @click="sendNcmCaptcha">
+              {{ ncmCaptchaCountdown > 0 ? ncmCaptchaCountdown + 's 后重发' : '发送验证码' }}
+            </button>
+          </div>
+          <button class="modal-btn modal-btn-primary ncm-login-submit" :disabled="ncmLoginLoading" @click="submitNcmLogin">
+            {{ ncmLoginLoading ? '登录中...' : '登录' }}
+          </button>
+          <p class="ncm-login-hint">账号信息仅保存在本服务器，访问设备无需直连网易云</p>
+        </div>
+
         <div class="modal-actions">
           <button class="modal-btn" @click="closeNcmLogin">关闭</button>
         </div>
@@ -556,6 +607,11 @@ export default {
       ncmQrExpired: false,
       ncmQrScanned: false, // 已扫码待确认（802）
       _ncmQrTimer: null,
+      ncmLoginMode: 'qr', // 登录方式：qr=扫码 / password=手机密码 / captcha=手机验证码
+      ncmLoginForm: { phone: '', countrycode: '86', password: '', captcha: '' },
+      ncmLoginLoading: false,
+      ncmCaptchaCountdown: 0,
+      _ncmCaptchaTimer: null,
       ncmSuggest: [], // 搜索联想下拉
       ncmSuggestShow: false,
       _ncmSuggestTimer: null,
@@ -771,6 +827,7 @@ export default {
     if (this._keyHandler) document.removeEventListener('keydown', this._keyHandler);
     if (this._bgCrossfadeTimer) { clearTimeout(this._bgCrossfadeTimer); this._bgCrossfadeTimer = null; }
     if (this._ncmSuggestTimer) { clearTimeout(this._ncmSuggestTimer); this._ncmSuggestTimer = null; }
+    if (this._ncmCaptchaTimer) { clearInterval(this._ncmCaptchaTimer); this._ncmCaptchaTimer = null; }
     this.stopQrPolling();
   },
   methods: {
@@ -1531,6 +1588,77 @@ export default {
     playNcmAll: function() {
       if (this.ncmSongs.length === 0) return;
       this.playSong(this.ncmSongs[0]);
+    },
+    // 登录弹窗内切换登录方式；切回扫码时若二维码缺失/过期则重新生成
+    switchNcmLoginMode: function(m) {
+      this.ncmLoginMode = m;
+      if (m === 'qr' && (!this.ncmQr || this.ncmQrExpired)) this.startQrLogin();
+    },
+    // 发送短信验证码（60s 倒计时）
+    sendNcmCaptcha: function() {
+      var vm = this;
+      var phone = vm.ncmLoginForm.phone.trim();
+      if (!phone) {
+        if (vm.$toast) vm.$toast.show('请先输入手机号', { type: 'info' });
+        return;
+      }
+      if (vm.ncmCaptchaCountdown > 0) return;
+      api.post('/netease-music/login/captcha/send', { phone: phone, countrycode: vm.ncmLoginForm.countrycode }).then(function() {
+        if (vm.$toast) vm.$toast.show('验证码已发送，请查收短信', { type: 'success' });
+        vm.ncmCaptchaCountdown = 60;
+        vm._ncmCaptchaTimer = setInterval(function() {
+          vm.ncmCaptchaCountdown--;
+          if (vm.ncmCaptchaCountdown <= 0 && vm._ncmCaptchaTimer) {
+            clearInterval(vm._ncmCaptchaTimer);
+            vm._ncmCaptchaTimer = null;
+          }
+        }, 1000);
+      }).catch(function() {
+        if (vm.$toast) vm.$toast.show('验证码发送失败，请稍后重试', { type: 'error' });
+      });
+    },
+    // 手机号登录（密码 / 验证码由当前 tab 决定）
+    submitNcmLogin: function() {
+      var vm = this;
+      var f = vm.ncmLoginForm;
+      if (!f.phone.trim() || vm.ncmLoginLoading) return;
+      var payload = { phone: f.phone.trim(), countrycode: f.countrycode };
+      if (vm.ncmLoginMode === 'captcha') {
+        if (!f.captcha.trim()) {
+          if (vm.$toast) vm.$toast.show('请输入短信验证码', { type: 'info' });
+          return;
+        }
+        payload.captcha = f.captcha.trim();
+      } else {
+        if (!f.password) {
+          if (vm.$toast) vm.$toast.show('请输入密码', { type: 'info' });
+          return;
+        }
+        payload.password = f.password;
+      }
+      vm.ncmLoginLoading = true;
+      api.post('/netease-music/login/cellphone', payload).then(function(res) {
+        vm.ncmLoginLoading = false;
+        var d = res.data || {};
+        if (d.code === 200) {
+          vm.ncmLoggedIn = true;
+          vm.ncmProfile = d.profile || vm.ncmProfile;
+          vm.closeNcmLogin();
+          vm.ncmLoginForm.password = '';
+          vm.ncmLoginForm.captcha = '';
+          vm.loadNcmPlaylists();
+          // 登录成功回到网易云主库并刷新每日推荐
+          if (vm.librarySource === 'ncm') vm.openNcmTab('ncm-daily');
+          else vm.switchLibrary('ncm');
+          if (vm.$toast) vm.$toast.show('网易云音乐登录成功', { type: 'success' });
+        } else {
+          if (vm.$toast) vm.$toast.show(d.message || '登录失败，请检查账号信息', { type: 'error' });
+        }
+      }).catch(function(err) {
+        vm.ncmLoginLoading = false;
+        var msg = (err && err.response && err.response.data && err.response.data.message) || '登录失败，请检查账号信息';
+        if (vm.$toast) vm.$toast.show(msg, { type: 'error' });
+      });
     },
     startQrLogin: function() {
       var vm = this;
@@ -4029,6 +4157,106 @@ export default {
 
 .ncm-qr-status-ok { color: var(--success-color); font-weight: var(--font-weight-medium); }
 
+/* ========== 网易云登录弹窗（多方式） ========== */
+.ncm-login-box { width: 380px; max-width: calc(100vw - 48px); }
+
+.ncm-login-tabs {
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  margin-bottom: 16px;
+  border-radius: 10px;
+  background: var(--primary-lighter);
+}
+
+.ncm-login-tabs button {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 4px 6px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
+}
+
+.ncm-login-tabs button i { font-size: 11px; }
+.ncm-login-tabs button.active { background: var(--card-bg); color: var(--text-primary); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1); }
+[data-theme="dark"] .ncm-login-tabs button.active { background: rgba(255, 255, 255, 0.12); }
+
+.ncm-login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ncm-login-row {
+  display: flex;
+  gap: 8px;
+}
+
+.ncm-login-cc {
+  width: 78px;
+  min-height: 44px;
+  padding: 6px 8px;
+  border: 0.5px solid var(--separator-color);
+  border-radius: var(--radius-sm);
+  background: var(--primary-lighter);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  outline: none;
+  cursor: pointer;
+}
+
+.ncm-login-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 0.5px solid var(--separator-color);
+  border-radius: var(--radius-sm);
+  background: var(--primary-lighter);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  outline: none;
+  transition: border-color var(--duration-fast) var(--ease-standard);
+}
+
+.ncm-login-input:focus { border-color: var(--primary-color); }
+.ncm-login-input::placeholder { color: var(--text-tertiary); }
+
+.ncm-captcha-btn {
+  min-height: 44px;
+  padding: 0 14px;
+  white-space: nowrap;
+  border: 0.5px solid var(--separator-color);
+  border-radius: var(--radius-sm);
+  background: var(--primary-lighter);
+  color: var(--primary-color);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
+.ncm-captcha-btn:disabled { opacity: 0.5; cursor: default; }
+
+.ncm-login-submit { width: 100%; justify-content: center; margin-top: 2px; }
+
+.ncm-login-hint {
+  margin: 0;
+  text-align: center;
+  font-size: var(--font-size-caption);
+  color: var(--text-tertiary);
+}
+
 /* ========== 网易云搜索联想下拉 ========== */
 .ncm-suggest {
   position: absolute;
@@ -4083,6 +4311,21 @@ export default {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.ncm-header-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ncm-header-sub {
+  font-size: var(--font-size-caption);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .ncm-header-info .playlist-header-name { min-width: 0; flex-shrink: 1; }
