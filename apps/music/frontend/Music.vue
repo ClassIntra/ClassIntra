@@ -262,7 +262,7 @@
     </div>
 
     <transition name="player-slide">
-      <div v-if="showPlayer && currentSong" class="player-page" :class="'effect-' + effectMode">
+      <div v-if="showPlayer && currentSong" class="player-page" :class="['effect-' + effectMode, { playing: isPlaying }]">
         <div class="player-bg">
           <div class="player-bg-image" :style="bgImageStyle"></div>
           <div class="player-bg-image player-bg-image-next" :style="bgImageNextStyle"></div>
@@ -2804,7 +2804,23 @@ export default {
   filter: blur(60px) saturate(180%) brightness(0.7);
   transform: scale(1.3);
   transition: filter 0.6s var(--ease-standard);
-  will-change: filter;
+  will-change: filter, transform;
+  /* 背景呼吸漂移：播放中缓慢运行，暂停即冻结（不跳回起点） */
+  animation: bgBreathe 36s ease-in-out infinite alternate;
+  animation-play-state: paused;
+}
+
+.player-page.playing .player-bg-image {
+  animation-play-state: running;
+}
+
+@keyframes bgBreathe {
+  from { transform: scale(1.3) translate3d(0, 0, 0); }
+  to { transform: scale(1.44) translate3d(-1.4%, 1%, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .player-bg-image { animation: none; }
 }
 
 .player-bg-image-next {
@@ -3707,7 +3723,7 @@ export default {
 
 .lyric-line.lyric-active {
   opacity: 1;
-  transform: translate3d(0, 0, 0);
+  transform: translate3d(0, 0, 0) scale(1.015);
 }
 
 .lyric-line:hover {
@@ -3732,10 +3748,13 @@ export default {
 
 .lyric-line.lyric-active .lyric-text {
   letter-spacing: -0.02em;
+  /* 当前行柔光晕：强化「正在唱」的聚焦感 */
+  text-shadow: 0 0 26px rgba(255, 255, 255, 0.22);
 }
 
 [data-theme="light"] .lyric-line.lyric-active .lyric-text {
   color: var(--text-primary);
+  text-shadow: 0 1px 20px rgba(0, 0, 0, 0.14);
 }
 
 .lyric-words { display: inline; }
