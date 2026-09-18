@@ -182,6 +182,59 @@ function parseWords(lineTime, text) {
   return words.length > 0 ? words : null;
 }
 
+// 解析网易云原生逐字歌词（yrc）：字级时间戳毫秒格式
+// 行结构：[行起始毫秒,行时长毫秒](字起始,字时长,0)字(字起始,字时长,0)字 ...
+// 产出与 parseLRC 同构的 { lines }，words 带真实 startTime/endTime（秒），
+// 逐字引擎与渲染层无需任何改动即可点亮
+function parseYRC(yrcContent) {
+  if (!yrcContent) return { metadata: {}, lines: [] };
+
+  var rows = yrcContent.split('\n');
+  var result = [];
+
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i].trim();
+    if (!row) continue;
+
+    var head = row.match(/^\[(\d+),(\d+)\]/);
+    if (!head) continue;
+
+    var lineStart = parseInt(head[1], 10) / 1000;
+    var body = row.substring(head[0].length);
+
+    // split 带捕获组：['前导', s, d, text, s, d, text, ...]
+    var parts = body.split(/\((\d+),(\d+),\d+\)/);
+    var words = [];
+    for (var p = 1; p + 2 <= parts.length - 1; p += 3) {
+      var ws = parseInt(parts[p], 10) / 1000;
+      var wd = parseInt(parts[p + 1], 10) / 1000;
+      var wtext = parts[p + 2] || '';
+      if (!wtext) continue;
+      words.push({ text: wtext, startTime: ws, endTime: ws + wd });
+    }
+
+    var plainText = words.map(function (w) { return w.text; }).join('');
+    if (!plainText) continue; // 纯音乐行 / 空行
+    if (shouldSkipLine(plainText, lineStart)) continue; // 作词/作曲等元数据行
+
+    var chars = [];
+    for (var ci = 0; ci < plainText.length; ci++) chars.push(plainText.charAt(ci));
+
+    result.push({
+      time: lineStart,
+      text: plainText,
+      words: words,
+      _chars: chars,
+      isChinese: isChineseText(plainText),
+      isForeign: isForeignText(plainText),
+      hasJP: hasJapaneseKorean(plainText),
+      translation: null
+    });
+  }
+
+  return { metadata: {}, lines: result };
+}
+
 function parseLRC(lrcContent) {
   if (!lrcContent) return { metadata: {}, lines: [] };
 
@@ -330,6 +383,7 @@ function getWordProgress(line, word, currentTime) {
 
 export default {
   parseLRC: parseLRC,
+  parseYRC: parseYRC,
   findCurrentLine: findCurrentLine,
   getWordProgress: getWordProgress
 };
