@@ -799,7 +799,7 @@ export default {
     ncmPlayError: function(n) {
       // 网易云换流失败：toast 提示后立即清空，避免重复弹出
       if (!n) return;
-      if (this.$toast) this.$toast.show(n, { type: 'error' });
+      this.showNcmMsg(n, { type: 'error' });
       this.$store.commit('music/SET_PLAY_ERROR', null);
     },
     currentSong: function(newSong, oldSong) {
@@ -1165,7 +1165,7 @@ export default {
             song.isFavorite = res.data.like;
           }
         }).catch(function() {
-          if (vm.$toast) vm.$toast.show('收藏操作失败', { type: 'error' });
+          vm.showNcmMsg('收藏操作失败', { type: 'error' });
         });
         return;
       }
@@ -1246,7 +1246,7 @@ export default {
       var vm = this;
       var pl = vm.currentPlaylist;
       if (!pl) {
-        vm.$toast.show('请先选择一个歌单', { type: 'warning' });
+        vm.showNcmMsg('请先选择一个歌单', { type: 'warning' });
         return;
       }
       vm.showShareDialog = true;
@@ -1284,7 +1284,7 @@ export default {
       var vm = this;
       var pl = vm.currentPlaylist;
       if (!pl) {
-        vm.$toast.show('请先选择一个歌单', { type: 'warning' });
+        vm.showNcmMsg('请先选择一个歌单', { type: 'warning' });
         return;
       }
       var forwardData = {
@@ -1299,7 +1299,7 @@ export default {
       var vm = this;
       var pl = vm.currentPlaylist;
       if (!pl) {
-        vm.$toast.show('请先选择一个歌单', { type: 'warning' });
+        vm.showNcmMsg('请先选择一个歌单', { type: 'warning' });
         return;
       }
       var postData = {
@@ -1468,11 +1468,11 @@ export default {
           vm.ncmLoading = false;
         } else {
           // 未登录或无推荐：回退热歌榜并提示
-          if (vm.$toast) vm.$toast.show('未登录网易云，已为你展示热歌榜', { type: 'info' });
+          vm.showNcmMsg('未登录网易云，已为你展示热歌榜', { type: 'info' });
           vm.loadNcmToplist();
         }
       }).catch(function() {
-        if (vm.$toast) vm.$toast.show('未登录网易云，已为你展示热歌榜', { type: 'info' });
+        vm.showNcmMsg('未登录网易云，已为你展示热歌榜', { type: 'info' });
         vm.loadNcmToplist();
       });
     },
@@ -1620,11 +1620,16 @@ export default {
       var val = e.target.value || '';
       this.$store.commit('music/SET_NCM_QUALITY', val);
       var label = val === '' ? '跟随服务器' : e.target.options[e.target.selectedIndex].text;
-      if (this.$toast) this.$toast.show('音质已切换为「' + label + '」，下一首生效', { type: 'info' });
+      this.showNcmMsg('音质已切换为「' + label + '」，下一首生效', { type: 'info' });
     },
     playNcmAll: function() {
       if (this.ncmSongs.length === 0) return;
       this.playSong(this.ncmSongs[0]);
+    },
+    // 统一消息提示：走全局 Vuex toast（App.vue 渲染），type: info/success/error/warning
+    showNcmMsg: function(message, opts) {
+      var t = (opts && typeof opts === 'object') ? (opts.type || 'info') : (opts || 'info');
+      this.$store.commit('toast/SHOW_TOAST', { message: message || '', type: t });
     },
     // 登录弹窗内切换登录方式；切回扫码时若二维码缺失/过期则重新生成
     switchNcmLoginMode: function(m) {
@@ -1636,12 +1641,12 @@ export default {
       var vm = this;
       var phone = vm.ncmLoginForm.phone.trim();
       if (!phone) {
-        if (vm.$toast) vm.$toast.show('请先输入手机号', { type: 'info' });
+        vm.showNcmMsg('请先输入手机号', { type: 'info' });
         return;
       }
       if (vm.ncmCaptchaCountdown > 0) return;
       api.post('/netease-music/login/captcha/send', { phone: phone, countrycode: vm.ncmLoginForm.countrycode }).then(function() {
-        if (vm.$toast) vm.$toast.show('验证码已发送，请查收短信', { type: 'success' });
+        vm.showNcmMsg('验证码已发送，请查收短信', { type: 'success' });
         vm.ncmCaptchaCountdown = 60;
         vm._ncmCaptchaTimer = setInterval(function() {
           vm.ncmCaptchaCountdown--;
@@ -1651,24 +1656,28 @@ export default {
           }
         }, 1000);
       }).catch(function() {
-        if (vm.$toast) vm.$toast.show('验证码发送失败，请稍后重试', { type: 'error' });
+        vm.showNcmMsg('验证码发送失败，请稍后重试', { type: 'error' });
       });
     },
     // 手机号登录（密码 / 验证码由当前 tab 决定）
     submitNcmLogin: function() {
       var vm = this;
       var f = vm.ncmLoginForm;
-      if (!f.phone.trim() || vm.ncmLoginLoading) return;
+      if (vm.ncmLoginLoading) return;
+      if (!f.phone.trim()) {
+        vm.showNcmMsg('请先输入手机号', { type: 'info' });
+        return;
+      }
       var payload = { phone: f.phone.trim(), countrycode: f.countrycode };
       if (vm.ncmLoginMode === 'captcha') {
         if (!f.captcha.trim()) {
-          if (vm.$toast) vm.$toast.show('请输入短信验证码', { type: 'info' });
+          vm.showNcmMsg('请输入短信验证码', { type: 'info' });
           return;
         }
         payload.captcha = f.captcha.trim();
       } else {
         if (!f.password) {
-          if (vm.$toast) vm.$toast.show('请输入密码', { type: 'info' });
+          vm.showNcmMsg('请输入密码', { type: 'info' });
           return;
         }
         payload.password = f.password;
@@ -1687,14 +1696,14 @@ export default {
           // 登录成功回到网易云主库并刷新每日推荐
           if (vm.librarySource === 'ncm') vm.openNcmTab('ncm-daily');
           else vm.switchLibrary('ncm');
-          if (vm.$toast) vm.$toast.show('网易云音乐登录成功', { type: 'success' });
+          vm.showNcmMsg('网易云音乐登录成功', { type: 'success' });
         } else {
-          if (vm.$toast) vm.$toast.show(d.message || '登录失败，请检查账号信息', { type: 'error' });
+          vm.showNcmMsg(d.message || '登录失败，请检查账号信息', { type: 'error' });
         }
       }).catch(function(err) {
         vm.ncmLoginLoading = false;
         var msg = (err && err.response && err.response.data && err.response.data.message) || '登录失败，请检查账号信息';
-        if (vm.$toast) vm.$toast.show(msg, { type: 'error' });
+        vm.showNcmMsg(msg, { type: 'error' });
       });
     },
     startQrLogin: function() {
@@ -1733,7 +1742,7 @@ export default {
             vm.showNcmLogin = false;
             vm.loadNcmPlaylists();
             vm.openNcmTab('ncm-daily');
-            if (vm.$toast) vm.$toast.show('网易云音乐登录成功', { type: 'success' });
+            vm.showNcmMsg('网易云音乐登录成功', { type: 'success' });
           } else if (code === 800) {
             vm.stopQrPolling();
             vm.ncmQrExpired = true;
@@ -1758,7 +1767,7 @@ export default {
         vm.ncmProfile = null;
         vm.ncmPlaylists = [];
         if (vm.isNcmTab) vm.activeTab = 'all';
-        if (vm.$toast) vm.$toast.show('已退出网易云登录', { type: 'info' });
+        vm.showNcmMsg('已退出网易云登录', { type: 'info' });
       }).catch(function() {});
     }
   }
