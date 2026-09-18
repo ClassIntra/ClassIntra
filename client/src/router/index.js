@@ -130,8 +130,9 @@ router.beforeEach(function(to, from, next) {
   }
 
   // 应用管控：检查目标路由对应的应用是否启用
+  // 只对登录用户生效（游客访问 requiresAuth:false 的应用，如音乐）；应用管控不再依赖 requiresAuth 标记
   var appName = ROUTE_APP_MAP[to.path];
-  if (appName && to.meta.requiresAuth && token) {
+  if (appName && token) {
     // 管理员/班干不受应用管控限制（确保能管理）
     var isAdminUser = user && (user.is_admin === 1 || user.is_admin === true || user.is_class_admin === true || user.role === 'officer');
     if (isAdminUser && !to.meta.market) {

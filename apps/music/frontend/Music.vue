@@ -48,6 +48,11 @@
                 <span class="sidebar-item-name">{{ pl.name }}</span>
               </div>
               <div v-if="playlists.length === 0" class="sidebar-empty">暂无歌单</div>
+              <div v-if="!isLoggedIn" class="sidebar-divider"></div>
+              <div v-if="!isLoggedIn" class="sidebar-item" @click="goLogin">
+                <i class="fa-solid fa-right-to-bracket"></i>
+                <span>登录后云端同步</span>
+              </div>
             </template>
 
             <!-- 网易云音乐页面 -->
@@ -128,7 +133,11 @@
                 <i class="fa-solid fa-play"></i>
                 <span>播放全部</span>
               </button>
-              <button class="playlist-action-btn" @click="sharePlaylist(activeTab)">
+              <button class="playlist-action-btn" @click="editPlaylist(activeTab)">
+                <i class="fa-solid fa-pen"></i>
+                <span>编辑</span>
+              </button>
+              <button v-if="isLoggedIn" class="playlist-action-btn" @click="sharePlaylist(activeTab)">
                 <i class="fa-solid fa-share-nodes"></i>
                 <span>分享</span>
               </button>
@@ -437,15 +446,15 @@
       </div>
     </transition>
 
-    <!-- Modal: Create Playlist -->
-    <div v-if="showCreatePlaylist" class="modal-overlay" @click.self="showCreatePlaylist = false">
+    <!-- Modal: Create / Edit Playlist -->
+    <div v-if="showCreatePlaylist" class="modal-overlay" @click.self="closePlaylistModal">
       <div class="modal-box">
-        <div class="modal-title">新建歌单</div>
-        <input class="modal-input" v-model="newPlaylistName" placeholder="歌单名称" @keyup.enter="createPlaylist" />
-        <input class="modal-input" v-model="newPlaylistDesc" placeholder="描述（可选）" />
+        <div class="modal-title">{{ editingPlaylistId !== null ? '编辑歌单' : '新建歌单' }}</div>
+        <input class="modal-input" v-model="newPlaylistName" placeholder="歌单名称" maxlength="30" @keyup.enter="createPlaylist" />
+        <input class="modal-input" v-model="newPlaylistDesc" placeholder="描述（可选）" maxlength="60" />
         <div class="modal-actions">
-          <button class="modal-btn" @click="showCreatePlaylist = false">取消</button>
-          <button class="modal-btn modal-btn-primary" @click="createPlaylist" :disabled="!newPlaylistName.trim()">创建</button>
+          <button class="modal-btn" @click="closePlaylistModal">取消</button>
+          <button class="modal-btn modal-btn-primary" @click="createPlaylist" :disabled="!newPlaylistName.trim()">{{ editingPlaylistId !== null ? '保存' : '创建' }}</button>
         </div>
       </div>
     </div>
@@ -587,6 +596,8 @@ export default {
       shufflePool: [],
       playlists: [],
       activeTab: 'all',
+      isLoggedIn: true, // 登录态：本地歌单/收藏走服务端；游客走 localStorage（本机保存）
+      editingPlaylistId: null, // 非空 = 编辑歌单模式（复用新建歌单弹窗）
       librarySource: 'local', // 当前库页面：'ncm' = 网易云（主库）/ 'local' = 本地音乐
       ncmAvailable: false, // 网易云插件是否安装（启动时探测 /status）
       showCreatePlaylist: false,
@@ -862,10 +873,17 @@ export default {
   mounted: function() {
     audioManager.init(this.$store);
     this._mountedAt = Date.now(); // 用于「插件安装时自动以网易云为主库」的时间窗判断
+    // 游客模式：无 token 时本机歌单/收藏存 localStorage，网易云板块不可用
+    this.isLoggedIn = !!localStorage.getItem('token');
+    this._guestFav = [];
     this.restoreAudioPrefs();
     this.fetchSongs();
-    this.fetchPlaylists();
-    this.fetchNcmStatus();
+    if (this.isLoggedIn) {
+      this.fetchPlaylists();
+      this.fetchNcmStatus();
+    } else {
+      this.loadGuestData();
+    }
     if (this.currentSong && !this.lyrics) {
       this.fetchLyrics(this.currentSong);
     }
@@ -898,6 +916,10 @@ export default {
     goDesktop: function() {
       this.$router.push('/');
     },
+    // 游客 → 登录页（登录后回来，歌单与收藏自动切到云端）
+    goLogin: function() {
+      this.$router.push('/login');
+    },
     setLyricsMode: function(mode) {
       this.lyricsMode = mode;
     },
@@ -921,7 +943,16 @@ export default {
       var vm = this;
       vm.songsLoading = true;
       api.get('/music/list').then(function(res) {
-        if (res.data.code === 200) vm.$store.commit('music/SET_SONGS', res.data.data.songs);
+        if (res.data.code === 200) {
+          var songs = res.data.data.songs || [];
+          // 游客：用本机收藏标记覆盖服务端的默认未收藏
+          if (!vm.isLoggedIn && vm._guestFav.length > 0) {
+            for (var i = 0; i < songs.length; i++) {
+              if (vm._guestFav.indexOf(songs[i].id) !== -1) songs[i].isFavorite = true;
+            }
+          }
+          vm.$store.commit('music/SET_SONGS', songs);
+        }
       }).catch(function() {}).finally(function() {
         vm.songsLoading = false;
         vm.fetchPlaylists();
@@ -1283,6 +1314,19 @@ export default {
         });
         return;
       }
+      // 游客：本地歌曲收藏保存在本机
+      if (!vm.isLoggedIn) {
+        var gIdx = vm._guestFav.indexOf(song.id);
+        if (gIdx === -1) {
+          vm._guestFav.push(song.id);
+          song.isFavorite = true;
+        } else {
+          vm._guestFav.splice(gIdx, 1);
+          song.isFavorite = false;
+        }
+        vm.saveGuestData();
+        return;
+      }
       api.post('/music/favorite', { songId: song.id }).then(function(res) {
         if (res.data.code === 200) {
           song.isFavorite = res.data.data.isFavorite;
@@ -1294,8 +1338,29 @@ export default {
       if (song.source === 'netease') return;
       this.openAddToPlaylist(song);
     },
+    /* ========== 游客本机数据（localStorage） ========== */
+    loadGuestData: function() {
+      try { this.playlists = JSON.parse(localStorage.getItem('music_guest_playlists') || '[]') || []; } catch (e) { this.playlists = []; }
+      try { this._guestFav = JSON.parse(localStorage.getItem('music_guest_favorites') || '[]') || []; } catch (e) { this._guestFav = []; }
+      // 补挂收藏标记（songs 可能已加载完成）
+      if (this._guestFav.length > 0 && this.songs.length > 0) {
+        for (var i = 0; i < this.songs.length; i++) {
+          if (this._guestFav.indexOf(this.songs[i].id) !== -1) this.songs[i].isFavorite = true;
+        }
+      }
+    },
+    saveGuestData: function() {
+      try {
+        localStorage.setItem('music_guest_playlists', JSON.stringify(this.playlists));
+        localStorage.setItem('music_guest_favorites', JSON.stringify(this._guestFav));
+      } catch (e) {}
+    },
+    findPlaylist: function(id) {
+      return this.playlists.find(function(p) { return p.id === id; }) || null;
+    },
     fetchPlaylists: function() {
       var vm = this;
+      if (!vm.isLoggedIn) { vm.loadGuestData(); return; }
       api.get('/music/playlists').then(function(res) {
         if (res.data.code === 200) {
           vm.playlists = res.data.data.playlists || [];
@@ -1305,20 +1370,79 @@ export default {
     createPlaylist: function() {
       var vm = this;
       if (!vm.newPlaylistName.trim()) return;
+      // 编辑模式：保存名称与描述
+      if (vm.editingPlaylistId !== null) {
+        vm.updatePlaylistMeta(vm.editingPlaylistId, vm.newPlaylistName.trim(), vm.newPlaylistDesc.trim());
+        return;
+      }
+      // 游客：歌单保存在本机
+      if (!vm.isLoggedIn) {
+        vm.playlists.unshift({
+          id: Date.now(),
+          name: vm.newPlaylistName.trim(),
+          description: vm.newPlaylistDesc.trim(),
+          songIds: []
+        });
+        vm.saveGuestData();
+        vm.closePlaylistModal();
+        return;
+      }
       api.post('/music/playlist/create', {
         name: vm.newPlaylistName.trim(),
         description: vm.newPlaylistDesc.trim()
       }).then(function(res) {
         if (res.data.code === 200) {
-          vm.showCreatePlaylist = false;
-          vm.newPlaylistName = '';
-          vm.newPlaylistDesc = '';
+          vm.closePlaylistModal();
           vm.fetchPlaylists();
         }
       }).catch(function() {});
     },
+    // 打开编辑歌单弹窗（复用新建弹窗）
+    editPlaylist: function(id) {
+      var pl = this.findPlaylist(id);
+      if (!pl) return;
+      this.editingPlaylistId = id;
+      this.newPlaylistName = pl.name;
+      this.newPlaylistDesc = pl.description || '';
+      this.showCreatePlaylist = true;
+    },
+    updatePlaylistMeta: function(id, name, desc) {
+      var vm = this;
+      var pl = vm.findPlaylist(id);
+      if (!pl) return;
+      // 游客：直接改本机歌单
+      if (!vm.isLoggedIn) {
+        pl.name = name;
+        pl.description = desc;
+        vm.saveGuestData();
+        vm.closePlaylistModal();
+        vm.showNcmMsg('歌单已更新', { type: 'success' });
+        return;
+      }
+      api.post('/music/playlist/update', { playlistId: id, name: name, description: desc }).then(function(res) {
+        if (res.data.code === 200) {
+          vm.closePlaylistModal();
+          vm.fetchPlaylists();
+          vm.showNcmMsg('歌单已更新', { type: 'success' });
+        }
+      }).catch(function() {});
+    },
+    // 关闭新建/编辑歌单弹窗并复位表单
+    closePlaylistModal: function() {
+      this.showCreatePlaylist = false;
+      this.editingPlaylistId = null;
+      this.newPlaylistName = '';
+      this.newPlaylistDesc = '';
+    },
     deletePlaylist: function(id) {
       var vm = this;
+      // 游客：删除本机歌单
+      if (!vm.isLoggedIn) {
+        vm.playlists = vm.playlists.filter(function(p) { return p.id !== id; });
+        vm.saveGuestData();
+        if (vm.activeTab === id) vm.activeTab = 'all';
+        return;
+      }
       api.post('/music/playlist/delete', { playlistId: id }).then(function(res) {
         if (res.data.code === 200) {
           if (vm.activeTab === id) vm.activeTab = 'all';
@@ -1328,9 +1452,25 @@ export default {
     },
     addToPlaylist: function(playlistId) {
       var vm = this;
+      var songId = vm.addToPlaylistSongId;
+      // 游客：添加到本机歌单
+      if (!vm.isLoggedIn) {
+        var pl = vm.findPlaylist(playlistId);
+        if (pl && songId && pl.songIds.indexOf(songId) === -1) {
+          pl.songIds.push(songId);
+          vm.saveGuestData();
+          vm.showNcmMsg('已添加到「' + pl.name + '」', { type: 'success' });
+        }
+        vm.showAddToPlaylist = false;
+        vm.addToPlaylistSongId = null;
+        if (typeof vm.activeTab === 'number' && vm.activeTab === playlistId) {
+          vm.openPlaylistDetail(vm.currentPlaylist);
+        }
+        return;
+      }
       api.post('/music/playlist/add-song', {
         playlistId: playlistId,
-        songId: vm.addToPlaylistSongId
+        songId: songId
       }).then(function(res) {
         if (res.data.code === 200) {
           vm.showAddToPlaylist = false;
@@ -1343,6 +1483,16 @@ export default {
     },
     removeFromPlaylist: function(playlistId, songId) {
       var vm = this;
+      // 游客：从本机歌单移除
+      if (!vm.isLoggedIn) {
+        var pl = vm.findPlaylist(playlistId);
+        if (pl) {
+          pl.songIds = pl.songIds.filter(function(id) { return id !== songId; });
+          vm.saveGuestData();
+        }
+        vm.playlistDetailSongs = vm.playlistDetailSongs.filter(function(id) { return id !== songId; });
+        return;
+      }
       api.post('/music/playlist/remove-song', {
         playlistId: playlistId,
         songId: songId
@@ -1363,11 +1513,30 @@ export default {
         vm.showNcmMsg('请先选择一个歌单', { type: 'warning' });
         return;
       }
+      // 分享到聊天/论坛需要登录身份
+      if (!vm.isLoggedIn) {
+        vm.showNcmMsg('登录后可分享歌单到聊天和论坛', { type: 'warning' });
+        return;
+      }
       vm.showShareDialog = true;
     },
     openPlaylistDetail: function(playlist) {
       var vm = this;
       vm.activeTab = playlist.id;
+      // 游客：优先读本机歌单；本地库中不存在的 id（他人分享链接）走公开接口
+      if (!vm.isLoggedIn) {
+        var pl = vm.findPlaylist(playlist.id);
+        if (pl) {
+          vm.playlistDetailSongs = pl.songIds.slice();
+        } else {
+          api.get('/music/playlist/' + playlist.id + '/public').then(function(res) {
+            vm.playlistDetailSongs = (res.data && res.data.data && res.data.data.songIds) || [];
+          }).catch(function() {
+            vm.playlistDetailSongs = [];
+          });
+        }
+        return;
+      }
       api.get('/music/playlist/detail', { params: { playlistId: playlist.id } }).then(function(res) {
         if (res.data.code === 200) {
           vm.playlistDetailSongs = res.data.data.songIds || [];
@@ -1380,6 +1549,19 @@ export default {
     },
     playPlaylist: function(playlistId) {
       var vm = this;
+      // 游客：直接用本机歌单的曲目顺序播放
+      if (!vm.isLoggedIn) {
+        var pl = vm.findPlaylist(playlistId);
+        if (pl && pl.songIds.length > 0) {
+          vm.playlistDetailSongs = pl.songIds.slice();
+          var playlistSongs = vm.songs.filter(function(s) { return pl.songIds.indexOf(s.id) !== -1; });
+          if (playlistSongs.length > 0) {
+            vm.$store.commit('music/SET_PLAY_QUEUE', playlistSongs.slice());
+            vm.playSong(playlistSongs[0]);
+          }
+        }
+        return;
+      }
       api.get('/music/playlist/detail', { params: { playlistId: playlistId } }).then(function(res) {
         if (res.data.code === 200) {
           var songIds = res.data.data.songIds || [];
@@ -4363,6 +4545,137 @@ export default {
   .lyric-char { font-size: 32px; }
   .lyric-trans { font-size: 16px; }
   .lyric-trans-drop { font-size: 16px; }
+}
+
+/* ========== 安卓横屏平板适配 ========== */
+/* 触屏设备：按压态代替 hover 反馈，去除点击高亮 */
+@media (hover: none) and (pointer: coarse) {
+  .music-page {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .song-row:active,
+  .sidebar-item:active,
+  .playlist-action-btn:active {
+    background: var(--primary-light);
+  }
+}
+
+/* 768–1023 横屏（安卓平板竖放宽度的横向使用 / 折叠屏外屏）：收紧侧栏与播放页，保证列表可视宽度 */
+@media (min-width: 768px) and (max-width: 1023px) and (orientation: landscape) {
+  .music-nav {
+    height: 48px;
+  }
+
+  .list-sidebar {
+    width: 200px;
+  }
+
+  .sidebar-item {
+    min-height: 46px;
+    padding: 10px 12px;
+  }
+
+  .song-list {
+    padding: 4px 16px;
+  }
+
+  .song-row {
+    padding: 8px 12px;
+    gap: 12px;
+  }
+
+  .song-row-cover {
+    width: 48px;
+    height: 48px;
+  }
+
+  .player-content {
+    padding: 0 32px 20px;
+    gap: 28px;
+    overflow-y: auto; /* 极矮视口兜底：允许滚动，不裁切控制区 */
+  }
+
+  .player-left {
+    width: 320px;
+    gap: 14px;
+  }
+
+  .album-art-wrap {
+    width: 200px;
+    height: 200px;
+  }
+
+  .album-section {
+    gap: 14px;
+  }
+
+  .player-right {
+    padding-left: 28px;
+  }
+
+  .song-meta { max-width: 300px; }
+  .song-meta-title { font-size: 20px; }
+  .song-meta-artist { font-size: 14px; }
+
+  .lyric-text { font-size: 24px; }
+  .lyric-word { font-size: 24px; }
+  .lyric-char { font-size: 24px; }
+  .lyric-trans { font-size: 13px; }
+  .lyric-trans-drop { font-size: 13px; }
+
+  .ctrl-main {
+    width: 56px;
+    height: 56px;
+    font-size: 20px;
+  }
+
+  @media (max-height: 480px) {
+    .player-content {
+      padding: 0 24px 10px;
+      gap: 20px;
+    }
+
+    .album-art-wrap {
+      width: 160px;
+      height: 160px;
+    }
+
+    .album-section {
+      gap: 8px;
+    }
+  }
+}
+
+/* 矮横屏视口（≥1024 宽但高度 ≤720，如平板横放 1280×600~720）：压缩封面与间距，保证控制区完整 */
+@media (min-width: 1024px) and (max-height: 720px) and (orientation: landscape) {
+  .player-header {
+    padding: 8px 24px;
+  }
+
+  .player-content {
+    padding: 0 40px 14px;
+    gap: 40px;
+  }
+
+  .player-left {
+    width: 380px;
+    gap: 12px;
+  }
+
+  .album-art-wrap {
+    width: 210px;
+    height: 210px;
+  }
+
+  .album-section {
+    gap: 12px;
+  }
+
+  .song-meta { max-width: 320px; }
+  .song-meta-title { font-size: 20px; }
+
+  .lyrics-scroll { max-width: 560px; }
 }
 
 /* ========== 网易云音乐 ========== */
