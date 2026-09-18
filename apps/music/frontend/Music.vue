@@ -71,7 +71,7 @@
                 <span>网易云收藏</span>
               </div>
               <div class="sidebar-divider"></div>
-              <div class="sidebar-label">网易云歌单</div>
+              <div class="sidebar-label">{{ ncmLoggedIn ? '网易云歌单' : '推荐歌单' }}</div>
               <div
                 v-for="pl in ncmPlaylists"
                 :key="'ncm-pl-' + pl.id"
@@ -86,7 +86,8 @@
                 <i class="fa-solid fa-qrcode"></i>
                 <span>扫码登录网易云</span>
               </div>
-              <div v-else class="sidebar-item" @click="ncmLogout" title="点击退出网易云登录">
+              <div v-if="!ncmLoggedIn" class="ncm-guest-tip">未登录也可搜索、播放、看热歌榜和推荐歌单；登录后解锁每日推荐与云端收藏</div>
+              <div v-if="ncmLoggedIn" class="sidebar-item" @click="ncmLogout" title="点击退出网易云登录">
                 <i class="fa-solid fa-circle-user"></i>
                 <span class="sidebar-item-name">{{ ncmProfile && ncmProfile.nickname ? ncmProfile.nickname : '已登录' }}</span>
               </div>
@@ -1308,6 +1309,10 @@ export default {
         }).then(function(res) {
           if (res.data && res.data.code === 200) {
             song.isFavorite = res.data.like;
+            // 网易云未登录：红心保存在本机镜像，登录后可同步云端
+            if (res.data.online === false) {
+              vm.showNcmMsg(res.data.like ? '已收藏（本机保存，登录网易云后同步云端）' : '已取消收藏', { type: 'info' });
+            }
           }
         }).catch(function() {
           vm.showNcmMsg('收藏操作失败', { type: 'error' });
@@ -1665,10 +1670,30 @@ export default {
         if (!vm._libSwitched && vm.activeTab === 'all' && Date.now() - (vm._mountedAt || 0) < 10000) {
           vm.switchLibrary('ncm');
         }
-        if (vm.ncmLoggedIn) vm.loadNcmPlaylists();
+        if (vm.ncmLoggedIn) {
+          vm.loadNcmPlaylists();
+        } else {
+          // 网易云未登录：加载官方推荐歌单（可浏览可播放，登录后切换为个人歌单）
+          vm.loadNcmDiscoverPlaylists();
+        }
       }).catch(function() {
         vm.ncmAvailable = false; // 插件未安装：仅显示本地库
       });
+    },
+    // 网易云未登录时：拉取官方推荐歌单填充侧栏（/personalized 为公开接口，无需登录）
+    loadNcmDiscoverPlaylists: function() {
+      var vm = this;
+      api.get('/netease-music/personalized', { params: { limit: 12 } }).then(function(res) {
+        var body = res.data || {};
+        var list = (body.result || []).map(function(p) {
+          return {
+            id: p.id,
+            name: p.name || '推荐歌单',
+            coverUrl: p.picUrl ? ('/api/netease-music/image?u=' + encodeURIComponent(p.picUrl)) : ''
+          };
+        });
+        vm.ncmPlaylists = list;
+      }).catch(function() {});
     },
     // 从 localStorage 恢复音量 / 播放模式偏好（默认 sequence / 0.8）
     restoreAudioPrefs: function() {
@@ -1699,7 +1724,8 @@ export default {
       this.searchQuery = '';
       this.closeNcmSuggest();
       if (source === 'ncm') {
-        this.openNcmTab('ncm-daily');
+        // 网易云未登录：每日推荐不可用，默认进热歌排行榜（无需登录）
+        this.openNcmTab(this.ncmLoggedIn ? 'ncm-daily' : 'ncm-top');
       } else {
         this.activeTab = 'all';
       }
@@ -1755,6 +1781,12 @@ export default {
     },
     loadNcmDaily: function() {
       var vm = this;
+      // 每日推荐是网易云个性化接口，未登录必然失败：直接提示并转热歌榜
+      if (!vm.ncmLoggedIn) {
+        vm.showNcmMsg('每日推荐需要登录网易云，已为你展示热歌排行榜', { type: 'info' });
+        vm.loadNcmToplist();
+        return;
+      }
       vm.ncmLoading = true;
       api.get('/netease-music/recommend/songs').then(function(res) {
         var body = res.data || {};
@@ -2269,6 +2301,17 @@ export default {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   padding: 8px 14px 4px;
+}
+
+/* 网易云未登录引导提示（侧栏底部小字） */
+.ncm-guest-tip {
+  margin: 8px 10px 4px;
+  padding: 8px 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-tertiary);
+  background: var(--bg-tertiary);
+  border-radius: 8px;
 }
 
 .sidebar-empty {
