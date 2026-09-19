@@ -2610,11 +2610,23 @@ export default {
       // marked 会保留 inline HTML；样式内联自包含，不受 scoped 样式影响）
       var gomokuCardHtml = function(code) {
         var c = String(code).toUpperCase();
-        return '<div class="gomoku-post-card" data-gomoku-room="' + c + '" style="display:flex;align-items:center;gap:12px;margin:10px 0;padding:12px 14px;border-radius:14px;border:1px solid rgba(176,125,43,0.35);background:linear-gradient(135deg,rgba(232,200,143,0.25),rgba(212,167,106,0.15));cursor:pointer;">' +
-          '<span style="display:flex;align-items:center;justify-content:center;gap:6px;width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,#e8c88f,#d4a76a);flex-shrink:0;" aria-hidden="true">' +
-            '<span style="width:16px;height:16px;border-radius:50%;display:block;background:radial-gradient(circle at 35% 30%,#5a5a5a,#17181a);box-shadow:0 1px 2px rgba(0,0,0,0.35);"></span>' +
-            '<span style="width:16px;height:16px;border-radius:50%;display:block;background:radial-gradient(circle at 35% 30%,#ffffff,#d9dde2);box-shadow:0 1px 2px rgba(0,0,0,0.25);"></span>' +
-          '</span>' +
+        return '<div class="gomoku-post-card" data-gomoku-room="' + c + '" style="display:flex;align-items:center;margin:10px 0;padding:12px 14px;border-radius:14px;border:1px solid rgba(176,125,43,0.35);background:linear-gradient(135deg,rgba(232,200,143,0.25),rgba(212,167,106,0.15));cursor:pointer;">' +
+          '<svg width="44" height="44" viewBox="0 0 44 44" style="display:block;border-radius:12px;flex-shrink:0;margin-right:12px;box-shadow:0 1px 3px rgba(0,0,0,0.18);" aria-hidden="true">' +
+            '<defs>' +
+              '<linearGradient id="gomokuPostWood" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F5E3B8"/><stop offset="1" stop-color="#DBB273"/></linearGradient>' +
+              '<radialGradient id="gomokuPostBlack" cx="0.34" cy="0.28" r="0.95"><stop offset="0" stop-color="#6A6F78"/><stop offset="0.4" stop-color="#272A30"/><stop offset="1" stop-color="#0A0B0E"/></radialGradient>' +
+              '<radialGradient id="gomokuPostWhite" cx="0.34" cy="0.28" r="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="0.65" stop-color="#EFF2F6"/><stop offset="1" stop-color="#C6CFDB"/></radialGradient>' +
+            '</defs>' +
+            '<rect width="44" height="44" rx="10" fill="url(#gomokuPostWood)"/>' +
+            '<rect x="1.25" y="1.25" width="41.5" height="41.5" rx="8.75" fill="none" stroke="#FFF4DC" stroke-opacity="0.75" stroke-width="1.5"/>' +
+            '<g stroke="#A87F42" stroke-width="1.5" opacity="0.65" stroke-linecap="round"><path d="M9 13h26M9 22h26M9 31h26M13 9v26M22 9v26M31 9v26"/></g>' +
+            '<circle cx="22" cy="22" r="1.4" fill="#A87F42" opacity="0.8"/>' +
+            '<circle cx="13" cy="13" r="6.8" fill="url(#gomokuPostBlack)"/>' +
+            '<ellipse cx="10.8" cy="10.6" rx="2.6" ry="1.7" fill="#FFF" opacity="0.4" transform="rotate(-24 10.8 10.6)"/>' +
+            '<circle cx="31" cy="31" r="6.8" fill="url(#gomokuPostWhite)"/>' +
+            '<circle cx="31" cy="31" r="6.8" fill="none" stroke="#9FAEC1" stroke-opacity="0.5" stroke-width="0.6"/>' +
+            '<ellipse cx="28.9" cy="28.7" rx="2.4" ry="1.6" fill="#FFF" opacity="0.9" transform="rotate(-24 28.9 28.7)"/>' +
+          '</svg>' +
           '<span style="flex:1;min-width:0;">' +
             '<span style="display:block;font-size:12px;font-weight:600;color:#b07d2b;letter-spacing:0.5px;">五子棋对局邀请</span>' +
             '<span style="display:block;font-size:16px;font-weight:700;">房间码 ' + c + '</span>' +
