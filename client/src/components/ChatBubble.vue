@@ -67,10 +67,36 @@
       <div v-else-if="message.type === 'gomoku_invite'" class="bubble-content bubble-forward bubble-gomoku" @click="onGomokuInviteClick">
         <div class="forward-label"><i class="fa-solid fa-chess-board"></i> 五子棋对局邀请</div>
         <div class="forward-card forward-card-gomoku">
-          <div class="gomoku-invite-stones" aria-hidden="true">
-            <span class="gomoku-stone gomoku-stone-black"></span>
-            <span class="gomoku-stone gomoku-stone-white"></span>
-          </div>
+          <!-- 迷你棋盘图标：与桌面应用图标同风格（木纹棋盘 + 光泽棋子） -->
+          <svg class="gomoku-invite-icon" width="44" height="44" viewBox="0 0 44 44" aria-hidden="true">
+            <defs>
+              <linearGradient id="gomokuInviteWood" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#F5E3B8"/>
+                <stop offset="1" stop-color="#DBB273"/>
+              </linearGradient>
+              <radialGradient id="gomokuInviteBlack" cx="0.34" cy="0.28" r="0.95">
+                <stop offset="0" stop-color="#6A6F78"/>
+                <stop offset="0.4" stop-color="#272A30"/>
+                <stop offset="1" stop-color="#0A0B0E"/>
+              </radialGradient>
+              <radialGradient id="gomokuInviteWhite" cx="0.34" cy="0.28" r="1">
+                <stop offset="0" stop-color="#FFFFFF"/>
+                <stop offset="0.65" stop-color="#EFF2F6"/>
+                <stop offset="1" stop-color="#C6CFDB"/>
+              </radialGradient>
+            </defs>
+            <rect width="44" height="44" rx="10" fill="url(#gomokuInviteWood)"/>
+            <rect x="1.25" y="1.25" width="41.5" height="41.5" rx="8.75" fill="none" stroke="#FFF4DC" stroke-opacity="0.75" stroke-width="1.5"/>
+            <g stroke="#A87F42" stroke-width="1.5" opacity="0.65" stroke-linecap="round">
+              <path d="M9 13h26M9 22h26M9 31h26M13 9v26M22 9v26M31 9v26"/>
+            </g>
+            <circle cx="22" cy="22" r="1.4" fill="#A87F42" opacity="0.8"/>
+            <circle cx="13" cy="13" r="6.8" fill="url(#gomokuInviteBlack)"/>
+            <ellipse cx="10.8" cy="10.6" rx="2.6" ry="1.7" fill="#FFF" opacity="0.4" transform="rotate(-24 10.8 10.6)"/>
+            <circle cx="31" cy="31" r="6.8" fill="url(#gomokuInviteWhite)"/>
+            <circle cx="31" cy="31" r="6.8" fill="none" stroke="#9FAEC1" stroke-opacity="0.5" stroke-width="0.6"/>
+            <ellipse cx="28.9" cy="28.7" rx="2.4" ry="1.6" fill="#FFF" opacity="0.9" transform="rotate(-24 28.9 28.7)"/>
+          </svg>
           <div class="forward-music-info">
             <div class="forward-title">房间码 {{ gomokuInviteData.roomCode || '------' }}</div>
             <div class="forward-meta"><i class="fa-solid fa-users"></i> {{ gomokuInviteData.senderName || '同学' }} 邀请你加入对局</div>
@@ -785,36 +811,17 @@ export default {
 .forward-card-gomoku {
   display: flex;
   align-items: center;
-  gap: 12px;
 }
 
-.gomoku-invite-stones {
+/* 迷你棋盘图标（内联 SVG，与桌面应用图标同风格） */
+.gomoku-invite-icon {
+  display: block;
   width: 44px;
   height: 44px;
   border-radius: var(--radius-md);
-  background: linear-gradient(135deg, #e8c88f, #d4a76a);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
   flex-shrink: 0;
-}
-
-.gomoku-stone {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  display: block;
-}
-
-.gomoku-stone-black {
-  background: radial-gradient(circle at 35% 30%, #5a5a5a, #17181a);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
-}
-
-.gomoku-stone-white {
-  background: radial-gradient(circle at 35% 30%, #ffffff, #d9dde2);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  margin-right: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
 }
 
 .bubble-gomoku .forward-label {
