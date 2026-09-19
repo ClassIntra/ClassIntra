@@ -10,7 +10,7 @@
         <div class="music-nav-count" v-else-if="songs.length > 0">{{ filteredSongs.length }} / {{ songs.length }}</div>
       </div>
 
-      <div class="list-layout">
+      <div class="list-layout" :class="{ 'with-mini-player': currentSong }">
         <div class="list-sidebar scrollbar-thin">
           <div class="sidebar-nav">
             <!-- 库切换器：插件已安装时显示，网易云为主库 -->
@@ -125,6 +125,16 @@
                 <i class="fa-solid fa-magnifying-glass"></i>
                 <span class="ncm-suggest-name">{{ sg.name }}</span>
                 <span class="ncm-suggest-meta">{{ sg.meta }}</span>
+              </div>
+            </div>
+            <!-- 最近搜索：网易云 tab 空输入框时显示（localStorage 持久化，点击直接搜索） -->
+            <div v-if="isNcmTab && !searchQuery && searchHistory.length && !ncmSuggestShow" class="ncm-history">
+              <div class="ncm-history-head">
+                <span>最近搜索</span>
+                <button class="ncm-history-clear" @click="clearSearchHistory"><i class="fa-solid fa-xmark"></i>清除</button>
+              </div>
+              <div class="ncm-history-chips">
+                <button v-for="(h, i) in searchHistory" :key="i" class="ncm-history-chip" @click="pickSearchHistory(h)">{{ h }}</button>
               </div>
             </div>
             <!-- 搜索分类切换：单曲 / 歌手 / 歌单（网易云 tab 专属） -->
@@ -883,6 +893,7 @@ export default {
       _ncmCaptchaTimer: null,
       ncmSuggest: [], // 搜索联想下拉
       ncmSuggestShow: false,
+      searchHistory: (function () { try { return JSON.parse(localStorage.getItem('ncm-search-history') || '[]'); } catch (e) { return []; } })(), // 最近搜索（最多 10 条）
       _ncmSuggestTimer: null,
       ncmSearchType: 1, // 搜索分类：1 单曲 / 100 歌手 / 1000 歌单
       ncmSearchCats: [
@@ -2386,6 +2397,22 @@ export default {
         vm.showNcmMsg('歌单加载失败，请稍后重试', { type: 'error' });
       });
     },
+    // 最近搜索：记录 / 清除 / 点击回填
+    recordSearchHistory: function(kw) {
+      if (!kw) return;
+      var list = this.searchHistory.filter(function(k) { return k !== kw; });
+      list.unshift(kw);
+      this.searchHistory = list.slice(0, 10);
+      try { localStorage.setItem('ncm-search-history', JSON.stringify(this.searchHistory)); } catch (e) {}
+    },
+    clearSearchHistory: function() {
+      this.searchHistory = [];
+      try { localStorage.removeItem('ncm-search-history'); } catch (e) {}
+    },
+    pickSearchHistory: function(kw) {
+      this.searchQuery = kw;
+      this.onSearchEnter();
+    },
     onSearchEnter: function() {
       if (!this.isNcmTab) return;
       var kw = this.searchQuery.trim();
@@ -2443,6 +2470,7 @@ export default {
           vm.setNcmSongs(songs);
           vm.ncmHasMore = songs.length > 0 && songs.length < (result.songCount || 0);
         }
+        vm.recordSearchHistory(kw); // 搜索成功后记入最近搜索
         vm.ncmSearchOffset = type === 1 ? (result.songs || []).length : vm.ncmSearchResults.length;
         vm.ncmLoading = false;
       }).catch(function(err) {
@@ -2799,6 +2827,12 @@ export default {
   overflow: hidden;
 }
 
+/* mini-player 显示时整体避让底部播放栏：侧边栏「新建歌单」按钮与列表尾部不再被遮
+   （66px = 播放栏 10+44+10 内边距 + 2px 进度条；触屏另加 safe-area 底部安全区） */
+.list-layout.with-mini-player {
+  padding-bottom: calc(66px + env(safe-area-inset-bottom, 0px));
+}
+
 .list-sidebar {
   width: 220px;
   flex-shrink: 0;
@@ -2980,6 +3014,49 @@ export default {
 .sidebar-create-btn i {
   font-size: var(--font-size-caption);
 }
+
+/* 最近搜索（网易云 tab）：空输入框时显示历史关键词 chips */
+.ncm-history { padding: 4px 8px 8px; }
+.ncm-history-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: var(--font-size-caption);
+  color: var(--text-tertiary);
+  padding: 4px 6px;
+}
+.ncm-history-clear {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: none;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-caption);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--ease-standard), background var(--duration-fast) var(--ease-standard);
+}
+.ncm-history-clear:hover { color: #e0506e; background: rgba(224, 80, 110, 0.08); }
+.ncm-history-clear:active { transform: scale(0.94); opacity: 0.7; }
+.ncm-history-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ncm-history-chip {
+  border: 0.5px solid var(--separator-color);
+  background: none;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  padding: 5px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard);
+}
+.ncm-history-chip:hover { background: var(--primary-lighter); color: var(--primary-color); border-color: var(--primary-color); }
+.ncm-history-chip:active { transform: scale(0.94); opacity: 0.7; }
 
 .sidebar-import-btn {
   flex-shrink: 0;
