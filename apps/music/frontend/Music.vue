@@ -124,7 +124,7 @@
               <div v-for="(sg, i) in ncmSuggest" :key="i" class="ncm-suggest-item" @mousedown.prevent="pickNcmSuggest(sg)">
                 <i class="fa-solid fa-magnifying-glass"></i>
                 <span class="ncm-suggest-name">{{ sg.name }}</span>
-                <span class="ncm-suggest-meta">{{ sg.meta }}</span>
+                <span v-if="sg.meta" class="ncm-suggest-meta">{{ sg.meta }}</span>
               </div>
             </div>
             <!-- 最近搜索：网易云 tab 空输入框时显示（localStorage 持久化，点击直接搜索） -->
@@ -134,7 +134,7 @@
                 <button class="ncm-history-clear" @click="clearSearchHistory"><i class="fa-solid fa-xmark"></i>清除</button>
               </div>
               <div class="ncm-history-chips">
-                <button v-for="(h, i) in searchHistory" :key="i" class="ncm-history-chip" @click="pickSearchHistory(h)">{{ h }}</button>
+                <button v-for="(h, i) in searchHistory" :key="i" class="ncm-history-chip" @mousedown.prevent="pickSearchHistory(h)">{{ h }}</button>
               </div>
             </div>
             <!-- 搜索分类切换：单曲 / 歌手 / 歌单（网易云 tab 专属） -->
@@ -6251,8 +6251,9 @@ export default {
 .ncm-suggest {
   position: absolute;
   left: 24px;
-  right: 24px;
-  top: 64px;
+  top: 66px;
+  /* 宽度与搜索框一致（search-box max-width 640px），避免下拉横跨全屏造成错位感 */
+  width: min(calc(100% - 48px), 640px);
   z-index: 5;
   max-height: 280px;
   overflow-y: auto;
@@ -6275,7 +6276,8 @@ export default {
   transition: background var(--duration-fast) var(--ease-standard);
 }
 
-.ncm-suggest-item:hover { background: var(--primary-lighter); }
+.ncm-suggest-item:hover,
+.ncm-suggest-item:active { background: var(--primary-lighter); }
 .ncm-suggest-item i { color: var(--text-tertiary); font-size: var(--font-size-caption); }
 
 .ncm-suggest-name {
