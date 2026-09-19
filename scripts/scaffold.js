@@ -16,6 +16,49 @@ function pascal(kebab) {
   return kebab.split('-').map(function (s) { return s.charAt(0).toUpperCase() + s.slice(1); }).join('');
 }
 
+// 十六进制颜色按比例混合（mix('#0A84FF', '#ffffff', 0.38) → 亮 38%）
+function mix(hex, other, ratio) {
+  var a = String(hex).replace('#', '');
+  var b = String(other).replace('#', '');
+  if (a.length === 3) a = a.split('').map(function (c) { return c + c; }).join('');
+  if (b.length === 3) b = b.split('').map(function (c) { return c + c; }).join('');
+  var pa = [0, 2, 4].map(function (i) { return parseInt(a.substr(i, 2), 16) || 0; });
+  var pb = [0, 2, 4].map(function (i) { return parseInt(b.substr(i, 2), 16) || 0; });
+  return '#' + pa.map(function (v, i) {
+    var c = Math.round(v + (pb[i] - v) * ratio);
+    return ('0' + c.toString(16)).slice(-2);
+  }).join('');
+}
+
+// 满铺应用图标模板（512 viewBox）：
+// 资产顶格画布、内容铺满 100%，圆角由 AppIcon 容器 CSS 统一裁切（72px + radius 20px + cover）——
+// 图标资产本身绝不留白（项目硬性规范，详见 docs/third-party-development.md 图标规范一节）
+function iconSvg(label, color) {
+  var light = mix(color, '#ffffff', 0.38);
+  var dark = mix(color, '#000000', 0.28);
+  var initial = String(label).trim().charAt(0).toUpperCase() || 'A';
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="gBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="${light}"/>
+      <stop offset="0.5" stop-color="${color}"/>
+      <stop offset="1" stop-color="${dark}"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 满铺 squircle 底（不留白，圆角由容器 CSS 统一裁切） -->
+  <rect width="512" height="512" rx="116" fill="url(#gBg)"/>
+  <!-- 顶部柔光提升通透感 -->
+  <ellipse cx="256" cy="90" rx="300" ry="170" fill="#FFFFFF" opacity="0.13"/>
+
+  <!-- 首字母（TODO：替换为你的图标主体图形，保持内容顶格铺满） -->
+  <text x="256" y="358" text-anchor="middle" font-size="300" font-weight="700"
+    font-family="-apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
+    fill="#FFFFFF" fill-opacity="0.96">${initial}</text>
+</svg>
+`;
+}
+
 // 解析 --key value 形式参数
 function argOf(key, fallback) {
   var i = process.argv.indexOf(key);
@@ -42,7 +85,7 @@ function scaffoldApp(name) {
     type: 'app',
     version: '0.1.0',
     label: label,
-    icon: '/resources/public/icons/AppDefault.png',
+    icon: './icon.svg',
     color: '#0A84FF',
     category: 'desktop',
     order: 99,
@@ -55,6 +98,8 @@ function scaffoldApp(name) {
     }
   };
   fs.writeFileSync(path.join(target, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
+  // 满铺图标：相对路径由 app-registry 自动重写为 /apps-static/<name>/icon.svg
+  fs.writeFileSync(path.join(target, 'icon.svg'), iconSvg(label, manifest.color));
 
   var vue = `<!-- ${label} 应用主页面（第三方应用模板） -->
 <!-- 约定：Options API / var 声明 / 单引号 / 2 空格缩进；样式自包含 -->
@@ -120,8 +165,8 @@ TODO：应用功能说明。
 
 1. 编辑 \`frontend/${routeName}.vue\` 写页面（Options API / var / 单引号 / 2 空格）
 2. 需要后端时：建 \`backend/routes.js\`（参考 apps/ai-chat/backend/routes.js），并在 manifest.json 加 backend 声明
-3. 校验：\`node scripts/diag.js app ${name}\`
-4. 构建：\`cd client && node node_modules/vite/bin/vite.js build\`
+3. 校验：\`node scripts/diag.js app ${name}\`（\`diag.js compat ${name}\` 可查 Chrome 80 兼容性）
+4. 构建生效：\`node scripts/build-app.js ${name}\`（含 lint + vite 全量构建；开发期用 cd client && npx vite dev 热更新免构建）
 5. 重启服务器：\`cd server && node src/app.js\`（后端 manifest 启动时扫描；改了 manifest.json 或 backend 都要重启）
 6. 桌面小组件：\`node scripts/scaffold.js widget ${name} <widget-id> --name "名称"\`（自动合并进 manifest）
 
@@ -135,10 +180,11 @@ TODO：应用功能说明。
 
   console.log('已生成应用骨架：apps/' + name + '/');
   console.log('  manifest.json               route=' + route);
+  console.log('  icon.svg                    满铺图标模板（首字母渐变，替换为你的图形）');
   console.log('  frontend/' + routeName + '.vue');
   console.log('  README.md');
   console.log('下一步：node scripts/diag.js app ' + name + '  校验，然后开始写业务');
-  console.log('开发循环：编辑 → diag 校验 → vite build 构建 → 重启 server；详见生成的 README.md');
+  console.log('开发循环：编辑 → diag 校验 → build-app 构建（或 vite dev 热更新）→ 重启 server；详见生成的 README.md');
 }
 
 // ---------------- 主题脚手架 ----------------
