@@ -122,7 +122,14 @@ TODO：应用功能说明。
 2. 需要后端时：建 \`backend/routes.js\`（参考 apps/ai-chat/backend/routes.js），并在 manifest.json 加 backend 声明
 3. 校验：\`node scripts/diag.js app ${name}\`
 4. 构建：\`cd client && node node_modules/vite/bin/vite.js build\`
-5. 桌面小组件：\`node scripts/scaffold.js widget ${name} <widget-id> --name "名称"\`
+5. 重启服务器：\`cd server && node src/app.js\`（后端 manifest 启动时扫描；改了 manifest.json 或 backend 都要重启）
+6. 桌面小组件：\`node scripts/scaffold.js widget ${name} <widget-id> --name "名称"\`（自动合并进 manifest）
+
+## 生效条件速记
+
+- 新增/修改前端页面、小组件 → 必须重新**构建**（前端 manifest 是构建时扫描）
+- 新增/修改 backend、manifest.json → 必须重启**服务器**
+- 完整文档：\`docs/third-party-development.md\`
 `;
   fs.writeFileSync(path.join(target, 'README.md'), readme);
 
@@ -131,6 +138,7 @@ TODO：应用功能说明。
   console.log('  frontend/' + routeName + '.vue');
   console.log('  README.md');
   console.log('下一步：node scripts/diag.js app ' + name + '  校验，然后开始写业务');
+  console.log('开发循环：编辑 → diag 校验 → vite build 构建 → 重启 server；详见生成的 README.md');
 }
 
 // ---------------- 主题脚手架 ----------------
@@ -280,7 +288,16 @@ export default {
 `;
   fs.writeFileSync(vuePath, vue);
 
-  var snippet = JSON.stringify({
+  // 自动合并进应用 manifest（消除手动编辑步骤）
+  var manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  if (!manifest.frontend || typeof manifest.frontend !== 'object') manifest.frontend = {};
+  if (!Array.isArray(manifest.frontend.widgets)) manifest.frontend.widgets = [];
+  var dup = manifest.frontend.widgets.some(function (w) { return w.id === widgetId; });
+  if (dup) {
+    console.error('小组件 id 已存在于 manifest：' + widgetId + '（组件文件已生成，请手动检查 manifest.frontend.widgets）');
+    process.exit(1);
+  }
+  manifest.frontend.widgets.push({
     id: widgetId,
     name: widgetName,
     component: './frontend/widgets/' + comp + '.vue',
@@ -289,15 +306,16 @@ export default {
     maxSize: { w: 4, h: 2 },
     description: widgetName,
     configSchema: { fields: [] }
-  }, null, 2).split('\n').map(function (l) { return '    ' + l; }).join('\n');
+  });
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
 
   console.log('已生成小组件组件：apps/' + appName + '/frontend/widgets/' + comp + '.vue');
+  console.log('已自动合并进 manifest：frontend.widgets[' + (manifest.frontend.widgets.length - 1) + ']（id=' + widgetId + '，默认 2x1）');
   console.log('');
-  console.log('下一步（必须手动）：把以下片段合并进 apps/' + appName + '/manifest.json 的 frontend.widgets[] 数组：');
-  console.log('');
-  console.log(snippet);
-  console.log('');
-  console.log('然后：node scripts/diag.js app ' + appName + '  校验');
+  console.log('下一步：');
+  console.log('  1. 编辑组件写内容；配置项在 manifest 的 configSchema.fields 定义（自动以 props.config 传入）');
+  console.log('  2. node scripts/diag.js app ' + appName + '  校验');
+  console.log('  3. cd client && node node_modules/vite/bin/vite.js build  构建（前端 manifest 构建时扫描，新组件必须构建后生效）');
 }
 
 // ---------------- 入口 ----------------
