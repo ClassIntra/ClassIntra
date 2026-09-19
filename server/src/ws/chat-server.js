@@ -2755,7 +2755,7 @@ function gomokuState(roomCode) {
     winner: game.winner,
     status: game.status,
     gameId: game.id,
-    members: gomokuDb.prepare('SELECT user_id, role, color, joined_at, last_seen_at FROM gomoku_members WHERE room_code = ? ORDER BY joined_at').all(roomCode)
+    members: gomokuDb.prepare('SELECT m.user_id, m.role, m.color, m.joined_at, m.last_seen_at, u.net_name FROM gomoku_members m LEFT JOIN users u ON u.user_id = m.user_id WHERE m.room_code = ? ORDER BY m.joined_at').all(roomCode)
   };
 }
 
