@@ -1,18 +1,20 @@
 # ClassIntra 插件双仓同步脚本
-# 背景：主仓（ClassIntra）.gitignore 忽略 plugins/，插件文件只进 market 仓。
-# 本脚本把主仓 plugins/ 单向同步到 market 仓，并提供提交辅助。
+# 背景：主仓（ClassIntra）.gitignore 忽略 plugins/ 与 market-apps/，插件与市场应用文件只进 market 仓。
+# 本脚本把主仓 plugins/ 单向同步到 market 仓，并可附带同步 market-apps/ 指定应用到 market 仓 apps/。
 #
 # 用法：
-#   .\scripts\sync-market.ps1                      # 同步 + 显示 market 变更
+#   .\scripts\sync-market.ps1                      # 同步插件 + 显示 market 变更
 #   .\scripts\sync-market.ps1 -Commit "feat: xxx"  # 同步 + 自动提交 market
 #   .\scripts\sync-market.ps1 -Health              # 附带主仓 git health（b→o 检查）
+#   .\scripts\sync-market.ps1 -App gomoku          # 额外同步 market-apps/gomoku → market/apps/gomoku
 #
 # 插件版本号约定：插件 manifest.json 的 version 独立语义化递增
 #   （功能新增 MINOR +1，Bug 修复 PATCH +1，与主仓 server/version.json 无关）。
 
 param(
   [string]$Commit = '',
-  [switch]$Health
+  [switch]$Health,
+  [string]$App = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -45,12 +47,28 @@ Get-ChildItem $src | Where-Object { $Exclude -notcontains $_.Name } | ForEach-Ob
   Write-Host "[同步] $name"
 }
 
+# 可选：同步市场应用 market-apps/<App> → market 仓 apps/<App>
+# 用 robocopy /MIR 镜像（含删除多余文件，防双仓漂移），排除 node_modules/.git。
+# robocopy 退出码 0-7 均为成功（1=有复制，0=无差异），>=8 才是失败。
+if ($App) {
+  $appSrc = Join-Path $PSScriptRoot ("..\market-apps\" + $App)
+  $appDst = Join-Path $marketRepo ("apps\" + $App)
+  if (-not (Test-Path $appSrc)) { Write-Host "[错误] 市场应用不存在：$appSrc"; exit 1 }
+  Write-Host ''
+  Write-Host "== 同步市场应用 $App =="
+  robocopy $appSrc $appDst /MIR /XD node_modules .git /NJH /NJS /NDL | Out-Host
+  if ($LASTEXITCODE -ge 8) { Write-Host "[错误] robocopy 同步失败（退出码 $LASTEXITCODE）"; exit 1 }
+  $global:LASTEXITCODE = 0
+  Write-Host "[同步] apps/$App"
+}
+
 Write-Host ''
 Write-Host '== market 仓变更 =='
 git -C $marketRepo status --short
 
 if ($Commit) {
   git -C $marketRepo add plugins/
+  if (Test-Path (Join-Path $marketRepo 'apps')) { git -C $marketRepo add apps/ }
   git -C $marketRepo commit -m $Commit
   Write-Host ''
   Write-Host '== 已提交 =='

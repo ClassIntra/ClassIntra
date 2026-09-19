@@ -399,17 +399,24 @@ export default {
 .card-check .checked { color: var(--primary-color); background: #fff; border-radius: 50%; }
 .card-preview {
   width: 100%;
-  aspect-ratio: 1;
+  height: 0;
+  padding-bottom: 100%; /* 1:1 正方形容器（Chrome 80 兼容：替代 aspect-ratio: 1） */
   background: var(--bg-color-secondary);
   overflow: hidden;
   position: relative;
 }
 .card-preview img {
+  position: absolute; /* padding-trick 容器内容盒高度为 0，子元素需脱流铺满 */
+  top: 0;
+  left: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 .card-icon {
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 100%;
   height: 100%;
   display: flex;

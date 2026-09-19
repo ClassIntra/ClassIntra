@@ -5158,7 +5158,8 @@ export default {
 
 .ncm-comment-avatar img {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -5268,7 +5269,8 @@ export default {
 
 .ncm-artist-avatar img {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -5401,7 +5403,8 @@ export default {
 
 .ncm-artist-song-cover img {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;

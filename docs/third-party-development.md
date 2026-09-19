@@ -15,11 +15,17 @@ node scripts/scaffold.js widget <app-name> <widget-id> --name "小组件名"
 node scripts/diag.js app [name]     # manifest 规范 + 文件完整性 + 路由冲突
 node scripts/diag.js plugin [name]  # 插件校验（backend 必有 + 挂载点跨类冲突）
 node scripts/diag.js theme [id]     # 主题契约 + tokens 冒烟
+node scripts/diag.js compat [name]  # Chrome 80 兼容性 lint（apps + market-apps）
 node scripts/diag.js all            # 全部
 
 # 构建与运行
-cd client && node node_modules/vite/bin/vite.js build   # 前端构建（新模块构建后生效）
-cd server && node src/app.js                            # 启动服务器
+node scripts/build-app.js <name>     # 前端开发循环工具（lint + apps/ vite 构建 / market-apps/ 直出检查）
+node scripts/build-app.js <name> --watch   # market-apps/ 专用：文件变化自动 lint + 提示刷新
+cd client && npx vite dev            # 开发期 HMR 热更新（免构建，推荐）
+cd server && node src/app.js         # 启动服务器
+
+# 图标去留白（满铺规范体检）
+.\scripts\icon-trim.ps1              # 处理 Resources/public/icons（PNG + 内嵌 SVG 位图）
 
 # 后端热重载（可选，开发机用）：改 apps/*/backend 或 plugins/*/backend 代码免重启
 cd server && $env:CLASSINTRA_HOT_RELOAD='1'; node src/app.js
@@ -84,11 +90,57 @@ apps/my-app/
 
 ### 生命周期
 
-1. `node scripts/scaffold.js app my-app --label "我的应用"`
-2. 写业务 → `node scripts/diag.js app my-app` 校验
-3. `cd client && node node_modules/vite/bin/vite.js build`（前端产物构建后生效）
+1. `node scripts/scaffold.js app my-app --label "我的应用"`（自动附满铺图标模板 icon.svg）
+2. 写业务 → `node scripts/diag.js app my-app` 校验（`compat my-app` 查 Chrome 80 兼容性）
+3. `node scripts/build-app.js my-app`（lint + vite 全量构建；开发期用 `cd client && npx vite dev` HMR 免构建）
 4. 有后端改动需重启服务器（9001）
 5. git 提交进主仓
+
+---
+
+## 一.5、前端开发循环与构建机制
+
+两类应用的「改动生效」路径完全不同，选错工具会白白等待：
+
+| 来源 | 生效机制 | 改一行的正确姿势 |
+|------|---------|----------------|
+| `apps/<name>/frontend/` | vite 全量打包进 `client/dist`（manifest 构建时扫描） | 开发期 `cd client && npx vite dev`（HMR 秒级热更新）；发版前 `node scripts/build-app.js <name>` 走完整构建 |
+| `market-apps/<name>/frontend/` | 服务器 `/market-static/<name>/` 直出（no-cache 响应头） | **无需任何构建**，保存后刷新浏览器即生效；`node scripts/build-app.js <name> --watch` 可自动 lint 并提示 |
+
+`build-app.js` 统一封装了两类流程（自动识别应用类型）：
+
+- 先跑 `diag.js compat <name>` 兼容性 lint，FAIL 即终止（避免把带伤产物构建出去）
+- `apps/` 模式：执行 vite 全量构建（vite 单页架构决定无法单应用构建，vendor chunk 共享）
+- `market-apps/` 模式：检查 entry/style/icon 文件存在性 + 输出直出说明；`--watch` 监听文件变化（防抖 300ms）自动重跑 lint，backend 变更单独提示需重启服务器
+
+market-app 前端的 SDK context 完整类型见 `plugins/_sdk/sdk.d.ts`（五大命名空间 `ui/data/system/app/compat`，TS 项目可直接引用获得补全）。
+
+---
+
+## 一.6、Chrome 80 兼容性 lint
+
+第三方前端代码是兼容基线的第一现场：`apps/` 经 vite 构建（esbuild target chrome80 + flex-gap polyfill）可救语法，`market-apps/` 原生直出浏览器什么都没有。`node scripts/diag.js compat [name]` 按此分级扫描 `apps/*/frontend` 与 `market-apps/*/frontend` 的 `.js/.vue/.css`（块注释与 `//` 行自动跳过，防文档误报）：
+
+| 级别 | 规则 | 说明 |
+|------|------|------|
+| FAIL（直出型专属） | `?.` `??` `&&=` `\|\|=` `??=` | 语法类，esbuild 能转译但 market-apps 无转译，Chrome 80 必挂 |
+| FAIL（一律） | `replaceChildren` `.at()` `.findLast` `structuredClone` | 运行时 API，构建也不可转译 |
+| FAIL（一律） | CSS `aspect-ratio` `inset` `dvh/svh/lvh` `:is()` `:where()` | 无 polyfill 的 CSS 新特性 |
+| FAIL（直出型）/ WARN（构建型） | CSS `gap` | 直出无 polyfill；构建型 flex gap 有 polyfill（grid 需 `grid-gap`） |
+| WARN | `backdrop-filter` 缺 `-webkit-` 前缀 | Safari 不渲染 |
+
+`diag.js all` 会自动附带 compat 扫描；`build-app.js` 构建前也会先跑。输出为 `文件:行号 + 违规内容`，FAIL 影响退出码（pre-commit 钩子同标准）。
+
+---
+
+## 一.7、图标规范（满铺）
+
+**硬性规范：图标资产不留白**——内容顶格铺满 100% 画布，圆角由 AppIcon 容器 CSS 统一裁切（72px + radius 20px + object-fit cover），**绝不在资产里烘焙圆角或透明边距**。
+
+- 脚手架生成的 `icon.svg` 已是满铺模板（512 viewBox 满铺 squircle + 渐变 + 首字母），替换图形时保持顶格
+- manifest 的 `icon: './icon.svg'` 相对路径由 app-registry 自动重写为 `/apps-static/<name>/...`（market-apps 为 `/market-static/<name>/...`）
+- 存量位图去留白：`.\scripts\icon-trim.ps1`（检测 alpha 包围盒 → 裁剪 → 高质量重采样回满画布；支持 PNG 与内嵌 base64 位图的 SVG；`-Dir` 可指定其他目录）
+- 提交前注意 pre-commit 的 500KB 单文件上限：大位图内嵌前先降采样（如 768/512px HighQualityBicubic 重编码）
 
 ---
 

@@ -4,7 +4,8 @@
 //   node scripts/diag.js app [app-name]     校验全部/指定应用（manifest 规范 + 文件完整性 + 路由冲突）
 //   node scripts/diag.js plugin [plug-name] 校验全部/指定插件（backend 必有 + 挂载点冲突）
 //   node scripts/diag.js theme [theme-id]   校验全部/指定主题（manifest 契约 + tokens 冒烟）
-//   node scripts/diag.js all                三类都跑
+//   node scripts/diag.js compat [app-name]  Chrome 80 兼容性 lint（apps + market-apps 前端，all 时自动附带）
+//   node scripts/diag.js all                全部
 // 校验项：
 //   - manifest 走 server/src/core/manifest-schema.js（与运行时同一校验器，errors 阻断 / warnings 提示）
 //   - 文件完整性：frontend.component / backend.entry / widgets[].component / tokens.js 是否存在
@@ -195,16 +196,179 @@ function diagTheme(onlyId) {
   return allPass;
 }
 
+// ---------------- 兼容性 lint（Chrome 80 基线） ----------------
+// 分级依据：
+//   - failRaw：语法类新特性（?. ?? &&= 等）。apps/ 经 vite 构建（esbuild target chrome80）自动转译，
+//     不构成问题；market-apps/ 原生直出浏览器无任何转译，Chrome 80 上必挂 → FAIL
+//   - failAlways：运行时 API（replaceChildren/.at()/findLast/structuredClone）与 CSS 新特性
+//     （aspect-ratio/inset/dvh/:is()）。esbuild 只转译语法，这些构建救不了、也无 polyfill → 一律 FAIL
+//   - warn：gap（apps/ 的 flex gap 有构建期 polyfill，grid 需 grid-gap；market-apps/ 直出无 polyfill → FAIL，
+//     与 motion-verify.js E3 同标准）、backdrop-filter 缺 -webkit- 前缀（Safari 不渲染）
+var JS_RULES = [
+  { re: /[\w)\]]\?\./, msg: '可选链 ?.（Chrome 80 不支持；直出无转译）', failRaw: true },
+  { re: /\?\?/, msg: '空值合并 ??（Chrome 80 不支持；直出无转译）', failRaw: true },
+  { re: /&&=|\|\|=/, msg: '逻辑赋值 &&=/||=（Chrome 85+；直出无转译）', failRaw: true },
+  { re: /\?\?=/, msg: '逻辑赋值 ??=（Chrome 85+；直出无转译）', failRaw: true },
+  { re: /\bstructuredClone\s*\(/, msg: 'structuredClone（Chrome 98+；构建不可转译）', failAlways: true },
+  { re: /[\w)\]]\.replaceChildren\s*\(/, msg: 'replaceChildren（Chrome 86+；构建不可转译）', failAlways: true },
+  { re: /[\w)\]]\.at\s*\(/, msg: '.at()（Chrome 92+；构建不可转译）', failAlways: true },
+  { re: /[\w)\]]\.findLast(Index)?\s*\(/, msg: 'findLast/findLastIndex（Chrome 97+；构建不可转译）', failAlways: true }
+];
+var CSS_RULES = [
+  { re: /(^|[\s;{])aspect-ratio\s*:/, msg: 'aspect-ratio（Chrome 88+；无 polyfill）', failAlways: true },
+  { re: /(^|[\s;{])inset\s*:/, msg: 'inset 简写（Chrome 87+）；改用 top/right/bottom/left', failAlways: true },
+  { re: /\b(dvh|svh|lvh)\b/, msg: 'dvh/svh/lvh 单位（Chrome 108+）；改用 vh + JS 或 100%', failAlways: true },
+  { re: /:is\s*\(|:where\s*\(/, msg: ':is()/:where()（Chrome 88+）；展开为具体选择器', failAlways: true },
+  { key: 'gap', re: /(^|[\s;{])gap\s*:/, msg: 'gap（Chrome 84+；flex 用 margin 替代，grid 用 grid-gap）' },
+  { key: 'backdrop', re: /backdrop-filter/, msg: 'backdrop-filter 缺 -webkit- 前缀（Safari 不渲染）；补一行 -webkit-backdrop-filter' }
+];
+
+// 拆分 .vue：只扫 <script>（按 JS 规则）与 <style>（按 CSS 规则）；<template> 区跳过
+//（Vue 2 模板表达式编译为 render 函数后经 esbuild 转译，直出场景不存在）
+function splitVueSegs(src) {
+  var lines = src.split('\n');
+  var segs = [];
+  var mode = null;
+  for (var i = 0; i < lines.length; i++) {
+    var l = lines[i];
+    if (/^\s*<script\b/.test(l)) { mode = 'js'; continue; }
+    if (/^\s*<\/script>/.test(l)) { mode = null; continue; }
+    if (/^\s*<style\b/.test(l)) { mode = 'css'; continue; }
+    if (/^\s*<\/style>/.test(l)) { mode = null; continue; }
+    if (mode) segs.push({ type: mode, line: l, no: i + 1 });
+  }
+  return segs;
+}
+
+// 递归收集 frontend/ 下待扫文件（.js/.vue/.css，跳过 node_modules）
+function collectFrontendFiles(dir) {
+  var out = [];
+  if (!fs.existsSync(dir)) return out;
+  fs.readdirSync(dir).forEach(function (name) {
+    var p = path.join(dir, name);
+    var st = fs.statSync(p);
+    if (st.isDirectory()) {
+      if (name === 'node_modules') return;
+      out = out.concat(collectFrontendFiles(p));
+    } else if (/\.(js|vue|css)$/.test(name)) {
+      out.push(p);
+    }
+  });
+  return out;
+}
+
+function diagCompat(onlyName) {
+  // 扫描目标：apps/*（构建型，failRaw 豁免）+ market-apps/*（直出型，全严格）
+  var groups = [
+    { dir: 'apps', raw: false },
+    { dir: 'market-apps', raw: true }
+  ].map(function (g) {
+    var base = path.join(root, g.dir);
+    var names = fs.existsSync(base)
+      ? fs.readdirSync(base).filter(function (n) {
+          return fs.existsSync(path.join(base, n, 'manifest.json')) && (!onlyName || n === onlyName);
+        })
+      : [];
+    return { dir: g.dir, raw: g.raw, names: names };
+  });
+
+  if (onlyName && groups.every(function (g) { return !g.names.length; })) {
+    console.log('[FAIL] 兼容扫描目标不存在（apps/ 与 market-apps/ 均无）：' + onlyName);
+    return false;
+  }
+
+  var allPass = true;
+  groups.forEach(function (g) {
+    g.names.forEach(function (name) {
+      var problems = [];
+      var warns = [];
+      var files = collectFrontendFiles(path.join(root, g.dir, name, 'frontend'));
+      files.forEach(function (f) {
+        var rel = path.relative(root, f).replace(/\\/g, '/');
+        var src;
+        try { src = fs.readFileSync(f, 'utf8'); } catch (e) { return; }
+
+        // 统一为逐行段列表：.vue 只取 script/style 区，.js/.css 整文件单一段
+        var segs;
+        if (/\.vue$/.test(f)) {
+          segs = splitVueSegs(src);
+        } else {
+          var t = /\.css$/.test(f) ? 'css' : 'js';
+          segs = src.split('\n').map(function (line, idx) {
+            return { type: t, line: line, no: idx + 1 };
+          });
+        }
+
+        // 块注释整段跳过 + JS 的 // 行跳过（避免文档注释里出现的 API 名误报；
+        // 行内尾注释仍会被扫，属可接受误差）
+        var active = [];
+        var inComment = false;
+        segs.forEach(function (seg) {
+          if (inComment) {
+            if (seg.line.indexOf('*/') !== -1) inComment = false;
+            return;
+          }
+          var ci = seg.line.indexOf('/*');
+          if (ci !== -1) {
+            if (seg.line.indexOf('*/', ci + 2) === -1) inComment = true;
+            return;
+          }
+          if (seg.type === 'js' && /^\s*\/\//.test(seg.line)) return;
+          active.push(seg);
+        });
+
+        active.forEach(function (seg) {
+          var loc = rel + ':' + seg.no;
+          var text = seg.line;
+
+          if (seg.type === 'js') {
+            for (var j = 0; j < JS_RULES.length; j++) {
+              var r = JS_RULES[j];
+              if (!r.re.test(text)) continue;
+              if (r.failRaw && !g.raw) continue; // 构建型应用由 esbuild 转译，豁免
+              problems.push(loc + '  ' + r.msg);
+              break;
+            }
+          } else {
+            for (var k = 0; k < CSS_RULES.length; k++) {
+              var c = CSS_RULES[k];
+              if (c.key === 'backdrop') {
+                if (!/-webkit-backdrop-filter/.test(text) && c.re.test(text.replace(/-webkit-backdrop-filter/g, ''))) {
+                  warns.push(loc + '  ' + c.msg);
+                }
+                continue;
+              }
+              if (!c.re.test(text)) continue;
+              if (c.key === 'gap' && g.raw) { problems.push(loc + '  ' + c.msg + '（直出无 polyfill）'); continue; }
+              if (c.key === 'gap') { warns.push(loc + '  ' + c.msg); continue; }
+              problems.push(loc + '  ' + c.msg);
+              break;
+            }
+          }
+        });
+      });
+
+      var ok = problems.length === 0;
+      if (!ok) allPass = false;
+      console.log(mark(ok) + ' compat ' + name + '（' + g.dir + (g.raw ? '，直出' : '，构建') + '）  ' + files.length + ' 个前端文件');
+      problems.forEach(function (p) { console.log('       ✗ ' + p); });
+      warns.forEach(function (w) { console.log('       ⚠ ' + w); });
+    });
+  });
+  return allPass;
+}
+
 // ---------------- 入口 ----------------
 var kind = process.argv[2];
 var target = process.argv[3];
 var results = {};
 
-if (!kind || (kind !== 'app' && kind !== 'plugin' && kind !== 'theme' && kind !== 'all')) {
+if (!kind || (kind !== 'app' && kind !== 'plugin' && kind !== 'theme' && kind !== 'compat' && kind !== 'all')) {
   console.log('ClassIntra 第三方模块校验诊断');
   console.log('  node scripts/diag.js app [app-name]     应用校验（含小组件/路由冲突）');
   console.log('  node scripts/diag.js plugin [plug-name] 插件校验（backend 必有/挂载点冲突）');
   console.log('  node scripts/diag.js theme [theme-id]   主题校验（含 tokens 冒烟）');
+  console.log('  node scripts/diag.js compat [app-name]  Chrome 80 兼容性 lint（apps + market-apps）');
   console.log('  node scripts/diag.js all                全部');
   process.exit(kind ? 1 : 0);
 }
@@ -213,6 +377,7 @@ console.log('== ClassIntra 第三方模块校验 ==');
 if (kind === 'app' || kind === 'all') results.app = diagApp(kind === 'all' ? null : target);
 if (kind === 'plugin' || kind === 'all') results.plugin = diagPlugin(kind === 'all' ? null : target);
 if (kind === 'theme' || kind === 'all') results.theme = diagTheme(kind === 'all' ? null : target);
+if (kind === 'compat' || kind === 'all') results.compat = diagCompat(kind === 'all' ? null : target);
 
 var failed = Object.keys(results).some(function (k) { return results[k] === false; });
 console.log(failed ? '== 存在阻断性问题 ==' : '== 全部通过 ==');
