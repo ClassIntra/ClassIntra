@@ -6,7 +6,7 @@
           <i class="fa-solid fa-chevron-left"></i>
         </button>
         <h1 class="music-nav-title">音乐</h1>
-        <div class="music-nav-count" v-if="isNcmTab">{{ ncmSongs.length }} 首</div>
+        <div class="music-nav-count" v-if="isNcmTab">{{ ncmCountLabel }}</div>
         <div class="music-nav-count" v-else-if="songs.length > 0">{{ filteredSongs.length }} / {{ songs.length }}</div>
       </div>
 
@@ -127,6 +127,16 @@
                 <span class="ncm-suggest-meta">{{ sg.meta }}</span>
               </div>
             </div>
+            <!-- 搜索分类切换：单曲 / 歌手 / 歌单（网易云 tab 专属） -->
+            <div v-if="isNcmTab" class="ncm-search-tabs">
+              <button
+                v-for="cat in ncmSearchCats"
+                :key="cat.type"
+                class="ncm-search-tab"
+                :class="{ active: ncmSearchType === cat.type }"
+                @click="setNcmSearchType(cat.type)"
+              >{{ cat.label }}</button>
+            </div>
           </div>
 
           <div v-if="typeof activeTab === 'number' && currentPlaylist" class="playlist-header">
@@ -159,10 +169,10 @@
               <img v-if="ncmHeaderCover" class="ncm-header-cover" :src="ncmHeaderCover" alt="" loading="lazy" decoding="async" />
               <div class="ncm-header-text">
                 <h2 class="playlist-header-name">{{ ncmTabTitle }}</h2>
-                <span class="ncm-header-sub">{{ ncmSongs.length }} 首 · 来自网易云音乐</span>
+                <span class="ncm-header-sub">{{ ncmCountLabel }}</span>
               </div>
             </div>
-            <div class="playlist-header-actions">
+            <div v-if="!ncmEntityMode" class="playlist-header-actions">
               <select class="ncm-quality-select" :value="ncmQuality" @change="onNcmQualityChange" title="网易云音质，下一首生效">
                 <option value="">音质：跟随服务器</option>
                 <option value="standard">标准音质</option>
@@ -180,6 +190,46 @@
           <div v-if="songsLoading || (isNcmTab && ncmLoading)" class="list-loading">
             <div class="loading-spinner"></div>
             <span>加载中...</span>
+          </div>
+
+          <!-- 搜索结果-歌手列表（点击进入歌手 tab） -->
+          <div v-else-if="isNcmTab && ncmSearchType === 100" class="ncm-entity-list">
+            <div
+              v-for="ar in ncmSearchResults"
+              :key="'ncm-ar-' + ar.id"
+              class="ncm-entity-row"
+              @click="openNcmTab('ncm-ar-' + ar.id)"
+            >
+              <div class="ncm-entity-avatar">
+                <img v-if="ar.coverUrl" :src="ar.coverUrl" loading="lazy" decoding="async" @error="$event.target.style.display = 'none'" />
+                <i v-else class="fa-solid fa-user"></i>
+              </div>
+              <div class="ncm-entity-info">
+                <div class="ncm-entity-name">{{ ar.name }}</div>
+                <div class="ncm-entity-meta">{{ ar.alias ? ar.alias + ' · ' : '' }}{{ ar.count }} 首歌曲</div>
+              </div>
+              <i class="fa-solid fa-chevron-right ncm-entity-arrow"></i>
+            </div>
+          </div>
+
+          <!-- 搜索结果-歌单列表（点击进入歌单 tab） -->
+          <div v-else-if="isNcmTab && ncmSearchType === 1000" class="ncm-entity-list">
+            <div
+              v-for="pl in ncmSearchResults"
+              :key="'ncm-pl-' + pl.id"
+              class="ncm-entity-row"
+              @click="openNcmTab('ncm-pl-' + pl.id)"
+            >
+              <div class="ncm-entity-cover">
+                <img v-if="pl.coverUrl" :src="pl.coverUrl" loading="lazy" decoding="async" @error="$event.target.style.display = 'none'" />
+                <i v-else class="fa-solid fa-record-vinyl"></i>
+              </div>
+              <div class="ncm-entity-info">
+                <div class="ncm-entity-name">{{ pl.name }}</div>
+                <div class="ncm-entity-meta">{{ pl.count }} 首 · {{ pl.creator || '网易云歌单' }}</div>
+              </div>
+              <i class="fa-solid fa-chevron-right ncm-entity-arrow"></i>
+            </div>
           </div>
 
           <div v-else class="song-list">
@@ -236,7 +286,7 @@
             </button>
           </div>
 
-          <div v-if="!songsLoading && !(isNcmTab && ncmLoading) && filteredSongs.length === 0" class="list-empty">
+          <div v-if="!songsLoading && !(isNcmTab && ncmLoading) && filteredSongs.length === 0 && !(isNcmTab && ncmSearchType !== 1)" class="list-empty">
             <template v-if="isNcmTab && !ncmLoggedIn && !searchQuery && (activeTab === 'ncm-fav' || activeTab === 'ncm-daily')">
               <i class="fa-solid fa-cloud"></i>
               <p>登录网易云，开启每日推荐与海量在线曲库</p>
@@ -249,6 +299,12 @@
               <i class="fa-solid fa-music"></i>
               <p>{{ searchQuery ? '未找到匹配的歌曲' : (activeTab === 'favorites' ? '暂无收藏' : (typeof activeTab === 'number' ? '歌单为空' : (isNcmTab ? '暂无内容' : '暂无歌曲'))) }}</p>
             </template>
+          </div>
+
+          <!-- 搜索实体结果空态（歌手/歌单分类下无结果） -->
+          <div v-if="isNcmTab && ncmSearchType !== 1 && !ncmLoading && ncmSearchResults.length === 0 && ncmLastKeyword" class="list-empty">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <p>未找到匹配的{{ ncmSearchType === 100 ? '歌手' : '歌单' }}，换个关键词试试</p>
           </div>
         </div>
       </div>
@@ -818,6 +874,13 @@ export default {
       ncmSuggest: [], // 搜索联想下拉
       ncmSuggestShow: false,
       _ncmSuggestTimer: null,
+      ncmSearchType: 1, // 搜索分类：1 单曲 / 100 歌手 / 1000 歌单
+      ncmSearchCats: [
+        { type: 1, label: '单曲' },
+        { type: 100, label: '歌手' },
+        { type: 1000, label: '歌单' }
+      ],
+      ncmSearchResults: [], // 歌手/歌单分类搜索结果
       ncmSearchOffset: 0, // 搜索翻页游标
       ncmHasMore: false,
       ncmLoadingMore: false, // 搜索追加翻页加载中（按钮内联态，避免列表抖动）
@@ -888,9 +951,26 @@ export default {
       if (t && t.indexOf('ncm-pl-') === 0) {
         var id = parseInt(t.substring(7), 10);
         var pl = this.ncmPlaylists.find(function(p) { return p.id === id; });
-        return pl ? pl.name : '网易云歌单';
+        if (pl) return pl.name;
+      }
+      if (t && t.indexOf('ncm-ar-') === 0) {
+        var ar = this.ncmSearchResults.find(function(a) { return 'ncm-ar-' + a.id === t; });
+        if (ar) return ar.name;
       }
       return '网易云音乐';
+    },
+    // 搜索实体模式（歌手/歌单分类）：隐藏播放全部与音质选择
+    ncmEntityMode: function() {
+      return this.isNcmTab && this.ncmSearchType !== 1;
+    },
+    // 网易云计数标签：单曲「N 首」/ 歌手「N 位」/ 歌单「N 个」
+    ncmCountLabel: function() {
+      if (this.ncmEntityMode) {
+        return this.ncmSearchType === 100
+          ? this.ncmSearchResults.length + ' 位歌手'
+          : this.ncmSearchResults.length + ' 个歌单';
+      }
+      return this.ncmSongs.length + ' 首';
     },
     ncmQrStatusText: function() {
       // 由轮询结果驱动：等待扫码 → 已扫码待确认 → 登录成功（随后关闭弹窗）
@@ -914,12 +994,16 @@ export default {
       return map[this.ncmLevel] || this.ncmLevel;
     },
     ncmHeaderCover: function() {
-      // 网易云歌单头封面（打开歌单 tab 时展示）
+      // 网易云头封面（歌单 tab 显示歌单封面，歌手 tab 显示歌手头像）
       var t = this.activeTab;
       if (typeof t === 'string' && t.indexOf('ncm-pl-') === 0) {
         var id = parseInt(t.substring(7), 10);
         var pl = this.ncmPlaylists.find(function(p) { return p.id === id; });
         return (pl && pl.coverUrl) || '';
+      }
+      if (typeof t === 'string' && t.indexOf('ncm-ar-') === 0) {
+        var ar = this.ncmSearchResults.find(function(a) { return 'ncm-ar-' + a.id === t; });
+        return (ar && ar.coverUrl) || '';
       }
       return '';
     },
@@ -937,7 +1021,9 @@ export default {
         var detailIds = vm.playlistDetailSongs;
         list = vm.songs.filter(function(s) { return detailIds.indexOf(s.id) !== -1; });
       } else if (vm.isNcmTab) {
-        list = vm.ncmSongs;
+        // 网易云 tab 的搜索框直接触发服务器搜索，列表不再本地二次过滤
+        //（本地过滤会把服务器结果按关键词误杀，如英文别名 / 拼音搜索）
+        return vm.ncmSongs;
       } else {
         list = vm.songs;
       }
@@ -2158,10 +2244,29 @@ export default {
       if (this.activeTab === tab && this.ncmSongs.length > 0) return;
       this.activeTab = tab;
       this.searchQuery = '';
+      this.ncmSearchType = 1;
+      // 歌手 tab 保留搜索结果（标题/头像从中取），其余 tab 清空实体结果
+      if (tab.indexOf('ncm-ar-') !== 0) this.ncmSearchResults = [];
       if (tab === 'ncm-daily') this.loadNcmDaily();
       else if (tab === 'ncm-top') this.loadNcmToplist();
       else if (tab === 'ncm-fav') this.loadNcmFavorites();
       else if (tab.indexOf('ncm-pl-') === 0) this.loadNcmPlaylistTracks(parseInt(tab.substring(7), 10));
+      else if (tab.indexOf('ncm-ar-') === 0) this.loadNcmArtistTab(parseInt(tab.substring(7), 10));
+    },
+    // 歌手 tab：加载歌手热门 50 首进列表（复用 artist/home 接口）
+    loadNcmArtistTab: function(id) {
+      var vm = this;
+      vm.ncmLoading = true;
+      api.get('/netease-music/artist/home', { params: { id: id } }).then(function(res) {
+        var body = res.data || {};
+        if (body.code !== 200) throw new Error('code ' + body.code);
+        vm.setNcmSongs(body.hotSongs || []);
+        vm.ncmLoading = false;
+      }).catch(function() {
+        vm.ncmSongs = [];
+        vm.ncmLoading = false;
+        vm.showNcmMsg('歌手歌曲加载失败，请稍后重试', { type: 'error' });
+      });
     },
     setNcmSongs: function(rawList) {
       var vm = this;
@@ -2276,47 +2381,131 @@ export default {
       this.closeNcmSuggest();
       if (!kw) return;
       var vm = this;
+      var type = this.ncmSearchType;
       vm.ncmLoading = true;
       vm.ncmLastKeyword = kw;
       vm.ncmSearchOffset = 0;
-      api.get('/netease-music/search', { params: { keywords: kw, type: 1, limit: 50 } }).then(function(res) {
+      api.get('/netease-music/search', { params: { keywords: kw, type: type, limit: 50 } }).then(function(res) {
         var body = res.data || {};
-        var songs = (body.result && body.result.songs) || [];
-        var count = (body.result && body.result.songCount) || 0;
-        vm.setNcmSongs(songs);
-        vm.ncmSearchOffset = songs.length;
-        vm.ncmHasMore = songs.length > 0 && songs.length < count;
+        if (body.code !== 200) {
+          // 网易云风控（-462 等）：所有搜索通道均被限制
+          vm.ncmSongs = [];
+          vm.ncmSearchResults = [];
+          vm.ncmHasMore = false;
+          vm.ncmLoading = false;
+          vm.showNcmMsg('搜索受限（网易云风控），请稍后重试', { type: 'error' });
+          return;
+        }
+        var result = body.result || {};
+        if (type === 100) {
+          // 歌手结果：id / name / alias / 头像 / 单曲数
+          vm.ncmSongs = [];
+          vm.ncmSearchResults = (result.artists || []).map(function(a) {
+            return {
+              id: a.id,
+              name: a.name,
+              alias: (a.alias || []).join(' / '),
+              coverUrl: (a.picUrl || a.img1v1Url || '') ? ('/api/netease-music/image?u=' + encodeURIComponent(a.picUrl || a.img1v1Url)) : '',
+              count: a.musicSize || 0
+            };
+          });
+          vm.ncmHasMore = vm.ncmSearchResults.length > 0 && vm.ncmSearchResults.length < (result.artistCount || 0);
+        } else if (type === 1000) {
+          // 歌单结果：id / name / 封面 / 曲目数 / 创建者
+          vm.ncmSongs = [];
+          vm.ncmSearchResults = (result.playlists || []).map(function(p) {
+            return {
+              id: p.id,
+              name: p.name,
+              coverUrl: p.coverImgUrl ? ('/api/netease-music/image?u=' + encodeURIComponent(p.coverImgUrl)) : '',
+              count: p.trackCount || 0,
+              creator: (p.creator && p.creator.nickname) || ''
+            };
+          });
+          vm.ncmHasMore = vm.ncmSearchResults.length > 0 && vm.ncmSearchResults.length < (result.playlistCount || 0);
+        } else {
+          // 单曲结果
+          vm.ncmSearchResults = [];
+          var songs = result.songs || [];
+          vm.setNcmSongs(songs);
+          vm.ncmHasMore = songs.length > 0 && songs.length < (result.songCount || 0);
+        }
+        vm.ncmSearchOffset = type === 1 ? (result.songs || []).length : vm.ncmSearchResults.length;
         vm.ncmLoading = false;
       }).catch(function() {
         vm.ncmSongs = [];
+        vm.ncmSearchResults = [];
         vm.ncmHasMore = false;
         vm.ncmLoading = false;
       });
     },
-    // 搜索结果追加翻页（跳过与当前列表重复的歌曲）
+    // 切换搜索分类（单曲/歌手/歌单）：已有关键词时立即按新分类重新搜索
+    setNcmSearchType: function(type) {
+      if (this.ncmSearchType === type) return;
+      this.ncmSearchType = type;
+      if (this.searchQuery.trim()) this.onSearchEnter();
+    },
+    // 搜索结果追加翻页（单曲追加歌曲列表，歌手/歌单追加实体列表，均按 id 去重）
     loadNcmMore: function() {
       if (!this.ncmHasMore || this.ncmLoadingMore || !this.ncmLastKeyword) return;
       var vm = this;
+      var type = this.ncmSearchType;
       vm.ncmLoadingMore = true;
-      api.get('/netease-music/search', { params: { keywords: vm.ncmLastKeyword, type: 1, limit: 50, offset: vm.ncmSearchOffset } }).then(function(res) {
+      api.get('/netease-music/search', { params: { keywords: vm.ncmLastKeyword, type: type, limit: 50, offset: vm.ncmSearchOffset } }).then(function(res) {
         var body = res.data || {};
-        var songs = (body.result && body.result.songs) || [];
-        var count = (body.result && body.result.songCount) || 0;
-        for (var i = 0; i < songs.length; i++) {
-          if (!songs[i] || !songs[i].id) continue;
-          var nid = 'ncm-' + songs[i].id;
-          var dup = vm.ncmSongs.some(function(s) { return s.id === nid; });
-          if (!dup) vm.ncmSongs.push(vm.normalizeNcmSong(songs[i]));
+        var result = body.result || {};
+        if (body.code === 200 && type === 100) {
+          var added = 0;
+          (result.artists || []).forEach(function(a) {
+            if (!a.id) return;
+            var dup = vm.ncmSearchResults.some(function(x) { return x.id === a.id; });
+            if (dup) return;
+            vm.ncmSearchResults.push({
+              id: a.id,
+              name: a.name,
+              alias: (a.alias || []).join(' / '),
+              coverUrl: (a.picUrl || a.img1v1Url || '') ? ('/api/netease-music/image?u=' + encodeURIComponent(a.picUrl || a.img1v1Url)) : '',
+              count: a.musicSize || 0
+            });
+            added++;
+          });
+          vm.ncmSearchOffset += (result.artists || []).length;
+          vm.ncmHasMore = added > 0 && vm.ncmSearchOffset < (result.artistCount || 0);
+        } else if (body.code === 200 && type === 1000) {
+          var addedPl = 0;
+          (result.playlists || []).forEach(function(p) {
+            if (!p.id) return;
+            var dup = vm.ncmSearchResults.some(function(x) { return x.id === p.id; });
+            if (dup) return;
+            vm.ncmSearchResults.push({
+              id: p.id,
+              name: p.name,
+              coverUrl: p.coverImgUrl ? ('/api/netease-music/image?u=' + encodeURIComponent(p.coverImgUrl)) : '',
+              count: p.trackCount || 0,
+              creator: (p.creator && p.creator.nickname) || ''
+            });
+            addedPl++;
+          });
+          vm.ncmSearchOffset += (result.playlists || []).length;
+          vm.ncmHasMore = addedPl > 0 && vm.ncmSearchOffset < (result.playlistCount || 0);
+        } else if (body.code === 200) {
+          var songs = result.songs || [];
+          for (var i = 0; i < songs.length; i++) {
+            if (!songs[i] || !songs[i].id) continue;
+            var nid = 'ncm-' + songs[i].id;
+            var dupSong = vm.ncmSongs.some(function(s) { return s.id === nid; });
+            if (!dupSong) vm.ncmSongs.push(vm.normalizeNcmSong(songs[i]));
+          }
+          vm.ncmSearchOffset += songs.length;
+          vm.ncmHasMore = songs.length > 0 && vm.ncmSearchOffset < (result.songCount || 0);
+          vm.fillNcmFavoriteState();
         }
-        vm.ncmSearchOffset += songs.length;
-        vm.ncmHasMore = songs.length > 0 && vm.ncmSearchOffset < count;
-        vm.fillNcmFavoriteState();
         vm.ncmLoadingMore = false;
       }).catch(function() {
         vm.ncmLoadingMore = false;
       });
     },
-    /* --- 搜索联想（仅网易云 tab，400ms 防抖） --- */
+    /* --- 搜索联想（仅网易云 tab，400ms 防抖，关键词列表形态） --- */
     onNcmInput: function() {
       var vm = this;
       if (vm._ncmSuggestTimer) { clearTimeout(vm._ncmSuggestTimer); vm._ncmSuggestTimer = null; }
@@ -2326,22 +2515,10 @@ export default {
         vm._ncmSuggestTimer = null;
         api.get('/netease-music/search/suggest', { params: { keywords: kw } }).then(function(res) {
           var body = res.data || {};
-          var result = body.result || {};
+          var allMatch = (body.result && body.result.allMatch) || [];
           var items = [];
-          var songs = result.songs || [];
-          for (var i = 0; i < songs.length && items.length < 8; i++) {
-            var names = [];
-            var ar = songs[i].artists || [];
-            for (var a = 0; a < ar.length; a++) { if (ar[a] && ar[a].name) names.push(ar[a].name); }
-            items.push({ name: songs[i].name, meta: names.join(' / ') || '歌曲' });
-          }
-          var artists = result.artists || [];
-          for (var j = 0; j < artists.length && items.length < 8; j++) {
-            items.push({ name: artists[j].name, meta: '歌手' });
-          }
-          var albums = result.albums || [];
-          for (var k = 0; k < albums.length && items.length < 8; k++) {
-            items.push({ name: albums[k].name, meta: '专辑' });
+          for (var i = 0; i < allMatch.length && items.length < 8; i++) {
+            if (allMatch[i] && allMatch[i].keyword) items.push({ name: allMatch[i].keyword, meta: '' });
           }
           vm.ncmSuggest = items;
           vm.ncmSuggestShow = items.length > 0;
@@ -6020,6 +6197,127 @@ export default {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* ========== 搜索分类切换（单曲/歌手/歌单） ========== */
+.ncm-search-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 10px 24px 2px;
+}
+
+.ncm-search-tab {
+  padding: 5px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-caption);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-standard);
+}
+
+.ncm-search-tab:hover {
+  color: var(--text-primary);
+  border-color: var(--primary-color);
+}
+
+.ncm-search-tab.active {
+  background: var(--primary-color);
+  border-color: var(--primary-color);
+  color: #fff;
+}
+
+/* ========== 搜索实体列表（歌手/歌单结果行） ========== */
+.ncm-entity-list {
+  padding: 0 12px;
+}
+
+.ncm-entity-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+
+.ncm-entity-row:hover {
+  background: var(--primary-lighter);
+}
+
+.ncm-entity-avatar,
+.ncm-entity-cover {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  overflow: hidden;
+  background: var(--nav-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+}
+
+/* 歌单结果用圆角方形封面 */
+.ncm-entity-cover {
+  border-radius: var(--radius-sm);
+}
+
+.ncm-entity-avatar img,
+.ncm-entity-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ncm-entity-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ncm-entity-name {
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ncm-entity-meta {
+  font-size: var(--font-size-caption);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ncm-entity-arrow {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-caption);
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
+.ncm-entity-row:hover .ncm-entity-arrow {
+  opacity: 1;
+}
+
+/* 触屏设备：无 hover，实体行用按压态反馈，箭头常显 */
+@media (hover: none) {
+  .ncm-entity-row:active {
+    background: var(--primary-lighter);
+  }
+
+  .ncm-entity-arrow {
+    opacity: 1;
+  }
 }
 
 /* ========== 网易云 tab 头（封面 + 音质） ========== */
