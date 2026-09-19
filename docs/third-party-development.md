@@ -137,7 +137,7 @@ market-app 前端的 SDK context 完整类型见 `plugins/_sdk/sdk.d.ts`（五�
 
 **硬性规范：图标资产不留白**——内容顶格铺满 100% 画布，圆角由 AppIcon 容器 CSS 统一裁切（72px + radius 20px + object-fit cover），**绝不在资产里烘焙圆角或透明边距**。
 
-- 脚手架生成的 `icon.svg` 已是满铺模板（512 viewBox 满铺 squircle + 渐变 + 首字母），替换图形时保持顶格
+- 脚手架生成的 `icon.svg` 已是满铺模板（512 viewBox **直角满铺底** + 渐变 + 首字母，根 rect 无 rx/ry，圆角全部交给容器 CSS），替换图形时保持顶格、根 rect 保持直角
 - manifest 的 `icon: './icon.svg'` 相对路径由 app-registry 自动重写为 `/apps-static/<name>/...`（market-apps 为 `/market-static/<name>/...`）
 - 存量位图去留白：`.\scripts\icon-trim.ps1`（检测 alpha 包围盒 → 裁剪 → 高质量重采样回满画布；支持 PNG 与内嵌 base64 位图的 SVG；`-Dir` 可指定其他目录）
 - 提交前注意 pre-commit 的 500KB 单文件上限：大位图内嵌前先降采样（如 768/512px HighQualityBicubic 重编码）
