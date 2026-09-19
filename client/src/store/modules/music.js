@@ -89,8 +89,10 @@ function startPlayback(commit, dispatch, state, song) {
         // 无可用地址（VIP / 无版权等）：置错误提示，由页面 watch 弹 toast
         commit('SET_PLAY_ERROR', '该歌曲暂无可用播放地址（可能需要 VIP 或无版权）');
       }
-    }).catch(function () {
-      commit('SET_PLAY_ERROR', '获取播放地址失败，请检查网络后重试');
+    }).catch(function (err) {
+      // 透传后端文案（风控限制 / 网络失败），无响应体时用通用兜底
+      var msg = (err && err.response && err.response.data && err.response.data.message) || '获取播放地址失败，请检查网络后重试';
+      commit('SET_PLAY_ERROR', msg);
     });
     return;
   }
