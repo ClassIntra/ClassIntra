@@ -1100,11 +1100,16 @@ export default {
     },
     forwardPreviewTitle: function() {
       if (!this.pendingForward) return '';
+      // 五子棋邀请卡片：固定标题，房间码作为副内容展示
+      if (this.pendingForwardType === 'gomoku_invite' || this.pendingForward.roomCode) return '五子棋对局邀请';
       if (this.pendingForward.playlistName) return this.pendingForward.playlistName;
       return this.pendingForward.title || this.pendingForward.dish_name || '帖子';
     },
     forwardPreviewContent: function() {
       if (!this.pendingForward) return '';
+      if (this.pendingForwardType === 'gomoku_invite' || this.pendingForward.roomCode) {
+        return '房间码 ' + this.pendingForward.roomCode + ' · 点击卡片直接进入对局';
+      }
       if (this.pendingForward.description) return this.pendingForward.description.substring(0, 60);
       return (this.pendingForward.content || this.pendingForward.reason || this.pendingForward.detail || '').substring(0, 60);
     },
@@ -1234,6 +1239,8 @@ export default {
       if (!content) return '';
       // community_forward 已在各预览函数单独处理
       if (type === 'community_forward') return content;
+      // 五子棋邀请卡片：侧栏预览显示固定文案，不暴露 JSON 原文
+      if (type === 'gomoku_invite') return '[五子棋对局邀请]';
       if (typeof content !== 'string') content = String(content);
       var mediaType = detectMediaType(content);
       if (mediaType === 'image') return '[图片]';
@@ -2943,12 +2950,21 @@ export default {
       var isMusicPlaylist = self.pendingForwardType === 'music_playlist' || !!forwardData.playlistId;
       var isAiForward = self.pendingForwardType === 'ai_forward';
       var isAiBatch = self.pendingForwardType === 'ai_batch';
-      var msgType = isMusicPlaylist ? 'music_playlist' : (isCommunityForward ? 'community_forward' : (isAiForward ? 'ai_forward' : (isAiBatch ? 'ai_batch' : 'text')));
+      // 五子棋邀请卡片：forwardType 显式指定，或数据带 roomCode 字段（兼容缺省）
+      var isGomokuInvite = self.pendingForwardType === 'gomoku_invite' || !!forwardData.roomCode;
+      var msgType = isMusicPlaylist ? 'music_playlist' : (isCommunityForward ? 'community_forward' : (isAiForward ? 'ai_forward' : (isAiBatch ? 'ai_batch' : (isGomokuInvite ? 'gomoku_invite' : 'text'))));
       var content;
       if (isCommunityForward) {
         content = JSON.stringify(forwardData);
       } else if (isMusicPlaylist) {
         content = JSON.stringify(forwardData);
+      } else if (isGomokuInvite) {
+        content = JSON.stringify({
+          app: 'gomoku',
+          roomCode: forwardData.roomCode,
+          size: forwardData.size || 15,
+          senderName: forwardData.senderName || ''
+        });
       } else if (isAiForward) {
         content = JSON.stringify({
           content: forwardData.content,

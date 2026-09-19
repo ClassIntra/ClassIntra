@@ -1504,6 +1504,17 @@ export default {
       var target = e.target;
       // 跳过音频原生控件点击（音频保留 controls）
       if (target.tagName === 'AUDIO') return;
+      // 五子棋邀请卡片：点击直达对局（房间满员时后端自动分配观战）
+      var gomokuCard = target.closest ? target.closest('[data-gomoku-room]') : null;
+      if (gomokuCard) {
+        var roomCode = gomokuCard.getAttribute('data-gomoku-room');
+        if (roomCode) {
+          e.preventDefault();
+          e.stopPropagation();
+          this.$router.push('/gomoku?roomCode=' + encodeURIComponent(roomCode));
+        }
+        return;
+      }
       // 链接点击：拦截并跳转到超能岛浏览器
       // 规则：浏览者有 browser_enabled 可打开任意链接；
       //       否则，仅当链接所在内容作者为班管/班干时可打开（隐藏地址栏）
@@ -2595,6 +2606,23 @@ export default {
     },
     renderMarkdown: function(content, authorUserId) {
       if (!content) return '';
+      // 五子棋房间邀请标记 [gomoku:房间码] → 可点击卡片（在 Markdown 解析前替换为 HTML 原文，
+      // marked 会保留 inline HTML；样式内联自包含，不受 scoped 样式影响）
+      var gomokuCardHtml = function(code) {
+        var c = String(code).toUpperCase();
+        return '<div class="gomoku-post-card" data-gomoku-room="' + c + '" style="display:flex;align-items:center;gap:12px;margin:10px 0;padding:12px 14px;border-radius:14px;border:1px solid rgba(176,125,43,0.35);background:linear-gradient(135deg,rgba(232,200,143,0.25),rgba(212,167,106,0.15));cursor:pointer;">' +
+          '<span style="display:flex;align-items:center;justify-content:center;gap:6px;width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,#e8c88f,#d4a76a);flex-shrink:0;" aria-hidden="true">' +
+            '<span style="width:16px;height:16px;border-radius:50%;display:block;background:radial-gradient(circle at 35% 30%,#5a5a5a,#17181a);box-shadow:0 1px 2px rgba(0,0,0,0.35);"></span>' +
+            '<span style="width:16px;height:16px;border-radius:50%;display:block;background:radial-gradient(circle at 35% 30%,#ffffff,#d9dde2);box-shadow:0 1px 2px rgba(0,0,0,0.25);"></span>' +
+          '</span>' +
+          '<span style="flex:1;min-width:0;">' +
+            '<span style="display:block;font-size:12px;font-weight:600;color:#b07d2b;letter-spacing:0.5px;">五子棋对局邀请</span>' +
+            '<span style="display:block;font-size:16px;font-weight:700;">房间码 ' + c + '</span>' +
+            '<span style="display:block;font-size:12px;color:#b07d2b;">点击加入对局（满员自动观战）</span>' +
+          '</span>' +
+        '</div>';
+      };
+      content = String(content).replace(/\[gomoku:([0-9A-Za-z]{3,8})\]/g, function(m, code) { return gomokuCardHtml(code); });
       var result = LatexRenderer.processContent(content, marked);
       result.html = DOMPurify.sanitize(result.html);
       var html = LatexRenderer.renderFinalHtml(result.html, result.placeholders);
@@ -2617,6 +2645,7 @@ export default {
       if (!content) return '';
       // 去除 Markdown 和 LaTeX 标记，生成纯文本预览
       var text = content
+        .replace(/\[gomoku:[0-9A-Za-z]{3,8}\]/g, '[五子棋对局邀请]') // 五子棋房间邀请标记 → 固定文案
         .replace(/```[\s\S]*?```/g, '') // 移除代码块
         .replace(/\$\$[\s\S]*?\$\$/g, '') // 移除块级 LaTeX
         .replace(/\$[\s\S]*?\$/g, '') // 移除行内 LaTeX
