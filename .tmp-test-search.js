@@ -1,82 +1,72 @@
-// 临时诊断2：搜索风控绕过候选
+// 临时诊断3：weapi search/get 各分类字段结构验证
 var engine = require('./plugins/netease-music/backend/ncm/engine');
-var https = require('https');
 
 function req(uri, data, cryptoType) {
   return engine.request(uri, data, { crypto: cryptoType || 'weapi', cookie: {}, timeout: 10000 });
 }
 
-function httpsGet(url, headers) {
-  return new Promise(function (resolve, reject) {
-    https.get(url, { headers: headers }, function (res) {
-      var chunks = [];
-      res.on('data', function (c) { chunks.push(c); });
-      res.on('end', function () {
-        resolve({ status: res.statusCode, headers: res.headers, text: Buffer.concat(chunks).toString('utf8') });
-      });
-    }).on('error', reject);
-  });
-}
-
-function parseJson(res) {
-  try { return JSON.parse(res.text); } catch (e) { return null; }
+function brief(o, keys) {
+  if (!o) return 'null';
+  var parts = [];
+  keys.forEach(function (k) { parts.push(k + '=' + JSON.stringify(o[k]).substring(0, 60)); });
+  return parts.join(' ');
 }
 
 (async function () {
-  // 1. weapi 原版搜索 /api/search/get（之前只测了明文版）
+  // 单曲 type=1
   try {
-    var r = await req('/api/search/get', { s: '周杰伦', type: 1, limit: 5, offset: 0 }, 'weapi');
+    var r = await req('/api/search/get', { s: '周杰伦', type: 1, limit: 3, offset: 0 }, 'weapi');
     var b = r.body || {};
-    console.log('weapi /api/search/get => code:', b.code, '| songs:', ((b.result || {}).songs || b.songs || []).length);
-  } catch (e) { console.log('weapi search => ERROR:', (e && e.message) || e); }
+    var songs = ((b.result || {}).songs) || [];
+    console.log('type=1 songs:', songs.length, '| songCount:', (b.result || {}).songCount);
+    if (songs[0]) {
+      console.log('  song keys:', Object.keys(songs[0]).join(','));
+      console.log('  first:', brief(songs[0], ['id', 'name']));
+      console.log('  artists:', JSON.stringify(songs[0].artists || []).substring(0, 120));
+      console.log('  album:', brief(songs[0].album, ['id', 'name', 'picUrl']));
+    }
+  } catch (e) { console.log('type=1 ERROR:', (e && e.message) || e); }
 
-  // 2. eapi /api/search/pc
+  // 歌单 type=1000
   try {
-    var r2 = await req('/api/search/pc', { s: '周杰伦', type: 1, limit: 5 }, 'eapi');
+    var r2 = await req('/api/search/get', { s: '流行', type: 1000, limit: 3, offset: 0 }, 'weapi');
     var b2 = r2.body || {};
-    var cnt2 = ((b2.result || {}).songs || []).length;
-    console.log('eapi /api/search/pc => code:', b2.code, '| songs:', cnt2);
-  } catch (e) { console.log('eapi search => ERROR:', (e && e.message) || e); }
-
-  // 3. interface.music.163.com 明文
-  try {
-    var r3 = await httpsGet('https://interface.music.163.com/api/search/get/web?s=' + encodeURIComponent('周杰伦') + '&type=1&limit=5', {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      'Referer': 'https://music.163.com/',
-      'Cookie': 'os=pc; appver=2.9.7'
-    });
-    var b3 = parseJson(r3);
-    if (b3) {
-      var cnt3 = ((b3.result || {}).songs || []).length;
-      console.log('interface search => code:', b3.code, '| songs:', cnt3);
-    } else {
-      console.log('interface search => non-json, status:', r3.status, '| preview:', r3.text.substring(0, 120));
+    var pls = ((b2.result || {}).playlists) || [];
+    console.log('\ntype=1000 playlists:', pls.length, '| playlistCount:', (b2.result || {}).playlistCount);
+    if (pls[0]) {
+      console.log('  pl keys:', Object.keys(pls[0]).join(','));
+      console.log('  first:', brief(pls[0], ['id', 'name', 'trackCount', 'playCount', 'coverImgUrl', 'creator']));
     }
-  } catch (e) { console.log('interface search => ERROR:', (e && e.message) || e); }
+  } catch (e) { console.log('type=1000 ERROR:', (e && e.message) || e); }
 
-  // 4. 主页预热 cookie 后明文搜索
+  // 歌手 type=100
   try {
-    var home = await httpsGet('https://music.163.com/', {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/80.0'
-    });
-    var setCookies = (home.headers['set-cookie'] || []).map(function (c) { return c.split(';')[0]; });
-    var cookieStr = 'os=pc; appver=2.9.7; ' + setCookies.join('; ');
-    console.log('home cookies:', setCookies.length ? setCookies.join(' | ').substring(0, 100) : '(none)');
-    var r4 = await httpsGet('https://music.163.com/api/search/get?s=' + encodeURIComponent('周杰伦') + '&type=1&limit=5', {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/80.0',
-      'Referer': 'https://music.163.com/',
-      'Cookie': cookieStr
-    });
-    var b4 = parseJson(r4);
-    if (b4) {
-      var cnt4 = ((b4.result || {}).songs || []).length;
-      console.log('warmup plain search => code:', b4.code, '| songs:', cnt4);
-      if (cnt4) {
-        var s4 = b4.result.songs[0];
-        console.log('  first:', s4.name, '| album.picUrl:', !!(s4.album && s4.album.picUrl));
-      }
-    } else {
-      console.log('warmup plain search => non-json, status:', r4.status, '| preview:', r4.text.substring(0, 120));
+    var r3 = await req('/api/search/get', { s: '林俊杰', type: 100, limit: 3, offset: 0 }, 'weapi');
+    var b3 = r3.body || {};
+    var ars = ((b3.result || {}).artists) || [];
+    console.log('\ntype=100 artists:', ars.length, '| artistCount:', (b3.result || {}).artistCount);
+    if (ars[0]) {
+      console.log('  ar keys:', Object.keys(ars[0]).join(','));
+      console.log('  first:', brief(ars[0], ['id', 'name', 'picUrl', 'img1v1Url', 'alias']));
     }
-  } catch (e) { console.log('warmup => ERROR:', (e && e.message) || e); }
+  } catch (e) { console.log('type=100 ERROR:', (e && e.message) || e); }
+
+  // 专辑 type=10
+  try {
+    var r4 = await req('/api/search/get', { s: '范特西', type: 10, limit: 3, offset: 0 }, 'weapi');
+    var b4 = r4.body || {};
+    var abs = ((b4.result || {}).albums) || [];
+    console.log('\ntype=10 albums:', abs.length, '| albumCount:', (b4.result || {}).albumCount);
+    if (abs[0]) {
+      console.log('  al keys:', Object.keys(abs[0]).join(','));
+      console.log('  first:', brief(abs[0], ['id', 'name', 'picUrl', 'artist']));
+    }
+  } catch (e) { console.log('type=10 ERROR:', (e && e.message) || e); }
+
+  // 搜索联想 weapi
+  try {
+    var r5 = await req('/api/search/suggest/keyword', { s: '周' }, 'weapi');
+    var b5 = r5.body || {};
+    console.log('\nsuggest/keyword => code:', b5.code, '| allMatch:', JSON.stringify(b5.result && b5.result.allMatch || []).substring(0, 200));
+  } catch (e) { console.log('suggest/keyword ERROR:', (e && e.message) || e); }
 })();
