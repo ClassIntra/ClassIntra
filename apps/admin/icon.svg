@@ -9,8 +9,8 @@
       <stop offset="100%" stop-color="#F0F0F0"/>
     </linearGradient>
   </defs>
-  <!-- 圆角矩形背景 -->
-  <rect x="0" y="0" width="120" height="120" rx="26" ry="26" fill="url(#adminBg)"/>
+  <!-- 满铺直角背景（圆角由 AppIcon 容器 CSS 统一裁切） -->
+  <rect x="0" y="0" width="120" height="120" fill="url(#adminBg)"/>
   <!-- 盾牌轮廓 -->
   <path d="M60 22 L88 32 L88 58 C88 76 76 90 60 96 C44 90 32 76 32 58 L32 32 Z"
         fill="url(#adminShield)" opacity="0.95"/>
