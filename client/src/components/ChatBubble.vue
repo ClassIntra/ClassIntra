@@ -63,6 +63,21 @@
         </div>
         <div class="forward-action">点击查看全文 <i class="fa-solid fa-chevron-right"></i></div>
       </div>
+      <!-- 五子棋对局邀请卡片：点击直达对局（满员时自动转观战） -->
+      <div v-else-if="message.type === 'gomoku_invite'" class="bubble-content bubble-forward bubble-gomoku" @click="onGomokuInviteClick">
+        <div class="forward-label"><i class="fa-solid fa-chess-board"></i> 五子棋对局邀请</div>
+        <div class="forward-card forward-card-gomoku">
+          <div class="gomoku-invite-stones" aria-hidden="true">
+            <span class="gomoku-stone gomoku-stone-black"></span>
+            <span class="gomoku-stone gomoku-stone-white"></span>
+          </div>
+          <div class="forward-music-info">
+            <div class="forward-title">房间码 {{ gomokuInviteData.roomCode || '------' }}</div>
+            <div class="forward-meta"><i class="fa-solid fa-users"></i> {{ gomokuInviteData.senderName || '同学' }} 邀请你加入对局</div>
+          </div>
+        </div>
+        <div class="forward-action">点击加入对局 <i class="fa-solid fa-chevron-right"></i></div>
+      </div>
       <div v-else class="bubble-content">
         <div v-if="message.reply_to" class="reply-quote" @click="onReplyQuoteClick">
           <div class="reply-quote-name">{{ message.reply_to.user_name }}</div>
@@ -232,6 +247,15 @@ export default {
         return {};
       }
     },
+    // 五子棋邀请卡片数据：content 为 JSON 字符串（roomCode/senderName 等）
+    gomokuInviteData: function() {
+      if (this.message.type !== 'gomoku_invite') return {};
+      try {
+        return JSON.parse(this.message.content) || {};
+      } catch (e) {
+        return {};
+      }
+    },
     aiBatchCount: function() {
       return (this.aiBatchData.messages || []).length;
     },
@@ -384,6 +408,12 @@ export default {
       if (data.messages && data.messages.length) {
         this.$router.push('/ai-chat?viewBatch=' + encodeURIComponent(JSON.stringify(data.messages)));
       }
+    },
+    // 五子棋邀请卡片：直达对局页面并携带房间码（房间满员时后端自动分配观战）
+    onGomokuInviteClick: function() {
+      if (this._suppressClickAfterLongPress()) return;
+      var code = this.gomokuInviteData.roomCode;
+      if (code) this.$router.push('/gomoku?roomCode=' + encodeURIComponent(String(code).toUpperCase()));
     },
     // 长按弹出菜单后的合成 click 需要被抑制，否则会误触底层跳转/预览。
     // touchend 上的 preventDefault 不足以阻止合成 click，故改用时间窗判定。
@@ -749,6 +779,50 @@ export default {
 
 .forward-music-icon i {
   display: block;
+}
+
+/* 五子棋邀请卡片 */
+.forward-card-gomoku {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.gomoku-invite-stones {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, #e8c88f, #d4a76a);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.gomoku-stone {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: block;
+}
+
+.gomoku-stone-black {
+  background: radial-gradient(circle at 35% 30%, #5a5a5a, #17181a);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+.gomoku-stone-white {
+  background: radial-gradient(circle at 35% 30%, #ffffff, #d9dde2);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+.bubble-gomoku .forward-label {
+  color: #b07d2b;
+}
+
+.own-bubble .bubble-gomoku .forward-label {
+  color: rgba(255, 255, 255, 0.7);
 }
 
 /* AI forward card */
