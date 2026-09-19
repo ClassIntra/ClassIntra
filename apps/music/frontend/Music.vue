@@ -513,7 +513,7 @@
               <div class="lyrics-scroll scrollbar-thin" ref="lyricsBody" @wheel="onLyricsUserScroll" @touchstart="onLyricsUserScroll">
                 <div class="lyrics-pad-top"></div>
                 <div
-                  v-for="(line, index) in lyrics.lines"
+                  v-for="(line, index) in (lyrics && lyrics.lines) || []"
                   :key="index"
                   class="lyric-line"
                   :class="[lyricLineClass(index), 'lyrics-' + lyricsMode]"
