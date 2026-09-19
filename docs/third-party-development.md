@@ -13,6 +13,7 @@ node scripts/scaffold.js widget <app-name> <widget-id> --name "小组件名"
 
 # 校验（与运行时同一套 schema 校验器）
 node scripts/diag.js app [name]     # manifest 规范 + 文件完整性 + 路由冲突
+node scripts/diag.js plugin [name]  # 插件校验（backend 必有 + 挂载点跨类冲突）
 node scripts/diag.js theme [id]     # 主题契约 + tokens 冒烟
 node scripts/diag.js all            # 全部
 
