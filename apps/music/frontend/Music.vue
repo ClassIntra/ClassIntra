@@ -286,7 +286,17 @@
             </button>
           </div>
 
-          <div v-if="!songsLoading && !(isNcmTab && ncmLoading) && filteredSongs.length === 0 && !(isNcmTab && ncmSearchType !== 1)" class="list-empty">
+          <!-- 搜索失败态（风控/网络错误）：优先于普通空态，提供重试入口 -->
+          <div v-if="isNcmTab && ncmSearchError && !ncmLoading" class="list-empty">
+            <i class="fa-solid fa-circle-exclamation"></i>
+            <p>{{ ncmSearchError }}</p>
+            <button class="playlist-action-btn" @click="onSearchEnter">
+              <i class="fa-solid fa-rotate-right"></i>
+              <span>重试</span>
+            </button>
+          </div>
+
+          <div v-if="!songsLoading && !(isNcmTab && ncmLoading) && filteredSongs.length === 0 && !ncmSearchError && !(isNcmTab && ncmSearchType !== 1)" class="list-empty">
             <template v-if="isNcmTab && !ncmLoggedIn && !searchQuery && (activeTab === 'ncm-fav' || activeTab === 'ncm-daily')">
               <i class="fa-solid fa-cloud"></i>
               <p>登录网易云，开启每日推荐与海量在线曲库</p>
@@ -302,7 +312,7 @@
           </div>
 
           <!-- 搜索实体结果空态（歌手/歌单分类下无结果） -->
-          <div v-if="isNcmTab && ncmSearchType !== 1 && !ncmLoading && ncmSearchResults.length === 0 && ncmLastKeyword" class="list-empty">
+          <div v-if="isNcmTab && ncmSearchType !== 1 && !ncmLoading && ncmSearchResults.length === 0 && ncmLastKeyword && !ncmSearchError" class="list-empty">
             <i class="fa-solid fa-magnifying-glass"></i>
             <p>未找到匹配的{{ ncmSearchType === 100 ? '歌手' : '歌单' }}，换个关键词试试</p>
           </div>
@@ -885,6 +895,7 @@ export default {
       ncmHasMore: false,
       ncmLoadingMore: false, // 搜索追加翻页加载中（按钮内联态，避免列表抖动）
       ncmLastKeyword: '',
+      ncmSearchError: '', // 搜索失败态文案（风控/网络错误），非空时空态区显示重试按钮
       _bgCrossfadeActive: false,
       _bgCrossfadeTimer: null
     };
@@ -2385,6 +2396,7 @@ export default {
       vm.ncmLoading = true;
       vm.ncmLastKeyword = kw;
       vm.ncmSearchOffset = 0;
+      vm.ncmSearchError = '';
       api.get('/netease-music/search', { params: { keywords: kw, type: type, limit: 50 } }).then(function(res) {
         var body = res.data || {};
         if (body.code !== 200) {
@@ -2393,6 +2405,7 @@ export default {
           vm.ncmSearchResults = [];
           vm.ncmHasMore = false;
           vm.ncmLoading = false;
+          vm.ncmSearchError = '搜索受限（网易云风控），请稍后重试';
           vm.showNcmMsg('搜索受限（网易云风控），请稍后重试', { type: 'error' });
           return;
         }
@@ -2432,11 +2445,15 @@ export default {
         }
         vm.ncmSearchOffset = type === 1 ? (result.songs || []).length : vm.ncmSearchResults.length;
         vm.ncmLoading = false;
-      }).catch(function() {
+      }).catch(function(err) {
+        // 后端 503（风控）/ 网络错误：空态区显示明确文案与重试入口
+        var msg = (err && err.response && err.response.data && err.response.data.message) || '搜索失败，请检查网络后重试';
         vm.ncmSongs = [];
         vm.ncmSearchResults = [];
         vm.ncmHasMore = false;
         vm.ncmLoading = false;
+        vm.ncmSearchError = msg;
+        vm.showNcmMsg(msg, { type: 'error' });
       });
     },
     // 切换搜索分类（单曲/歌手/歌单）：已有关键词时立即按新分类重新搜索
@@ -2501,8 +2518,11 @@ export default {
           vm.fillNcmFavoriteState();
         }
         vm.ncmLoadingMore = false;
-      }).catch(function() {
+      }).catch(function(err) {
+        // 追加翻页失败：列表保留已加载内容，仅提示（重试即再次点「加载更多」）
+        var msg = (err && err.response && err.response.data && err.response.data.message) || '加载更多失败，请稍后重试';
         vm.ncmLoadingMore = false;
+        vm.showNcmMsg(msg, { type: 'error' });
       });
     },
     /* --- 搜索联想（仅网易云 tab，400ms 防抖，关键词列表形态） --- */
