@@ -46,8 +46,8 @@ function iconSvg(label, color) {
     </linearGradient>
   </defs>
 
-  <!-- 满铺 squircle 底（不留白，圆角由容器 CSS 统一裁切） -->
-  <rect width="512" height="512" rx="116" fill="url(#gBg)"/>
+  <!-- 直角满铺底（根 rect 严禁 rx/ry：资产内烘焙圆角小于容器裁切比例 20/72 时，四角会露出透明缝隙） -->
+  <rect width="512" height="512" fill="url(#gBg)"/>
   <!-- 顶部柔光提升通透感 -->
   <ellipse cx="256" cy="90" rx="300" ry="170" fill="#FFFFFF" opacity="0.13"/>
 
