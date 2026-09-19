@@ -5,8 +5,8 @@
       <stop offset="100%" stop-color="#3634A3"/>
     </linearGradient>
   </defs>
-  <!-- 圆角矩形背景 -->
-  <rect x="0" y="0" width="120" height="120" rx="26" ry="26" fill="url(#calcBg)"/>
+  <!-- 满铺直角背景（圆角由 AppIcon 容器 CSS 统一裁切） -->
+  <rect x="0" y="0" width="120" height="120" fill="url(#calcBg)"/>
   <!-- 计算器主体 -->
   <rect x="28" y="22" width="64" height="76" rx="8" fill="#FFFFFF" opacity="0.95"/>
   <!-- 显示屏 -->
