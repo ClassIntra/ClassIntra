@@ -1,467 +1,185 @@
-# 第三方应用开发指南（SDK v1）
+# ClassIntra 第三方开发指南
 
-> 面向：想在 ClassIntra 上开发应用的开发者
-> 目标设备：Android 9.0 横屏平板，腾讯 X5 Chromium 89 / 非 X5 Chromium 80
-> 完整设计说明见 `docs/ecosystem-design.md`
+面向第三方开发者：如何在 ClassIntra 上开发**应用**、**桌面小组件**与**主题**。
+三类模块共用一套脚手架（`scripts/scaffold.js`）与校验器（`scripts/diag.js`），开发体验完全一致。
+
+## 工具速查
+
+```bash
+# 脚手架（30 秒生成骨架）
+node scripts/scaffold.js app <name> --label "显示名" [--route /路径]
+node scripts/scaffold.js theme <id> --name "主题名" [--type light|dark]
+node scripts/scaffold.js widget <app-name> <widget-id> --name "小组件名"
+
+# 校验（与运行时同一套 schema 校验器）
+node scripts/diag.js app [name]     # manifest 规范 + 文件完整性 + 路由冲突
+node scripts/diag.js theme [id]     # 主题契约 + tokens 冒烟
+node scripts/diag.js all            # 全部
+
+# 构建与运行
+cd client && node node_modules/vite/bin/vite.js build   # 前端构建（新模块构建后生效）
+cd server && node src/app.js                            # 启动服务器
+```
+
+插件（backend-only 扩展）的开发见 `plugins/README.md`；应用/主题/小组件均属**主仓**，直接提交。
 
 ---
 
-## 0. 先搞清楚你要做哪一类
+## 一、应用开发
 
-ClassIntra 生态里有**四类模块**，定位完全不同。开发前先确认你做的是哪一类：
+应用 = 前端页面（+ 可选后端 + 可选桌面小组件），位于 `apps/<app-name>/`。
 
-| 类型 | 一句话 | 有界面？ | 有路由？ | 放哪里 |
-|---|---|---|---|---|
-| **应用** | 有自己的一屏 | ✅ | ✅ | `market-apps/<name>/` |
-| **插件** | 只扩展后端能力 | ❌ | ❌ | `plugins/<name>/`（需管理员安装） |
-| **主题** | 只换视觉 | ❌ | ❌ | `theme-extensions/<name>/` |
-| **组件** | 系统内部 UI 资产 | — | — | **不对第三方开放** |
+### 目录结构
 
-本指南讲的是**应用**，这也是生态的主战场。
+```
+apps/my-app/
+├── manifest.json         # 应用声明（schema 见下）
+├── frontend/
+│   ├── MyApp.vue         # 主页面（Vue 2 组件）
+│   └── widgets/          # 桌面小组件（可选，见下节）
+├── backend/routes.js     # 后端路由（可选，Express）
+└── README.md
+```
 
-> 判据强化：一段前端 JS ≠ 应用。只有当它渲染出**用户可进入的独立界面**时才算应用。桥接脚本、事件监听器属于插件的实现手段。
+### manifest.json 字段
+
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `name` | 是 | kebab-case 唯一标识，须与目录名一致 |
+| `label` | 是 | 显示名称（桌面上展示） |
+| `type` | 否 | 固定 `app`（缺省即可） |
+| `version` | 否 | 语义化版本 x.y.z |
+| `icon` / `color` | 建议 | 桌面图标路径 / 主题色（hex），缺失有 warning |
+| `category` | 否 | `desktop`（桌面）/ `system` / `hidden` |
+| `order` | 否 | 桌面排序权重，越小越靠前（默认 99） |
+| `frontend.route` | 是 | 页面路由，如 `/my-app` |
+| `frontend.component` | 是 | 主页面组件路径 `./frontend/MyApp.vue` |
+| `frontend.widgets[]` | 否 | 桌面小组件声明（见下节） |
+| `backend.mountPath` / `backend.entry` | 否 | 后端挂载 `/api/my-app` + `./backend/routes.js`（支持 `rateLimit`） |
+| `visibleRoles` | 否 | 可见角色白名单：`admin` / `officer` / `student`（空 = 全员可见） |
+| `layout` | 否 | 挂载形态：`mode: fullscreen/sheet/window` + `resizable/minWidth/minHeight` |
+| `capabilities` | 否 | 能力披露清单（安装前告知用户，非拦截），如 `data.storage` / `system.clipboard` |
+
+完整 schema 见 `shared/src/manifest-schema.js`（前端）与 `server/src/core/manifest-schema.js`（后端，两者同步维护）。
+
+### 前端约定
+
+- **Vue 2 Options API**；`var` 声明、单引号、2 空格缩进
+- 视觉走全局 CSS 变量（`var(--primary)` 等，定义于 `client/src/styles/global.scss`），自带 fallback 值可保证主题兼容
+- 兼容基线 **Chrome 80**：不用 optional chaining / gap / aspect-ratio 等新特性
+- 触屏设备（`hover: none`）用按压态反馈代替 hover
+
+### 后端约定（可选）
+
+- `backend/routes.js` 导出 Express Router，挂载到 `backend.mountPath`
+- 鉴权：`server/src/middleware/auth` 的 `requireAuth`（登录）与 `requireAdmin`（管理员）
+- manifest 声明 `rateLimit: { max, windowMs, message? }` 可自动挂限流
+- 需要媒体中转/出站代理等能力时复用插件 SDK（`plugins/_sdk/`）
+
+### 生命周期
+
+1. `node scripts/scaffold.js app my-app --label "我的应用"`
+2. 写业务 → `node scripts/diag.js app my-app` 校验
+3. `cd client && node node_modules/vite/bin/vite.js build`（前端产物构建后生效）
+4. 有后端改动需重启服务器（9001）
+5. git 提交进主仓
 
 ---
 
-## 1. 目录结构
+## 二、桌面小组件开发
 
-```
-market-apps/
-└── my-app/
-    ├── manifest.json          # 应用元信息（服务端扫描）
-    └── frontend/
-        ├── entry.js           # 入口：注册 mount / unmount
-        └── style.css          # 样式（应只消费 --ci-* 令牌）
+小组件归属应用（`apps/<app>/frontend/widgets/`），随应用启停，渲染在桌面网格上。
+
+### 生成
+
+```bash
+node scripts/scaffold.js widget my-app my-clock --name "时钟"
 ```
 
-最小 `manifest.json`：
+生成组件文件后，**必须把命令行打印的 JSON 片段合并进应用 manifest 的 `frontend.widgets[]`**（小组件由 manifest 声明驱动，纯组件文件不生效）。
+
+### manifest 声明结构
 
 ```json
 {
-  "name": "my-app",
-  "version": "1.0.0",
-  "label": "我的应用",
-  "description": "一句话说明这个应用做什么",
-  "icon": "/resources/public/icons/my-app.png",
-  "frontendEntry": "frontend/entry.js",
-  "frontendStyle": "frontend/style.css"
+  "id": "my-clock",
+  "name": "时钟",
+  "component": "./frontend/widgets/MyClockWidget.vue",
+  "defaultSize": { "w": 2, "h": 1 },
+  "minSize": { "w": 1, "h": 1 },
+  "maxSize": { "w": 4, "h": 2 },
+  "description": "显示当前时间",
+  "configSchema": {
+    "fields": [
+      { "key": "format", "label": "格式", "type": "select",
+        "options": [ { "value": "24h", "label": "24 小时" }, { "value": "12h", "label": "12 小时" } ],
+        "default": "24h" }
+    ]
+  }
 }
 ```
 
----
+- 网格以 `w/h` 为单位，桌面按 `defaultSize` 放置，用户可在 `minSize`–`maxSize` 间调整
+- `configSchema.fields` 支持的 `type` 参考 `apps/countdown/manifest.json`（select 等）；桌面据此渲染配置表单，配置值以 `config` prop 传入组件
+- 组件约定：高度自适应容器（`height: 100%`）、点击 `$emit('open-app', '<app-name>')` 可跳转应用
 
-## 2. 入口文件的最小骨架
+### 校验
 
-```javascript
-(function() {
-  var NAME = 'my-app';
-
-  function mount(container, context) {
-    // 1. 构建界面（用 context.ui.* 片段，不要自建类名体系）
-    var root = document.createElement('div');
-    root.className = 'my-app';
-
-    var card = context.ui.card({ title: '欢迎', content: '这是你的第一个应用' });
-    root.appendChild(card.root);
-
-    container.replaceChildren(root);
-
-    // 2. 注册清理（核心契约，务必写）
-    context.app.onDestroy(function() {
-      card.destroy();
-      container.replaceChildren();
-    });
-  }
-
-  function unmount(container) {
-    // 通常不需要手动实现：context.app.onDestroy 已覆盖
-    // 保留此函数是为了兼容旧版卸载路径
-  }
-
-  var definition = { name: NAME, mount: mount, unmount: unmount };
-  window.ClassIntraMarket.define(definition);
-})();
-```
+小组件随应用校验：`node scripts/diag.js app my-app` 会检查 widgets[].component 文件存在性。
 
 ---
 
-## 3. 兼容红线（最重要的一节）
+## 三、主题开发
 
-**你的 `entry.js` 不会经过 Vite 构建**，因此拿不到 `@vitejs/plugin-legacy` 的语法降级，也拿不到 PostCSS 的 flex-gap polyfill 与 `-webkit-` 前缀补全。
+主题是独立视觉层，位于 `themes/<theme-id>/`，与系统主题机制深度集成（token 级切换）。
 
-### 3.1 禁用语法（会导致 Chrome 80 直接报错）
+### 目录结构
 
-| 禁用 | 改用 |
-|---|---|
-| `const` / `let` | `var` |
-| 箭头函数 `() => {}` | `function() {}` |
-| 模板字符串 `` `x${y}` `` | `'x' + y` |
-| 可选链 `a?.b` | `a && a.b` |
-| 空值合并 `a ?? b` | `a !== null && a !== undefined ? a : b` |
-| `class` 语法 | 构造函数 + `prototype` |
-| `||=` / `&&=` | 显式赋值 |
-
-### 3.2 禁用 CSS 特性
-
-| 禁用 | 原因 | 改用 |
-|---|---|---|
-| flex `gap` | Chrome 84+ 才支持 | `margin`（见下方示例） |
-| `:is()` / `:where()` | Chrome 88+ | 展开写完整选择器 |
-| `aspect-ratio` | Chrome 88+ | padding-bottom 技巧（棋盘等场景可用 `@supports` 兜底） |
-| 容器查询 | Chrome 105+ | 媒体查询 |
-
-**用 margin 代替 flex gap**：
-
-```css
-.my-app-row { display: flex; flex-wrap: wrap; align-items: center; }
-.my-app-row > * { margin-right: 8px; margin-bottom: 4px; }
-.my-app-row > *:last-child { margin-right: 0; }
+```
+themes/my-theme/
+├── manifest.json   # { id, name, type, version, description, tokens, icons }
+└── tokens.js       # 导出 TOKENS 对象
 ```
 
-### 3.3 实时通道
+### 硬性契约（theme-loader 强约束）
 
-**必须**用 `context.data.realtime`（HTTP 长轮询）。
+- `type` 必须为 `light` 或 `dark`（二选一，决定亮/暗基线）
+- `tokens.js` 必须导出 `TOKENS` 对象（`module.exports = { TOKENS }`）
+- `manifest.id` 与目录名一致
 
-**禁止**直接用 `WebSocket` —— 腾讯 X5 / TBS 与旧 Android WebView 上不可靠。
+### tokens 结构
+
+```js
+var TOKENS = {
+  color: {
+    primary: '#0A84FF',        // 品牌色（含 primaryHover/Pressed/Rgb）
+    primaryRgb: '10, 132, 255', // rgba 场景用
+    accent: { music: '#FF2D55', ... },  // 应用强调色
+    semantic: { success: '#34C759', ... } // 语义色
+  },
+  shape: { radius: { sm, md, lg } },
+  shadow: { card: '...' },
+  motion: { duration: { fast, normal } }
+};
+```
+
+完整 token 集对照 `themes/dark/tokens.js`（值与 `global.scss` 的 `[data-theme=dark]` 保持同步）。**只覆盖想定制的项**，未覆盖项回退全局默认。
+
+### 开发流程
+
+1. `node scripts/scaffold.js theme my-theme --name "我的主题" --type dark`
+2. 对照 `themes/dark/tokens.js` 补全 token
+3. `node scripts/diag.js theme my-theme` 校验
+4. 前端构建后主题列表自动出现（theme-loader eager 扫描 `themes/*/manifest.json`）
 
 ---
 
-## 4. SDK 速查
-
-`context` 有五个命名空间。
-
-### 4.1 `context.ui` —— 预制 DOM 片段
-
-所有片段返回 `{ root, update(fn), destroy() }`。样式由 SDK 自动注入，已消费令牌，**天然跟随主题**。
-
-```javascript
-var btn  = context.ui.button({ label: '保存', variant: 'filled', onClick: fn });
-var card = context.ui.card({ title: '标题', content: '正文' });
-var list = context.ui.list({ items: [
-  { title: '第一项', subtitle: '说明', value: '3', onClick: fn }
-]});
-var seg  = context.ui.segmented({ segments: [{label:'A',value:'a'}], value: 'a', onChange: fn });
-var sw   = context.ui.toggle({ checked: true, label: '开启', onChange: fn });
-var sb   = context.ui.searchBar({ placeholder: '搜索', onInput: fn, onSearch: fn });
-var bd   = context.ui.badge({ text: 'NEW', variant: 'success' });
-var tst  = context.ui.toast({ text: '提示', variant: 'danger' });
-var emp  = context.ui.emptyState({ icon: 'fa-solid fa-inbox', title: '暂无内容' });
-var spn  = context.ui.spinner({ text: '加载中' });
-var sec  = context.ui.sectionTitle({ text: '分组标题' });
-var tb   = context.ui.toolbar({ items: [{ icon: 'fa-solid fa-copy', label: '复制', onClick: fn }] });
-```
-
-`variant` 可选值：
-- `button`：`filled` / `tinted` / `plain` / `destructive`
-- `badge` / `toast`：`default` / `success` / `warning` / `danger`
-
-**记得销毁**：片段内部绑定了事件，`destroy()` 会解绑。放在 `onDestroy` 里。
-
-### 4.2 `context.data`
-
-```javascript
-// API（自动带 JWT）
-context.data.api.get('/my-app/items')
-context.data.api.post('/my-app/items', { title: 'x' })
-
-// 实时（HTTP 长轮询）
-var stop = context.data.realtime.subscribe('my-app.updated', function(payload) {});
-// ...
-stop();   // 记得取消订阅
-
-// 存储（自动加 ci:app:my-app: 前缀，无需自己处理冲突）
-context.data.storage.set('score', 100);      // 支持对象/数组
-context.data.storage.get('score', 0);
-context.data.storage.keys();
-context.data.storage.remove('score');
-```
-
-### 4.3 `context.system`
-
-```javascript
-context.system.user.user_id              // 响应式（每次访问读当前值）
-context.system.isLoggedIn
-context.system.route                     // 当前路由
-context.system.navigate({ name: 'Desktop' });
-context.system.goDesktop();
-context.system.toast.alert({ title, message });
-context.system.toast.confirm({ title, message }).then(function(ok) {});
-context.system.modal                     // 原始 modal
-context.system.eventBus.emit('chat:compose', { content: 'x' });
-context.system.getToken('--primary-color');
-```
-
-### 4.4 `context.app`
-
-```javascript
-context.app.name
-context.app.version
-context.app.manifest
-context.app.config
-context.app.log('调试信息');
-context.app.onDestroy(fn);   // 核心契约
-```
-
-`onDestroy` 的保证：
-- 卸载时被调用（即使应用内部抛过异常）；
-- **幂等**——重复调用安全；
-- 若在已卸载后再注册，回调**立即执行**（不会泄漏）。
-
-### 4.5 `context.compat`
-
-```javascript
-context.compat.chromeVersion      // 89 / 80
-context.compat.isX5
-context.compat.has('flex-gap')    // Chrome >= 84 才 true
-context.compat.has('clipboard')
-context.compat.has('backdrop-filter')
-```
-
-> `has('flex-gap')` 返回的是**原生支持**判断。若你需要 gap 的间距效果，请直接用 `margin`，而不是写分支——因为分支两边都要维护。
-
----
-
-## 5. 视觉一致：只消费令牌
-
-**不要写死颜色。** 用 CSS 变量，应用就会自动跟随主题（含深色模式）。
-
-```css
-/* ❌ 错误：写死颜色，切深色模式时不变 */
-.my-app { background: #f8fafc; color: #172033; }
-
-/* ✅ 正确：消费令牌，自动跟随主题 */
-.my-app { background: var(--background-color); color: var(--text-primary); }
-```
-
-常用令牌：
-
-| 用途 | 令牌 |
-|---|---|
-| 主色 | `--primary-color` |
-| 背景 | `--background-color`、`--secondary-bg`、`--card-bg` |
-| 文本 | `--text-primary`、`--text-secondary`、`--text-tertiary` |
-| 分隔线 | `--separator-color`、`--border-color` |
-| 圆角 | 见下方 §5.4.1 圆角梯度表 |
-| 字号 | `--font-size-body`、`--font-size-footnote`、`--font-size-title3` |
-| 字重 | `--font-weight-medium` / `--font-weight-semibold` |
-| 间距 | `--spacing-xs` / `--spacing-sm` / `--spacing-md` / `--spacing-lg` |
-| 动效 | `--duration-fast` / `--duration-normal`、`--ease-standard` |
-
-**查全部令牌**：见 `client/src/styles/global.scss`（共 147 个）。
-
-类名前缀：用自己的应用名（如 `.my-app-header`），避免与官方 `ios-*` 或别人冲突。
-
-### 5.4.1 圆角梯度：只能用这 8 档
-
-**圆角必须取自梯度表，禁止写任意 px 值。** 这是「R 角统一」的硬要求——系统内混用 `6px`/`10px`/`13px` 这类未经定义的值，会让卡片、按钮、输入框的圆角彼此「差一点点」，视觉上就是不够精致。
-
-| 令牌 | 值 | 典型用途 |
-|---|---|---|
-| `var(--radius-xs)` | 4px | 标签、小徽章、内嵌小方块 |
-| `var(--radius-sm)` | 8px | 输入框、小按钮、列表项 |
-| `var(--radius-md)` | 12px | 卡片、面板、主要按钮 |
-| `var(--radius-lg)` | 16px | 大卡片、分组容器 |
-| `var(--radius-xl)` | 20px | 大面板、模态框 |
-| `var(--radius-2xl)` | 24px | 桌面小组件 |
-| `var(--radius-3xl)` | 28px | 大尺寸容器（如通知面板） |
-| `var(--radius-pill)` | 9999px | 胶囊按钮、开关、标签、进度条 |
-
-**两种合法例外（不需令牌）**：
-
-1. `border-radius: 50%` —— 正圆（头像、圆形图标按钮）；
-2. `border-radius: 0` —— 直角（分隔区域）。
-
-**细线/小标记怎么办**：宽度只有 4–8px 的小元素（如波形条、进度条），用 `var(--radius-pill)` 而非 `2px`。胶囊语义更准确，且缩放时不会露出直角。
-
-```css
-/* ❌ 错误：值不在梯度内 */
-.my-app-card { border-radius: 10px; }
-.my-app-tag  { border-radius: 6px; }
-
-/* ✅ 正确 */
-.my-app-card { border-radius: var(--radius-md); }   /* 12px */
-.my-app-tag  { border-radius: var(--radius-sm); }   /* 8px  */
-```
-
-::: tip 为什么要这么严
-「差不多就行」的圆角正是界面显得业余的常见原因。8 档梯度覆盖了从 4px 到 28px 的全部合理需求——你想要的任何圆角都在里面，只是值可能与直觉稍有不同。**选最接近的那一档，不要发明新值。**
-:::
-
----
-
-## 5.5 动效规范：让应用「德芙般流畅」
-
-这是决定应用「像不像系统自带」的关键一节。**曲线和时长不是随手填的数字。**
-
-### 5.5.1 照抄这张表，别自己定
-
-| 你要做的效果 | 曲线 | 时长 |
-|---|---|---|
-| 按钮/列表项按下反馈 | `var(--ease-standard)` | `var(--duration-fast)` |
-| Tab 选中、开关切换 | `var(--ease-standard)` | `var(--duration-fast)` |
-| 面板展开/收拢 | `var(--ease-emphasized)` | `var(--duration-normal)` |
-| 内容淡入淡出 | `var(--ease-standard)` | `var(--duration-normal)` |
-| 弹窗进入 | `var(--ease-decelerate)` | `var(--duration-normal)` |
-| 弹窗退出 | `var(--ease-accelerate)` | `var(--duration-fast)` |
-| 日常弹性（卡片抬起、列表项） | `var(--motion-spring-snappy)` | `var(--duration-normal)` |
-| 庆祝反馈（点赞、成功提示） | `var(--motion-spring-bouncy)` | `var(--duration-slow)` |
-| 内容/面板顺滑变化（不弹跳） | `var(--motion-spring-smooth)` | `var(--duration-normal)` |
-| 跟手（拖拽把手、长按） | `var(--motion-spring-interactive)` | `var(--duration-fast)` |
-| 跟随手指（拖拽/捏合） | 无过渡 | `0s` |
-
-```css
-/* ✅ 正确 */
-.my-app-btn { transition: transform var(--duration-fast) var(--ease-standard); }
-.my-app-dialog-enter { transition: opacity var(--duration-normal) var(--ease-decelerate); }
-.my-app-dialog-leave { transition: opacity var(--duration-fast) var(--ease-accelerate); }
-
-/* ❌ 错误：写死秒数 + CSS 关键字曲线 */
-.my-app-btn { transition: transform 0.2s ease; }
-```
-
-### 5.5.1.1 Spring 分档怎么选
-
-系统提供 4 档弹簧曲线，对应 iOS 官方的命名预设。**它们不是「程度的深浅」，而是不同用途**：
-
-| 档位 | 像什么 | 用在哪 | ⚠️ 别用在哪 |
-|---|---|---|---|
-| `--motion-spring-snappy` | 利落，微微回弹 | 弹窗进入、卡片抬起、按钮反馈 | — |
-| `--motion-spring-bouncy` | 明显回弹 | 点赞、发帖成功、徽章点亮 | **弹窗进入、文字动画**（会显得玩具化） |
-| `--motion-spring-smooth` | 完全不回弹 | 面板尺寸变化、内容淡入、侧栏 | — |
-| `--motion-spring-interactive` | 紧跟手指 | 拖拽把手、长按反馈 | 大面积元素（会显得躁） |
-
-**最容易犯的错**：把 `bouncy` 当作"更好看的弹簧"到处用。过冲明显的曲线用在弹窗和文字上，是「廉价的卡通感」而非「高级的流畅感」。**bouncy 只属于庆祝场景，且要偶发。**
-
-### 5.5.2 三条铁律
-
-1. **禁止写秒数**（`0.2s`），用 `var(--duration-fast/normal/slow)`；
-2. **禁止用 `ease` / `ease-in` / `ease-out` 关键字**，用 `var(--ease-*)` 或 `var(--motion-spring-*)`（循环动画的 `linear` 除外）；
-3. **退出必须比进入快**。这条最容易被忽略，也最影响手感：用户点开时愿意等 0.25s 看内容，但关闭时已经知道结果了——进出等长会让人感觉「点完还得盯着它收完」。
-
-### 5.5.2.1 入场缩放：never scale to 0
-
-```css
-/* ❌ 从 0 长出来，像凭空出现 */
-.my-app-panel-enter { transform: scale(0); }
-/* ✅ 从 0.95 起步，像「长大」 */
-.my-app-panel-enter { transform: scale(0.95); opacity: 0; }
-```
-
-`scale(0)` 产生「通用崩坏感」。改用 `scale(0.9 ~ 0.96)` 配合 `opacity`。
-
-**例外**：进度条、波形条的 `scaleX(0)` / `scaleY(0)` 是「长度从零生长」的语义，属合理用法。
-
-### 5.5.2.2 错开编舞：让列表「活」起来
-
-系统提供 `.ci-stagger` 工具类，子项自动获得 0 / 50 / 100 / 150ms… 的递增延时：
-
-```html
-<div class="ci-stagger">
-  <div class="my-app-item">…</div>
-  <div class="my-app-item">…</div>
-</div>
-```
-
-这是 iOS 界面「高级感」的来源——**不是某个动画漂亮，而是多个动画错开执行**。最多覆盖 12 项，关闭动画时会自动清零延时。
-
-### 5.5.3 只动 `transform` 和 `opacity`
-
-浏览器只有这两个属性可以跳过「布局」和「绘制」，直接在合成器上完成。
-
-```css
-/* ❌ 触发重排，会卡 */
-.my-app-panel { transition: width 0.25s var(--ease-standard); }
-/* ✅ 用 transform 位移替代 */
-.my-app-panel { transition: transform var(--duration-normal) var(--ease-standard); }
-```
-
-**禁止过渡**：`width` / `height` / `top` / `left` / `margin` / `padding` / `background-position`。
-
-### 5.5.4 毛玻璃：少用，且别放在列表里
-
-`backdrop-filter` 会触发全屏重采样，**是帧率杀手**。SDK 会自动在滚动期间降级它，但你自己的用法也要克制：
-
-| 位置 | 能用吗 |
-|---|---|
-| 顶部导航栏、侧边栏、弹窗背景 | ✅ 可以 |
-| 卡片 | ⚠️ 单屏最多 3 个 |
-| 列表项 | ❌ 不要用，滚动必卡 |
-
----
-
-## 6. 生命周期
-
-你的应用会经历这些状态，框架自动管理：
-
-```
-idle → loading → active ⇄ suspended → idle
-```
-
-| 状态 | 触发 | 你需要注意 |
-|---|---|---|
-| `loading` | 用户从桌面打开 | — |
-| `active` | `mount()` 完成 | 正常渲染 |
-| `suspended` | 用户切到别的应用 / 平板锁屏 | 框架会**回收你的计时器**（省电）；重新 `active` 后需重建 |
-| `idle` | 用户离开应用 | `onDestroy` 回调被调用 |
-
-**关于 `suspended`**：如果你的应用依赖 `setInterval` 做动画或轮询，被挂起后计时器会停。恢复后不会自动重启 —— 请在 `context.data.realtime` 的事件回调里驱动状态更新，而不是靠定时器轮询。
-
----
-
-## 7. 完整示例：五子棋
-
-`market-apps/gomoku/` 是本指南的参考实现，建议直接对照阅读：
-
-| 文件 | 看点 |
-|---|---|
-| `frontend/entry.js` | 如何用 `context.ui.*` 搭界面、如何用 `onDestroy` 收尾、如何用 `storage` 存偏好 |
-| `frontend/style.css` | 如何只消费令牌、如何用 margin 代替 flex gap |
-| `manifest.json` | manifest 字段示例 |
-
----
-
-## 8. 调试
-
-1. **本地开发**：把应用目录放进 `market-apps/`，在 ClassIntra 里安装启用；
-2. **看日志**：`context.app.log()` 的输出带 `[app:my-app]` 前缀，便于过滤；
-3. **看残留**：卸载应用后，若控制台出现 `[ResourceAuditor] "my-app" 卸载后残留全局变量: xxx`，说明你污染了全局，需要修；
-4. **查内核状态**：在控制台执行 `window.ClassIntraMarket.diagnostics()`，可看到启动阶段耗时、各应用生命周期状态、待回收资源数。
-
----
-
-## 9. 常见错误
-
-| 现象 | 原因 | 修法 |
-|---|---|---|
-| 白屏，控制台报 `Unexpected token` | 用了 `const` / 箭头函数 / 模板字符串 | 见 §3.1 |
-| 深色模式下颜色不对 | 样式里写死了颜色 | 改用令牌，见 §5 |
-| 间距在某些设备上消失 | 用了 flex `gap` | 改用 `margin` |
-| 切出去再回来，界面不动了 | 定时器被回收 | 改用 `realtime` 事件驱动，见 §6 |
-| 卸载后平板发热/耗电 | 有未清理的 `setInterval` 或全局监听 | 全部放进 `context.app.onDestroy` |
-| 实时消息收不到 | 用了原生 `WebSocket` | 改用 `context.data.realtime` |
-
----
-
-## 10. 提交前自查清单
-
-**兼容性**
-- [ ] `entry.js` 无 `const` / `let` / 箭头函数 / 模板字符串 / 可选链 / `class`
-- [ ] CSS 无 flex `gap`、无 `:is()`/`:where()`
-- [ ] 没有直接使用原生 `WebSocket`
-
-**视觉一致**
-- [ ] CSS 未写死颜色，全部用 `--*` 令牌
-- [ ] 圆角/间距/字号均取自令牌，无硬编码 px 值
-- [ ] CSS 类名有自己的前缀
-- [ ] 切深色模式后界面正常
-
-**动效与流畅**
-- [ ] 所有 `transition` 用 `var(--duration-*)`，无写死秒数
-- [ ] 所有曲线用 `var(--ease-*)`，无 `ease` / `ease-out` 关键字
-- [ ] 退出时长 ≤ 进入时长
-- [ ] 无 `transition: all`
-- [ ] 未过渡布局属性（`width`/`height`/`top`/`left`/`margin`/`padding`）
-- [ ] 毛玻璃未用在列表项上
-
-**生命周期**
-- [ ] 所有计时器 / 全局监听 / SDK 片段都在 `context.app.onDestroy` 里清理
+## 附：常见问题
+
+| 现象 | 原因与解决 |
+|------|-----------|
+| 应用不出现在桌面 | manifest 校验未过（跑 diag.js）；或前端未重新构建 |
+| 小组件不显示 | 只创建了组件文件、未把 JSON 片段合并进 `frontend.widgets[]` |
+| 主题不在列表 | `type` 不是 light/dark；tokens.js 未导出 TOKENS；未构建前端 |
+| route 冲突 | 两个应用声明了同一 `frontend.route`（diag.js 会标红） |
+| 字段被静默丢弃 | 若走 market-apps/ 分发，需同步改 `_validateMarketManifest()`（见 schema 头部警示） |
