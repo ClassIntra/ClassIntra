@@ -6,6 +6,7 @@ var fs = require('fs');
 var path = require('path');
 var manifestLoader = require('./manifest-loader');
 var rateLimitLib = require('../middleware/rate-limit').createRateLimiter;
+var hotReload = require('./hot-reload');
 
 // 挂载单个 backend 声明（主 backend 或 extraBackends 中的一项）
 // backend 形如 { mountPath, entry, rateLimit? }
@@ -20,18 +21,25 @@ function _mountOne(app, m, backend) {
     return false;
   }
   try {
-    // 清除 require 缓存（开发时热加载）
-    delete require.cache[require.resolve(entryPath)];
-    var router = require(entryPath);
-    // 应用 manifest 中声明的 rateLimit
+    // rateLimit 挂在代理/路由外层，热重载时限流规则保持不变
     if (backend.rateLimit) {
       var opts = backend.rateLimit;
       var rlOpts = { max: opts.max, windowMs: opts.windowMs };
       if (opts.message) rlOpts.message = opts.message;
       app.use(backend.mountPath, rateLimitLib(rlOpts));
     }
-    app.use(backend.mountPath, router);
-    console.log('[route-aggregator] 挂载应用路由:', appName, '->', backend.mountPath);
+    if (hotReload.enabled()) {
+      // 开发模式：惰性热重载代理（CLASSINTRA_HOT_RELOAD=1）
+      var watchDir = path.dirname(entryPath);
+      app.use(backend.mountPath, hotReload.createHotProxy(appName + ':' + backend.mountPath, entryPath, watchDir));
+      console.log('[route-aggregator] 挂载应用路由(热重载):', appName, '->', backend.mountPath);
+    } else {
+      // 生产模式：一次性加载
+      delete require.cache[require.resolve(entryPath)];
+      var router = require(entryPath);
+      app.use(backend.mountPath, router);
+      console.log('[route-aggregator] 挂载应用路由:', appName, '->', backend.mountPath);
+    }
     return true;
   } catch (e) {
     console.error('[route-aggregator] 挂载应用路由失败:', appName, e.message);

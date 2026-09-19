@@ -20,6 +20,11 @@ node scripts/diag.js all            # 全部
 # 构建与运行
 cd client && node node_modules/vite/bin/vite.js build   # 前端构建（新模块构建后生效）
 cd server && node src/app.js                            # 启动服务器
+
+# 后端热重载（可选，开发机用）：改 apps/*/backend 或 plugins/*/backend 代码免重启
+cd server && $env:CLASSINTRA_HOT_RELOAD='1'; node src/app.js
+# 注意：只热重载各模块 backend/ 目录内的文件；改宿主层（server/src/*）或
+# 前端仍需重启/构建；模块内存状态（缓存等）随重载重置
 ```
 
 插件（backend-only 扩展）的开发见 `plugins/README.md`；应用/主题/小组件均属**主仓**，直接提交。
@@ -97,7 +102,7 @@ apps/my-app/
 node scripts/scaffold.js widget my-app my-clock --name "时钟"
 ```
 
-生成组件文件后，**必须把命令行打印的 JSON 片段合并进应用 manifest 的 `frontend.widgets[]`**（小组件由 manifest 声明驱动，纯组件文件不生效）。
+生成组件文件后，脚手架会**自动把小组件声明合并进应用 manifest 的 `frontend.widgets[]`**（小组件由 manifest 声明驱动，纯组件文件不生效）——无需手动编辑 manifest。
 
 ### manifest 声明结构
 
