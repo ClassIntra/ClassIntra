@@ -206,9 +206,9 @@ export default {
 
 /* 文件夹图标容器（圆角矩形 + 毛玻璃） */
 .folder-tile-icon {
-  width: 72px;
-  height: 72px;
-  border-radius: var(--radius-xl);
+  width: 60px;
+  height: 60px;
+  border-radius: var(--radius-lg);
   background: rgba(255, 255, 255, 0.45);
   backdrop-filter: var(--glass-blur-thin);
   -webkit-backdrop-filter: var(--glass-blur-thin);
@@ -224,8 +224,8 @@ export default {
 
 /* 文件夹内 3×3 小图标网格 */
 .folder-tile-grid {
-  width: 56px;
-  height: 56px;
+  width: 46px;
+  height: 46px;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   grid-template-rows: repeat(3, 1fr);
