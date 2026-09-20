@@ -77,9 +77,9 @@ export default {
 /* 图标容器 */
 .app-icon-img-wrap {
   position: relative;
-  width: 72px;
-  height: 72px;
-  border-radius: var(--radius-xl);
+  width: 60px;
+  height: 60px;
+  border-radius: var(--radius-lg);
   overflow: visible;  /* 允许角标溢出 */
   display: flex;
   align-items: center;
@@ -91,7 +91,7 @@ export default {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-lg);
   pointer-events: none;
   -webkit-user-drag: none;
 }
@@ -104,7 +104,7 @@ export default {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 76px;
+  max-width: 64px;
   line-height: 1.2;
   pointer-events: none;
 }
@@ -190,12 +190,12 @@ export default {
 /* 小屏适配 */
 @media (max-width: 520px), (max-height: 400px) {
   .app-icon-img-wrap {
-    width: 60px;
-    height: 60px;
+    width: 52px;
+    height: 52px;
   }
   .app-icon-label {
     font-size: 11px;
-    max-width: 72px;
+    max-width: 56px;
   }
 }
 </style>

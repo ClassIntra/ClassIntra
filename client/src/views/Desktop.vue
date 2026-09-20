@@ -1679,9 +1679,9 @@ export default {
 }
 
 .dock-icon {
-  width: 72px;
-  height: 72px;
-  border-radius: var(--radius-xl);
+  width: 60px;
+  height: 60px;
+  border-radius: var(--radius-lg);
   display: -webkit-flex;
   display: flex;
   -webkit-align-items: center;
@@ -1764,8 +1764,8 @@ export default {
     margin: 0 6px;
   }
   .dock-icon {
-    width: 60px;
-    height: 60px;
+    width: 52px;
+    height: 52px;
     border-radius: var(--radius-md);
   }
   .dock-badge {

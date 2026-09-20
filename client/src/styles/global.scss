@@ -1415,15 +1415,15 @@ input[type="radio"]:checked::after {
 // ghost 被 append 到 document.body，不在任何 Vue 组件 DOM 树内，
 // 因此必须放在全局（非 scoped）样式，否则尺寸/圆角不生效导致图标按自然尺寸（512px）放大。
 .desktop-drag-ghost {
-  width: 72px;
-  height: 72px;
+  width: 60px;
+  height: 60px;
   pointer-events: none;
 }
 
 .desktop-drag-ghost-img {
-  width: 72px;
-  height: 72px;
-  border-radius: var(--radius-xl);
+  width: 60px;
+  height: 60px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
   -webkit-box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
@@ -1438,9 +1438,9 @@ input[type="radio"]:checked::after {
 
 // folder 拖拽 ghost：3×3 网格缩略图（与 DesktopFolder 槽位形态视觉一致）
 .desktop-drag-ghost-folder {
-  width: 72px;
-  height: 72px;
-  border-radius: var(--radius-xl);
+  width: 60px;
+  height: 60px;
+  border-radius: var(--radius-lg);
   background: rgba(255, 255, 255, 0.45);
   -webkit-backdrop-filter: var(--glass-blur-thin);
   backdrop-filter: var(--glass-blur-thin);
