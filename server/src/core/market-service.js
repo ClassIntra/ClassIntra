@@ -276,6 +276,8 @@ function listInstalled() {
       // 能力披露：安装前告知用户「这个应用会用到什么」。
       // 非拦截（开放模型），仅用于 UI 展示与市场审核参考。
       capabilities: Array.isArray(m.capabilities) ? m.capabilities : [],
+      // 布局偏好透传（如 navbar: 'custom' 让应用自绘标题栏）
+      layout: m.layout || null,
       route: m.frontend && m.frontend.route ? m.frontend.route : '',
       frontendEntry: m.frontend && m.frontend.entry ? m.frontend.entry : '',
       frontendStyle: m.frontend && m.frontend.style ? m.frontend.style : '',

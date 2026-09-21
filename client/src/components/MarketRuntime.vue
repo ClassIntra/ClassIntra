@@ -78,7 +78,8 @@ export default {
     readLayout: function() {
       var self = this;
       var def = self.mountedDefinition;
-      var manifest = (def && def.manifest) || {};
+      // manifest 来源优先级：应用注册时自带 → registry 已安装对象（server 从 manifest 透传的字段子集，含 layout）
+      var manifest = (def && def.manifest) || marketRegistry.getInstalled(self.appName) || {};
       // 标题：优先 manifest.label / name
       self.appTitle = manifest.label || manifest.title || manifest.name || self.appName;
       // 导航栏：manifest.layout.navbar === 'custom' 时隐藏系统导航栏
