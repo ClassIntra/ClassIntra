@@ -300,6 +300,11 @@
           <div v-if="isNcmTab && ncmSearchError && !ncmLoading" class="list-empty">
             <i class="fa-solid fa-circle-exclamation"></i>
             <p>{{ ncmSearchError }}</p>
+            <!-- 匿名请求最易被网易云设备验证拦截（-462），未登录时给登录引导 -->
+            <button v-if="!ncmLoggedIn" class="playlist-action-btn" @click="startQrLogin">
+              <i class="fa-solid fa-qrcode"></i>
+              <span>扫码登录网易云（降低拦截）</span>
+            </button>
             <button class="playlist-action-btn" @click="onSearchEnter">
               <i class="fa-solid fa-rotate-right"></i>
               <span>重试</span>
@@ -2435,8 +2440,8 @@ export default {
           vm.ncmSearchResults = [];
           vm.ncmHasMore = false;
           vm.ncmLoading = false;
-          vm.ncmSearchError = '搜索受限（网易云风控），请稍后重试';
-          vm.showNcmMsg('搜索受限（网易云风控），请稍后重试', { type: 'error' });
+          vm.ncmSearchError = '搜索受限（网易云风控），请稍后重试' + (vm.ncmLoggedIn ? '' : '；登录网易云账号可显著降低拦截');
+          vm.showNcmMsg('搜索受限（网易云风控），请稍后重试' + (vm.ncmLoggedIn ? '' : '；登录网易云可降低拦截'), { type: 'error' });
           return;
         }
         var result = body.result || {};
