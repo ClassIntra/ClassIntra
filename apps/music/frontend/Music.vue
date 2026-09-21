@@ -346,7 +346,8 @@
             <div class="mini-title">{{ currentSong.title }}</div>
             <div class="mini-artist">{{ currentSong.artist }}</div>
           </div>
-          <div class="mini-progress" :style="{ transform: 'scaleX(' + (progressPercent / 100) + ')' }"></div>
+          <!-- 进度由歌词引擎直写 DOM（syncPlaybackUi），不走响应式避免 10Hz 全组件重渲染 -->
+          <div class="mini-progress" ref="miniProgressFill"></div>
           <button class="mini-btn" @click.stop="togglePlay">
             <i :class="isPlaying ? 'fa-solid fa-pause' : 'fa-solid fa-play'"></i>
           </button>
@@ -456,11 +457,12 @@
               >
                 <div class="progress-track"></div>
                 <div class="progress-buffered" :style="bufferedStyle"></div>
-                <div class="progress-fill" :style="progressFillStyle"></div>
-                <div class="progress-thumb" :style="progressThumbStyle"></div>
+                <!-- 进度条 / 时间文本由引擎直写 DOM（syncPlaybackUi），脱离响应式时钟 -->
+                <div class="progress-fill" ref="progressFill"></div>
+                <div class="progress-thumb" ref="progressThumb"></div>
               </div>
               <div class="time-row">
-                <span>{{ formattedCurrentTime }}</span>
+                <span ref="timeNow">0:00</span>
                 <span>{{ formattedDuration }}</span>
               </div>
             </div>
@@ -855,6 +857,9 @@ export default {
       lyricsMode: 'scroll',
       prevVolume: 0.8,
       isDragging: false,
+      // 当前歌词行索引：改为数据属性，由引擎仅在「真正跨行」时赋值。
+      // 之前是依赖 currentTime 的 computed，会让 10Hz 时钟提交触发整个组件重渲染
+      currentLyricIndex: -1,
       isVolDragging: false,
       shuffleHistory: [],
       shufflePool: [],
@@ -1060,26 +1065,12 @@ export default {
         return s.title.toLowerCase().indexOf(q) !== -1 || s.artist.toLowerCase().indexOf(q) !== -1;
       });
     },
-    progressPercent: function() {
-      return this.duration > 0 ? Math.min(100, (this.currentTime / this.duration) * 100) : 0;
-    },
-    progressFillStyle: function() {
-      return { transform: 'scaleX(' + (this.progressPercent / 100) + ')' };
-    },
-    progressThumbStyle: function() {
-      return { left: this.progressPercent + '%' };
-    },
     bufferedStyle: function() {
       if (this.duration <= 0 || this.bufferedEnd <= 0) return { transform: 'scaleX(0)' };
       return { transform: 'scaleX(' + Math.min(1, this.bufferedEnd / this.duration) + ')' };
     },
     volumePercent: function() { return this.isMuted ? 0 : this.volume * 100; },
-    formattedCurrentTime: function() { return this.fmt(this.currentTime); },
     formattedDuration: function() { return this.fmt(this.duration); },
-    currentLyricIndex: function() {
-      if (!this.lyrics || !this.lyrics.lines) return -1;
-      return lrcParser.findCurrentLine(this.lyrics.lines, this.currentTime);
-    },
     hasLyrics: function() {
       return this.currentSong && this.currentSong.hasLyrics && this.lyrics && this.lyrics.lines.length > 0;
     },
@@ -1141,6 +1132,7 @@ export default {
     }
   },
   watch: {
+    // 行切换（引擎仅在真正跨行时赋值）：滚动 + 重新捕获词节点
     currentLyricIndex: function(n, o) {
       if (n !== o && n >= 0) {
         this.scrollLyric(n);
@@ -1148,30 +1140,49 @@ export default {
         this.captureActiveWords();
       }
     },
-    // 歌词整体替换（切歌 / 翻译合并完成）后重置逐字引擎缓存
+    // 歌词整体替换（切歌 / 翻译合并完成）后重置逐字引擎缓存并立即对齐行索引
     lyrics: function() {
+      this.syncLyricLine();
       this.captureActiveWords();
     },
     // 滚动 / 逐字模式切换后 DOM 重建，重新捕获
     lyricsMode: function() {
       this.captureActiveWords();
     },
-    // 暂停时引擎停转，拖拽/点击跳转后手动刷新一次逐字状态
+    // 暂停状态下拖拽/点击跳转：引擎停转，这里一次性刷新全部时钟 UI
     currentTime: function() {
-      if (!this.isPlaying) this.updateWordProgress();
+      if (!this.isPlaying) {
+        this.syncPlaybackUi();
+        this.syncLyricLine();
+        this.updateWordProgress();
+      }
     },
-    // 播放页开关 + 播放状态：控制逐字引擎启停
+    // 播放页开关：打开时对齐一次状态；关闭时只丢弃词节点缓存，
+    // 引擎继续运行（列表页迷你进度条仍需要时钟驱动）
     showPlayer: function(open) {
       if (open) {
         this.captureActiveWords();
+        this.syncPlaybackUi();
+        this.syncLyricLine();
+        this.updateWordProgress();
         if (this.isPlaying) this.startLyricEngine();
       } else {
-        this.stopLyricEngine();
+        this._wordLine = null;
+        this._wordEls = null;
+        this._wordIdx = -1;
       }
     },
+    // 引擎随播放启停：播放期间它同时是迷你条 / 播放页共用的时钟源
     isPlaying: function(playing) {
-      if (playing && this.showPlayer) this.startLyricEngine();
-      else this.stopLyricEngine();
+      if (playing) {
+        this.startLyricEngine();
+      } else {
+        this.stopLyricEngine();
+        // 暂停瞬间刷一次最终状态
+        this.syncPlaybackUi();
+        this.syncLyricLine();
+        this.updateWordProgress();
+      }
     },
     // 音量 / 播放模式偏好持久化（刷新后保持）
     volume: function(v) {
@@ -1596,15 +1607,20 @@ export default {
     onLyricsUserScroll: function() {
       this._lyricUserScrollAt = Date.now();
     },
-    /* ========== 歌词逐字引擎（直接 DOM 写入，脱离 Vue 响应式） ========== */
+    /* ========== 播放时钟 + 歌词逐字引擎（直接 DOM 写入，脱离 Vue 响应式） ========== */
     startLyricEngine: function() {
       if (this._lyricRaf) return;
       var vm = this;
       var frame = 0;
       var loop = function() {
         vm._lyricRaf = requestAnimationFrame(loop);
+        // 时钟 UI（进度条/时间文本/迷你条）每帧直写 DOM——绝不触发 Vue 重渲染
+        vm.syncPlaybackUi();
         // 逐字渐变推进 30fps 足够（60fps 与 30fps 人眼无感），文字层 paint 次数减半
-        if ((frame++ & 1) === 0) vm.updateWordProgress();
+        if ((frame++ & 1) === 0) {
+          vm.syncLyricLine();
+          vm.updateWordProgress();
+        }
       };
       vm._lyricRaf = requestAnimationFrame(loop);
     },
@@ -1613,6 +1629,35 @@ export default {
         cancelAnimationFrame(this._lyricRaf);
         this._lyricRaf = null;
       }
+    },
+    // 时钟 UI 直写：进度条 fill/thumb、时间文本、迷你条。
+    // 时钟从 Vuex(10Hz 触发全组件重渲染) 移到此处（rAF 只碰这几个节点）
+    syncPlaybackUi: function() {
+      var a = audioManager.getAudio();
+      var t = a.currentTime || 0;
+      var d = this.duration > 0 ? this.duration : (a.duration || 0);
+      var pct = d > 0 ? Math.min(100, (t / d) * 100) : 0;
+      if (pct !== this._lastPct) {
+        this._lastPct = pct;
+        var fill = this.$refs.progressFill;
+        if (fill) fill.style.transform = 'scaleX(' + (pct / 100) + ')';
+        var thumb = this.$refs.progressThumb;
+        if (thumb) thumb.style.left = pct + '%';
+        var mini = this.$refs.miniProgressFill;
+        if (mini) mini.style.transform = 'scaleX(' + (pct / 100) + ')';
+      }
+      var timeNow = this.$refs.timeNow;
+      if (timeNow) {
+        var text = this.fmt(t);
+        if (timeNow.textContent !== text) timeNow.textContent = text;
+      }
+    },
+    // 行索引同步：仅真正跨行时写响应式数据（触发滚动 + 词节点重捕获）
+    syncLyricLine: function() {
+      var lines = this.lyrics && this.lyrics.lines;
+      if (!lines || !lines.length) return;
+      var idx = lrcParser.findCurrentLine(lines, audioManager.getAudio().currentTime);
+      if (idx !== this.currentLyricIndex) this.currentLyricIndex = idx;
     },
     // 捕获当前激活行的词节点：仅在行切换 / 歌词替换时执行一次
     captureActiveWords: function() {
@@ -1653,10 +1698,10 @@ export default {
           if (!el) continue;
           if (i < idx) {
             el.classList.add('word-lit');
-            el.style.setProperty('--wp-pct', '100%');
+            if (el._wp !== 100) { el._wp = 100; el.style.setProperty('--wp-pct', '100%'); }
           } else if (i > idx) {
             el.classList.remove('word-lit');
-            el.style.removeProperty('--wp-pct');
+            if (el._wp !== -1) { el._wp = -1; el.style.removeProperty('--wp-pct'); }
           }
         }
         this._wordIdx = idx;
@@ -1668,7 +1713,12 @@ export default {
       var p = w.endTime > w.startTime ? (t - w.startTime) / (w.endTime - w.startTime) : 1;
       p = Math.min(1, Math.max(0, p));
       el.classList.add('word-lit');
-      el.style.setProperty('--wp-pct', Math.round(p * 100) + '%');
+      // 量化 2% 步进 + 跳过重复值：渐变重绘次数减半，视觉无感
+      var pct = Math.round(p * 50) * 2;
+      if (el._wp !== pct) {
+        el._wp = pct;
+        el.style.setProperty('--wp-pct', pct + '%');
+      }
     },
     scrollLyric: function(index) {
       var vm = this;
