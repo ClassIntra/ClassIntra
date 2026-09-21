@@ -34,12 +34,28 @@ function parseSongInfo(baseName) {
 }
 
 // 游客可读（歌曲列表 / 歌词）：有 token 时轻量解析身份（仅用于收藏标记），无效/缺失按游客处理
+// 封禁检查：有效 token 但用户被禁用 → 403（不降级为游客放行，与 requireAuth 行为对齐）
 function optionalAuth(req, res, next) {
   var token = constants.extractToken(req);
   req.user = null;
   if (token) {
     try {
-      req.user = jwt.verify(token, config.jwt.secret);
+      var decoded = jwt.verify(token, config.jwt.secret);
+      try {
+        var dbRow = db.prepare('SELECT status, ban_expires_at, ban_reason FROM users WHERE user_id = ?').get(decoded.user_id);
+        if (dbRow && dbRow.status === 'disabled') {
+          var banExpired = dbRow.ban_expires_at && (new Date(dbRow.ban_expires_at + 'Z') <= new Date());
+          if (banExpired) {
+            // 到期自动解封（与 requireAuth 一致）
+            db.prepare('UPDATE users SET status = \'active\', ban_expires_at = NULL, ban_reason = NULL WHERE user_id = ?').run(decoded.user_id);
+          } else {
+            return res.status(403).json({ code: 403, message: '该账号已被禁用', ban_expires_at: dbRow.ban_expires_at || null, ban_reason: dbRow.ban_reason || '' });
+          }
+        }
+      } catch (e2) {
+        console.error('Music optionalAuth DB error:', e2.message);
+      }
+      req.user = decoded;
     } catch (e) {
       req.user = null;
     }
