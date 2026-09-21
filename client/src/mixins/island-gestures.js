@@ -22,6 +22,13 @@
 var LONG_PRESS_MS = 500;
 var SWIPE_THRESHOLD = 50;
 
+// 安全取岛根元素：组件根被 v-if 摘除时 $el 是注释节点（truthy 但无 querySelector），
+// 直接调用会在每次模式切换时抛 "is not a function" 打断 watcher 队列（听歌时高频复现）
+function findIslandEl(vm) {
+  var el = vm && vm.$el;
+  return el && el.nodeType === 1 ? el.querySelector('.island') : null;
+}
+
 export default {
   data: function() {
     return {
@@ -64,7 +71,7 @@ export default {
       }
       if ((this.islandMode === 'music-compact' || this.islandMode === 'music-expanded') && dy < -10) {
         this.swipeDy = dy;
-        var islandEl = this.$el && this.$el.querySelector('.island');
+        var islandEl = findIslandEl(this);
         if (islandEl) {
           islandEl.style.transform = 'translateY(' + Math.min(0, dy) + 'px)';
           islandEl.style.transition = 'none';
@@ -78,7 +85,7 @@ export default {
         clearTimeout(this.longPressTimer);
         this.longPressTimer = null;
       }
-      var islandEl = this.$el && this.$el.querySelector('.island');
+      var islandEl = findIslandEl(this);
       // 上滑关闭音乐岛
       if ((this.islandMode === 'music-compact' || this.islandMode === 'music-expanded') && this.swipeDy < -50) {
         if (islandEl) {
@@ -199,7 +206,7 @@ export default {
      */
     animateIslandHeight: function() {
       var self = this;
-      var islandEl = self.$el && self.$el.querySelector('.island');
+      var islandEl = findIslandEl(self);
       if (!islandEl) return;
 
       // 低性能模式跳过动画
