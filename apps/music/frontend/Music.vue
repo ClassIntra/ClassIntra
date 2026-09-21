@@ -907,8 +907,9 @@ export default {
       ncmLoadingMore: false, // 搜索追加翻页加载中（按钮内联态，避免列表抖动）
       ncmLastKeyword: '',
       ncmSearchError: '', // 搜索失败态文案（风控/网络错误），非空时空态区显示重试按钮
-      _bgCrossfadeActive: false,
-      _bgCrossfadeTimer: null
+      // 注意：Vue 2 不代理 data 中 _ 开头的属性（非响应式），背景 crossfade 开关必须用响应式命名，
+      // 否则 opacity 翻转要等 currentTime tick 才重算，背景会出现闪烁（_bgCrossfadeTimer 保持 _ 前缀，仅过程用）
+      bgCrossfadeActive: false
     };
   },
   computed: {
@@ -1080,14 +1081,14 @@ export default {
     bgImageStyle: function() {
       if (this.effectMode === 'none') return { opacity: 0 };
       if (this.currentSong && this.currentSong.coverUrl) {
-        return { backgroundImage: "url('" + this.currentSong.coverUrl + "')", opacity: this._bgCrossfadeActive ? 0 : 1 };
+        return { backgroundImage: "url('" + this.currentSong.coverUrl + "')", opacity: this.bgCrossfadeActive ? 0 : 1 };
       }
       var h = this.currentSong ? hue(this.currentSong.title) : 220;
-      return { background: 'linear-gradient(135deg, hsl(' + h + ',40%,15%), hsl(' + ((h + 60) % 360) + ',30%,10%))', opacity: this._bgCrossfadeActive ? 0 : 1 };
+      return { background: 'linear-gradient(135deg, hsl(' + h + ',40%,15%), hsl(' + ((h + 60) % 360) + ',30%,10%))', opacity: this.bgCrossfadeActive ? 0 : 1 };
     },
     bgImageNextStyle: function() {
       if (this.effectMode === 'none') return { opacity: 0 };
-      if (!this._bgCrossfadeActive) return { opacity: 0 };
+      if (!this.bgCrossfadeActive) return { opacity: 0 };
       if (this.currentSong && this.currentSong.coverUrl) {
         return { backgroundImage: "url('" + this.currentSong.coverUrl + "')", opacity: 1 };
       }
@@ -1578,10 +1579,10 @@ export default {
     triggerBgCrossfade: function() {
       var vm = this;
       if (vm._bgCrossfadeTimer) { clearTimeout(vm._bgCrossfadeTimer); }
-      vm._bgCrossfadeActive = true;
+      vm.bgCrossfadeActive = true;
       vm.$nextTick(function() {
         vm._bgCrossfadeTimer = setTimeout(function() {
-          vm._bgCrossfadeActive = false;
+          vm.bgCrossfadeActive = false;
         }, 800);
       });
     },
