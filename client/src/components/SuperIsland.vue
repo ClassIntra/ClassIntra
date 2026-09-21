@@ -29,13 +29,13 @@
         <div v-else-if="islandMode === 'split'" key="split" class="island-body">
           <div class="split-content">
             <div class="split-half" @click.stop="expandActivity(0)">
-              <i :class="activeActivities[0].icon" :style="{ color: activeActivities[0].color }"></i>
-              <span class="split-text">{{ activeActivities[0].compactText }}</span>
+              <i :class="splitFirst.icon" :style="{ color: splitFirst.color }"></i>
+              <span class="split-text">{{ splitFirst.compactText }}</span>
             </div>
             <div class="split-sep"></div>
             <div class="split-half" @click.stop="expandActivity(1)">
-              <i :class="activeActivities[1].icon" :style="{ color: activeActivities[1].color }"></i>
-              <span class="split-text">{{ activeActivities[1].compactText }}</span>
+              <i :class="splitSecond.icon" :style="{ color: splitSecond.color }"></i>
+              <span class="split-text">{{ splitSecond.compactText }}</span>
             </div>
           </div>
         </div>
@@ -199,6 +199,13 @@ export default {
     },
     hasLiveActivities: function() {
       return this.activeActivities.length > 0;
+    },
+    // split 模式安全访问：activities 短暂不足 2 个时兜底占位，防止模板读 null.icon 中断渲染
+    splitFirst: function() {
+      return (this.activeActivities && this.activeActivities[0]) || { icon: 'fa-solid fa-circle', color: '', compactText: '' };
+    },
+    splitSecond: function() {
+      return (this.activeActivities && this.activeActivities[1]) || { icon: 'fa-solid fa-circle', color: '', compactText: '' };
     },
     shouldShow: function() {
       if (this.islandMode !== 'compact' && this.islandMode !== 'split') return true;
