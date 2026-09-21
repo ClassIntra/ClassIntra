@@ -330,7 +330,7 @@
       </div>
 
       <transition name="mini-slide">
-        <div v-if="currentSong" class="mini-player" @click="openPlayer">
+        <div v-if="currentSong && !showPlayer" class="mini-player" @click="openPlayer">
           <div class="mini-cover" :class="{ 'mini-cover-spin': isPlaying }">
             <img v-if="currentSong.coverUrl" :src="currentSong.coverUrl" @error="onCoverError(currentSong)" />
             <div v-else class="mini-cover-fallback">
@@ -1595,9 +1595,11 @@ export default {
     startLyricEngine: function() {
       if (this._lyricRaf) return;
       var vm = this;
+      var frame = 0;
       var loop = function() {
         vm._lyricRaf = requestAnimationFrame(loop);
-        vm.updateWordProgress();
+        // 逐字渐变推进 30fps 足够（60fps 与 30fps 人眼无感），文字层 paint 次数减半
+        if ((frame++ & 1) === 0) vm.updateWordProgress();
       };
       vm._lyricRaf = requestAnimationFrame(loop);
     },
@@ -3476,18 +3478,21 @@ export default {
 
 .eq-bar {
   width: 3px;
+  height: 12px;
   background: var(--primary-color);
   border-radius: var(--radius-xs);
+  transform-origin: center bottom;
+  /* 性能：用 transform 缩放代替 height 动画——height 每帧触发 reflow，scaleY 纯合成零重排 */
   animation: eq 0.6s ease-in-out infinite alternate;
 }
 
-.eq-bar:nth-child(1) { height: 6px; animation-delay: 0s; }
-.eq-bar:nth-child(2) { height: 10px; animation-delay: 0.15s; }
-.eq-bar:nth-child(3) { height: 4px; animation-delay: 0.3s; }
+.eq-bar:nth-child(1) { animation-delay: 0s; }
+.eq-bar:nth-child(2) { animation-delay: 0.15s; }
+.eq-bar:nth-child(3) { animation-delay: 0.3s; }
 
 @keyframes eq {
-  0% { height: 3px; }
-  100% { height: 12px; }
+  0% { transform: scaleY(0.25); }
+  100% { transform: scaleY(1); }
 }
 
 .list-empty {
@@ -3853,7 +3858,7 @@ export default {
   top: -100px; right: -100px; bottom: -100px; left: -100px;
   background-size: cover;
   background-position: center;
-  filter: blur(60px) saturate(180%) brightness(0.7);
+  filter: blur(40px) saturate(180%) brightness(0.7);
   transform: scale(1.3);
   transition: filter 0.6s var(--ease-standard);
   will-change: filter, transform;
@@ -3882,23 +3887,23 @@ export default {
 }
 
 [data-theme="dark"] .player-bg-image {
-  filter: blur(80px) saturate(200%) brightness(0.35);
+  filter: blur(48px) saturate(200%) brightness(0.35);
 }
 
 .effect-glow .player-bg-image {
-  filter: blur(30px) saturate(200%) brightness(0.8);
+  filter: blur(24px) saturate(200%) brightness(0.8);
 }
 
 [data-theme="dark"] .effect-glow .player-bg-image {
-  filter: blur(40px) saturate(250%) brightness(0.5);
+  filter: blur(32px) saturate(250%) brightness(0.5);
 }
 
 .effect-blur .player-bg-image {
-  filter: blur(80px) saturate(160%) brightness(0.6);
+  filter: blur(48px) saturate(160%) brightness(0.6);
 }
 
 [data-theme="dark"] .effect-blur .player-bg-image {
-  filter: blur(100px) saturate(180%) brightness(0.3);
+  filter: blur(56px) saturate(180%) brightness(0.3);
 }
 
 .effect-none .player-bg-image {
