@@ -5579,8 +5579,12 @@ export default {
   color: #fff;
 }
 
+/* 激活行文字的柔光晕：text-shadow 可过渡，避免发光瞬间弹入弹出 */
+.lyric-text {
+  transition: text-shadow 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 .lyric-line.lyric-active .lyric-text {
-  letter-spacing: -0.02em;
   /* 当前行柔光晕：强化「正在唱」的聚焦感 */
   text-shadow: 0 0 26px rgba(255, 255, 255, 0.22);
 }
@@ -5609,8 +5613,8 @@ export default {
 }
 
 /* 激活行未唱词保持「待点亮」的暗态，与点亮词形成清晰的卡拉OK对比 */
+/* 注意：letter-spacing 必须全态一致——激活时改变字距会引发整行回流跳动（首个字点亮瞬间「卡一下」的元凶之一） */
 .lyric-line.lyric-active .lyric-word {
-  letter-spacing: -0.02em;
   color: rgba(0, 0, 0, 0.32);
 }
 
@@ -5623,8 +5627,10 @@ export default {
   transition: color 0.3s var(--ease-standard);
 }
 
+/* 渐变暗段颜色必须与 .lyric-active .lyric-word 的暗态完全一致，
+   否则第一个字点亮的瞬间，未唱部分颜色跳变（视觉上的「闪/卡」） */
 .lyric-line.lyric-active .lyric-word.word-lit {
-  background: linear-gradient(90deg, var(--text-primary) 0%, var(--text-primary) var(--wp-pct, 100%), var(--text-tertiary) var(--wp-pct, 100%));
+  background: linear-gradient(90deg, var(--text-primary) 0%, var(--text-primary) var(--wp-pct, 100%), rgba(0, 0, 0, 0.32) var(--wp-pct, 100%));
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -5632,7 +5638,7 @@ export default {
 }
 
 [data-theme="dark"] .lyric-line.lyric-active .lyric-word.word-lit {
-  background: linear-gradient(90deg, #fff 0%, #fff var(--wp-pct, 100%), rgba(255,255,255,0.2) var(--wp-pct, 100%));
+  background: linear-gradient(90deg, #fff 0%, #fff var(--wp-pct, 100%), rgba(255,255,255,0.25) var(--wp-pct, 100%));
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -5712,14 +5718,17 @@ export default {
   color: rgba(255, 255, 255, 0.15);
 }
 
-.lyric-line:not(.lyrics-drop) .lyric-char {
+/* 行失活时字从点亮态回落到暗态必须有过渡，否则整行瞬间变暗=闪烁（每换一行闪一次）。
+   动画期间 opacity 由 charIn 接管不受影响；过渡只作用于类切换瞬间 */
+.lyric-char {
   transition: opacity var(--duration-slow) var(--ease-standard);
 }
 
 .lyric-line.lyrics-drop.lyric-active .lyric-char {
   color: var(--text-primary);
   opacity: 1;
-  will-change: transform, opacity;
+  /* 不加 will-change：激活瞬间给 20+ 字同时建合成层会造成层风暴，
+     卡在第一个字的入场帧；charIn 动画的 transform/opacity Chrome 会自动提升 */
   animation: charIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) calc(var(--i, 0) * 60ms) both;
 }
 
