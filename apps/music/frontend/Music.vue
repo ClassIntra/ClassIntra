@@ -3892,6 +3892,9 @@ export default {
   flex-direction: column;
   overflow: hidden;
   color: var(--text-primary);
+  /* 不透明底色：防止模糊背景未加载 / effect-none 时透出底下的列表页
+     （fixed 层只有半透明模糊图撑底，下层内容会闪现重叠） */
+  background: var(--bg-color);
 }
 
 [data-theme="dark"] .player-page {
@@ -4089,8 +4092,8 @@ export default {
   cursor: pointer;
   transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
   flex-shrink: 0;
-  backdrop-filter: var(--glass-blur-container);
-  -webkit-backdrop-filter: var(--glass-blur-container);
+  /* 不用 backdrop-filter：按钮背后是持续漂移动画的模糊背景，
+     毛玻璃每帧重采样导致按钮看起来在闪（低端设备尤甚） */
 }
 
 [data-theme="dark"] .player-back-btn {
