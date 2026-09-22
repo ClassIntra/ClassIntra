@@ -1103,6 +1103,7 @@ import 'katex/dist/katex.min.css';
 import 'highlight.js/styles/github-dark.min.css';
 import LatexRenderer from '@/utils/latex-renderer';
 import { getMediaTypeByName } from '@/utils/media-recorder.js';
+import { filterRenderable } from '@/utils/emoji-support';
 
 var TAG_COLORS = [
   '#007AFF', '#34C759', '#FF9500', '#AF52DE', '#FF3B30',
@@ -1268,13 +1269,13 @@ export default {
       resultsPostId: null,
       resultsData: null,
       resultsLoading: false,
-      emojiList: [
+      emojiList: filterRenderable([
         '😀','😂','🤣','😊','😍','🥰','😘','😜','🤔','😏',
         '😢','😭','😤','🤯','😱','🥳','😴','🤗','🤩','😎',
         '👍','👎','👏','🙌','🤝','💪','✌️','🤞','👋','🫶',
         '❤️','🧡','💛','💚','💙','💜','🖤','💔','💯','🔥',
         '⭐','🌟','✨','🎉','🎊','🏆','🎯','💡','📌','🔔'
-      ],
+      ]),
     };
   },
   computed: {
