@@ -9,13 +9,13 @@
   "order": 7,
   "defaultEnabled": true,
   "canDisable": false,
-  "visibleRoles": ["admin", "officer"],
+  "visibleRoles": ["classAdmin"],
   "frontend": {
     "route": "/market",
     "routeName": "Market",
     "component": "./frontend/Market.vue",
     "meta": {
-      "requiresAdmin": true
+      "requiresClassAdmin": true
     }
   }
 }
