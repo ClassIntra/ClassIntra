@@ -104,6 +104,41 @@
         </div>
         <div class="forward-action">点击加入对局 <i class="fa-solid fa-chevron-right"></i></div>
       </div>
+      <!-- 象棋对局邀请卡片：结构与五子棋卡片一致，图标换朱砂棋子 -->
+      <div v-else-if="message.type === 'chess_invite'" class="bubble-content bubble-forward bubble-chess" @click="onChessInviteClick">
+        <div class="forward-label"><i class="fa-solid fa-chess-rook"></i> 象棋对局邀请</div>
+        <div class="forward-card forward-card-chess">
+          <svg class="chess-invite-icon" width="44" height="44" viewBox="0 0 44 44" aria-hidden="true">
+            <defs>
+              <linearGradient id="chessInviteWood" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#F5E3B8"/>
+                <stop offset="1" stop-color="#DBB273"/>
+              </linearGradient>
+              <radialGradient id="chessInvitePiece" cx="0.34" cy="0.28" r="1">
+                <stop offset="0" stop-color="#FCE8DD"/>
+                <stop offset="0.55" stop-color="#D9805E"/>
+                <stop offset="1" stop-color="#8E3B24"/>
+              </radialGradient>
+            </defs>
+            <rect width="44" height="44" rx="10" fill="url(#chessInviteWood)"/>
+            <rect x="1.25" y="1.25" width="41.5" height="41.5" rx="8.75" fill="none" stroke="#FFF4DC" stroke-opacity="0.75" stroke-width="1.5"/>
+            <g stroke="#A87F42" stroke-width="1.5" opacity="0.65" stroke-linecap="round">
+              <path d="M9 13h26M9 22h26M9 31h26M13 9v26M22 9v26M31 9v26"/>
+            </g>
+            <circle cx="22" cy="22" r="1.4" fill="#A87F42" opacity="0.8"/>
+            <!-- 朱砂圆棋子 + 刻字「帅」 -->
+            <circle cx="22" cy="22" r="12.5" fill="url(#chessInvitePiece)"/>
+            <circle cx="22" cy="22" r="12.5" fill="none" stroke="#7A2018" stroke-opacity="0.55" stroke-width="1"/>
+            <circle cx="22" cy="22" r="9.8" fill="none" stroke="#7A2018" stroke-opacity="0.5" stroke-width="0.9"/>
+            <text x="22" y="27" text-anchor="middle" font-size="12.5" font-weight="700" fill="#5E170E" style="font-family: 'Kaiti SC', KaiTi, STKaiti, serif">帅</text>
+          </svg>
+          <div class="forward-music-info">
+            <div class="forward-title">房间码 {{ chessInviteData.roomCode || '------' }}</div>
+            <div class="forward-meta"><i class="fa-solid fa-users"></i> {{ chessInviteData.senderName || '同学' }} 邀请你加入对局</div>
+          </div>
+        </div>
+        <div class="forward-action">点击加入对局 <i class="fa-solid fa-chevron-right"></i></div>
+      </div>
       <div v-else class="bubble-content">
         <div v-if="message.reply_to" class="reply-quote" @click="onReplyQuoteClick">
           <div class="reply-quote-name">{{ message.reply_to.user_name }}</div>
@@ -282,6 +317,15 @@ export default {
         return {};
       }
     },
+    // 象棋邀请卡片数据：结构对齐五子棋卡片
+    chessInviteData: function() {
+      if (this.message.type !== 'chess_invite') return {};
+      try {
+        return JSON.parse(this.message.content) || {};
+      } catch (e) {
+        return {};
+      }
+    },
     aiBatchCount: function() {
       return (this.aiBatchData.messages || []).length;
     },
@@ -440,6 +484,12 @@ export default {
       if (this._suppressClickAfterLongPress()) return;
       var code = this.gomokuInviteData.roomCode;
       if (code) this.$router.push('/gomoku?roomCode=' + encodeURIComponent(String(code).toUpperCase()));
+    },
+    // 象棋邀请卡片：点击直达象棋房间（对齐五子棋卡片跳转）
+    onChessInviteClick: function() {
+      if (this._suppressClickAfterLongPress()) return;
+      var code = this.chessInviteData.roomCode;
+      if (code) this.$router.push('/chess?roomCode=' + encodeURIComponent(String(code).toUpperCase()));
     },
     // 长按弹出菜单后的合成 click 需要被抑制，否则会误触底层跳转/预览。
     // touchend 上的 preventDefault 不足以阻止合成 click，故改用时间窗判定。
@@ -829,6 +879,30 @@ export default {
 }
 
 .own-bubble .bubble-gomoku .forward-label {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* 象棋邀请卡片：结构对齐五子棋卡片，强调色换朱砂 */
+.forward-card-chess {
+  display: flex;
+  align-items: center;
+}
+
+.chess-invite-icon {
+  display: block;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md);
+  flex-shrink: 0;
+  margin-right: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+}
+
+.bubble-chess .forward-label {
+  color: #b91c1c;
+}
+
+.own-bubble .bubble-chess .forward-label {
   color: rgba(255, 255, 255, 0.7);
 }
 

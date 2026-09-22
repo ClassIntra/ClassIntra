@@ -1100,13 +1100,19 @@ export default {
     },
     forwardPreviewTitle: function() {
       if (!this.pendingForward) return '';
-      // 五子棋邀请卡片：固定标题，房间码作为副内容展示
+      // 棋类邀请卡片：固定标题，房间码作为副内容展示。
+      // 按应用区分标题：chess 的 cardData 带 app:'chess'（旧兜底「带 roomCode 即五子棋」
+      // 会让象棋邀请显示成五子棋——2026-09-22 用户实测）
+      if (this.pendingForwardType === 'chess_invite' || (this.pendingForward.roomCode && this.pendingForward.app === 'chess')) return '象棋对局邀请';
       if (this.pendingForwardType === 'gomoku_invite' || this.pendingForward.roomCode) return '五子棋对局邀请';
       if (this.pendingForward.playlistName) return this.pendingForward.playlistName;
       return this.pendingForward.title || this.pendingForward.dish_name || '帖子';
     },
     forwardPreviewContent: function() {
       if (!this.pendingForward) return '';
+      if (this.pendingForwardType === 'chess_invite' || (this.pendingForward.roomCode && this.pendingForward.app === 'chess')) {
+        return '房间码 ' + this.pendingForward.roomCode + ' · 点击卡片直接进入对局';
+      }
       if (this.pendingForwardType === 'gomoku_invite' || this.pendingForward.roomCode) {
         return '房间码 ' + this.pendingForward.roomCode + ' · 点击卡片直接进入对局';
       }
@@ -1239,7 +1245,8 @@ export default {
       if (!content) return '';
       // community_forward 已在各预览函数单独处理
       if (type === 'community_forward') return content;
-      // 五子棋邀请卡片：侧栏预览显示固定文案，不暴露 JSON 原文
+      // 棋类邀请卡片：侧栏预览显示固定文案，不暴露 JSON 原文
+      if (type === 'chess_invite') return '[象棋对局邀请]';
       if (type === 'gomoku_invite') return '[五子棋对局邀请]';
       if (typeof content !== 'string') content = String(content);
       var mediaType = detectMediaType(content);
@@ -2950,14 +2957,22 @@ export default {
       var isMusicPlaylist = self.pendingForwardType === 'music_playlist' || !!forwardData.playlistId;
       var isAiForward = self.pendingForwardType === 'ai_forward';
       var isAiBatch = self.pendingForwardType === 'ai_batch';
-      // 五子棋邀请卡片：forwardType 显式指定，或数据带 roomCode 字段（兼容缺省）
-      var isGomokuInvite = self.pendingForwardType === 'gomoku_invite' || !!forwardData.roomCode;
-      var msgType = isMusicPlaylist ? 'music_playlist' : (isCommunityForward ? 'community_forward' : (isAiForward ? 'ai_forward' : (isAiBatch ? 'ai_batch' : (isGomokuInvite ? 'gomoku_invite' : 'text'))));
+      // 棋类邀请卡片：forwardType 显式指定，或数据带 roomCode 字段（兼容缺省）。
+      // chess 的 cardData 带 app:'chess'，必须先于五子棋兜底判断，否则被发成 gomoku_invite
+      var isChessInvite = self.pendingForwardType === 'chess_invite' || (forwardData.roomCode && forwardData.app === 'chess');
+      var isGomokuInvite = !isChessInvite && (self.pendingForwardType === 'gomoku_invite' || !!forwardData.roomCode);
+      var msgType = isMusicPlaylist ? 'music_playlist' : (isCommunityForward ? 'community_forward' : (isAiForward ? 'ai_forward' : (isAiBatch ? 'ai_batch' : (isChessInvite ? 'chess_invite' : (isGomokuInvite ? 'gomoku_invite' : 'text')))));
       var content;
       if (isCommunityForward) {
         content = JSON.stringify(forwardData);
       } else if (isMusicPlaylist) {
         content = JSON.stringify(forwardData);
+      } else if (isChessInvite) {
+        content = JSON.stringify({
+          app: 'chess',
+          roomCode: forwardData.roomCode,
+          senderName: forwardData.senderName || ''
+        });
       } else if (isGomokuInvite) {
         content = JSON.stringify({
           app: 'gomoku',
