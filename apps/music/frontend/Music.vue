@@ -5617,21 +5617,28 @@ export default {
 
 /* 激活行未唱词保持「待点亮」的暗态，与点亮词形成清晰的卡拉OK对比 */
 /* 注意：letter-spacing 必须全态一致——激活时改变字距会引发整行回流跳动（首个字点亮瞬间「卡一下」的元凶之一） */
+/* 激活行所有词一律预先走渐变裁剪渲染路径：未唱词 --wp-pct 缺省 0%，渐变暗段与暗态颜色完全一致（视觉零差异）。
+   词点亮时引擎只写 --wp-pct 变量，不再逐词切换 plain→background-clip:text 渲染路径——
+   路径切换发生在整行激活的那一帧（本就要重绘），首字点亮的瞬间只改变量不换渲染管线（低端平板首字掉帧根因） */
 .lyric-line.lyric-active .lyric-word {
   color: rgba(0, 0, 0, 0.32);
+  background: linear-gradient(90deg, var(--text-primary) 0%, var(--text-primary) var(--wp-pct, 0%), rgba(0, 0, 0, 0.32) var(--wp-pct, 0%));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 [data-theme="dark"] .lyric-line.lyric-active .lyric-word {
   color: rgba(255, 255, 255, 0.25);
+  background: linear-gradient(90deg, #fff 0%, #fff var(--wp-pct, 0%), rgba(255,255,255,0.25) var(--wp-pct, 0%));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
-/* 词点亮时的柔过渡（颜色由 --wp-pct 渐变驱动） */
-.lyric-word {
-  transition: color 0.3s var(--ease-standard);
-}
-
-/* 渐变暗段颜色必须与 .lyric-active .lyric-word 的暗态完全一致，
-   否则第一个字点亮的瞬间，未唱部分颜色跳变（视觉上的「闪/卡」） */
+/* 点亮态渐变（word-lit 规则保留兜底语义：--wp-pct 缺省 100% = 全亮）。
+   不加 color 过渡：激活/点亮瞬间 plain↔渐变路径切换本就不可过渡，过渡只带来
+   每帧样式重算与重绘（0.2↔0.25 alpha 的色差人眼不可见，纯开销） */
 .lyric-line.lyric-active .lyric-word.word-lit {
   background: linear-gradient(90deg, var(--text-primary) 0%, var(--text-primary) var(--wp-pct, 100%), rgba(0, 0, 0, 0.32) var(--wp-pct, 100%));
   -webkit-background-clip: text;
