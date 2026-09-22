@@ -38,11 +38,12 @@ var FIELD_DEFS = {
   sdk: { type: 'string', required: false, default: '1', description: '所需 SDK 主版本（缺省视为 "1"，向后兼容旧应用）' },
   capabilities: { type: 'array', required: false, default: [], description: '能力披露清单（仅展示，不拦截）' },
   layout: { type: 'object', required: false, description: '布局偏好：mode(fullscreen/sheet/window) / resizable / minWidth / minHeight' },
-  visibleRoles: { type: 'array', required: false, default: [], description: '可见角色白名单（空数组=所有角色可见）：admin / officer / student' }
+  visibleRoles: { type: 'array', required: false, default: [], description: '可见角色白名单（空数组=所有角色可见）：classAdmin / admin / officer / student' }
 };
 
 // 合法角色枚举（与认证系统的 role 字段对齐）
-var KNOWN_ROLES = ['admin', 'officer', 'student'];
+// classAdmin = 班管（user_id 末尾 00，is_class_admin），区别于 officer（班干）
+var KNOWN_ROLES = ['classAdmin', 'admin', 'officer', 'student'];
 
 // 当前 SDK 主版本。第三方 `sdk` 字段与此比较主版本号：
 //   相等  -> 正常

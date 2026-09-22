@@ -452,6 +452,12 @@ export default {
       var u = this.currentUser;
       return !!(u && (u.is_admin === 1 || u.is_admin === true || u.role === 'officer' || u.is_class_admin));
     },
+    // 是否为班管或系统管理员（classAdmin 角色判断：班管 = user_id 末尾 00；
+    // 不含班干 officer——应用中心等管理入口仅班管可见）
+    isClassAdmin: function() {
+      var u = this.currentUser;
+      return !!(u && (u.is_class_admin === true || u.is_admin === 1 || u.is_admin === true));
+    },
     // 桌面布局模式：'grid'（iPad 桌面图标）| 'dock'（仅 Dock）
     isGridLayout: function() {
       return this.$store.getters['settings/desktopLayout'] === 'grid';
@@ -1154,10 +1160,11 @@ export default {
       if (!appMeta) return false;
       // 1. 角色过滤：visibleRoles 声明的应用仅对指定角色显示
       if (appMeta.visibleRoles && appMeta.visibleRoles.length) {
-        // admin 应用仅管理员/班干可见
+        // classAdmin = 仅班管/系统管理员（不含班干）；admin = 管理员或班干；officer = 班干
         var roleOk = false;
         for (var r = 0; r < appMeta.visibleRoles.length; r++) {
           var role = appMeta.visibleRoles[r];
+          if (role === 'classAdmin' && this.isClassAdmin) { roleOk = true; break; }
           if (role === 'admin' && this.isAdminOrOfficer) { roleOk = true; break; }
           if (role === 'officer' && this.currentUser.role === 'officer') { roleOk = true; break; }
         }

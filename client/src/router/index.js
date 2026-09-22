@@ -164,12 +164,22 @@ router.beforeEach(function(to, from, next) {
   proceedWithAdminCheck(to, next);
 });
 
-// 处理 requiresAdmin 路由的权限检查（从原 beforeEach 抽取）
+// 处理 requiresAdmin / requiresClassAdmin 路由的权限检查（从原 beforeEach 抽取）
+// requiresClassAdmin = 仅班管（is_class_admin，user_id 末尾 00）或系统管理员可进；
+// 不含班干 officer——应用中心等管理入口仅班管可见（2026-09-22 需求）
 function proceedWithAdminCheck(to, next) {
-  if (to.meta.requiresAdmin) {
+  if (to.meta.requiresAdmin || to.meta.requiresClassAdmin) {
+    var requireClassAdmin = to.meta.requiresClassAdmin;
     var token = localStorage.getItem('token');
     var user = (function() { try { return JSON.parse(localStorage.getItem('user') || 'null'); } catch(e) { return null; } })();
-    if (user && (user.is_admin === 1 || user.is_admin === true || user.is_class_admin === true || user.role === 'officer')) {
+    var allowed = function(u) {
+      if (!u) return false;
+      if (requireClassAdmin) {
+        return u.is_class_admin === true || u.is_admin === 1 || u.is_admin === true;
+      }
+      return u.is_admin === 1 || u.is_admin === true || u.is_class_admin === true || u.role === 'officer';
+    };
+    if (allowed(user)) {
       next();
     } else if (token) {
       api.get('/auth/check-status').then(function(response) {
@@ -178,7 +188,7 @@ function proceedWithAdminCheck(to, next) {
           var userInfo = data.data.user_info;
           localStorage.setItem('user', JSON.stringify(userInfo));
           try { router.app.$store.commit('auth/SET_USER', userInfo); } catch (e) {}
-          if (userInfo.is_admin === 1 || userInfo.is_admin === true || userInfo.is_class_admin === true || userInfo.role === 'officer') {
+          if (allowed(userInfo)) {
             next();
           } else {
             next({ name: 'Desktop' });
