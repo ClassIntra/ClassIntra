@@ -52,6 +52,8 @@ export default {
       // 富文本内容（HTML 字符串）。设置后优先于 message 渲染。
       // 调用方必须自行转义所有动态内容。
       html: '',
+      // 宽版布局：用于阅读型长内容（如完整公告）。默认关闭，不影响既有短提示。
+      wide: false,
       inputValue: '',
       placeholder: '',
       confirmText: '确定',
@@ -63,7 +65,7 @@ export default {
   },
   computed: {
     modalClass: function() {
-      return 'modal-type-' + this.type;
+      return 'modal-type-' + this.type + (this.wide ? ' modal-wide' : '');
     }
   },
   watch: {
@@ -86,6 +88,7 @@ export default {
       self.title = opts.title || '提示';
       self.message = opts.message || '';
       self.html = opts.html || '';
+      self.wide = opts.wide === true;
       self.confirmText = opts.confirmText || '确定';
       self.closeOnOverlay = opts.closeOnOverlay !== false;
       self.visible = true;
@@ -101,6 +104,7 @@ export default {
       self.title = opts.title || '确认';
       self.message = opts.message || '';
       self.html = opts.html || '';
+      self.wide = opts.wide === true;
       self.confirmText = opts.confirmText || '确定';
       self.cancelText = opts.cancelText || '取消';
       self.closeOnOverlay = false;
@@ -117,6 +121,7 @@ export default {
       self.title = opts.title || '输入';
       self.message = opts.message || '';
       self.html = opts.html || '';
+      self.wide = opts.wide === true;
       self.placeholder = opts.placeholder || '';
       self.inputValue = opts.defaultValue || '';
       self.confirmText = opts.confirmText || '确定';
@@ -199,6 +204,11 @@ export default {
   animation: modal-enter 0.4s var(--motion-spring-snappy);
 }
 
+/* 宽版：阅读型内容（完整公告）需要更长行宽，窄屏仍受 width:90% 约束 */
+.modal-wide {
+  max-width: 680px;
+}
+
 @keyframes modal-enter {
   0% {
     opacity: 0;
@@ -230,6 +240,11 @@ export default {
 
 .modal-body {
   padding: 16px 24px;
+  /* 长内容（完整公告等）可滚动：短内容高度自适应不受影响，长内容不撑破容器 */
+  max-height: calc(100vh - 220px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 
 .modal-message {
@@ -238,6 +253,8 @@ export default {
   line-height: var(--line-height-relaxed);
   margin: 0;
   word-break: break-word;
+  /* 保留正文换行：公告正文与更新日志用 \n\n 分段，默认会被折叠成空格 */
+  white-space: pre-wrap;
 }
 
 .modal-input-wrapper {
@@ -335,6 +352,10 @@ export default {
   .modal-container {
     min-width: 360px;
     max-width: 480px;
+  }
+
+  .modal-wide {
+    max-width: 760px;
   }
 }
 </style>

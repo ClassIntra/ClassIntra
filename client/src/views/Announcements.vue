@@ -54,6 +54,12 @@
           class="ann-card"
           :class="{ pinned: item.pinned, unread: !isRead(item.id) }"
           :style="{ '--stagger-index': idx }"
+          role="button"
+          tabindex="0"
+          :aria-label="'查看公告全文：' + item.title"
+          @click="openDetail(item)"
+          @keydown.enter="openDetail(item)"
+          @keydown.space.prevent="openDetail(item)"
         >
           <div class="ann-card-header">
             <div class="ann-card-badges">
@@ -72,6 +78,10 @@
           <h3 class="ann-card-title">{{ item.title }}</h3>
           <div class="ann-card-content">{{ item.content }}</div>
           <div class="ann-card-footer">
+            <span class="ann-card-more">
+              <span>查看全文</span>
+              <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
+            </span>
             <span class="ann-card-author">
               <i class="fa-solid fa-user" aria-hidden="true"></i>
               <span>{{ item.author_name || '管理员' }}</span>
@@ -155,6 +165,25 @@ export default {
     },
     markAllRead: function() {
       this.markVisibleAsRead();
+    },
+    // 点击卡片查看完整公告：列表里的正文是 3 行截断的摘要，
+    // 这里把完整正文放进可滚动的弹窗，避免用户「只看到半条公告」。
+    openDetail: function(item) {
+      if (!item) return;
+      var meta = item.author_name || '管理员';
+      if (item.created_at) {
+        var d = new Date(item.created_at);
+        if (!isNaN(d.getTime())) {
+          meta += ' · ' + (d.getMonth() + 1) + '月' + d.getDate() + '日';
+        }
+      }
+      this.$modal.alert({
+        title: item.title || '公告',
+        // 用 message（纯文本）而非 html：正文按原文渲染，无需转义，也不解析 Markdown。
+        message: (item.content || '') + '\n\n—— ' + meta,
+        wide: true,
+        confirmText: '知道了'
+      });
     },
     isRead: function(id) {
       this.readVersion;
@@ -448,6 +477,7 @@ export default {
   border-radius: var(--radius-lg, 16px);
   padding: var(--spacing-md);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  cursor: pointer;
   transition: transform var(--duration-fast) var(--ease-standard),
               box-shadow var(--duration-fast) var(--ease-standard);
 }
@@ -459,6 +489,12 @@ export default {
 
 .ann-card:active {
   transform: scale(0.99);
+}
+
+/* 键盘聚焦可见：卡片整体是 role=button 的阅读入口 */
+.ann-card:focus-visible {
+  outline: 2px solid var(--primary-color, #007AFF);
+  outline-offset: 2px;
 }
 
 .ann-card.pinned {
@@ -540,10 +576,24 @@ export default {
 .ann-card-footer {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   margin-top: 12px;
   padding-top: 10px;
   border-top: 0.5px solid var(--separator-color);
+}
+
+/* 「查看全文」提示：告诉用户整张卡片可点，点击后看完整正文 */
+.ann-card-more {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-size: var(--font-size-caption, 12px);
+  font-weight: var(--font-weight-medium);
+  color: var(--primary-color, #007AFF);
+}
+
+.ann-card-more i {
+  font-size: 9px;
 }
 
 .ann-card-author {

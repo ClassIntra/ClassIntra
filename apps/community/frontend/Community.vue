@@ -1515,6 +1515,17 @@ export default {
         }
         return;
       }
+      // 象棋邀请卡片：点击直达对局（房间满员时后端自动分配观战）
+      var chessCard = target.closest ? target.closest('[data-chess-room]') : null;
+      if (chessCard) {
+        var chessRoomCode = chessCard.getAttribute('data-chess-room');
+        if (chessRoomCode) {
+          e.preventDefault();
+          e.stopPropagation();
+          this.$router.push('/chess?roomCode=' + encodeURIComponent(chessRoomCode));
+        }
+        return;
+      }
       // 链接点击：拦截并跳转到超能岛浏览器
       // 规则：浏览者有 browser_enabled 可打开任意链接；
       //       否则，仅当链接所在内容作者为班管/班干时可打开（隐藏地址栏）
@@ -2634,7 +2645,34 @@ export default {
           '</span>' +
         '</div>';
       };
+      // 象棋房间邀请标记 [chess:房间码] → 可点击卡片（与五子棋同机制：Markdown 解析前
+      // 替换为内联 HTML 原文，marked 保留 inline HTML；样式内联自包含，不受 scoped 影响）
+      var chessCardHtml = function(code) {
+        var c = String(code).toUpperCase();
+        return '<div class="chess-post-card" data-chess-room="' + c + '" style="display:flex;align-items:center;margin:10px 0;padding:12px 14px;border-radius:14px;border:1px solid rgba(185,28,28,0.35);background:linear-gradient(135deg,rgba(245,214,196,0.28),rgba(220,164,138,0.16));cursor:pointer;">' +
+          '<svg width="44" height="44" viewBox="0 0 44 44" style="display:block;border-radius:12px;flex-shrink:0;margin-right:12px;box-shadow:0 1px 3px rgba(0,0,0,0.18);" aria-hidden="true">' +
+            '<defs>' +
+              '<linearGradient id="chessPostWood" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F5E3B8"/><stop offset="1" stop-color="#DBB273"/></linearGradient>' +
+              '<radialGradient id="chessPostPiece" cx="0.34" cy="0.28" r="1"><stop offset="0" stop-color="#FCE8DD"/><stop offset="0.55" stop-color="#D9805E"/><stop offset="1" stop-color="#8E3B24"/></radialGradient>' +
+            '</defs>' +
+            '<rect width="44" height="44" rx="10" fill="url(#chessPostWood)"/>' +
+            '<rect x="1.25" y="1.25" width="41.5" height="41.5" rx="8.75" fill="none" stroke="#FFF4DC" stroke-opacity="0.75" stroke-width="1.5"/>' +
+            '<g stroke="#A87F42" stroke-width="1.5" opacity="0.65" stroke-linecap="round"><path d="M9 13h26M9 22h26M9 31h26M13 9v26M22 9v26M31 9v26"/></g>' +
+            '<path d="M13 22l18 9M31 22l-18 9" stroke="#A87F42" stroke-width="1" opacity="0.5" stroke-linecap="round"/>' +
+            '<circle cx="22" cy="22" r="12.5" fill="url(#chessPostPiece)"/>' +
+            '<circle cx="22" cy="22" r="12.5" fill="none" stroke="#7A2018" stroke-opacity="0.55" stroke-width="1"/>' +
+            '<circle cx="22" cy="22" r="9.8" fill="none" stroke="#7A2018" stroke-opacity="0.5" stroke-width="0.9"/>' +
+            '<text x="22" y="27" text-anchor="middle" font-size="12.5" font-weight="700" fill="#5E170E" style="font-family:\'Kaiti SC\',KaiTi,STKaiti,serif">帅</text>' +
+          '</svg>' +
+          '<span style="flex:1;min-width:0;">' +
+            '<span style="display:block;font-size:12px;font-weight:600;color:#b91c1c;letter-spacing:0.5px;">象棋对局邀请</span>' +
+            '<span style="display:block;font-size:16px;font-weight:700;">房间码 ' + c + '</span>' +
+            '<span style="display:block;font-size:12px;color:#b91c1c;">点击加入对局（满员自动观战，空位可替补）</span>' +
+          '</span>' +
+        '</div>';
+      };
       content = String(content).replace(/\[gomoku:([0-9A-Za-z]{3,8})\]/g, function(m, code) { return gomokuCardHtml(code); });
+      content = String(content).replace(/\[chess:([0-9A-Za-z]{3,8})\]/g, function(m, code) { return chessCardHtml(code); });
       var result = LatexRenderer.processContent(content, marked);
       result.html = DOMPurify.sanitize(result.html);
       var html = LatexRenderer.renderFinalHtml(result.html, result.placeholders);
@@ -2658,6 +2696,7 @@ export default {
       // 去除 Markdown 和 LaTeX 标记，生成纯文本预览
       var text = content
         .replace(/\[gomoku:[0-9A-Za-z]{3,8}\]/g, '[五子棋对局邀请]') // 五子棋房间邀请标记 → 固定文案
+        .replace(/\[chess:[0-9A-Za-z]{3,8}\]/g, '[象棋对局邀请]') // 象棋房间邀请标记 → 固定文案
         .replace(/```[\s\S]*?```/g, '') // 移除代码块
         .replace(/\$\$[\s\S]*?\$\$/g, '') // 移除块级 LaTeX
         .replace(/\$[\s\S]*?\$/g, '') // 移除行内 LaTeX

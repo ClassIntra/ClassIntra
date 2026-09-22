@@ -43,17 +43,32 @@
             <i class="fa-solid fa-xmark"></i>
           </button>
         </div>
-        <div class="announcement-float-body">
+        <div
+          class="announcement-float-body"
+          role="button"
+          tabindex="0"
+          :aria-label="'查看公告全文：' + currentAnnouncement.title"
+          @click="openAnnouncementDetail(currentAnnouncement)"
+          @keydown.enter="openAnnouncementDetail(currentAnnouncement)"
+          @keydown.space.prevent="openAnnouncementDetail(currentAnnouncement)"
+        >
           <h4 class="announcement-float-title">{{ currentAnnouncement.title }}</h4>
           <p class="announcement-float-content">
             {{ currentAnnouncement.content && currentAnnouncement.content.length > 100 ? currentAnnouncement.content.substring(0, 100) + '...' : currentAnnouncement.content }}
           </p>
+          <span class="announcement-float-more">
+            <span>点击查看全文</span>
+            <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
+          </span>
         </div>
         <div class="announcement-float-footer">
           <span class="announcement-float-indicator">
             {{ currentAnnouncementIndex + 1 }} / {{ unreadAnnouncements.length }}
           </span>
           <div class="announcement-float-actions">
+            <button class="announcement-float-btn announcement-float-btn-detail" @click="openAnnouncementDetail(currentAnnouncement)">
+              <i class="fa-solid fa-expand"></i> 查看详情
+            </button>
             <button class="announcement-float-btn announcement-float-btn-view" @click="goToAnnouncements">
               <i class="fa-solid fa-list"></i> 查看全部
             </button>
@@ -1307,6 +1322,25 @@ export default {
       var self = this;
       self.showAnnouncementFloat = false;
       self.$router.push('/announcements').catch(function() {});
+    },
+    // 浮窗只显示 100 字摘要，点「查看详情」/点正文 → 弹窗看完整公告。
+    // 不在这里标已读：用户看完再决定，避免「点开就消失」。
+    openAnnouncementDetail: function(item) {
+      var self = this;
+      if (!item) return;
+      var meta = item.author_name || '管理员';
+      if (item.created_at) {
+        var d = new Date(item.created_at);
+        if (!isNaN(d.getTime())) {
+          meta += ' · ' + (d.getMonth() + 1) + '月' + d.getDate() + '日';
+        }
+      }
+      self.$modal.alert({
+        title: item.title || '公告',
+        message: (item.content || '') + '\n\n—— ' + meta,
+        wide: true,
+        confirmText: '知道了'
+      });
     }
   }
 };
@@ -1879,6 +1913,20 @@ export default {
 
 .announcement-float-body {
   padding: 0 16px 12px;
+  cursor: pointer;
+}
+
+/* 「点击查看全文」提示：浮窗正文只截 100 字，点进去看完整公告 */
+.announcement-float-more {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: center;
+  align-items: center;
+  gap: 2px;
+  margin-top: 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--primary-color);
 }
 
 .announcement-float-title {
@@ -1919,6 +1967,10 @@ export default {
   display: flex;
   -webkit-align-items: center;
   align-items: center;
+  -webkit-flex-wrap: wrap;
+  flex-wrap: wrap;
+  -webkit-justify-content: flex-end;
+  justify-content: flex-end;
   gap: 8px;
 }
 
@@ -1940,6 +1992,15 @@ export default {
 
 .announcement-float-btn i {
   font-size: 11px;
+}
+
+.announcement-float-btn-detail {
+  background: rgba(var(--primary-rgb), 0.32);
+  color: #fff;
+}
+
+.announcement-float-btn-detail:hover {
+  background: rgba(var(--primary-rgb), 0.5);
 }
 
 .announcement-float-btn-view {

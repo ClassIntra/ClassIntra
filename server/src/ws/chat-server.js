@@ -1527,8 +1527,8 @@ function handleTextMessage(ws, data) {
   var senderName = userInfo.net_name || userInfo.real_name || userId;
 
   var msgType = data.msg_type || 'text';
-  //gomoku_invite：五子棋对局邀请卡片（分享房间码，点击直达对局）
-  if (msgType !== 'text' && msgType !== 'community_forward' && msgType !== 'music_playlist' && msgType !== 'ai_forward' && msgType !== 'ai_batch' && msgType !== 'gomoku_invite') {
+  //gomoku_invite / chess_invite：棋类对局邀请卡片（分享房间码，点击直达对局）
+  if (msgType !== 'text' && msgType !== 'community_forward' && msgType !== 'music_playlist' && msgType !== 'ai_forward' && msgType !== 'ai_batch' && msgType !== 'gomoku_invite' && msgType !== 'chess_invite') {
     msgType = 'text';
   }
 
@@ -1647,8 +1647,8 @@ function handlePrivateMessage(ws, data) {
   trackClientMsg(userId, targetUserId + ':' + content);
 
   var msgType = data.msg_type || 'text';
-  //gomoku_invite：五子棋对局邀请卡片（分享房间码，点击直达对局）
-  if (msgType !== 'text' && msgType !== 'community_forward' && msgType !== 'music_playlist' && msgType !== 'ai_forward' && msgType !== 'ai_batch' && msgType !== 'gomoku_invite') {
+  //gomoku_invite / chess_invite：棋类对局邀请卡片（分享房间码，点击直达对局）
+  if (msgType !== 'text' && msgType !== 'community_forward' && msgType !== 'music_playlist' && msgType !== 'ai_forward' && msgType !== 'ai_batch' && msgType !== 'gomoku_invite' && msgType !== 'chess_invite') {
     msgType = 'text';
   }
 
@@ -1848,8 +1848,8 @@ function handleGroupMessage(ws, data) {
   var senderName = userInfo.net_name || userInfo.real_name || userId;
 
   var msgType = data.msg_type || 'text';
-  //gomoku_invite：五子棋对局邀请卡片（分享房间码，点击直达对局）
-  if (msgType !== 'text' && msgType !== 'community_forward' && msgType !== 'music_playlist' && msgType !== 'ai_forward' && msgType !== 'ai_batch' && msgType !== 'gomoku_invite') {
+  //gomoku_invite / chess_invite：棋类对局邀请卡片（分享房间码，点击直达对局）
+  if (msgType !== 'text' && msgType !== 'community_forward' && msgType !== 'music_playlist' && msgType !== 'ai_forward' && msgType !== 'ai_batch' && msgType !== 'gomoku_invite' && msgType !== 'chess_invite') {
     msgType = 'text';
   }
 
