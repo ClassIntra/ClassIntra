@@ -7,9 +7,10 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <meta name="theme-color" content="#007AFF">
+  <meta name="theme-color" content="#000000">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="preload" as="image" href="/resources/public/brand/logo-mark-white.png">
   <link rel="preload" as="image" href="/resources/public/icons/Chat.png">
   <link rel="preload" as="image" href="/resources/public/icons/Community.png">
   <link rel="preload" as="image" href="/resources/public/icons/AI-Chat.png">
@@ -20,7 +21,12 @@
   <link rel="preload" as="image" href="/resources/public/icons/Settings.png">
   <title>ClassIntra</title>
   <style>
-    /* 首屏 loading 内联样式（避免 FOUC，与 Vue 加载并行渲染） */
+    /* ============================================================
+       系统启动动画（内联样式，首屏零依赖）
+       编排：纯黑底 → 标识浮现（白色，柔和呼吸辉光）
+             → 品牌字标收拢 → 副标题 → 进度条流光 → 就绪淡出
+       Chrome 80 基线：不使用 gap / inset / :is() / aspect-ratio
+       ============================================================ */
     #app-loading {
       position: fixed;
       top: 0;
@@ -30,116 +36,234 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-      background: radial-gradient(ellipse at top, #1a1a3e 0%, #0a0a1a 60%, #000000 100%);
+      overflow: hidden;
+      background: #000;
       color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'PingFang SC', 'Noto Sans CJK SC', 'Helvetica Neue', 'Microsoft YaHei', sans-serif;
       text-align: center;
-      z-index: 9999;
+      z-index: 20000;
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
+      -webkit-tap-highlight-color: transparent;
+      opacity: 1;
+      transition: opacity 0.55s cubic-bezier(0.4, 0, 0.2, 1);
     }
-    #app-loading .al-inner {
+    #app-loading.al-done {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    /* 星点：极细的静态点缀，营造「系统空间」纵深 */
+    #app-loading .al-stars {
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      pointer-events: none;
+      background-image:
+        radial-gradient(1.5px 1.5px at 18% 26%, rgba(255, 255, 255, 0.34), transparent 100%),
+        radial-gradient(1.2px 1.2px at 76% 18%, rgba(255, 255, 255, 0.26), transparent 100%),
+        radial-gradient(1.6px 1.6px at 84% 66%, rgba(255, 255, 255, 0.2), transparent 100%),
+        radial-gradient(1.2px 1.2px at 30% 76%, rgba(255, 255, 255, 0.17), transparent 100%),
+        radial-gradient(1.4px 1.4px at 62% 88%, rgba(255, 255, 255, 0.14), transparent 100%);
+      opacity: 0;
+      animation: al-stars-in 1.6s ease 0.35s forwards;
+    }
+    @keyframes al-stars-in {
+      to { opacity: 1; }
+    }
+
+    /* 舞台：就绪时整体上浮 + 淡出 */
+    #app-loading .al-stage {
+      position: relative;
       display: flex;
       flex-direction: column;
       align-items: center;
-      animation: al-fade-in 0.5s ease-out;
+      transform: translateY(0) scale(1);
+      opacity: 1;
+      transition: transform 0.55s cubic-bezier(0.22, 0.61, 0.36, 1), opacity 0.4s ease;
+      will-change: transform, opacity;
     }
-    /* Chrome 80 不支持 flex 的 gap，用 margin fallback */
-    #app-loading .al-inner > * + * { margin-top: 20px; }
-    @keyframes al-fade-in {
-      from { opacity: 0; transform: translateY(8px); }
-      to { opacity: 1; transform: translateY(0); }
+    #app-loading.al-done .al-stage {
+      transform: translateY(-18px) scale(1.02);
+      opacity: 0;
     }
-    #app-loading .al-logo {
-      width: 72px;
-      height: 72px;
-      border-radius: 18px;
-      background: linear-gradient(135deg, #007AFF 0%, #5856D6 100%);
-      box-shadow: 0 12px 40px rgba(0, 122, 255, 0.4), 0 4px 12px rgba(88, 86, 214, 0.3);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 36px;
-      font-weight: 700;
-      color: #fff;
-      letter-spacing: -1px;
-      animation: al-breathe 2.4s ease-in-out infinite;
+
+    /* 标识：从微缩中浮现（纯白） */
+    #app-loading .al-mark-wrap {
+      position: relative;
+      width: 156px;
+      height: 124px;
     }
-    @keyframes al-breathe {
-      0%, 100% { transform: scale(1); box-shadow: 0 12px 40px rgba(0, 122, 255, 0.4), 0 4px 12px rgba(88, 86, 214, 0.3); }
-      50% { transform: scale(1.04); box-shadow: 0 16px 56px rgba(0, 122, 255, 0.55), 0 6px 18px rgba(88, 86, 214, 0.45); }
+    #app-loading .al-mark {
+      position: relative;
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      z-index: 1;
+      animation: al-mark-in 1.05s cubic-bezier(0.22, 0.61, 0.36, 1) 0.12s both;
     }
-    #app-loading .al-title {
-      font-size: 22px;
+    @keyframes al-mark-in {
+      0% { opacity: 0; transform: scale(0.9); }
+      55% { opacity: 1; }
+      100% { opacity: 1; transform: scale(1); }
+    }
+    /* 辉光：标识的模糊副本垫底，呼吸式明暗（只动 opacity，静帧光栅一次） */
+    #app-loading .al-mark-glow {
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      -webkit-filter: blur(17px);
+      filter: blur(17px);
+      opacity: 0.3;
+      pointer-events: none;
+      will-change: opacity;
+      animation: al-glow 3.6s ease-in-out 1s infinite;
+    }
+    @keyframes al-glow {
+      0%, 100% { opacity: 0.24; }
+      50% { opacity: 0.62; }
+    }
+
+    /* 品牌字标：字距由松到紧（聚焦感） */
+    #app-loading .al-brand {
+      margin-top: 26px;
+      font-size: 27px;
       font-weight: 600;
-      letter-spacing: 1.5px;
-      color: rgba(255, 255, 255, 0.95);
+      line-height: 1.2;
+      letter-spacing: 0.6px;
+      color: rgba(255, 255, 255, 0.96);
+      animation: al-brand-in 0.9s cubic-bezier(0.22, 0.61, 0.36, 1) 0.52s both;
     }
-    #app-loading .al-subtitle {
+    @keyframes al-brand-in {
+      0% { opacity: 0; letter-spacing: 7px; transform: translateY(7px); }
+      55% { opacity: 1; }
+      100% { opacity: 1; letter-spacing: 0.6px; transform: translateY(0); }
+    }
+
+    /* 副标题 */
+    #app-loading .al-tagline {
+      margin-top: 9px;
       font-size: 13px;
-      color: rgba(255, 255, 255, 0.55);
-      letter-spacing: 0.5px;
+      font-weight: 400;
+      letter-spacing: 3.5px;
+      text-indent: 3.5px;
+      color: rgba(255, 255, 255, 0.42);
+      animation: al-rise 0.8s ease 0.74s both;
     }
-    #app-loading .al-dots {
-      display: flex;
-      margin-top: 4px;
+
+    /* 进度条：不确定进度 + 流光 */
+    #app-loading .al-progress {
+      position: relative;
+      width: 168px;
+      height: 3px;
+      margin-top: 36px;
+      border-radius: 2px;
+      background: rgba(255, 255, 255, 0.14);
+      overflow: hidden;
+      animation: al-rise 0.7s ease 0.95s both;
     }
-    #app-loading .al-dots span + span { margin-left: 6px; }
-    #app-loading .al-dots span {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: rgba(255, 255, 255, 0.4);
-      animation: al-dot-pulse 1.2s ease-in-out infinite;
+    #app-loading .al-progress-bar {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 46%;
+      height: 100%;
+      border-radius: 2px;
+      background-image: linear-gradient(90deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.55) 40%, #ffffff 72%, rgba(255, 255, 255, 0) 100%);
+      will-change: transform;
+      animation: al-prog 1.45s cubic-bezier(0.45, 0.05, 0.35, 1) 1.1s infinite;
     }
-    #app-loading .al-dots span:nth-child(2) { animation-delay: 0.2s; }
-    #app-loading .al-dots span:nth-child(3) { animation-delay: 0.4s; }
-    @keyframes al-dot-pulse {
-      0%, 60%, 100% { opacity: 0.3; transform: scale(0.8); }
-      30% { opacity: 1; transform: scale(1.2); background: rgba(0, 122, 255, 0.9); }
+    @keyframes al-prog {
+      0% { transform: translateX(-110%); }
+      100% { transform: translateX(232%); }
     }
-    #app-loading.al-timeout .al-inner { display: none; }
-    #app-loading.al-timeout .al-timeout-inner { display: flex; flex-direction: column; align-items: center; animation: al-fade-in 0.4s ease-out; }
-    #app-loading .al-timeout-inner > * + * { margin-top: 16px; }
-    #app-loading .al-timeout-inner { display: none; }
-    #app-loading .al-timeout-title { font-size: 20px; font-weight: 600; color: rgba(255, 255, 255, 0.95); }
-    #app-loading .al-timeout-msg { font-size: 13px; color: rgba(255, 255, 255, 0.55); margin-bottom: 4px; }
+
+    @keyframes al-rise {
+      0% { opacity: 0; transform: translateY(8px); }
+      100% { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ---------- 加载超时（长时间未就绪） ---------- */
+    #app-loading .al-timeout-inner {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      position: relative;
+      z-index: 2;
+      animation: al-rise 0.5s ease both;
+    }
+    #app-loading .al-timeout-inner > * + * { margin-top: 14px; }
+    #app-loading.al-timeout .al-stage { display: none; }
+    #app-loading.al-timeout .al-timeout-inner { display: flex; }
+    #app-loading .al-timeout-mark { width: 86px; height: 68px; opacity: 0.92; }
+    #app-loading .al-timeout-title { font-size: 19px; font-weight: 600; color: rgba(255, 255, 255, 0.95); }
+    #app-loading .al-timeout-msg { font-size: 13px; color: rgba(255, 255, 255, 0.55); }
+    #app-loading .al-timeout-error { font-size: 12px; color: rgba(255, 138, 128, 0.85); max-width: 320px; word-break: break-all; }
     #app-loading .al-reload-btn {
-      padding: 10px 28px;
-      border: 1px solid rgba(255, 255, 255, 0.25);
-      background: rgba(255, 255, 255, 0.06);
+      margin-top: 6px;
+      padding: 11px 30px;
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      background: rgba(255, 255, 255, 0.07);
       color: #fff;
       border-radius: 12px;
       cursor: pointer;
       font-size: 14px;
       font-weight: 500;
       font-family: inherit;
-      transition: background 0.2s ease, border-color 0.2s ease;
       -webkit-tap-highlight-color: transparent;
+      transition: background 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
     }
-    #app-loading .al-reload-btn:hover { background: rgba(255, 255, 255, 0.12); border-color: rgba(255, 255, 255, 0.4); }
+    #app-loading .al-reload-btn:hover { background: rgba(255, 255, 255, 0.13); border-color: rgba(255, 255, 255, 0.4); }
     #app-loading .al-reload-btn:active { transform: scale(0.96); }
+
+    /* 减弱动画：保留静态呈现，去掉运动 */
     @media (prefers-reduced-motion: reduce) {
-      #app-loading .al-logo, #app-loading .al-dots span { animation: none !important; }
+      #app-loading .al-mark-glow,
+      #app-loading .al-mark,
+      #app-loading .al-brand,
+      #app-loading .al-tagline,
+      #app-loading .al-progress,
+      #app-loading .al-stars {
+        animation: none !important;
+        opacity: 1 !important;
+      }
+      #app-loading .al-mark-glow { opacity: 0.4 !important; }
+      #app-loading .al-progress-bar { animation: none !important; transform: none !important; }
+      #app-loading .al-stage { transition: none !important; }
     }
   </style>
-  <script>(function(){try{var u=JSON.parse(localStorage.getItem('user')||'null');if(u&&u.info&&u.info.dev===true)localStorage.setItem('_ci_dev_user','1');else localStorage.removeItem('_ci_dev_user');}catch(e){localStorage.removeItem('_ci_dev_user');}})();</script>
-  <script>function __ciDeviceId(){try{var k='_ci_device_id',v=localStorage.getItem(k);if(!v){v=([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,function(c){return(c^crypto.getRandomValues(new Uint8Array(1))[0]&15>>c/4).toString(16);});localStorage.setItem(k,v);}return v;}catch(e){return 'volatile-'+String(Date.now());}}function __ciDiagError(error,source){window.__ciDiagErrors=window.__ciDiagErrors||[];window.__ciDiagErrors.push({message:String(error&&error.message||error||'未知错误'),source:source||'unknown',stack:String(error&&error.stack||'').substring(0,4000),time:new Date().toISOString()});}function __ciSend(payload){try{if(!localStorage.getItem('_ci_dev_user'))return;var headers={'Content-Type':'application/json'},token=localStorage.getItem('token');if(token)headers.Authorization='Bearer '+token;fetch('/api/system/diagnostics',{method:'POST',headers:headers,credentials:'include',body:JSON.stringify(payload)}).catch(function(){});}catch(e){}}function __ciReportError(){__ciSend({device_id:__ciDeviceId(),url:location.href,errors:window.__ciDiagErrors||[],timestamp:new Date().toISOString(),error_only:true});}function __ciReport(retry){try{if(!localStorage.getItem('_ci_dev_user'))return;if(!retry&&localStorage.getItem('_ci_diag_sent'))return;var nav=navigator||{},scr=screen||{};var payload={device_id:__ciDeviceId(),retry:!!retry,url:location.href,user_agent:nav.userAgent||'',platform:nav.platform||'',language:nav.language||'',languages:nav.languages||[],hardware_concurrency:nav.hardwareConcurrency||null,device_memory:nav.deviceMemory||null,screen:{width:scr.width||0,height:scr.height||0,pixel_ratio:window.devicePixelRatio||1},viewport:{width:innerWidth||0,height:innerHeight||0},touch_points:nav.maxTouchPoints||0,connection:nav.connection?{effectiveType:nav.connection.effectiveType||'',rtt:nav.connection.rtt||null,downlink:nav.connection.downlink||null}:null,errors:window.__ciDiagErrors||[],timestamp:new Date().toISOString()};__ciSend(payload);if(!retry)localStorage.setItem('_ci_diag_sent','1');}catch(e){__ciDiagError(e,'diagnostics');}}window.addEventListener('error',function(e){__ciDiagError(e.error||e.message,'window.error');});window.addEventListener('unhandledrejection',function(e){__ciDiagError(e.reason,'unhandledrejection');});__ciReport(false);function __onVueReady(){window.__vueReady=true;var el=document.getElementById('app-loading');if(el){el.style.opacity='0';el.style.transition='opacity 0.3s ease';setTimeout(function(){el.style.display='none';},300);}}setTimeout(function(){if(!window.__vueReady){var el=document.getElementById('app-loading');if(el&&!el.classList.contains('al-timeout')){el.classList.add('al-timeout');el.innerHTML='<div class="al-timeout-inner"><div class="al-timeout-title">ClassIntra</div><div class="al-timeout-msg">加载时间较长，请尝试刷新</div><div class="al-timeout-error" id="ci-load-error"></div><button class="al-reload-btn" onclick="localStorage.removeItem(\'_ci_diag_sent\');__ciReport(true);location.reload(true)">刷新页面</button></div>';var errors=window.__ciDiagErrors||[];if(errors.length){document.getElementById('ci-load-error').textContent='错误：'+errors[errors.length-1].message;__ciReportError();}}}},15000);</script>
+  <script>(function(){window.__ciBootStart=Date.now();try{var u=JSON.parse(localStorage.getItem('user')||'null');if(u&&u.info&&u.info.dev===true)localStorage.setItem('_ci_dev_user','1');else localStorage.removeItem('_ci_dev_user');}catch(e){localStorage.removeItem('_ci_dev_user');}})();</script>
+  <script>function __ciDeviceId(){try{var k='_ci_device_id',v=localStorage.getItem(k);if(!v){v=([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,function(c){return(c^crypto.getRandomValues(new Uint8Array(1))[0]&15>>c/4).toString(16);});localStorage.setItem(k,v);}return v;}catch(e){return 'volatile-'+String(Date.now());}}function __ciDiagError(error,source){window.__ciDiagErrors=window.__ciDiagErrors||[];window.__ciDiagErrors.push({message:String(error&&error.message||error||'未知错误'),source:source||'unknown',stack:String(error&&error.stack||'').substring(0,4000),time:new Date().toISOString()});}function __ciSend(payload){try{if(!localStorage.getItem('_ci_dev_user'))return;var headers={'Content-Type':'application/json'},token=localStorage.getItem('token');if(token)headers.Authorization='Bearer '+token;fetch('/api/system/diagnostics',{method:'POST',headers:headers,credentials:'include',body:JSON.stringify(payload)}).catch(function(){});}catch(e){}}function __ciReportError(){__ciSend({device_id:__ciDeviceId(),url:location.href,errors:window.__ciDiagErrors||[],timestamp:new Date().toISOString(),error_only:true});}function __ciReport(retry){try{if(!localStorage.getItem('_ci_dev_user'))return;if(!retry&&localStorage.getItem('_ci_diag_sent'))return;var nav=navigator||{},scr=screen||{};var payload={device_id:__ciDeviceId(),retry:!!retry,url:location.href,user_agent:nav.userAgent||'',platform:nav.platform||'',language:nav.language||'',languages:nav.languages||[],hardware_concurrency:nav.hardwareConcurrency||null,device_memory:nav.deviceMemory||null,screen:{width:scr.width||0,height:scr.height||0,pixel_ratio:window.devicePixelRatio||1},viewport:{width:innerWidth||0,height:innerHeight||0},touch_points:nav.maxTouchPoints||0,connection:nav.connection?{effectiveType:nav.connection.effectiveType||'',rtt:nav.connection.rtt||null,downlink:nav.connection.downlink||null}:null,errors:window.__ciDiagErrors||[],timestamp:new Date().toISOString()};__ciSend(payload);if(!retry)localStorage.setItem('_ci_diag_sent','1');}catch(e){__ciDiagError(e,'diagnostics');}}window.addEventListener('error',function(e){__ciDiagError(e.error||e.message,'window.error');});window.addEventListener('unhandledrejection',function(e){__ciDiagError(e.reason,'unhandledrejection');});__ciReport(false);function __onVueReady(){window.__vueReady=true;var el=document.getElementById('app-loading');if(!el||el.classList.contains('al-done')||el.classList.contains('al-timeout'))return;var minShow=1500;var elapsed=Date.now()-(window.__ciBootStart||Date.now());var wait=Math.max(0,minShow-elapsed);setTimeout(function(){if(!el.parentNode)return;el.classList.add('al-done');setTimeout(function(){if(el.parentNode)el.parentNode.removeChild(el);},750);},wait);}window.__onVueReady=__onVueReady;setTimeout(function(){if(!window.__vueReady){var el=document.getElementById('app-loading');if(el&&!el.classList.contains('al-timeout')&&!el.classList.contains('al-done')){el.classList.add('al-timeout');el.innerHTML='<div class="al-timeout-inner"><img class="al-timeout-mark" src="/resources/public/brand/logo-mark-white.png" alt=""><div class="al-timeout-title">启动失败</div><div class="al-timeout-msg">加载时间较长，请尝试刷新</div><div class="al-timeout-error" id="ci-load-error"></div><button class="al-reload-btn" onclick="localStorage.removeItem(\'_ci_diag_sent\');__ciReport(true);location.reload(true)">刷新页面</button></div>';var errors=window.__ciDiagErrors||[];if(errors.length){document.getElementById('ci-load-error').textContent='错误：'+errors[errors.length-1].message;__ciReportError();}}}},15000);</script>
 </head>
 <body>
   <script>(function(){var t=localStorage.getItem('theme');if(t&&t!=='light'){document.documentElement.setAttribute('data-theme',t);document.body&&(document.body.setAttribute('data-theme',t));}})();</script>
-  <div id="app">
-    <div id="app-loading">
-      <div class="al-inner">
-        <div class="al-logo">C</div>
-        <div>
-          <div class="al-title">ClassIntra</div>
-          <div class="al-subtitle">加载中</div>
-        </div>
-        <div class="al-dots"><span></span><span></span><span></span></div>
+  <!-- 系统启动动画：Vue 就绪后由 __onVueReady 淡出移除
+       标识图片为临时占位（Resources/public/brand/logo-mark-white.png），
+       替换时保持纯白 + 透明底 + 紧密裁切即可，尺寸自适应无需改样式 -->
+  <div id="app-loading">
+    <div class="al-stars" aria-hidden="true"></div>
+    <div class="al-stage">
+      <div class="al-mark-wrap">
+        <img class="al-mark-glow" src="/resources/public/brand/logo-mark-white.png" alt="" aria-hidden="true">
+        <img class="al-mark" src="/resources/public/brand/logo-mark-white.png" alt="ClassIntra">
+      </div>
+      <div class="al-brand">ClassIntra</div>
+      <div class="al-tagline">智慧校园平台</div>
+      <div class="al-progress" role="progressbar" aria-label="正在启动">
+        <div class="al-progress-bar"></div>
       </div>
     </div>
   </div>
+  <div id="app"></div>
   <noscript>请启用 JavaScript 以正常使用本系统</noscript>
   <script type="module" src="/src/main.js"></script>
 </body>
