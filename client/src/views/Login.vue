@@ -18,8 +18,8 @@
 
     <div class="login-card">
       <div class="login-header">
-        <!-- 标识为临时占位：替换 Resources/public/brand/logo-mark-white.png
-             （纯白图形 + 透明底 + 紧密裁切）即可，尺寸自适应无需改样式 -->
+        <!-- 标识为临时占位：替换 Resources/public/brand/logo-mark.png（彩色）
+             与 logo-mark-white.png（白色）即可，尺寸自适应无需改样式 -->
         <img class="login-mark" :src="brandMark" alt="" aria-hidden="true" />
         <h1 class="login-title">ClassIntra</h1>
         <p class="login-subtitle">智慧校园平台</p>
@@ -145,15 +145,16 @@
 import axios from 'axios';
 import { resolveWallpaper, AUTH_BACKDROP } from '@/utils/wallpaper-bg';
 
-// 品牌标识（临时占位：替换 Resources/public/brand/logo-mark-white.png 即可，
-// 要求纯白图形 + 透明底 + 紧密裁切）。运行时字符串，避免打包器解析成模块路径。
-var BRAND_MARK = '/resources/public/brand/logo-mark-white.png';
+// 品牌标识（临时占位：替换 Resources/public/brand/ 下同名文件即可）。
+// 浅色主题的玻璃卡是亮面，必须用彩色标识；白色标识只用于深色主题。
+// 运行时字符串，避免打包器把绝对路径解析成模块路径。
+var BRAND_MARK_LIGHT = '/resources/public/brand/logo-mark.png';
+var BRAND_MARK_DARK = '/resources/public/brand/logo-mark-white.png';
 
 export default {
   name: 'Login',
   data: function() {
     return {
-      brandMark: BRAND_MARK,
       account: '',
       password: '',
       errorMsg: '',
@@ -174,13 +175,17 @@ export default {
     };
   },
   computed: {
+    // 标识按主题切换：浅色玻璃卡上白色标会消失
+    brandMark: function() {
+      return this.$store.state.settings.theme === 'dark' ? BRAND_MARK_DARK : BRAND_MARK_LIGHT;
+    },
     wallpaperResolved: function() {
       return resolveWallpaper(this.$store.state.settings.wallpaper);
     },
-    // 仅当用户真正选了图片/视频壁纸时才铺壁纸；渐变预设一律走中性深色底色
+    // 与桌面同一张壁纸：渐变预设直接用系统壁纸渐变，
+    // 仅视频壁纸未出画时用系统底色兜底
     wallpaperStyle: function() {
-      if (this.wallpaperResolved.type === 'image') return this.wallpaperResolved.style;
-      return { background: AUTH_BACKDROP };
+      return this.wallpaperResolved.style || { background: AUTH_BACKDROP };
     },
     videoSrc: function() {
       if (this.videoFailed) return '';
@@ -303,20 +308,22 @@ export default {
 <style scoped>
 /* ============================================================
    登录页 = 系统锁屏
-   全屏壁纸（复刻桌面）+ 暗调蒙版 + 中央玻璃卡 + 白色标识
+   全屏系统壁纸 + 轻蒙版 + 与系统弹层同源的玻璃卡 + 系统主色按钮
    Chrome 80 基线：不使用 gap / inset / :is() / aspect-ratio
    ============================================================ */
 
+/* 认证页局部别名：全部指向系统主题令牌（global.scss），
+   使登录/注册与桌面、窗口、Dock 共用同一套色板与圆角，
+   而不是页面自持一套配色。此处只声明别名，不引入新颜色。 */
 .login-page {
-  /* 全部色彩自持：不依赖明暗主题变量，壁纸上永远保持同一质感 */
-  --auth-text: rgba(255, 255, 255, 0.97);
-  --auth-text-2: rgba(255, 255, 255, 0.7);
-  --auth-text-3: rgba(255, 255, 255, 0.48);
-  --auth-hairline: rgba(255, 255, 255, 0.1);
-  --auth-field: rgba(255, 255, 255, 0.06);
-  --auth-field-strong: rgba(255, 255, 255, 0.1);
-  --auth-danger: #ffb3ae;
-  --auth-danger-rgb: 255, 69, 58;
+  --auth-text: var(--text-primary);
+  --auth-text-2: var(--text-secondary);
+  --auth-text-3: var(--text-tertiary);
+  --auth-hairline: var(--glass-border);
+  --auth-field: rgba(120, 120, 128, 0.12);
+  --auth-field-strong: rgba(120, 120, 128, 0.2);
+  --auth-danger: var(--danger-color);
+  --auth-danger-rgb: var(--danger-rgb);
 
   position: relative;
   width: 100%;
@@ -328,9 +335,15 @@ export default {
   -webkit-overflow-scrolling: touch;
   padding: 28px 20px;
   box-sizing: border-box;
-  /* 未加载壁纸前与启动动画的纯黑衔接 */
-  background: #0b0b0d;
+  /* 主题底色兜底：壁纸未就绪时与系统底色一致，不再闪黑 */
+  background: var(--bg-color);
   isolation: isolate;
+}
+
+/* iOS 表单填充色在深色主题下需提亮一档（系统未提供该令牌，故按主题分档） */
+[data-theme="dark"] .login-page {
+  --auth-field: rgba(120, 120, 128, 0.24);
+  --auth-field-strong: rgba(120, 120, 128, 0.32);
 }
 
 /* ---------- 壁纸层（固定于视口，页面滚动时壁纸不动） ---------- */
@@ -362,7 +375,9 @@ export default {
   pointer-events: none;
 }
 
-/* ---------- 蒙版：压暗壁纸，让面板与背景分层 ---------- */
+/* ---------- 蒙版：只做极轻压暗 ----------
+   系统壁纸本身是明亮渐变，压太重会失去「和桌面同一张壁纸」的连续感；
+   面板靠自身玻璃材质分层，不靠蒙版分层。 */
 .auth-scrim {
   position: fixed;
   top: 0;
@@ -371,9 +386,7 @@ export default {
   left: 0;
   z-index: 1;
   pointer-events: none;
-  background:
-    radial-gradient(130% 100% at 50% 40%, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.5) 100%),
-    rgba(0, 0, 0, 0.14);
+  background: rgba(0, 0, 0, 0.08);
   opacity: 0;
   transition: opacity 0.7s var(--ease-standard, ease);
 }
@@ -382,14 +395,16 @@ export default {
   opacity: 1;
 }
 
-/* 视频壁纸：模糊开销按帧结算，降低半径以保低端设备流畅 */
+/* 视频壁纸：模糊开销按帧结算，降一档到系统 --glass-blur-regular 以保低端设备流畅 */
 .login-page.has-video-bg .login-card,
 .login-page.has-video-bg .sheet-card {
-  -webkit-backdrop-filter: blur(16px) saturate(140%);
-  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: var(--glass-blur-regular);
+  backdrop-filter: var(--glass-blur-regular);
 }
 
-/* ---------- 登录面板：克制的深色实体面，靠描边与投影分层 ---------- */
+/* ---------- 登录面板：套用系统「浮层面板」材质 ----------
+   与 global.scss 的 .ios-sheet 同一配方（--surface-elevated + --glass-blur-container），
+   登录卡与系统弹层同源，而不是另造一种玻璃。 */
 .login-card {
   position: relative;
   z-index: 2;
@@ -399,14 +414,12 @@ export default {
   max-width: 100%;
   padding: 38px 40px 30px;
   box-sizing: border-box;
-  background: rgba(22, 22, 26, 0.9);
-  -webkit-backdrop-filter: blur(24px) saturate(140%);
-  backdrop-filter: blur(24px) saturate(140%);
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 22px;
-  box-shadow:
-    0 20px 50px rgba(0, 0, 0, 0.46),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  background: var(--surface-elevated);
+  -webkit-backdrop-filter: var(--glass-blur-container);
+  backdrop-filter: var(--glass-blur-container);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-lg);
   color: var(--auth-text);
   /* 入场：从下方微升 + 微缩放（不从不透明度 0 的 scale(0) 起步） */
   opacity: 0;
@@ -458,10 +471,10 @@ export default {
   align-items: center;
   padding: 9px 12px;
   margin-bottom: 14px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid var(--auth-hairline);
-  color: rgba(255, 255, 255, 0.86);
+  border-radius: var(--radius-sm);
+  background: var(--primary-lighter);
+  border: 1px solid rgba(var(--primary-rgb), 0.18);
+  color: var(--auth-text-2);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -475,7 +488,7 @@ export default {
 
 .switch-hint strong {
   font-weight: 500;
-  color: #fff;
+  color: var(--auth-text);
 }
 
 /* ---------- 表单 ---------- */
@@ -492,7 +505,7 @@ export default {
   margin-top: 12px;
 }
 
-/* 输入框：玻璃内嵌，聚焦时描边提亮 */
+/* 输入框：系统表单填充色，聚焦时用系统主色环 */
 .input-wrap {
   position: relative;
   display: flex;
@@ -501,22 +514,23 @@ export default {
   box-sizing: border-box;
   background: var(--auth-field);
   border: 1px solid var(--auth-hairline);
-  border-radius: 14px;
+  border-radius: var(--radius-md);
   transition: border-color var(--duration-fast, 0.15s) var(--ease-standard, ease),
               background-color var(--duration-fast, 0.15s) var(--ease-standard, ease),
               box-shadow var(--duration-fast, 0.15s) var(--ease-standard, ease);
 }
 
+/* 聚焦环沿用 --primary-light，与 global.scss 的 focus 规则同一配方 */
 .input-wrap.input-focused {
-  border-color: rgba(255, 255, 255, 0.42);
+  border-color: var(--primary-color);
   background: var(--auth-field-strong);
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.08);
+  box-shadow: 0 0 0 3px var(--primary-light);
 }
 
 .input-wrap.input-error {
-  border-color: rgba(var(--auth-danger-rgb), 0.7);
-  background: rgba(var(--auth-danger-rgb), 0.12);
-  box-shadow: 0 0 0 3.5px rgba(var(--auth-danger-rgb), 0.14);
+  border-color: var(--danger-color);
+  background: rgba(var(--auth-danger-rgb), 0.1);
+  box-shadow: 0 0 0 3px rgba(var(--auth-danger-rgb), 0.14);
 }
 
 .input-icon {
@@ -531,7 +545,7 @@ export default {
 }
 
 .input-wrap.input-focused .input-icon {
-  color: rgba(255, 255, 255, 0.9);
+  color: var(--primary-color);
 }
 
 .input-wrap.input-error .input-icon {
@@ -564,11 +578,11 @@ export default {
   opacity: 1;
 }
 
-/* 浏览器自动填充时不要变成白底黑字 */
+/* 浏览器自动填充时不要覆盖系统表单填充色 */
 .form-input:-webkit-autofill,
 .form-input:-webkit-autofill:focus {
   -webkit-text-fill-color: var(--auth-text);
-  -webkit-box-shadow: 0 0 0 40px #2a2a30 inset;
+  -webkit-box-shadow: 0 0 0 40px var(--card-bg) inset;
   transition: background-color 9999s ease-out 0s;
 }
 
@@ -589,8 +603,8 @@ export default {
 }
 
 .password-toggle:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
+  background: rgba(120, 120, 128, 0.16);
+  color: var(--auth-text);
 }
 
 /* ---------- 错误提示 ---------- */
@@ -599,10 +613,10 @@ export default {
   align-items: center;
   margin-top: 12px;
   padding: 10px 13px;
-  background: rgba(var(--auth-danger-rgb), 0.16);
-  border: 1px solid rgba(var(--auth-danger-rgb), 0.3);
+  background: rgba(var(--auth-danger-rgb), 0.12);
+  border: 1px solid rgba(var(--auth-danger-rgb), 0.26);
   color: var(--auth-danger);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   font-size: 13px;
   font-weight: 500;
   line-height: 1.45;
@@ -618,49 +632,51 @@ export default {
   flex: 1;
 }
 
-/* ---------- 主按钮：白色实心，壁纸上最亮的一点 ---------- */
+/* ---------- 主按钮：系统主色配方（同 global.scss .btn-primary） ---------- */
 .btn-primary {
   width: 100%;
   height: 52px;
   margin-top: 18px;
   border: none;
-  border-radius: 14px;
-  background: #fff;
-  color: #101014;
+  border-radius: var(--radius-md);
+  background: var(--primary-color);
+  color: #fff;
   font-size: 16px;
   font-weight: 600;
   letter-spacing: 1px;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 1px 3px rgba(var(--primary-rgb), 0.25);
   transition: background-color var(--duration-fast, 0.15s) var(--ease-standard, ease),
               transform var(--duration-fast, 0.15s) var(--ease-standard, ease),
               box-shadow var(--duration-fast, 0.15s) var(--ease-standard, ease);
 }
 
 .btn-primary:hover {
-  background: #f2f2f5;
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.32);
+  background: var(--primary-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.35);
 }
 
 .btn-primary:active {
-  transform: scale(0.98);
-  background: #e6e6ea;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.24);
+  transform: scale(0.97);
+  opacity: 0.92;
+  box-shadow: 0 1px 3px rgba(var(--primary-rgb), 0.25);
 }
 
 .btn-primary:disabled {
-  opacity: 0.62;
+  opacity: 0.45;
   transform: none;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  box-shadow: none;
 }
 
+/* 加载指示器：主色按钮上的白色 spinner，深浅主题一致 */
 .btn-loading {
   width: 20px;
   height: 20px;
-  border: 2px solid rgba(16, 16, 20, 0.25);
-  border-top-color: #101014;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
 }
@@ -683,28 +699,28 @@ export default {
 
 .footer-divider {
   margin: 0 7px;
-  color: rgba(255, 255, 255, 0.28);
+  color: var(--auth-text-3);
 }
 
-/* 页脚链接刻意压低一档亮度：让白色主按钮始终是画面中最亮的一点 */
+/* 链接走系统主色（iOS 链接惯例），不再自造一层白色链接 */
 .footer-link {
-  color: rgba(255, 255, 255, 0.82);
+  color: var(--primary-color);
   font-weight: 500;
   text-decoration: none;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.22);
-  padding-bottom: 1px;
-  transition: border-color var(--duration-fast, 0.15s) var(--ease-standard, ease),
-              color var(--duration-fast, 0.15s) var(--ease-standard, ease);
+  transition: color var(--duration-fast, 0.15s) var(--ease-standard, ease);
 }
 
 .footer-link:hover {
-  color: #fff;
-  border-bottom-color: rgba(255, 255, 255, 0.62);
+  color: var(--primary-hover);
+}
+
+.footer-link:active {
+  opacity: 0.6;
 }
 
 /* 键盘可达性：独立规则，避免与逗号选择器列表在同一规则里（Chrome 80 不识别 :focus-visible 会整条失效） */
 .login-page button:focus-visible {
-  outline: 2px solid rgba(255, 255, 255, 0.85);
+  outline: 2px solid var(--primary-color);
   outline-offset: 2px;
 }
 
@@ -742,22 +758,24 @@ export default {
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.32);
 }
 
+/* 与 global.scss 的 .ios-sheet 同配方：
+   --surface-elevated + --glass-blur-container + 顶部大圆角 + 系统阴影 */
 .sheet-card {
   position: relative;
   width: 100%;
   max-width: 420px;
   padding: 12px 26px 26px;
   box-sizing: border-box;
-  background: rgba(24, 24, 28, 0.94);
-  -webkit-backdrop-filter: blur(24px) saturate(140%);
-  backdrop-filter: blur(24px) saturate(140%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--surface-elevated);
+  -webkit-backdrop-filter: var(--glass-blur-container);
+  backdrop-filter: var(--glass-blur-container);
+  border: 1px solid var(--glass-border);
   border-bottom: none;
-  border-radius: 22px 22px 0 0;
-  box-shadow: 0 -18px 60px rgba(0, 0, 0, 0.5);
+  border-radius: var(--radius-3xl) var(--radius-3xl) 0 0;
+  box-shadow: 0 -18px 60px rgba(0, 0, 0, 0.28);
   color: var(--auth-text);
   transform-origin: bottom center;
 }
@@ -768,8 +786,8 @@ export default {
     padding: 20px;
   }
   .sheet-card {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 22px;
+    border-bottom: 1px solid var(--glass-border);
+    border-radius: var(--radius-3xl);
     transform-origin: center;
   }
 }
@@ -778,8 +796,8 @@ export default {
   width: 36px;
   height: 5px;
   margin: 0 auto 12px;
-  border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.24);
+  border-radius: var(--radius-pill);
+  background: var(--separator-color);
 }
 
 .sheet-close {
@@ -793,7 +811,7 @@ export default {
   justify-content: center;
   border: none;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(120, 120, 128, 0.14);
   color: var(--auth-text-2);
   font-size: 14px;
   transition: background-color var(--duration-fast, 0.15s) var(--ease-standard, ease),
@@ -801,8 +819,8 @@ export default {
 }
 
 .sheet-close:hover {
-  background: rgba(255, 255, 255, 0.18);
-  color: #fff;
+  background: rgba(120, 120, 128, 0.24);
+  color: var(--auth-text);
 }
 
 .sheet-header {
@@ -811,6 +829,7 @@ export default {
   padding: 0 20px;
 }
 
+/* 图标底色走系统主色淡染（与系统「着色玻璃」CTA 思路一致） */
 .sheet-icon-wrap {
   width: 60px;
   height: 60px;
@@ -818,14 +837,14 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.14);
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: var(--radius-lg);
+  background: var(--primary-light);
+  border: 1px solid rgba(var(--primary-rgb), 0.18);
 }
 
 .sheet-icon {
   font-size: 26px;
-  color: #fff;
+  color: var(--primary-color);
 }
 
 .sheet-title {
@@ -856,12 +875,14 @@ export default {
   padding: 0 16px;
   box-sizing: border-box;
   border: 1px solid var(--auth-hairline);
-  border-radius: 14px;
+  border-radius: var(--radius-md);
   background: var(--auth-field);
-  color: #fff;
+  color: var(--auth-text);
   font-size: 24px;
   font-weight: 600;
   letter-spacing: 8px;
+  /* 字距会向右多算一格，用 text-indent 抵消才能视觉居中 */
+  text-indent: 8px;
   text-align: center;
   text-transform: uppercase;
   -webkit-appearance: none;
@@ -872,24 +893,26 @@ export default {
 
 .sheet-input:focus {
   outline: none;
-  border-color: rgba(255, 255, 255, 0.42);
+  border-color: var(--primary-color);
   background: var(--auth-field-strong);
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.08);
+  box-shadow: 0 0 0 3px var(--primary-light);
 }
 
 .sheet-input::placeholder {
-  color: rgba(255, 255, 255, 0.32);
+  color: var(--auth-text-3);
   font-size: 15px;
   font-weight: 400;
   letter-spacing: 1px;
+  text-indent: 1px;
 }
 
 .sheet-input.input-error {
-  border-color: rgba(var(--auth-danger-rgb), 0.7);
-  background: rgba(var(--auth-danger-rgb), 0.12);
-  box-shadow: 0 0 0 3.5px rgba(var(--auth-danger-rgb), 0.14);
+  border-color: var(--danger-color);
+  background: rgba(var(--auth-danger-rgb), 0.1);
+  box-shadow: 0 0 0 3px rgba(var(--auth-danger-rgb), 0.14);
 }
 
+/* ---------- Sheet 提交按钮：同主按钮配方 ---------- */
 .sheet-submit {
   width: 100%;
   height: 52px;
@@ -898,31 +921,32 @@ export default {
   align-items: center;
   justify-content: center;
   border: none;
-  border-radius: 14px;
-  background: #fff;
-  color: #101014;
+  border-radius: var(--radius-md);
+  background: var(--primary-color);
+  color: #fff;
   font-size: 16px;
   font-weight: 600;
   letter-spacing: 0.5px;
-  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 1px 3px rgba(var(--primary-rgb), 0.25);
   transition: background-color var(--duration-fast, 0.15s) var(--ease-standard, ease),
               transform var(--duration-fast, 0.15s) var(--ease-standard, ease),
               box-shadow var(--duration-fast, 0.15s) var(--ease-standard, ease);
 }
 
 .sheet-submit:hover {
-  background: #f2f2f5;
+  background: var(--primary-hover);
+  box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.35);
 }
 
 .sheet-submit:active {
-  transform: scale(0.98);
-  background: #e6e6ea;
+  transform: scale(0.97);
+  opacity: 0.92;
 }
 
 .sheet-submit:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   transform: none;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  box-shadow: none;
 }
 
 /* ---------- Sheet 过渡：从底部滑入 ---------- */
@@ -978,7 +1002,7 @@ export default {
   .login-card {
     width: 400px;
     padding: 26px 32px 22px;
-    border-radius: 18px;
+    border-radius: var(--radius-xl);
   }
   .login-header {
     margin-bottom: 18px;
@@ -1031,6 +1055,50 @@ export default {
   }
   .login-footer {
     margin-top: 12px;
+  }
+}
+
+/* ============================================================
+   低性能设备：与 global.scss 的 [data-perf="low"] 同策略——
+   实时模糊关闭，面板提到不透明表面以保可读性
+   ============================================================ */
+[data-perf="low"] .login-card,
+[data-perf="low"] .sheet-card {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: var(--card-bg);
+}
+
+/* ============================================================
+   触屏设备（无 hover）：按下态反馈代替会「粘住」的 hover 态
+   ============================================================ */
+@media (hover: none) {
+  .btn-primary:hover,
+  .sheet-submit:hover {
+    background: var(--primary-color);
+    transform: none;
+    box-shadow: 0 1px 3px rgba(var(--primary-rgb), 0.25);
+  }
+  .sheet-submit:hover {
+    box-shadow: none;
+  }
+  .footer-link:hover {
+    color: var(--primary-color);
+  }
+  .password-toggle:hover {
+    background: transparent;
+    color: var(--auth-text-2);
+  }
+  .password-toggle:active {
+    background: rgba(120, 120, 128, 0.16);
+  }
+  .sheet-close:hover {
+    background: rgba(120, 120, 128, 0.14);
+    color: var(--auth-text-2);
+  }
+  .sheet-close:active {
+    background: rgba(120, 120, 128, 0.24);
+    color: var(--auth-text);
   }
 }
 
