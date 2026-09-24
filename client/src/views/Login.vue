@@ -1,17 +1,26 @@
 <template>
-  <div class="login-page" :class="{ 'page-enter': entered }">
-    <!-- 装饰光晕：模拟 iPadOS 壁纸的层次感 -->
-    <div class="login-aurora" aria-hidden="true">
-      <div class="aurora-blob aurora-blob-1"></div>
-      <div class="aurora-blob aurora-blob-2"></div>
-      <div class="aurora-blob aurora-blob-3"></div>
+  <div class="login-page" :class="{ 'page-enter': entered, 'has-video-bg': !!videoSrc }">
+    <!-- 壁纸层：复刻桌面壁纸，登录页即「系统锁屏」，与启动动画同语言 -->
+    <div class="auth-wallpaper" :style="wallpaperStyle" aria-hidden="true">
+      <video
+        v-if="videoSrc"
+        class="auth-wallpaper-video"
+        :src="videoSrc"
+        autoplay
+        muted
+        loop
+        playsinline
+        preload="auto"
+        @error="videoFailed = true"
+      ></video>
     </div>
+    <div class="auth-scrim" aria-hidden="true"></div>
 
     <div class="login-card">
       <div class="login-header">
-        <div class="logo-icon">
-          <span class="logo-letter">C</span>
-        </div>
+        <!-- 标识为临时占位：替换 Resources/public/brand/logo-mark-white.png
+             （纯白图形 + 透明底 + 紧密裁切）即可，尺寸自适应无需改样式 -->
+        <img class="login-mark" :src="brandMark" alt="" aria-hidden="true" />
         <h1 class="login-title">ClassIntra</h1>
         <p class="login-subtitle">智慧校园平台</p>
       </div>
@@ -29,6 +38,9 @@
               class="form-input"
               placeholder="用户名 / ID / 网名"
               autocomplete="username"
+              autocapitalize="off"
+              autocorrect="off"
+              spellcheck="false"
               aria-label="账号"
               @input="accountError = false"
               @focus="accountFocused = true"
@@ -45,6 +57,7 @@
               class="form-input"
               placeholder="密码"
               autocomplete="current-password"
+              enterkeyhint="go"
               aria-label="密码"
               @input="passwordError = false"
               @focus="passwordFocused = true"
@@ -106,6 +119,8 @@
                 placeholder="请输入6位上传码"
                 maxlength="6"
                 autocomplete="off"
+                autocapitalize="characters"
+                spellcheck="false"
                 @input="onCodeInput"
               />
             </div>
@@ -128,11 +143,17 @@
 
 <script>
 import axios from 'axios';
+import { resolveWallpaper, AUTH_BACKDROP } from '@/utils/wallpaper-bg';
+
+// 品牌标识（临时占位：替换 Resources/public/brand/logo-mark-white.png 即可，
+// 要求纯白图形 + 透明底 + 紧密裁切）。运行时字符串，避免打包器解析成模块路径。
+var BRAND_MARK = '/resources/public/brand/logo-mark-white.png';
 
 export default {
   name: 'Login',
   data: function() {
     return {
+      brandMark: BRAND_MARK,
       account: '',
       password: '',
       errorMsg: '',
@@ -143,6 +164,8 @@ export default {
       passwordFocused: false,
       entered: false,
       showPassword: false,
+      // 壁纸
+      videoFailed: false,
       // 快捷上传相关
       showQuickUpload: false,
       quickCode: '',
@@ -151,6 +174,18 @@ export default {
     };
   },
   computed: {
+    wallpaperResolved: function() {
+      return resolveWallpaper(this.$store.state.settings.wallpaper);
+    },
+    // 仅当用户真正选了图片/视频壁纸时才铺壁纸；渐变预设一律走中性深色底色
+    wallpaperStyle: function() {
+      if (this.wallpaperResolved.type === 'image') return this.wallpaperResolved.style;
+      return { background: AUTH_BACKDROP };
+    },
+    videoSrc: function() {
+      if (this.videoFailed) return '';
+      return this.wallpaperResolved.type === 'video' ? this.wallpaperResolved.src : '';
+    },
     isLoggedIn: function() {
       return !!this.$store.state.auth.token;
     },
@@ -175,6 +210,10 @@ export default {
       requestAnimationFrame(function() {
         self.entered = true;
       });
+      // 兜底：后台标签页 rAF 被节流时，定时器保证入场动画最终触发
+      setTimeout(function() {
+        self.entered = true;
+      }, 400);
     });
   },
   methods: {
@@ -262,285 +301,316 @@ export default {
 </script>
 
 <style scoped>
-/* ========== 页面容器：iPadOS 锁屏风格多层背景 ========== */
+/* ============================================================
+   登录页 = 系统锁屏
+   全屏壁纸（复刻桌面）+ 暗调蒙版 + 中央玻璃卡 + 白色标识
+   Chrome 80 基线：不使用 gap / inset / :is() / aspect-ratio
+   ============================================================ */
+
 .login-page {
+  /* 全部色彩自持：不依赖明暗主题变量，壁纸上永远保持同一质感 */
+  --auth-text: rgba(255, 255, 255, 0.97);
+  --auth-text-2: rgba(255, 255, 255, 0.7);
+  --auth-text-3: rgba(255, 255, 255, 0.48);
+  --auth-hairline: rgba(255, 255, 255, 0.1);
+  --auth-field: rgba(255, 255, 255, 0.06);
+  --auth-field-strong: rgba(255, 255, 255, 0.1);
+  --auth-danger: #ffb3ae;
+  --auth-danger-rgb: 255, 69, 58;
+
   position: relative;
   width: 100%;
   height: 100%;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  background: linear-gradient(135deg, #1a3a6c 0%, #007AFF 45%, #5AC8FA 100%);
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 28px 20px;
+  box-sizing: border-box;
+  /* 未加载壁纸前与启动动画的纯黑衔接 */
+  background: #0b0b0d;
   isolation: isolate;
 }
 
-/* 装饰光晕：模拟 iPadOS 壁纸的层次感（不影响交互） */
-.login-aurora {
-  position: absolute;
-  inset: 0;
+/* ---------- 壁纸层（固定于视口，页面滚动时壁纸不动） ---------- */
+.auth-wallpaper {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 0;
+  background-size: cover;
+  background-position: center center;
+  background-repeat: no-repeat;
   pointer-events: none;
-  overflow: hidden;
-}
-.aurora-blob {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(80px);
-  opacity: 0.6;
-  will-change: transform;
-}
-.aurora-blob-1 {
-  width: 520px;
-  height: 520px;
-  left: -120px;
-  top: -140px;
-  background: radial-gradient(circle, rgba(90, 200, 250, 0.85), transparent 70%);
-  animation: aurora-drift-1 18s ease-in-out infinite alternate;
-}
-.aurora-blob-2 {
-  width: 460px;
-  height: 460px;
-  right: -100px;
-  bottom: -120px;
-  background: radial-gradient(circle, rgba(255, 149, 0, 0.45), transparent 70%);
-  animation: aurora-drift-2 22s ease-in-out infinite alternate;
-}
-.aurora-blob-3 {
-  width: 380px;
-  height: 380px;
-  left: 40%;
-  bottom: 10%;
-  background: radial-gradient(circle, rgba(175, 82, 222, 0.45), transparent 70%);
-  animation: aurora-drift-3 26s ease-in-out infinite alternate;
+  opacity: 0;
+  transition: opacity 0.7s var(--ease-standard, ease);
+  will-change: opacity;
 }
 
-@keyframes aurora-drift-1 {
-  from { transform: translate(0, 0) scale(1); }
-  to   { transform: translate(60px, 80px) scale(1.1); }
-}
-@keyframes aurora-drift-2 {
-  from { transform: translate(0, 0) scale(1); }
-  to   { transform: translate(-80px, -60px) scale(1.05); }
-}
-@keyframes aurora-drift-3 {
-  from { transform: translate(0, 0) scale(0.95); }
-  to   { transform: translate(-40px, 50px) scale(1.1); }
+.login-page.page-enter .auth-wallpaper {
+  opacity: 1;
 }
 
-/* ========== 登录卡片：真毛玻璃材质 ========== */
+.auth-wallpaper-video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+
+/* ---------- 蒙版：压暗壁纸，让面板与背景分层 ---------- */
+.auth-scrim {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 1;
+  pointer-events: none;
+  background:
+    radial-gradient(130% 100% at 50% 40%, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.5) 100%),
+    rgba(0, 0, 0, 0.14);
+  opacity: 0;
+  transition: opacity 0.7s var(--ease-standard, ease);
+}
+
+.login-page.page-enter .auth-scrim {
+  opacity: 1;
+}
+
+/* 视频壁纸：模糊开销按帧结算，降低半径以保低端设备流畅 */
+.login-page.has-video-bg .login-card,
+.login-page.has-video-bg .sheet-card {
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+}
+
+/* ---------- 登录面板：克制的深色实体面，靠描边与投影分层 ---------- */
 .login-card {
   position: relative;
-  z-index: 1;
-  width: 420px;
-  max-width: calc(100vw - 32px);
-  background: var(--surface-elevated);
-  -webkit-backdrop-filter: var(--glass-blur-thick);
-  backdrop-filter: var(--glass-blur-thick);
-  border: 0.5px solid var(--glass-border);
-  border-radius: var(--radius-3xl);
-  padding: 48px 40px;
-  box-shadow: var(--shadow-xl), inset 0 0 0 0.5px rgba(255, 255, 255, 0.18);
-  /* 入场：scale(0.95)+opacity（emil-design：never animate from scale(0)） */
+  z-index: 2;
+  /* margin:auto 居中：内容超高时不会被 flex 居中裁掉顶部 */
+  margin: auto;
+  width: 424px;
+  max-width: 100%;
+  padding: 38px 40px 30px;
+  box-sizing: border-box;
+  background: rgba(22, 22, 26, 0.9);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  backdrop-filter: blur(24px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 22px;
+  box-shadow:
+    0 20px 50px rgba(0, 0, 0, 0.46),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  color: var(--auth-text);
+  /* 入场：从下方微升 + 微缩放（不从不透明度 0 的 scale(0) 起步） */
   opacity: 0;
-  transform: scale(0.95) translateY(12px);
-  transition: opacity var(--duration-normal) var(--ease-decelerate),
-              transform 0.6s var(--ease-spring);
+  transform: translateY(18px) scale(0.97);
+  transition: opacity 0.5s var(--ease-decelerate, ease),
+              transform 0.62s var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
 }
 
 .login-page.page-enter .login-card {
   opacity: 1;
-  transform: scale(1) translateY(0);
+  transform: translateY(0) scale(1);
 }
 
+/* ---------- 品牌区 ---------- */
 .login-header {
   text-align: center;
-  margin-bottom: 32px;
+  margin-bottom: 26px;
 }
 
-.logo-icon {
+.login-mark {
+  display: block;
   width: 72px;
-  height: 72px;
-  margin: 0 auto 16px;
-  background: linear-gradient(135deg, #007AFF 0%, #5AC8FA 100%);
-  border-radius: var(--radius-xl);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 12px 28px rgba(0, 122, 255, 0.45),
-              inset 0 1px 0 rgba(255, 255, 255, 0.4);
-}
-
-.logo-letter {
-  font-size: 36px;
-  font-weight: var(--font-weight-bold);
-  color: #fff;
-  letter-spacing: -0.5px;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+  height: 58px;
+  margin: 0 auto 12px;
+  object-fit: contain;
 }
 
 .login-title {
-  font-size: var(--font-size-largeTitle);
-  font-weight: var(--font-weight-bold);
-  color: var(--text-primary);
-  margin-bottom: 4px;
-  letter-spacing: -0.5px;
+  margin: 0;
+  font-size: 25px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.4px;
+  color: var(--auth-text);
 }
 
 .login-subtitle {
-  font-size: var(--font-size-callout);
-  color: var(--text-secondary);
-  font-weight: var(--font-weight-medium);
+  margin: 7px 0 0;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 3px;
+  text-indent: 3px;
+  color: var(--auth-text-3);
 }
 
+/* ---------- 切换账号提示 ---------- */
 .switch-hint {
   display: flex;
   align-items: center;
-  gap: 8px;
   padding: 9px 12px;
   margin-bottom: 14px;
-  border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.16);
-  color: rgba(255, 255, 255, 0.92);
-  font-size: var(--font-size-caption);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--auth-hairline);
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 12px;
   line-height: 1.5;
 }
 
 .switch-hint i {
   flex-shrink: 0;
+  margin-right: 8px;
   font-size: 12px;
   opacity: 0.9;
 }
 
 .switch-hint strong {
   font-weight: 500;
+  color: #fff;
 }
 
+/* ---------- 表单 ---------- */
 .login-form {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-md);
 }
 
 .form-group {
   width: 100%;
 }
 
-/* ========== 输入框：iPadOS 大型风格（含内嵌图标） ========== */
+.form-group + .form-group {
+  margin-top: 12px;
+}
+
+/* 输入框：玻璃内嵌，聚焦时描边提亮 */
 .input-wrap {
   position: relative;
   display: flex;
   align-items: center;
-  height: 56px;
-  background: rgba(255, 255, 255, 0.65);
-  border: 1.5px solid rgba(0, 0, 0, 0.06);
-  border-radius: var(--radius-lg);
-  transition: border-color var(--duration-fast) var(--ease-standard),
-              box-shadow var(--duration-fast) var(--ease-standard),
-              background-color var(--duration-fast) var(--ease-standard);
-}
-
-[data-theme="dark"] .input-wrap {
-  background: rgba(28, 28, 30, 0.55);
-  border-color: rgba(255, 255, 255, 0.08);
+  height: 54px;
+  box-sizing: border-box;
+  background: var(--auth-field);
+  border: 1px solid var(--auth-hairline);
+  border-radius: 14px;
+  transition: border-color var(--duration-fast, 0.15s) var(--ease-standard, ease),
+              background-color var(--duration-fast, 0.15s) var(--ease-standard, ease),
+              box-shadow var(--duration-fast, 0.15s) var(--ease-standard, ease);
 }
 
 .input-wrap.input-focused {
-  border-color: var(--primary-color);
-  background: var(--card-bg);
-  box-shadow: 0 0 0 4px rgba(var(--primary-rgb), 0.12);
+  border-color: rgba(255, 255, 255, 0.42);
+  background: var(--auth-field-strong);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.08);
 }
 
 .input-wrap.input-error {
-  border-color: var(--danger-color);
-  background: rgba(var(--danger-rgb), 0.06);
-  box-shadow: 0 0 0 4px rgba(var(--danger-rgb), 0.12);
+  border-color: rgba(var(--auth-danger-rgb), 0.7);
+  background: rgba(var(--auth-danger-rgb), 0.12);
+  box-shadow: 0 0 0 3.5px rgba(var(--auth-danger-rgb), 0.14);
 }
 
 .input-icon {
   flex-shrink: 0;
-  width: 24px;
-  margin-left: 16px;
-  font-size: 16px;
-  color: var(--text-tertiary);
-  transition: color var(--duration-fast) var(--ease-standard);
+  width: 22px;
+  margin-left: 15px;
+  font-size: 15px;
+  text-align: center;
+  color: var(--auth-text-3);
+  transition: color var(--duration-fast, 0.15s) var(--ease-standard, ease);
   pointer-events: none;
 }
 
 .input-wrap.input-focused .input-icon {
-  color: var(--primary-color);
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .input-wrap.input-error .input-icon {
-  color: var(--danger-color);
+  color: var(--auth-danger);
 }
 
 .form-input {
   flex: 1;
+  width: 100%;
   height: 100%;
   padding: 0 12px;
   border: none;
   background: transparent;
-  font-size: var(--font-size-body);
-  color: var(--text-primary);
   box-shadow: none;
   border-radius: 0;
+  font-size: 15px;
+  color: var(--auth-text);
+  /* 移动端浏览器默认会给输入框加内阴影，这里统一压掉 */
+  -webkit-appearance: none;
 }
 
 .form-input:focus {
-  box-shadow: none;
+  outline: none;
   border-color: transparent;
+  box-shadow: none;
 }
 
 .form-input::placeholder {
-  color: var(--text-tertiary);
+  color: var(--auth-text-3);
   opacity: 1;
 }
 
-/* 密码可见性切换：iPadOS 风格的图标按钮（44x44 触摸目标） */
+/* 浏览器自动填充时不要变成白底黑字 */
+.form-input:-webkit-autofill,
+.form-input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--auth-text);
+  -webkit-box-shadow: 0 0 0 40px #2a2a30 inset;
+  transition: background-color 9999s ease-out 0s;
+}
+
 .password-toggle {
   flex-shrink: 0;
   width: 44px;
   height: 44px;
-  margin-right: 6px;
+  margin-right: 5px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-secondary);
+  color: var(--auth-text-2);
   background: transparent;
-  border-radius: var(--radius-md);
-  transition: background-color var(--duration-fast) var(--ease-standard),
-              transform var(--duration-fast) var(--ease-standard),
-              color var(--duration-fast) var(--ease-standard);
-}
-.password-toggle:hover {
-  background: rgba(0, 0, 0, 0.05);
-  color: var(--text-primary);
-}
-[data-theme="dark"] .password-toggle:hover {
-  background: rgba(255, 255, 255, 0.08);
-}
-.password-toggle:active {
-  transform: scale(0.94);
-  opacity: 0.7;
+  border: none;
+  border-radius: 12px;
+  transition: background-color var(--duration-fast, 0.15s) var(--ease-standard, ease),
+              color var(--duration-fast, 0.15s) var(--ease-standard, ease);
 }
 
-/* ========== 错误消息：iPadOS 风格 inline alert ========== */
+.password-toggle:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+/* ---------- 错误提示 ---------- */
 .error-message {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  background: rgba(var(--danger-rgb), 0.12);
-  border: 0.5px solid rgba(var(--danger-rgb), 0.2);
-  color: var(--danger-color);
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
+  margin-top: 12px;
+  padding: 10px 13px;
+  background: rgba(var(--auth-danger-rgb), 0.16);
+  border: 1px solid rgba(var(--auth-danger-rgb), 0.3);
+  color: var(--auth-danger);
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.45;
 }
 
 .error-icon {
   flex-shrink: 0;
+  margin-right: 8px;
   font-size: 14px;
 }
 
@@ -548,71 +618,49 @@ export default {
   flex: 1;
 }
 
-/* 错误消息过渡：从左滑入 + 淡入（spatial consistency） */
-.error-fade-enter-active {
-  transition: opacity var(--duration-fast) var(--ease-decelerate),
-              transform var(--duration-fast) var(--ease-decelerate);
-}
-.error-fade-leave-active {
-  transition: opacity var(--duration-fast) var(--ease-accelerate),
-              transform var(--duration-fast) var(--ease-accelerate);
-}
-.error-fade-enter {
-  opacity: 0;
-  transform: translateX(-8px);
-}
-.error-fade-leave-to {
-  opacity: 0;
-  transform: translateX(8px);
-}
-
-/* ========== 主按钮：胶囊形 + scale(0.97) 按下反馈 ========== */
+/* ---------- 主按钮：白色实心，壁纸上最亮的一点 ---------- */
 .btn-primary {
   width: 100%;
   height: 52px;
-  margin-top: 4px;
-  background: var(--primary-color);
-  color: #fff;
-  border-radius: var(--radius-pill);
-  font-size: var(--font-size-subheadline);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.5px;
+  margin-top: 18px;
+  border: none;
+  border-radius: 14px;
+  background: #fff;
+  color: #101014;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 1px;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 6px 16px rgba(var(--primary-rgb), 0.4),
-              inset 0 1px 0 rgba(255, 255, 255, 0.25);
-  transition: background-color var(--duration-fast) var(--ease-standard),
-              transform var(--duration-fast) var(--ease-standard),
-              box-shadow var(--duration-fast) var(--ease-standard);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.28);
+  transition: background-color var(--duration-fast, 0.15s) var(--ease-standard, ease),
+              transform var(--duration-fast, 0.15s) var(--ease-standard, ease),
+              box-shadow var(--duration-fast, 0.15s) var(--ease-standard, ease);
 }
 
 .btn-primary:hover {
-  background: var(--primary-hover);
-  box-shadow: 0 8px 20px rgba(var(--primary-rgb), 0.5),
-              inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  background: #f2f2f5;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.32);
 }
 
-/* 按下反馈：scale(0.97)（emil-design：buttons must feel responsive to press） */
 .btn-primary:active {
-  transform: scale(0.97);
-  background: var(--primary-pressed);
-  box-shadow: 0 2px 6px rgba(var(--primary-rgb), 0.3),
-              inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transform: scale(0.98);
+  background: #e6e6ea;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.24);
 }
 
 .btn-primary:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
+  opacity: 0.62;
   transform: none;
-  box-shadow: 0 2px 6px rgba(var(--primary-rgb), 0.2);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
 .btn-loading {
-  width: 22px;
-  height: 22px;
-  border: 2.5px solid rgba(255, 255, 255, 0.35);
-  border-top-color: #fff;
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(16, 16, 20, 0.25);
+  border-top-color: #101014;
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
 }
@@ -621,44 +669,97 @@ export default {
   to { transform: rotate(360deg); }
 }
 
-/* ========== Footer：链接区 ========== */
+/* ---------- 页脚 ---------- */
 .login-footer {
+  margin-top: 22px;
   text-align: center;
-  margin-top: 24px;
-  font-size: var(--font-size-footnote);
+  font-size: 13px;
+  line-height: 1.9;
 }
 
 .footer-text {
-  color: var(--text-secondary);
+  color: var(--auth-text-3);
 }
 
 .footer-divider {
-  color: var(--text-tertiary);
-  margin: 0 6px;
+  margin: 0 7px;
+  color: rgba(255, 255, 255, 0.28);
 }
 
+/* 页脚链接刻意压低一档亮度：让白色主按钮始终是画面中最亮的一点 */
 .footer-link {
-  color: var(--primary-color);
-  font-weight: var(--font-weight-semibold);
+  color: rgba(255, 255, 255, 0.82);
+  font-weight: 500;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.22);
+  padding-bottom: 1px;
+  transition: border-color var(--duration-fast, 0.15s) var(--ease-standard, ease),
+              color var(--duration-fast, 0.15s) var(--ease-standard, ease);
 }
 
 .footer-link:hover {
-  color: var(--primary-hover);
-  text-decoration: underline;
+  color: #fff;
+  border-bottom-color: rgba(255, 255, 255, 0.62);
 }
 
-/* ========== 快捷上传 Sheet：iPadOS 风格底部弹窗 ========== */
+/* 键盘可达性：独立规则，避免与逗号选择器列表在同一规则里（Chrome 80 不识别 :focus-visible 会整条失效） */
+.login-page button:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.85);
+  outline-offset: 2px;
+}
+
+/* ---------- 错误条过渡：从左滑入 + 淡入 ---------- */
+.error-fade-enter-active {
+  transition: opacity var(--duration-fast, 0.15s) var(--ease-decelerate, ease),
+              transform var(--duration-fast, 0.15s) var(--ease-decelerate, ease);
+}
+
+.error-fade-leave-active {
+  transition: opacity var(--duration-fast, 0.15s) var(--ease-accelerate, ease),
+              transform var(--duration-fast, 0.15s) var(--ease-accelerate, ease);
+}
+
+.error-fade-enter {
+  opacity: 0;
+  transform: translateX(-8px);
+}
+
+.error-fade-leave-to {
+  opacity: 0;
+  transform: translateX(8px);
+}
+
+/* ============================================================
+   快捷上传 Sheet：与登录卡同一套玻璃语言
+   ============================================================ */
 .sheet-overlay {
   position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0, 0, 0, 0.45);
-  -webkit-backdrop-filter: blur(4px);
-  backdrop-filter: blur(4px);
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 10000;
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  padding: 0;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.sheet-card {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  padding: 12px 26px 26px;
+  box-sizing: border-box;
+  background: rgba(24, 24, 28, 0.94);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  backdrop-filter: blur(24px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: none;
+  border-radius: 22px 22px 0 0;
+  box-shadow: 0 -18px 60px rgba(0, 0, 0, 0.5);
+  color: var(--auth-text);
+  transform-origin: bottom center;
 }
 
 @media (min-width: 600px) {
@@ -666,35 +767,19 @@ export default {
     align-items: center;
     padding: 20px;
   }
-}
-
-.sheet-card {
-  position: relative;
-  width: 100%;
-  max-width: 420px;
-  background: var(--card-bg, #fff);
-  border-radius: var(--radius-3xl, 28px) var(--radius-3xl, 28px) 0 0;
-  padding: 12px var(--spacing-xl) var(--spacing-xl);
-  box-shadow: var(--shadow-xl, 0 24px 80px rgba(0,0,0,0.4));
-  /* 入场：scale(0.95)+translateY（origin-aware：从底部弹出） */
-  transform-origin: bottom center;
-}
-
-@media (min-width: 600px) {
   .sheet-card {
-    border-radius: var(--radius-3xl, 28px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 22px;
     transform-origin: center;
   }
 }
 
-/* Sheet 顶部小抓手（iPadOS Sheet 标识） */
 .sheet-grabber {
   width: 36px;
   height: 5px;
-  background: var(--text-tertiary, rgba(60, 60, 67, 0.3));
-  border-radius: var(--radius-pill, 9999px);
   margin: 0 auto 12px;
-  opacity: 0.6;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.24);
 }
 
 .sheet-close {
@@ -703,70 +788,62 @@ export default {
   right: 16px;
   width: 32px;
   height: 32px;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.06);
-  color: var(--text-secondary, #999);
-  font-size: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background-color var(--duration-fast) var(--ease-standard),
-              transform var(--duration-fast) var(--ease-standard);
-}
-[data-theme="dark"] .sheet-close {
+  border: none;
+  border-radius: 50%;
   background: rgba(255, 255, 255, 0.1);
+  color: var(--auth-text-2);
+  font-size: 14px;
+  transition: background-color var(--duration-fast, 0.15s) var(--ease-standard, ease),
+              color var(--duration-fast, 0.15s) var(--ease-standard, ease);
 }
+
 .sheet-close:hover {
-  background: rgba(0, 0, 0, 0.1);
-}
-[data-theme="dark"] .sheet-close:hover {
-  background: rgba(255, 255, 255, 0.15);
-}
-.sheet-close:active {
-  transform: scale(0.94);
-  opacity: 0.7;
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
 }
 
 .sheet-header {
   text-align: center;
-  margin-bottom: 24px;
+  margin-bottom: 22px;
   padding: 0 20px;
 }
 
 .sheet-icon-wrap {
-  width: 64px;
-  height: 64px;
+  width: 60px;
+  height: 60px;
   margin: 0 auto 12px;
-  background: linear-gradient(135deg, var(--primary-color, #007AFF) 0%, rgba(var(--primary-rgb, 0, 122, 255), 0.7) 100%);
-  border-radius: var(--radius-lg);
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 8px 20px rgba(var(--primary-rgb, 0, 122, 255), 0.35);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.18);
 }
 
 .sheet-icon {
-  font-size: 28px;
+  font-size: 26px;
   color: #fff;
 }
 
 .sheet-title {
-  font-size: var(--font-size-title2, 22px);
-  font-weight: var(--font-weight-bold, 700);
-  color: var(--text-primary, #000);
   margin: 0 0 6px 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--auth-text);
 }
 
 .sheet-desc {
-  font-size: var(--font-size-sm, 13px);
-  color: var(--text-secondary, #999);
   margin: 0;
+  font-size: 13px;
+  color: var(--auth-text-3);
 }
 
 .sheet-form {
   display: flex;
   flex-direction: column;
-  gap: 14px;
 }
 
 .sheet-input-wrap {
@@ -777,142 +854,201 @@ export default {
   width: 100%;
   height: 56px;
   padding: 0 16px;
-  border: 1.5px solid var(--border-color, #e5e5ea);
-  border-radius: var(--radius-lg, 16px);
+  box-sizing: border-box;
+  border: 1px solid var(--auth-hairline);
+  border-radius: 14px;
+  background: var(--auth-field);
+  color: #fff;
   font-size: 24px;
-  font-weight: var(--font-weight-semibold, 600);
+  font-weight: 600;
   letter-spacing: 8px;
   text-align: center;
   text-transform: uppercase;
-  color: var(--text-primary, #000);
-  background: rgba(0, 0, 0, 0.03);
-  transition: border-color var(--duration-fast) var(--ease-standard),
-              box-shadow var(--duration-fast) var(--ease-standard),
-              background-color var(--duration-fast) var(--ease-standard);
+  -webkit-appearance: none;
+  transition: border-color var(--duration-fast, 0.15s) var(--ease-standard, ease),
+              background-color var(--duration-fast, 0.15s) var(--ease-standard, ease),
+              box-shadow var(--duration-fast, 0.15s) var(--ease-standard, ease);
 }
-[data-theme="dark"] .sheet-input {
-  background: rgba(255, 255, 255, 0.05);
-}
+
 .sheet-input:focus {
-  border-color: var(--primary-color, #007aff);
-  background: var(--card-bg, #fff);
-  box-shadow: 0 0 0 4px rgba(var(--primary-rgb, 0, 122, 255), 0.12);
   outline: none;
+  border-color: rgba(255, 255, 255, 0.42);
+  background: var(--auth-field-strong);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.08);
 }
+
+.sheet-input::placeholder {
+  color: rgba(255, 255, 255, 0.32);
+  font-size: 15px;
+  font-weight: 400;
+  letter-spacing: 1px;
+}
+
 .sheet-input.input-error {
-  border-color: var(--danger-color, #ff3b30);
-  background: rgba(var(--danger-rgb, 255, 59, 48), 0.06);
-  box-shadow: 0 0 0 4px rgba(var(--danger-rgb, 255, 59, 48), 0.12);
+  border-color: rgba(var(--auth-danger-rgb), 0.7);
+  background: rgba(var(--auth-danger-rgb), 0.12);
+  box-shadow: 0 0 0 3.5px rgba(var(--auth-danger-rgb), 0.14);
 }
 
 .sheet-submit {
   width: 100%;
   height: 52px;
-  background: var(--primary-color, #007aff);
-  color: #fff;
-  border: none;
-  border-radius: var(--radius-pill, 9999px);
-  font-size: var(--font-size-subheadline, 17px);
-  font-weight: var(--font-weight-semibold, 600);
-  letter-spacing: 0.5px;
+  margin-top: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 6px 16px rgba(var(--primary-rgb, 0, 122, 255), 0.4),
-              inset 0 1px 0 rgba(255, 255, 255, 0.25);
-  transition: background-color var(--duration-fast) var(--ease-standard),
-              transform var(--duration-fast) var(--ease-standard),
-              box-shadow var(--duration-fast) var(--ease-standard);
-}
-.sheet-submit:hover {
-  background: var(--primary-hover, #0066cc);
-}
-.sheet-submit:active {
-  transform: scale(0.97);
-  background: var(--primary-pressed, #004e99);
-}
-.sheet-submit:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none;
-  box-shadow: 0 2px 6px rgba(var(--primary-rgb, 0, 122, 255), 0.2);
+  border: none;
+  border-radius: 14px;
+  background: #fff;
+  color: #101014;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.28);
+  transition: background-color var(--duration-fast, 0.15s) var(--ease-standard, ease),
+              transform var(--duration-fast, 0.15s) var(--ease-standard, ease),
+              box-shadow var(--duration-fast, 0.15s) var(--ease-standard, ease);
 }
 
-/* ========== Sheet 过渡：从底部滑入 + scale(0.95) ========== */
+.sheet-submit:hover {
+  background: #f2f2f5;
+}
+
+.sheet-submit:active {
+  transform: scale(0.98);
+  background: #e6e6ea;
+}
+
+.sheet-submit:disabled {
+  opacity: 0.5;
+  transform: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+/* ---------- Sheet 过渡：从底部滑入 ---------- */
 .sheet-fade-enter-active {
-  transition: opacity var(--duration-normal) var(--ease-decelerate);
+  transition: opacity var(--duration-normal, 0.22s) var(--ease-decelerate, ease);
 }
+
 .sheet-fade-leave-active {
-  transition: opacity var(--duration-fast) var(--ease-accelerate);
+  transition: opacity var(--duration-fast, 0.15s) var(--ease-accelerate, ease);
 }
+
 .sheet-fade-enter-active .sheet-card {
-  transition: transform var(--duration-normal) var(--ease-spring),
-              opacity var(--duration-normal) var(--ease-decelerate);
+  transition: transform var(--duration-normal, 0.22s) var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1)),
+              opacity var(--duration-normal, 0.22s) var(--ease-decelerate, ease);
 }
+
 .sheet-fade-leave-active .sheet-card {
-  transition: transform var(--duration-fast) var(--ease-accelerate),
-              opacity var(--duration-fast) var(--ease-accelerate);
+  transition: transform var(--duration-fast, 0.15s) var(--ease-accelerate, ease),
+              opacity var(--duration-fast, 0.15s) var(--ease-accelerate, ease);
 }
+
 .sheet-fade-enter,
 .sheet-fade-leave-to {
   opacity: 0;
 }
+
 .sheet-fade-enter .sheet-card {
   opacity: 0;
-  transform: scale(0.95) translateY(100%);
+  transform: translateY(100%);
 }
+
 .sheet-fade-leave-to .sheet-card {
   opacity: 0;
-  transform: scale(0.97) translateY(40%);
+  transform: translateY(40%);
 }
 
 @media (min-width: 600px) {
   .sheet-fade-enter .sheet-card {
-    transform: scale(0.95) translateY(20px);
+    transform: translateY(20px) scale(0.97);
   }
   .sheet-fade-leave-to .sheet-card {
-    transform: scale(0.97) translateY(-8px);
+    transform: translateY(-8px) scale(0.98);
   }
 }
 
-/* ========== 响应式：横屏 1024px+ 适配 ========== */
-@media (min-width: 1024px) and (orientation: landscape) {
+/* ============================================================
+   横屏平板适配：1024x600 这类矮屏必须整体收紧
+   ============================================================ */
+@media (orientation: landscape) and (max-height: 700px) {
+  .login-page {
+    padding: 18px 20px;
+  }
   .login-card {
-    padding: 40px 36px;
+    width: 400px;
+    padding: 26px 32px 22px;
+    border-radius: 18px;
   }
-  .logo-icon {
-    width: 64px;
-    height: 64px;
-    border-radius: var(--radius-lg);
+  .login-header {
+    margin-bottom: 18px;
   }
-  .logo-letter {
-    font-size: 32px;
+  .login-mark {
+    width: 60px;
+    height: 48px;
+    margin-bottom: 9px;
   }
   .login-title {
-    font-size: var(--font-size-title1, 28px);
+    font-size: 22px;
   }
-  .input-wrap,
-  .sheet-input {
-    height: 52px;
-  }
-  .btn-primary,
-  .sheet-submit {
+  .input-wrap {
     height: 48px;
+  }
+  .btn-primary {
+    height: 48px;
+    margin-top: 14px;
+  }
+  .login-footer {
+    margin-top: 16px;
+    font-size: 12px;
   }
 }
 
-/* ========== Reduced motion：减弱动画但仍提供反馈 ========== */
-@media (prefers-reduced-motion: reduce) {
-  .aurora-blob {
-    animation: none !important;
-  }
+@media (orientation: landscape) and (max-height: 560px) {
   .login-card {
-    transition: opacity var(--duration-fast) var(--ease-standard) !important;
+    padding: 20px 28px 16px;
+  }
+  .login-header {
+    margin-bottom: 14px;
+  }
+  .login-mark {
+    width: 50px;
+    height: 40px;
+    margin-bottom: 7px;
+  }
+  .login-subtitle {
+    display: none;
+  }
+  .input-wrap {
+    height: 44px;
+  }
+  .form-group + .form-group {
+    margin-top: 10px;
+  }
+  .btn-primary {
+    height: 44px;
+    margin-top: 12px;
+  }
+  .login-footer {
+    margin-top: 12px;
+  }
+}
+
+/* ============================================================
+   减弱动画：保留静态呈现，去掉运动
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  .login-card {
+    transition: opacity var(--duration-fast, 0.15s) ease;
     transform: none !important;
+  }
+  .auth-wallpaper,
+  .auth-scrim {
+    transition: opacity 0.2s linear;
   }
   .sheet-fade-enter-active .sheet-card,
   .sheet-fade-leave-active .sheet-card {
-    transition-duration: var(--duration-fast) !important;
+    transition-duration: var(--duration-fast, 0.15s);
     transform: none !important;
   }
   .btn-primary:active,
