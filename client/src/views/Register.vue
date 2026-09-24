@@ -1,18 +1,27 @@
 <template>
-  <div class="register-page" :class="{ 'page-enter': entered }">
-    <!-- 装饰光晕：与 Login 一致，保证视觉连续性 -->
-    <div class="login-aurora" aria-hidden="true">
-      <div class="aurora-blob aurora-blob-1"></div>
-      <div class="aurora-blob aurora-blob-2"></div>
-      <div class="aurora-blob aurora-blob-3"></div>
+  <div class="register-page" :class="{ 'page-enter': entered, 'has-video-bg': !!videoSrc }">
+    <!-- 壁纸层：与登录页同一套「系统闸门」语言 -->
+    <div class="auth-wallpaper" :style="wallpaperStyle" aria-hidden="true">
+      <video
+        v-if="videoSrc"
+        class="auth-wallpaper-video"
+        :src="videoSrc"
+        autoplay
+        muted
+        loop
+        playsinline
+        preload="auto"
+        @error="videoFailed = true"
+      ></video>
     </div>
+    <div class="auth-scrim" aria-hidden="true"></div>
 
     <div class="register-card">
       <div class="register-header">
-        <div class="logo-icon">
-          <span class="logo-letter">C</span>
-        </div>
-        <h1 class="register-title">注册 ClassIntra</h1>
+        <!-- 标识为临时占位：替换 Resources/public/brand/logo-mark-white.png
+             （纯白图形 + 透明底 + 紧密裁切）即可，尺寸自适应无需改样式 -->
+        <img class="register-mark" :src="brandMark" alt="" aria-hidden="true" />
+        <h1 class="register-title">ClassIntra</h1>
         <p class="register-subtitle">创建你的校园账号</p>
       </div>
       <form class="register-form" @submit.prevent="handleRegister">
@@ -25,6 +34,9 @@
               class="form-input"
               placeholder="网名"
               autocomplete="nickname"
+              autocapitalize="off"
+              autocorrect="off"
+              spellcheck="false"
               aria-label="网名"
               @input="clearFieldError('net_name')"
               @focus="focused.net_name = true"
@@ -41,6 +53,9 @@
               class="form-input"
               placeholder="真实姓名"
               autocomplete="name"
+              autocapitalize="off"
+              autocorrect="off"
+              spellcheck="false"
               aria-label="真实姓名"
               @input="clearFieldError('real_name')"
               @focus="focused.real_name = true"
@@ -71,7 +86,7 @@
               <i :class="showPassword ? 'fa-solid fa-eye-slash' : 'fa-solid fa-eye'" aria-hidden="true"></i>
             </button>
           </div>
-          <!-- 密码强度：iPadOS 风格的 4 段式 segment bar -->
+          <!-- 密码强度：4 段式 segment bar -->
           <transition name="strength-fade">
             <div v-if="password" class="password-strength" :class="passwordStrength.level">
               <div class="strength-bar" aria-hidden="true">
@@ -93,6 +108,7 @@
               class="form-input"
               placeholder="确认密码"
               autocomplete="new-password"
+              enterkeyhint="go"
               aria-label="确认密码"
               @input="clearFieldError('confirm_password')"
               @focus="focused.confirm_password = true"
@@ -129,11 +145,17 @@
 
 <script>
 import api from '@/utils/api';
+import { resolveWallpaper, AUTH_BACKDROP } from '@/utils/wallpaper-bg';
+
+// 品牌标识（临时占位：替换 Resources/public/brand/logo-mark-white.png 即可）。
+// 运行时字符串，避免打包器把绝对路径解析成模块路径。
+var BRAND_MARK = '/resources/public/brand/logo-mark-white.png';
 
 export default {
   name: 'Register',
   data: function() {
     return {
+      brandMark: BRAND_MARK,
       net_name: '',
       real_name: '',
       password: '',
@@ -154,6 +176,8 @@ export default {
       entered: false,
       showPassword: false,
       showConfirm: false,
+      // 壁纸
+      videoFailed: false,
       focused: {
         net_name: false,
         real_name: false,
@@ -162,6 +186,20 @@ export default {
       }
     };
   },
+  computed: {
+    wallpaperResolved: function() {
+      return resolveWallpaper(this.$store.state.settings.wallpaper);
+    },
+    // 与登录页一致：仅图片壁纸铺底，渐变预设走中性深色底色
+    wallpaperStyle: function() {
+      if (this.wallpaperResolved.type === 'image') return this.wallpaperResolved.style;
+      return { background: AUTH_BACKDROP };
+    },
+    videoSrc: function() {
+      if (this.videoFailed) return '';
+      return this.wallpaperResolved.type === 'video' ? this.wallpaperResolved.src : '';
+    }
+  },
   mounted: function() {
     var self = this;
     // 入场动画在下一帧触发，确保 CSS 过渡生效
@@ -169,6 +207,10 @@ export default {
       requestAnimationFrame(function() {
         self.entered = true;
       });
+      // 兜底：后台标签页 rAF 被节流时，定时器保证入场动画最终触发
+      setTimeout(function() {
+        self.entered = true;
+      }, 400);
     });
   },
   methods: {
@@ -263,326 +305,345 @@ export default {
 </script>
 
 <style scoped>
-/* ========== 页面容器：与 Login 完全一致的多层背景 ========== */
+/* ============================================================
+   注册页：与登录页共用一套「系统闸门」视觉
+   深色实体面板 + 白色标识 + 单一强调（白色主按钮）
+   Chrome 80 基线：不使用 gap / inset / :is() / aspect-ratio
+   ============================================================ */
+
 .register-page {
+  --auth-text: rgba(255, 255, 255, 0.97);
+  --auth-text-2: rgba(255, 255, 255, 0.7);
+  --auth-text-3: rgba(255, 255, 255, 0.48);
+  --auth-hairline: rgba(255, 255, 255, 0.1);
+  --auth-field: rgba(255, 255, 255, 0.06);
+  --auth-field-strong: rgba(255, 255, 255, 0.1);
+  --auth-danger: #ffb3ae;
+  --auth-danger-rgb: 255, 69, 58;
+
   position: relative;
   width: 100%;
   height: 100%;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  background: linear-gradient(135deg, #1a3a6c 0%, #007AFF 45%, #5AC8FA 100%);
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 24px 20px;
+  box-sizing: border-box;
+  background: #0b0b0d;
   isolation: isolate;
 }
 
-/* 装饰光晕（与 Login 共用，保持视觉一致） */
-.login-aurora {
-  position: absolute;
-  inset: 0;
+/* ---------- 壁纸层 + 蒙版 ---------- */
+.auth-wallpaper {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 0;
+  background-size: cover;
+  background-position: center center;
+  background-repeat: no-repeat;
   pointer-events: none;
-  overflow: hidden;
-}
-.aurora-blob {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(80px);
-  opacity: 0.6;
-  will-change: transform;
-}
-.aurora-blob-1 {
-  width: 520px;
-  height: 520px;
-  left: -120px;
-  top: -140px;
-  background: radial-gradient(circle, rgba(90, 200, 250, 0.85), transparent 70%);
-  animation: aurora-drift-1 18s ease-in-out infinite alternate;
-}
-.aurora-blob-2 {
-  width: 460px;
-  height: 460px;
-  right: -100px;
-  bottom: -120px;
-  background: radial-gradient(circle, rgba(255, 149, 0, 0.45), transparent 70%);
-  animation: aurora-drift-2 22s ease-in-out infinite alternate;
-}
-.aurora-blob-3 {
-  width: 380px;
-  height: 380px;
-  left: 40%;
-  bottom: 10%;
-  background: radial-gradient(circle, rgba(175, 82, 222, 0.45), transparent 70%);
-  animation: aurora-drift-3 26s ease-in-out infinite alternate;
+  opacity: 0;
+  transition: opacity 0.7s var(--ease-standard, ease);
+  will-change: opacity;
 }
 
-@keyframes aurora-drift-1 {
-  from { transform: translate(0, 0) scale(1); }
-  to   { transform: translate(60px, 80px) scale(1.1); }
-}
-@keyframes aurora-drift-2 {
-  from { transform: translate(0, 0) scale(1); }
-  to   { transform: translate(-80px, -60px) scale(1.05); }
-}
-@keyframes aurora-drift-3 {
-  from { transform: translate(0, 0) scale(0.95); }
-  to   { transform: translate(-40px, 50px) scale(1.1); }
+.register-page.page-enter .auth-wallpaper {
+  opacity: 1;
 }
 
-/* ========== 注册卡片：与 Login 一致的真毛玻璃 ========== */
+.auth-wallpaper-video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+
+.auth-scrim {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 1;
+  pointer-events: none;
+  background:
+    radial-gradient(130% 100% at 50% 40%, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.5) 100%),
+    rgba(0, 0, 0, 0.14);
+  opacity: 0;
+  transition: opacity 0.7s var(--ease-standard, ease);
+}
+
+.register-page.page-enter .auth-scrim {
+  opacity: 1;
+}
+
+.register-page.has-video-bg .register-card {
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+}
+
+/* ---------- 面板 ---------- */
 .register-card {
   position: relative;
-  z-index: 1;
-  width: 420px;
-  max-width: calc(100vw - 32px);
-  max-height: calc(100vh - 32px);
-  overflow-y: auto;
-  background: var(--surface-elevated);
-  -webkit-backdrop-filter: var(--glass-blur-thick);
-  backdrop-filter: var(--glass-blur-thick);
-  border: 0.5px solid var(--glass-border);
-  border-radius: var(--radius-3xl);
-  padding: 40px;
-  box-shadow: var(--shadow-xl), inset 0 0 0 0.5px rgba(255, 255, 255, 0.18);
-  /* 入场：scale(0.95)+opacity（emil-design：never animate from scale(0)） */
+  z-index: 2;
+  margin: auto;
+  width: 424px;
+  max-width: 100%;
+  padding: 34px 40px 26px;
+  box-sizing: border-box;
+  background: rgba(22, 22, 26, 0.9);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  backdrop-filter: blur(24px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 22px;
+  box-shadow:
+    0 20px 50px rgba(0, 0, 0, 0.46),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  color: var(--auth-text);
   opacity: 0;
-  transform: scale(0.95) translateY(12px);
-  transition: opacity var(--duration-normal) var(--ease-decelerate),
-              transform 0.6s var(--ease-spring);
-  scrollbar-width: thin;
+  transform: translateY(18px) scale(0.97);
+  transition: opacity 0.5s var(--ease-decelerate, ease),
+              transform 0.62s var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
 }
 
 .register-page.page-enter .register-card {
   opacity: 1;
-  transform: scale(1) translateY(0);
+  transform: translateY(0) scale(1);
 }
 
+/* ---------- 品牌区 ---------- */
 .register-header {
   text-align: center;
-  margin-bottom: 24px;
+  margin-bottom: 22px;
 }
 
-.logo-icon {
-  width: 64px;
-  height: 64px;
-  margin: 0 auto 12px;
-  background: linear-gradient(135deg, #007AFF 0%, #5AC8FA 100%);
-  border-radius: var(--radius-lg);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 10px 24px rgba(0, 122, 255, 0.4),
-              inset 0 1px 0 rgba(255, 255, 255, 0.4);
-}
-
-.logo-letter {
-  font-size: 32px;
-  font-weight: var(--font-weight-bold);
-  color: #fff;
-  letter-spacing: -0.5px;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+.register-mark {
+  display: block;
+  width: 66px;
+  height: 53px;
+  margin: 0 auto 10px;
+  object-fit: contain;
 }
 
 .register-title {
-  font-size: var(--font-size-title1);
-  font-weight: var(--font-weight-bold);
-  color: var(--text-primary);
-  margin-bottom: 4px;
-  letter-spacing: -0.5px;
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.4px;
+  color: var(--auth-text);
 }
 
 .register-subtitle {
-  font-size: var(--font-size-callout);
-  color: var(--text-secondary);
-  font-weight: var(--font-weight-medium);
+  margin: 6px 0 0;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0.6px;
+  color: var(--auth-text-3);
 }
 
+/* ---------- 表单 ---------- */
 .register-form {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-md);
 }
 
 .form-group {
   width: 100%;
 }
 
-/* ========== 输入框：与 Login 完全一致 ========== */
+.form-group + .form-group {
+  margin-top: 11px;
+}
+
 .input-wrap {
   position: relative;
   display: flex;
   align-items: center;
-  height: 56px;
-  background: rgba(255, 255, 255, 0.65);
-  border: 1.5px solid rgba(0, 0, 0, 0.06);
-  border-radius: var(--radius-lg);
-  transition: border-color var(--duration-fast) var(--ease-standard),
-              box-shadow var(--duration-fast) var(--ease-standard),
-              background-color var(--duration-fast) var(--ease-standard);
-}
-
-[data-theme="dark"] .input-wrap {
-  background: rgba(28, 28, 30, 0.55);
-  border-color: rgba(255, 255, 255, 0.08);
+  height: 52px;
+  box-sizing: border-box;
+  background: var(--auth-field);
+  border: 1px solid var(--auth-hairline);
+  border-radius: 13px;
+  transition: border-color var(--duration-fast, 0.15s) var(--ease-standard, ease),
+              background-color var(--duration-fast, 0.15s) var(--ease-standard, ease),
+              box-shadow var(--duration-fast, 0.15s) var(--ease-standard, ease);
 }
 
 .input-wrap.input-focused {
-  border-color: var(--primary-color);
-  background: var(--card-bg);
-  box-shadow: 0 0 0 4px rgba(var(--primary-rgb), 0.12);
+  border-color: rgba(255, 255, 255, 0.42);
+  background: var(--auth-field-strong);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.08);
 }
 
 .input-wrap.input-error {
-  border-color: var(--danger-color);
-  background: rgba(var(--danger-rgb), 0.06);
-  box-shadow: 0 0 0 4px rgba(var(--danger-rgb), 0.12);
+  border-color: rgba(var(--auth-danger-rgb), 0.7);
+  background: rgba(var(--auth-danger-rgb), 0.12);
+  box-shadow: 0 0 0 3px rgba(var(--auth-danger-rgb), 0.14);
 }
 
 .input-icon {
   flex-shrink: 0;
-  width: 24px;
-  margin-left: 16px;
-  font-size: 16px;
-  color: var(--text-tertiary);
-  transition: color var(--duration-fast) var(--ease-standard);
+  width: 22px;
+  margin-left: 15px;
+  font-size: 15px;
+  text-align: center;
+  color: var(--auth-text-3);
+  transition: color var(--duration-fast, 0.15s) var(--ease-standard, ease);
   pointer-events: none;
 }
 
 .input-wrap.input-focused .input-icon {
-  color: var(--primary-color);
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .input-wrap.input-error .input-icon {
-  color: var(--danger-color);
+  color: var(--auth-danger);
 }
 
 .form-input {
   flex: 1;
+  width: 100%;
   height: 100%;
   padding: 0 12px;
   border: none;
   background: transparent;
-  font-size: var(--font-size-body);
-  color: var(--text-primary);
   box-shadow: none;
   border-radius: 0;
+  font-size: 15px;
+  color: var(--auth-text);
+  -webkit-appearance: none;
 }
 
 .form-input:focus {
-  box-shadow: none;
+  outline: none;
   border-color: transparent;
+  box-shadow: none;
 }
 
 .form-input::placeholder {
-  color: var(--text-tertiary);
+  color: var(--auth-text-3);
   opacity: 1;
 }
 
-/* 密码可见性切换（与 Login 一致） */
+/* 浏览器自动填充时不要变成白底黑字 */
+.form-input:-webkit-autofill,
+.form-input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--auth-text);
+  -webkit-box-shadow: 0 0 0 40px #2a2a30 inset;
+  transition: background-color 9999s ease-out 0s;
+}
+
 .password-toggle {
   flex-shrink: 0;
-  width: 44px;
-  height: 44px;
-  margin-right: 6px;
+  width: 42px;
+  height: 42px;
+  margin-right: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-secondary);
+  color: var(--auth-text-2);
   background: transparent;
-  border-radius: var(--radius-md);
-  transition: background-color var(--duration-fast) var(--ease-standard),
-              transform var(--duration-fast) var(--ease-standard),
-              color var(--duration-fast) var(--ease-standard);
-}
-.password-toggle:hover {
-  background: rgba(0, 0, 0, 0.05);
-  color: var(--text-primary);
-}
-[data-theme="dark"] .password-toggle:hover {
-  background: rgba(255, 255, 255, 0.08);
-}
-.password-toggle:active {
-  transform: scale(0.94);
-  opacity: 0.7;
+  border: none;
+  border-radius: 11px;
+  transition: background-color var(--duration-fast, 0.15s) var(--ease-standard, ease),
+              color var(--duration-fast, 0.15s) var(--ease-standard, ease);
 }
 
-/* ========== 密码强度：iPadOS 风格 4 段式 segment bar ========== */
+.password-toggle:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+/* ---------- 密码强度 ---------- */
 .password-strength {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
-  margin-top: 8px;
-  padding: 0 4px;
+  margin-top: 7px;
+  padding: 0 2px;
 }
 
 .strength-bar {
   flex: 1;
   display: flex;
-  gap: 4px;
-  height: 4px;
+  height: 3px;
 }
 
 .strength-segment {
   flex: 1;
-  background: var(--separator-color, rgba(60, 60, 67, 0.18));
-  border-radius: var(--radius-pill, 9999px);
-  transition: background-color var(--duration-normal) var(--ease-decelerate);
+  margin-right: 4px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.12);
+  transition: background-color var(--duration-normal, 0.22s) var(--ease-decelerate, ease);
 }
 
-/* 根据强度点亮对应数量的 segment */
+.strength-segment:last-child {
+  margin-right: 0;
+}
+
 .password-strength.weak .strength-segment:nth-child(1) {
-  background: var(--danger-color, #FF3B30);
+  background: #ff6b61;
 }
 .password-strength.medium .strength-segment:nth-child(-n+2) {
-  background: var(--warning-color, #FF9500);
+  background: #ffb340;
 }
 .password-strength.strong .strength-segment:nth-child(-n+4) {
-  background: var(--success-color, #34C759);
+  background: #4cd964;
 }
 
 .strength-text {
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-medium);
-  min-width: 20px;
+  min-width: 18px;
+  margin-left: 10px;
+  font-size: 12px;
+  font-weight: 500;
   text-align: right;
 }
+
 .password-strength.weak .strength-text {
-  color: var(--danger-color);
+  color: #ff8a80;
 }
 .password-strength.medium .strength-text {
-  color: var(--warning-color);
+  color: #ffc266;
 }
 .password-strength.strong .strength-text {
-  color: var(--success-color);
+  color: #6fe08a;
 }
 
-/* 强度条出现/消失过渡 */
 .strength-fade-enter-active {
-  transition: opacity var(--duration-fast) var(--ease-decelerate);
+  transition: opacity var(--duration-fast, 0.15s) var(--ease-decelerate, ease);
 }
 .strength-fade-leave-active {
-  transition: opacity var(--duration-fast) var(--ease-accelerate);
+  transition: opacity var(--duration-fast, 0.15s) var(--ease-accelerate, ease);
 }
-.strength-fade-enter, .strength-fade-leave-to {
+.strength-fade-enter,
+.strength-fade-leave-to {
   opacity: 0;
 }
 
-/* ========== 错误消息：inline alert（与 Login 一致） ========== */
+/* ---------- 错误提示 ---------- */
 .error-message {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: var(--spacing-sm) var(--spacing-md);
-  background: rgba(var(--danger-rgb), 0.12);
-  border: 0.5px solid rgba(var(--danger-rgb), 0.2);
-  color: var(--danger-color);
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
+  margin-top: 12px;
+  padding: 10px 13px;
+  background: rgba(var(--auth-danger-rgb), 0.16);
+  border: 1px solid rgba(var(--auth-danger-rgb), 0.3);
+  color: var(--auth-danger);
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.45;
 }
 
 .error-icon {
   flex-shrink: 0;
+  margin-right: 8px;
   font-size: 14px;
 }
 
@@ -590,14 +651,13 @@ export default {
   flex: 1;
 }
 
-/* 错误过渡：与 Login 一致 */
 .error-fade-enter-active {
-  transition: opacity var(--duration-fast) var(--ease-decelerate),
-              transform var(--duration-fast) var(--ease-decelerate);
+  transition: opacity var(--duration-fast, 0.15s) var(--ease-decelerate, ease),
+              transform var(--duration-fast, 0.15s) var(--ease-decelerate, ease);
 }
 .error-fade-leave-active {
-  transition: opacity var(--duration-fast) var(--ease-accelerate),
-              transform var(--duration-fast) var(--ease-accelerate);
+  transition: opacity var(--duration-fast, 0.15s) var(--ease-accelerate, ease),
+              transform var(--duration-fast, 0.15s) var(--ease-accelerate, ease);
 }
 .error-fade-enter {
   opacity: 0;
@@ -608,52 +668,49 @@ export default {
   transform: translateX(8px);
 }
 
-/* ========== 主按钮：与 Login 完全一致 ========== */
+/* ---------- 主按钮 ---------- */
 .btn-primary {
   width: 100%;
-  height: 52px;
-  margin-top: 4px;
-  background: var(--primary-color);
-  color: #fff;
-  border-radius: var(--radius-pill);
-  font-size: var(--font-size-subheadline);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.5px;
+  height: 50px;
+  margin-top: 18px;
+  border: none;
+  border-radius: 13px;
+  background: #fff;
+  color: #101014;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 1px;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 6px 16px rgba(var(--primary-rgb), 0.4),
-              inset 0 1px 0 rgba(255, 255, 255, 0.25);
-  transition: background-color var(--duration-fast) var(--ease-standard),
-              transform var(--duration-fast) var(--ease-standard),
-              box-shadow var(--duration-fast) var(--ease-standard);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.28);
+  transition: background-color var(--duration-fast, 0.15s) var(--ease-standard, ease),
+              transform var(--duration-fast, 0.15s) var(--ease-standard, ease),
+              box-shadow var(--duration-fast, 0.15s) var(--ease-standard, ease);
 }
 
 .btn-primary:hover {
-  background: var(--primary-hover);
-  box-shadow: 0 8px 20px rgba(var(--primary-rgb), 0.5),
-              inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  background: #f2f2f5;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.32);
 }
 
 .btn-primary:active {
-  transform: scale(0.97);
-  background: var(--primary-pressed);
-  box-shadow: 0 2px 6px rgba(var(--primary-rgb), 0.3),
-              inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transform: scale(0.98);
+  background: #e6e6ea;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.24);
 }
 
 .btn-primary:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
+  opacity: 0.62;
   transform: none;
-  box-shadow: 0 2px 6px rgba(var(--primary-rgb), 0.2);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
 .btn-loading {
-  width: 22px;
-  height: 22px;
-  border: 2.5px solid rgba(255, 255, 255, 0.35);
-  border-top-color: #fff;
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(16, 16, 20, 0.25);
+  border-top-color: #101014;
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
 }
@@ -662,60 +719,119 @@ export default {
   to { transform: rotate(360deg); }
 }
 
-/* ========== Footer ========== */
+/* ---------- 页脚 ---------- */
 .register-footer {
+  margin-top: 18px;
   text-align: center;
-  margin-top: 20px;
-  font-size: var(--font-size-footnote);
+  font-size: 13px;
 }
 
 .footer-text {
-  color: var(--text-secondary);
+  color: var(--auth-text-3);
 }
 
+/* 页脚链接刻意压低一档亮度：让白色主按钮始终是画面中最亮的一点 */
 .footer-link {
-  color: var(--primary-color);
-  font-weight: var(--font-weight-semibold);
-  margin-left: var(--spacing-xs);
+  margin-left: 6px;
+  color: rgba(255, 255, 255, 0.82);
+  font-weight: 500;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.22);
+  padding-bottom: 1px;
+  transition: border-color var(--duration-fast, 0.15s) var(--ease-standard, ease),
+              color var(--duration-fast, 0.15s) var(--ease-standard, ease);
 }
 
 .footer-link:hover {
-  color: var(--primary-hover);
-  text-decoration: underline;
+  color: #fff;
+  border-bottom-color: rgba(255, 255, 255, 0.62);
 }
 
-/* ========== 响应式：横屏适配 ========== */
-@media (max-height: 760px) {
+/* 键盘可达性：独立规则，避免与逗号选择器列表同规则（Chrome 80 不识别 :focus-visible 会整条失效） */
+.register-page button:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.85);
+  outline-offset: 2px;
+}
+
+/* ============================================================
+   横屏平板适配：4 个输入框 + 强度条，必须整体收紧
+   ============================================================ */
+@media (orientation: landscape) and (max-height: 700px) {
+  .register-page {
+    padding: 16px 20px;
+  }
   .register-card {
-    padding: var(--spacing-lg) var(--spacing-xl);
+    width: 400px;
+    padding: 22px 32px 18px;
+    border-radius: 18px;
   }
   .register-header {
-    margin-bottom: 16px;
+    margin-bottom: 14px;
   }
-  .logo-icon {
-    width: 56px;
-    height: 56px;
+  .register-mark {
+    width: 54px;
+    height: 44px;
+    margin-bottom: 8px;
   }
-  .logo-letter {
-    font-size: 28px;
+  .register-title {
+    font-size: 21px;
+  }
+  .form-group + .form-group {
+    margin-top: 9px;
+  }
+  .input-wrap {
+    height: 46px;
+  }
+  .btn-primary {
+    height: 46px;
+    margin-top: 14px;
+  }
+  .register-footer {
+    margin-top: 12px;
+    font-size: 12px;
   }
 }
 
-/* ========== Reduced motion：尊重用户偏好 ========== */
-@media (prefers-reduced-motion: reduce) {
-  .aurora-blob {
-    animation: none;
-  }
+@media (orientation: landscape) and (max-height: 560px) {
   .register-card {
-    transition: opacity var(--duration-fast) var(--ease-standard);
-    transform: none;
+    padding: 18px 28px 14px;
   }
-  .register-page.page-enter .register-card {
-    transform: none;
+  .register-header {
+    margin-bottom: 10px;
+  }
+  .register-mark {
+    display: none;
+  }
+  .register-subtitle {
+    display: none;
+  }
+  .input-wrap {
+    height: 42px;
+  }
+  .form-group + .form-group {
+    margin-top: 8px;
+  }
+  .btn-primary {
+    height: 42px;
+    margin-top: 12px;
+  }
+}
+
+/* ============================================================
+   减弱动画
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  .register-card {
+    transition: opacity var(--duration-fast, 0.15s) ease;
+    transform: none !important;
+  }
+  .auth-wallpaper,
+  .auth-scrim {
+    transition: opacity 0.2s linear;
   }
   .btn-primary:active,
   .password-toggle:active {
-    transform: none;
+    transform: none !important;
   }
 }
 </style>
