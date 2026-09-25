@@ -277,7 +277,7 @@ export default {
       var stripped = c
         .replace(/\[cloud-(img|video|audio):[a-f0-9]{64}(?:\.\w+)?\]/g, '')
         .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
-        .replace(/https?:\/\/[^\s"'<>]+\.(?:png|jpe?g|webp|gif|mp4|webm|mov)/gi, '');
+        .replace(/(?:https?:\/\/|\/)[^\s"'<>]+\.(?:png|jpe?g|webp|gif|mp4|webm|mov)(?:\?[^\s]*)?/gi, '');
       return stripped.replace(/\s/g, '') === '';
     },
     forwardData: function() {
@@ -671,9 +671,10 @@ export default {
   margin: 4px 0;
 }
 
+/* QQ 化：全圆角气泡 + 紧凑组距；同组 4px、组间 10px */
 .chat-bubble {
   max-width: 65%;
-  margin-top: 12px;
+  margin-top: 10px;
   display: flex;
   flex-direction: column;
   position: relative;
@@ -684,15 +685,7 @@ export default {
 }
 
 .chat-bubble.msg-grouped {
-  margin-top: 3px;
-}
-
-.chat-bubble.msg-grouped:not(.own-bubble) .bubble-content {
-  border-top-left-radius: 7px;
-}
-
-.chat-bubble.msg-grouped.own-bubble .bubble-content {
-  border-top-right-radius: 7px;
+  margin-top: 4px;
 }
 
 /* 暗色：对方气泡用 iOS dark 提亮档（#2C2C2E），与纯黑背景拉开层次 */
@@ -1138,11 +1131,13 @@ export default {
 
 /* Message image — 固定尺寸防止图片加载时布局重排导致滚动卡顿 */
 .chat-bubble >>> .msg-image {
-  /* 按图片原始宽高比显示，不再强制 1:1 裁切；max 约束防超大图撑破气泡 */
+  /* 按图片原始宽高比显示，不再强制 1:1 裁切；
+     未加载时给 240x180 占位（懒加载图 width:auto 会塌成 0） */
   width: auto;
   height: auto;
   max-width: 240px;
   max-height: 320px;
+  min-height: 60px;
   border-radius: var(--radius-md);
   margin: 4px 0;
   display: block;
