@@ -1381,34 +1381,6 @@ export default {
   justify-content: flex-end;
 }
 
-.btn-primary {
-  padding: 10px 24px;
-  min-height: 44px;
-  background: var(--primary-color);
-  color: #FFFFFF;
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-body);
-  font-weight: var(--font-weight-semibold);
-  transition: background var(--duration-normal) var(--ease-standard), transform var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.btn-primary:hover:not(:disabled) {
-  background: var(--primary-hover);
-}
-
-.btn-primary:active:not(:disabled) {
-  transform: scale(0.94);
-  opacity: 0.7;
-}
-
-.btn-primary:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
 .btn-icon {
   font-size: var(--font-size-footnote);
 }

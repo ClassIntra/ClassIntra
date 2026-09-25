@@ -48,6 +48,8 @@ export default {
   },
   methods: {
     goBack: function() {
+      // 通知宿主（如 AppShell 需要在返回前做清理），无监听时无副作用
+      this.$emit('back');
       if (window.history.length > 1) {
         this.$router.go(-1);
       } else {

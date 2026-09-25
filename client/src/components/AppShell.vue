@@ -15,23 +15,18 @@
       </AppShell>
   -->
   <div class="app-shell" :data-app-name="appName" :data-shell-mode="shellMode">
-    <!-- 统一导航栏（可隐藏） -->
-    <div v-if="showNavbar" class="app-shell-nav">
-      <div class="app-shell-nav-main">
-        <div class="app-shell-nav-left">
-          <button type="button" class="app-shell-back" @click="goBack">
-            <i class="fa-solid fa-chevron-left"></i>
-            <span class="app-shell-back-text">返回</span>
-          </button>
-        </div>
-        <div class="app-shell-nav-center">
-          <h1 class="app-shell-title">{{ title }}</h1>
-        </div>
-        <div class="app-shell-nav-right">
-          <slot name="nav-right"></slot>
-        </div>
-      </div>
-    </div>
+    <!-- 统一导航栏（可隐藏）：复用全局 AppNavBar，消除「标题居中 vs 左对齐」双导航栏分叉 -->
+    <AppNavBar
+      v-if="showNavbar"
+      :title="title"
+      :show-back="true"
+      back-text="返回"
+      @back="onNavBarBack"
+    >
+      <template #actions>
+        <slot name="nav-right"></slot>
+      </template>
+    </AppNavBar>
 
     <!-- 内容区 -->
     <div class="app-shell-body">
@@ -66,9 +61,13 @@
 
 <script>
 import { getTokenInjector } from '@/core/token-injector';
+import AppNavBar from '@/components/AppNavBar.vue';
 
 export default {
   name: 'AppShell',
+  components: {
+    AppNavBar: AppNavBar
+  },
   props: {
     // 应用名（用于数据属性与 storage 命名空间）
     appName: { type: String, required: true },
@@ -152,6 +151,11 @@ export default {
       }
     },
 
+    // AppNavBar 的返回回调：沿用 goBack 的完整行为（含 back 事件）
+    onNavBarBack: function() {
+      this.goBack();
+    },
+
     goDesktop: function() {
       this.$router.push({ name: 'Desktop' });
     }
@@ -168,80 +172,9 @@ export default {
   min-height: 0;
   overflow: hidden;
   /* 容器背景使用令牌，随主题变化 */
-  background: var(--background-color, #f2f2f7);
+  background: var(--bg-color, #f2f2f7);
   color: var(--text-primary, #000);
   font-family: var(--font-family);
-}
-
-/* 导航栏（与 ios/IOSNavBar 视觉一致，此处内联避免跨模块依赖） */
-.app-shell-nav {
-  flex-shrink: 0;
-}
-
-.app-shell-nav-main {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 44px;
-  padding: 0 var(--spacing-sm, 8px);
-  background: var(--nav-bg, rgba(255, 255, 255, 0.8));
-  backdrop-filter: var(--glass-blur-container, blur(20px));
-  -webkit-backdrop-filter: var(--glass-blur-container, blur(20px));
-  border-bottom: 0.5px solid var(--separator-color, rgba(0, 0, 0, 0.1));
-}
-
-.app-shell-nav-left {
-  display: flex;
-  align-items: center;
-  min-width: 70px;
-}
-
-.app-shell-back {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  border: none;
-  background: transparent;
-  color: var(--primary-color, #007aff);
-  font-size: var(--font-size-body, 17px);
-  font-family: var(--font-family);
-  cursor: pointer;
-  padding: 6px 8px;
-  border-radius: var(--radius-sm, 8px);
-  transition: opacity var(--duration-fast) var(--ease-standard);
-  -webkit-tap-highlight-color: transparent;
-}
-
-.app-shell-back:active {
-  opacity: 0.7;
-}
-
-.app-shell-back-text {
-  font-size: var(--font-size-body, 17px);
-}
-
-.app-shell-nav-center {
-  flex: 1;
-  text-align: center;
-  overflow: hidden;
-}
-
-.app-shell-title {
-  font-size: var(--font-size-subheadline, 15px);
-  font-weight: var(--font-weight-semibold, 600);
-  color: var(--text-primary, #000);
-  margin: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.app-shell-nav-right {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  min-width: 70px;
-  gap: var(--spacing-xs, 4px);
 }
 
 /* 内容区 */

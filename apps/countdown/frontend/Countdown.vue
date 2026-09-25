@@ -317,12 +317,10 @@ import AppNavBar from '@/components/AppNavBar.vue';
 import api from '@/utils/api';
 // 分类与提醒选项从共享层导入（前后端通用）
 import { CATEGORIES, REMINDER_OPTIONS, findCategory } from '@shared/categories';
+import { IOS_PALETTE_SHORT } from '@/utils/ios-palette';
 
-// 预设颜色色板（应用专用，不放入 shared/）
-var PRESET_COLORS = [
-  '#FF3B30', '#FF9500', '#FFCC00', '#34C759',
-  '#007AFF', '#5856D6', '#AF52DE', '#FF2D55'
-];
+// 预设颜色色板：与全站 iOS 色板同源（精简 8 色）
+var PRESET_COLORS = IOS_PALETTE_SHORT;
 
 // 格式化日期为 YYYY-MM-DD
 function formatDate(d) {
