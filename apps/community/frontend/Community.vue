@@ -114,7 +114,7 @@
                 loading="lazy"
                 alt=""
               />
-              <div v-else class="post-cover post-cover-text" :style="postCoverTint(post)">{{ postCoverText(post) }}</div>
+              <img v-else class="post-cover" :src="textCoverUrl(post)" alt="" />
               <div class="post-info">
                 <div class="post-meta">
                   <span class="post-author">{{ post.is_anonymous && canViewAnonymous ? post.admin_net_name : (post.is_anonymous ? '匿名用户' : (post.net_name || '未知用户')) }}</span>
@@ -1113,9 +1113,20 @@ import 'highlight.js/styles/github-dark.min.css';
 import LatexRenderer from '@/utils/latex-renderer';
 import { getMediaTypeByName } from '@/utils/media-recorder.js';
 import { IOS_PALETTE, hashColor } from '@/utils/ios-palette';
+import { generateTextCover } from '@/utils/cover-generator';
 import { filterRenderable } from '@/utils/emoji-support';
 
 var TAG_COLORS = IOS_PALETTE;
+
+// 帖子摘要：剥媒体标记/链接后取前 48 字（文字封面用）
+function postCoverExcerpt(post) {
+  var t = String(post.content || post.title || '')
+    .replace(/\[[^\]]*\]/g, '')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+    .replace(/(?:https?:\/\/|\/)[^\s"'<>]+\.(?:png|jpe?g|webp|gif|mp4|webm|mov)(?:\?[^\s]*)?/gi, '')
+    .trim();
+  return t ? t.substring(0, 48) : '写点什么记录一下吧';
+}
 
 var customRenderer = new marked.Renderer();
 customRenderer.code = function(code, lang) {
@@ -1639,12 +1650,7 @@ export default {
       return m3 ? m3[1] : '';
     },
     postCoverText: function(post) {
-      var t = String(post.content || post.title || '')
-        .replace(/\[[^\]]*\]/g, '')
-        .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
-        .replace(/(?:https?:\/\/|\/)[^\s"'<>]+\.(?:png|jpe?g|webp|gif|mp4|webm|mov)(?:\?[^\s]*)?/gi, '')
-        .trim();
-      return t ? t.substring(0, 48) : '写点什么记录一下吧';
+      return postCoverExcerpt(post);
     },
     postCoverTint: function(post) {
       var hex = hashColor(String(post.user_id || post.id || 'x'));
@@ -1654,6 +1660,14 @@ export default {
       return { background: 'linear-gradient(155deg, rgba(' + r + ',' + g + ',' + b + ',0.92) 0%, rgba(' + Math.round(r*0.55) + ',' + Math.round(g*0.55) + ',' + Math.round(b*0.55) + ',0.96) 100%)' };
     },
     // 标签胶囊：LoveCards 式按标签哈希色淡染（全站 iOS 色板同源）
+    // 纯文本帖：Canvas 生成封面图（哈希色渐变 + 首字水印 + 摘要排印），确定性缓存
+    textCoverUrl: function(post) {
+      return generateTextCover(
+        String(post.title || post.content || '帖'),
+        postCoverExcerpt(post),
+        hashColor(String(post.user_id || post.id || 'x'))
+      );
+    },
     tagPillStyle: function(tag) {
       var hex = hashColor(String(tag));
       var r = parseInt(hex.substring(1, 3), 16);
