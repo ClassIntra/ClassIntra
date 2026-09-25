@@ -2091,7 +2091,8 @@ export default {
       if (this.commentCloudTarget === 'comment') {
         this.commentText += md;
       } else {
-        this.newPost.content += md;
+        // 帖子里插入的云盘图前置：第一张图即封面（信息流封面取帖子首图）
+        this.newPost.content = md + (this.newPost.content ? String.fromCharCode(10, 10) + this.newPost.content : '');
       }
       this.showCloudPicker = false;
       this.commentCloudTarget = 'post'; // 重置目标
@@ -3156,6 +3157,11 @@ export default {
 .full-detail-author-time { font-size: var(--font-size-caption); color: var(--text-secondary); }
 .full-detail-title { font-size: var(--font-size-title2); font-weight: 700; color: var(--text-primary); line-height: 1.4; margin-bottom: 16px; word-break: break-word; }
 .full-detail-content { font-size: var(--font-size-callout); line-height: 1.8; color: var(--text-primary); margin-bottom: 16px; word-break: break-word; }
+/* 详情页媒体与信息流卡片同语言：统一圆角与间距 */
+.full-detail-content img { border-radius: var(--radius-lg); }
+.full-detail-content .msg-media-wrapper,
+.full-detail-content .md-video-wrapper { border-radius: var(--radius-lg); overflow: hidden; }
+.full-detail-title { letter-spacing: 0.2px; }
 .full-detail-actions { display: flex; gap: 10px; padding: 16px 0; border-top: 0.5px solid var(--separator-color); border-bottom: 0.5px solid var(--separator-color); margin-bottom: 20px; flex-wrap: wrap; }
 .full-detail-comment-bar { padding: 10px 20px; border-top: 0.5px solid var(--separator-color); background: var(--card-bg); flex-shrink: 0; }
 .reply-indicator { display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; background: rgba(var(--primary-rgb),0.06); border-radius: var(--radius-sm) var(--radius-sm) 0 0; font-size: var(--font-size-caption); color: var(--primary-color); }

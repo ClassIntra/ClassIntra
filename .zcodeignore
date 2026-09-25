@@ -1,0 +1,162 @@
+node_modules/
+dist/
+
+# 环境变量
+**/.env
+!**/.env.example
+
+# 预注册名单（含真实个人信息）
+server/config/pre-records*.json
+
+# 数据库
+**/*.db
+**/*.db-journal
+**/*.db-shm
+**/*.db-wal
+**/*.sqlite
+**/*.sqlite3
+
+# 日志
+*.log
+logs/
+
+# 密钥文件
+*.pem
+*.key
+*.cert
+*.crt
+*.pfx
+*.p12
+
+# 构建产物（前端 dist 由 app.js 直接从 client/dist/ 提供，server/public/ 仅保留 setup.html）
+server/public/*
+!server/public/setup.html
+!server/public/icons/
+!server/public/xgplayer/
+
+# 第三方市场应用（运行时安装的热插拔目录，同 node_modules 性质，不提交）
+# 安装源：官方市场 gitee/github + 本地 ../market；应用内容以市场仓库为准
+market-apps/
+
+# Resources 目录（含音乐、视频、启动器等版权/私有内容）
+# 忽略所有直接子项，再按需保留
+Resources/*
+# 保留 public 目录（仅 level 等级图标 + icons 应用图标）
+!Resources/public/
+Resources/public/*
+!Resources/public/level/
+!Resources/public/icons/
+# 保留壁纸目录结构（空文件夹，壁纸内容不提交）
+!Resources/public/wallpaper/
+Resources/public/wallpaper/*
+!Resources/public/wallpaper/.gitkeep
+# 保留媒体目录结构（空文件夹，实际内容不提交）
+!Resources/cloud/
+!Resources/music/
+!Resources/photos/
+!Resources/videos/
+Resources/cloud/*
+!Resources/cloud/.gitkeep
+Resources/music/*
+!Resources/music/.gitkeep
+Resources/photos/*
+!Resources/photos/.gitkeep
+Resources/videos/*
+!Resources/videos/.gitkeep
+
+# Syncthing
+*sync-conflict*
+.stfolder/
+.stignore
+
+# 系统文件
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# 旧版本/测试
+Server-beta/
+
+# IDE
+.trae/
+.superpowers/
+docs/superpowers/
+
+# 临时文件
+*.pid
+screenshot_*.png
+perf-trace-*.json.gz
+
+# 构建版本信息（构建时自动生成）
+server/version.json
+
+# npm lock（项目使用 pnpm）
+package-lock.json
+
+# HLS 流媒体转码缓存
+server/stream-cache/
+
+# Claude Code
+.claude/plans/
+.claude/worktrees/
+.claude/memory/
+.claude/scheduled_tasks.json
+.claude/settings.local.json
+.claude/settings.json
+
+# 运行时数据（可能会被脚本误修改）
+*.bak
+*.orig
+*.before-o2o
+
+# 防止嵌套 git 仓库
+client/.git/
+server/.git/
+
+# 迁移前完整备份目录（不提交）
+backup/
+
+# 无关项目副本（误克隆的嵌套仓库）
+Ditto/
+
+# 插件（独立生态，源码维护于 market 仓库 plugins/ 目录）
+plugins/
+
+# WorkBuddy 本地工作数据（日志/临时脚本，不进公开仓库）
+.workbuddy/
+
+# 设计工具导出产物
+classintraops-gui.html
+
+# ===== ↑ 以上同步自 .gitignore（「从 .gitignore 同步」只重写以上部分）=====
+.git/
+.hg/
+.svn/
+bower_components/
+jspm_packages/
+__pycache__/
+site-packages/
+venv/
+coverage/
+htmlcov/
+lcov-report/
+cmakefiles/
+cmake-build-*/
+bazel-*/
+pods/
+deriveddata/
+storybook-static/
+playwright-report/
+test-results/
+allure-results/
+allure-report/
+cdk.out/
+*.egg-info/
+*.dist-info/
+eggs/
+pip-wheel-metadata/
+wheels/
+# ----- ↑ 以上为 ZCode 默认排除规则（自定义规则请写在本行下方，不会被同步/恢复改动）-----
+# 自定义规则写在下方（本行提示可删除）
