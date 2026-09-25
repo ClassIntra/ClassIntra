@@ -1279,9 +1279,10 @@ export default {
 
 .section-title {
   font-size: var(--font-size-title2);
-  font-weight: var(--font-weight-bold);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.2px;
   color: var(--text-primary);
-  margin-bottom: 24px;
+  margin-bottom: 16px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1295,9 +1296,10 @@ export default {
 
 .form-card {
   background: var(--card-bg);
-  border-radius: var(--radius-md);
+  border: 0.5px solid var(--border-color);
+  border-radius: var(--radius-xl);
   padding: 0 var(--spacing-md);
-  margin: 0 var(--spacing-md) var(--spacing-md);
+  margin: 0 var(--spacing-md) var(--spacing-lg);
   box-shadow: none;
 }
 
@@ -1305,6 +1307,7 @@ export default {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  min-height: 44px;
   padding: 12px var(--spacing-sm);
   border-bottom: 0.5px solid var(--separator-color);
 }
@@ -1544,7 +1547,8 @@ export default {
 
 .wp-tab-count {
   font-size: var(--font-size-caption2);
-  background: rgba(255, 255, 255, 0.25);
+  background: rgba(var(--primary-rgb), 0.12);
+  color: var(--primary-color);
   padding: 0 5px;
   border-radius: var(--radius-sm);
   line-height: 16px;

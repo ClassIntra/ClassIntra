@@ -1539,6 +1539,15 @@ export default {
   grid-gap: 12px;
 }
 
+/* 横屏平板（≥900px 宽）：网格放宽填满横向空间，行距同步放大 */
+@media (min-width: 900px) and (orientation: landscape) {
+  .desktop-grid {
+    max-width: 940px;
+    grid-gap: 16px;
+    max-height: 480px;
+  }
+}
+
 .desktop-slot {
   display: -webkit-flex;
   display: flex;
@@ -1733,6 +1742,17 @@ export default {
   0% { transform: scale(1); }
   35% { transform: scale(1.25) translateY(-10px); }
   100% { transform: scale(0.7) translateY(0); opacity: 0.4; }
+}
+
+@media (min-width: 900px) and (orientation: landscape) {
+  .dock-bar {
+    padding: 15px 30px;
+    bottom: 26px;
+  }
+  .dock-icon {
+    width: 66px;
+    height: 66px;
+  }
 }
 
 .dock-icon {
