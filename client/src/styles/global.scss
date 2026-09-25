@@ -886,49 +886,18 @@ input[type="radio"]:checked::after {
   -webkit-backdrop-filter: none !important;
 }
 
-[data-perf="low"] .island-oouncing,
-[data-perf="low"] .island-urgent,
-[data-perf="low"] .compact-icon-pulse,
-[data-perf="low"] .notif-icon-pulse,
-[data-perf="low"] .notif-icon-urgent,
-[data-perf="low"] .action-btn-stagger,
-[data-perf="low"] .typing-indicator,
-[data-perf="low"] .loading-spinner,
-[data-perf="low"] .skeleton {
-  animation: none !important;
-}
+/* 降级只针对实时模糊（真正的性能开销），不做「剥动画」——
+   transform/opacity 是合成器动画，开销可忽略；剥掉动画只会让
+   低端设备得到一个「半成品观感」。需要完全关动画请用
+   [data-no-motion] / prefers-reduced-motion（用户主动选择）。 */
 
-[data-perf="low"] .island-content-enter-active,
-[data-perf="low"] .island-content-leave-active,
-[data-perf="low"] .island-backdrop-fade-enter-active,
-[data-perf="low"] .island-backdrop-fade-leave-active,
-[data-perf="low"] .island-appear-enter-active,
-[data-perf="low"] .island-appear-leave-active,
-[data-perf="low"] .compose-slide-enter-active,
-[data-perf="low"] .compose-slide-leave-active,
-[data-perf="low"] .msg-list-enter-active,
-[data-perf="low"] .msg-list-leave-active,
-[data-perf="low"] .conv-list-enter-active,
-[data-perf="low"] .conv-list-leave-active,
-[data-perf="low"] .page-fade-enter-active,
-[data-perf="low"] .page-fade-leave-active,
-[data-perf="low"] .modal-fade-enter-active,
-[data-perf="low"] .modal-fade-leave-active {
-  transition-duration: 0.01ms !important;
-}
+
 
 [data-perf="low"] .island {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
 }
 
-[data-perf="low"] .card:hover {
-  transform: none !important;
-  box-shadow: var(--shadow-sm) !important;
-}
 
-[data-perf="low"] button:active {
-  transform: none !important;
-}
 
 [data-perf="medium"] .island,
 [data-perf="medium"] .dock-bar,
