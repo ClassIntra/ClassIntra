@@ -1639,7 +1639,7 @@ export default {
       return m3 ? m3[1] : '';
     },
     postCoverText: function(post) {
-      var t = String(post.title || post.content || '')
+      var t = String(post.content || post.title || '')
         .replace(/\[[^\]]*\]/g, '')
         .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
         .trim();
@@ -3818,15 +3818,14 @@ export default {
     order: -1;
     width: calc(100% + 32px);
     margin: -14px -16px 10px;
-    height: auto;
-    min-height: 150px;
-    max-height: 280px;
+    height: 132px;
     border-radius: 0;
+    object-fit: cover;
     background: none;
   }
   /* 文字封面：哈希色渐变 + 摘要排版（不转图片，纯 CSS 排印） */
   .post-cover-text {
-    height: 150px;
+    height: 132px;
     padding: 14px;
     display: flex;
     flex-direction: column;
@@ -3872,15 +3871,14 @@ export default {
     order: -1;
     width: calc(100% + 32px);
     margin: -14px -16px 10px;
-    height: auto;
-    min-height: 150px;
-    max-height: 280px;
+    height: 132px;
     border-radius: 0;
+    object-fit: cover;
     background: none;
   }
   /* 文字封面：哈希色渐变 + 摘要排版（不转图片，纯 CSS 排印） */
   .post-cover-text {
-    height: 150px;
+    height: 132px;
     padding: 14px;
     display: flex;
     flex-direction: column;
