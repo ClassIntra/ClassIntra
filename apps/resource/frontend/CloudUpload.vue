@@ -793,7 +793,7 @@ export default {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  font-size: var(--font-size-title3, 17px);
+  font-size: var(--font-size-subheadline, 17px);
   font-weight: 600;
   margin: 0;
 }

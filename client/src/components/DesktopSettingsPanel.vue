@@ -73,8 +73,8 @@
                   >
                     <i
                       class="action-icon"
-                      :class="theme.type === 'dark' ? 'fa-solid fa-moon' : 'fa-solid fa-sun'"
-                      :style="{ background: theme.type === 'dark' ? '#1C1C1E' : '#FFD60A', color: theme.type === 'dark' ? '#FFD60A' : '#fff' }"
+                      :class="theme.type === 'dark' ? 'fa-solid fa-moon theme-icon--dark' : 'fa-solid fa-sun theme-icon--light'"
+                      
                     ></i>
                     <span class="action-text">{{ theme.name }}</span>
                     <i v-if="theme.id === currentThemeId" class="fa-solid fa-check theme-check"></i>
@@ -445,10 +445,21 @@ export default {
   -webkit-tap-highlight-color: transparent;
 }
 .widget-list-remove:active {
-  background: rgba(255, 69, 58, 0.1);
+  background: rgba(var(--danger-rgb), 0.1);
 }
 
 /* ===== 主题选择 ===== */
+/* 主题图标：写实呈现目标主题观感（深色=暗底黄月 / 浅色=黄底白日） */
+.theme-icon--dark {
+  background: #1C1C1E;
+  color: #FFD60A;
+}
+
+.theme-icon--light {
+  background: #FFD60A;
+  color: #FFFFFF;
+}
+
 .theme-item {
   display: block;
 }
@@ -484,7 +495,7 @@ export default {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  box-shadow: 0 -4px 30px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-lg);
 }
 .widget-picker-header {
   display: flex;
@@ -540,7 +551,7 @@ export default {
   width: 44px;
   height: 44px;
   border-radius: var(--radius-md);
-  background: rgba(0, 122, 255, 0.12);
+  background: var(--primary-light);
   color: var(--primary-color);
   display: flex;
   align-items: center;

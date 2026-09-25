@@ -174,7 +174,7 @@ export default {
 <style scoped>
 .user-ban-widget {
   height: 100%;
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-2xl);
   overflow: hidden;
   background: var(--card-bg);
   border: 1px solid var(--separator-color);
@@ -235,7 +235,7 @@ export default {
   width: 34px;
   height: 34px;
   border-radius: var(--radius-sm);
-  background: linear-gradient(135deg, #FF3B30, #FF6B6B);
+  background: var(--danger-color);
   color: #fff;
   display: flex;
   align-items: center;
@@ -291,11 +291,11 @@ export default {
 .ubw-btn:active { transform: scale(0.94); }
 .ubw-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .ubw-btn--ban {
-  background: linear-gradient(135deg, #FF3B30, #FF6B6B);
+  background: var(--danger-color);
   box-shadow: 0 2px 6px rgba(255, 59, 48, 0.25);
 }
 .ubw-btn--enable {
-  background: linear-gradient(135deg, #34C759, #5AD679);
+  background: var(--success-color);
   box-shadow: 0 2px 6px rgba(52, 199, 89, 0.25);
 }
 </style>

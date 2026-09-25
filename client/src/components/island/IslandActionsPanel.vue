@@ -5,11 +5,11 @@
     </div>
     <div class="action-grid">
       <button class="action-btn action-btn-stagger" style="--stagger-index:0" @click.stop="$emit('navigate', '/announcements')">
-        <div class="action-icon" style="background:rgba(234,179,8,0.15)"><i class="fa-solid fa-bullhorn" style="color:#eab308"></i></div>
+        <div class="action-icon" style="background:rgba(var(--warning-rgb),0.15)"><i class="fa-solid fa-bullhorn" style="color:var(--warning-color)"></i></div>
         <span class="action-label">公告页</span>
       </button>
       <button class="action-btn action-btn-stagger" style="--stagger-index:1" @click.stop="$emit('open-browser')">
-        <div class="action-icon" style="background:rgba(6,182,212,0.15)"><i class="fa-solid fa-globe" style="color:#06b6d4"></i></div>
+        <div class="action-icon" style="background:var(--primary-light)"><i class="fa-solid fa-globe" style="color:var(--primary-color)"></i></div>
         <span class="action-label">浏览器</span>
       </button>
     </div>

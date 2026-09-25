@@ -16,13 +16,13 @@
     <div class="action-grid" style="grid-template-columns: repeat(2, 1fr)">
       <button class="action-btn action-btn-stagger" style="--stagger-index:0" @click.stop="$emit('share-to-chat')">
         <div class="action-icon" style="background:rgba(59,130,246,0.15)">
-          <i class="fa-solid fa-comment-dots" style="color:#3b82f6"></i>
+          <i class="fa-solid fa-comment-dots" style="color:var(--primary-color)"></i>
         </div>
         <span class="action-label">分享到聊天</span>
       </button>
       <button class="action-btn action-btn-stagger" style="--stagger-index:1" @click.stop="$emit('share-to-community')">
         <div class="action-icon" style="background:rgba(16,185,129,0.15)">
-          <i class="fa-solid fa-users" style="color:#10b981"></i>
+          <i class="fa-solid fa-users" style="color:var(--success-color)"></i>
         </div>
         <span class="action-label">分享到社区</span>
       </button>
@@ -94,7 +94,7 @@ export default {
 
 .share-target-icon {
   font-size: 18px;
-  color: #f43f5e;
+  color: var(--danger-color);
   flex-shrink: 0;
 }
 

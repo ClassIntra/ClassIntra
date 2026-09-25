@@ -5568,7 +5568,7 @@ export default {
 .control-group-title {
   font-size: var(--font-size-headline);
   font-weight: var(--font-weight-semibold);
-  color: var(--text-color);
+  color: var(--text-primary);
   margin: 16px 0 4px;
 }
 .app-control-grid {
@@ -5614,7 +5614,7 @@ export default {
 .app-control-name {
   font-size: var(--font-size-body);
   font-weight: var(--font-weight-medium);
-  color: var(--text-color);
+  color: var(--text-primary);
 }
 .app-control-status {
   font-size: var(--font-size-caption2);
@@ -5627,7 +5627,7 @@ export default {
   color: var(--danger-color);
 }
 .status-locked {
-  color: var(--text-color-secondary);
+  color: var(--text-secondary);
   opacity: 0.6;
 }
 </style>

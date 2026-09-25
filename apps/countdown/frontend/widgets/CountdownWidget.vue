@@ -12,7 +12,7 @@
       <span class="cw-empty-text">暂无倒数日</span>
     </div>
     <div v-else class="cw-content" :style="{ '--cw-color': color }">
-      <div class="cw-icon">{{ icon }}</div>
+      <div class="cw-icon"><i v-if="isFaIcon" :class="icon"></i><template v-else>{{ icon }}</template></div>
       <div class="cw-info">
         <div class="cw-title">{{ nearest.title }}</div>
         <div class="cw-date">{{ dateLabel }}</div>
@@ -35,12 +35,12 @@ import api from '@/utils/api';
 
 // 分类预设（与 Countdown.vue 保持一致）
 var CATEGORIES = {
-  anniversary: { color: '#FF3B30', icon: '❤️' },
-  birthday: { color: '#FF9500', icon: '🎂' },
-  exam: { color: '#007AFF', icon: '📝' },
-  festival: { color: '#34C759', icon: '🎉' },
-  travel: { color: '#5856D6', icon: '✈️' },
-  other: { color: '#8E8E93', icon: '📌' }
+  anniversary: { color: '#FF3B30', icon: 'fa-solid fa-heart' },
+  birthday: { color: '#FF9500', icon: 'fa-solid fa-cake-candles' },
+  exam: { color: '#007AFF', icon: 'fa-solid fa-pen-to-square' },
+  festival: { color: '#34C759', icon: 'fa-solid fa-champagne-glasses' },
+  travel: { color: '#5856D6', icon: 'fa-solid fa-plane' },
+  other: { color: '#8E8E93', icon: 'fa-solid fa-thumbtack' }
 };
 
 function findCategory(value) {
@@ -145,6 +145,10 @@ export default {
       var ev = this.nearest.event;
       return ev.icon || findCategory(ev.category).icon;
     },
+    // 分类预设返回 FA 类名，用户自定义图标是 emoji 文本，两种形态分开渲染
+    isFaIcon: function() {
+      return typeof this.icon === 'string' && this.icon.indexOf('fa-') === 0;
+    },
     dateLabel: function() {
       if (!this.nearest) return '';
       var ev = this.nearest.event;
@@ -186,7 +190,7 @@ export default {
 .countdown-widget {
   height: 100%;
   cursor: pointer;
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-2xl);
   overflow: hidden;
   background: var(--card-bg);
   border: 1px solid var(--separator-color);

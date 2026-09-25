@@ -401,7 +401,7 @@ export default {
   width: 100%;
   height: 0;
   padding-bottom: 100%; /* 1:1 正方形容器（Chrome 80 兼容：替代 aspect-ratio: 1） */
-  background: var(--bg-color-secondary);
+  background: var(--bg-color);
   overflow: hidden;
   position: relative;
 }
@@ -424,9 +424,9 @@ export default {
   justify-content: center;
   font-size: 32px;
 }
-.video-icon { background: linear-gradient(135deg, #2c3e50, #34495e); color: #fff; }
-.audio-icon { background: linear-gradient(135deg, #8e44ad, #9b59b6); color: #fff; }
-.other-icon { background: linear-gradient(135deg, #7f8c8d, #95a5a6); color: #fff; }
+.video-icon { background: linear-gradient(135deg, #3A82F7, #0B4BD8); color: #fff; }
+.audio-icon { background: linear-gradient(135deg, #AF52DE, #8E3DC8); color: #fff; }
+.other-icon { background: linear-gradient(135deg, #8E8E93, #6D6D72); color: #fff; }
 .card-duration {
   position: absolute;
   bottom: 4px;

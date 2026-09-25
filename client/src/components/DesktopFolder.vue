@@ -209,7 +209,7 @@ export default {
   width: 60px;
   height: 60px;
   border-radius: var(--radius-lg);
-  background: rgba(255, 255, 255, 0.45);
+  background: var(--glass-bg);
   backdrop-filter: var(--glass-blur-thin);
   -webkit-backdrop-filter: var(--glass-blur-thin);
   display: flex;

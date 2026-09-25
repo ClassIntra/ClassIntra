@@ -569,7 +569,7 @@ a:focus-visible {
 }
 
 [data-theme="dark"] .skeleton {
-  background: linear-gradient(90deg, #2a2d3e 25%, rgba(42, 45, 62, 0.4) 50%, #2a2d3e 75%);
+  background: linear-gradient(90deg, #2C2C2E 25%, rgba(44, 44, 46, 0.4) 50%, #2C2C2E 75%);
   background-size: 200% 100%;
 }
 
@@ -861,6 +861,14 @@ input[type="radio"]:checked::after {
   --sidebar-bg: rgba(242, 242, 247, 0.95);
 }
 
+/* 暗色主题 + 低性能：玻璃提到不透明深色表面，避免「暗色系统白色 Dock」断裂 */
+[data-theme="dark"][data-perf="low"] {
+  --island-bg: #000000;
+  --dock-bg: rgba(28, 28, 30, 0.95);
+  --nav-bg: rgba(28, 28, 30, 0.95);
+  --sidebar-bg: rgba(28, 28, 30, 0.95);
+}
+
 [data-perf="low"] .island,
 [data-perf="low"] .dock,
 [data-perf="low"] .dock-bar,
@@ -1027,6 +1035,7 @@ input[type="radio"]:checked::after {
 }
 
 // iPadOS Sheet（底部弹窗 - 圆角 + 毛玻璃）
+// ::before 提供顶部抓取指示条（grabber），无需每处使用都手写一个元素
 .ios-sheet {
   background: var(--surface-elevated);
   -webkit-backdrop-filter: var(--glass-blur-thick);
@@ -1034,6 +1043,18 @@ input[type="radio"]:checked::after {
   border-radius: var(--radius-3xl) var(--radius-3xl) 0 0;
   box-shadow: var(--shadow-xl);
   padding: var(--spacing-md);
+  padding-top: calc(var(--spacing-md) + 9px);
+}
+
+.ios-sheet::before {
+  content: '';
+  display: block;
+  width: 36px;
+  height: 5px;
+  margin: -4px auto var(--spacing-sm);
+  border-radius: var(--radius-pill);
+  background: var(--separator-color);
+  opacity: 0.55;
 }
 
 // ---- Controls 控件 ----
@@ -1213,7 +1234,7 @@ input[type="radio"]:checked::after {
 }
 // 危险态（删除/移除按钮）
 .icon-btn.icon-btn--danger {
-  color: var(--danger, #FF3B30);
+  color: var(--danger-color);
 }
 .icon-btn.icon-btn--danger:hover {
   background: rgba(255, 59, 48, 0.12);
@@ -1284,7 +1305,7 @@ input[type="radio"]:checked::after {
 
 // 状态指示色：用于收藏按钮、激活态等
 .state-active {
-  color: var(--warning, #FF9500);  // iPadOS 黄色用于收藏（star）
+  color: var(--warning-color);  // iPadOS 黄色用于收藏（star）
 }
 
 // Reduced motion 降级：所有动效辅助类移除 transform

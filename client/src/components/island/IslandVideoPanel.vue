@@ -110,7 +110,7 @@ export default {
 }
 .compact-icon {
   font-size: 12px;
-  color: #f43f5e;
+  color: var(--danger-color);
   display: flex;
   align-items: center;
 }
@@ -255,7 +255,7 @@ export default {
 .video-progress-bar {
   width: 100%;
   height: 100%;
-  background: linear-gradient(90deg, #f43f5e, #fb923c);
+  background: var(--primary-color);
   border-radius: var(--radius-pill);
   transform: scaleX(0);
   transform-origin: left center;

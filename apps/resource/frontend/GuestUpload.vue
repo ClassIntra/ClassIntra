@@ -839,7 +839,7 @@ export default {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  font-size: var(--font-size-title3, 17px);
+  font-size: var(--font-size-subheadline, 17px);
   font-weight: 600;
   margin: 0;
 }
@@ -880,7 +880,7 @@ export default {
   margin-bottom: 16px;
 }
 .code-input-card h3 {
-  font-size: var(--font-size-title3, 20px);
+  font-size: var(--font-size-subheadline, 20px);
   font-weight: 600;
   margin: 0 0 8px 0;
   color: var(--text-primary, #000);

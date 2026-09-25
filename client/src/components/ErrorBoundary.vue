@@ -83,7 +83,7 @@ export default {
 
 .error-icon {
   font-size: 40px;
-  color: var(--warning-color, #f59e0b);
+  color: var(--warning-color, #FF9500);
   margin-bottom: var(--spacing-md);
 }
 
@@ -111,7 +111,6 @@ export default {
   font-size: var(--font-size-sm);
   cursor: pointer;
   transition: background var(--transition-fast);
-  margin-right: 8px;
 }
 
 .error-retry-btn:hover {

@@ -5346,7 +5346,7 @@ export default {
 }
 
 .ncm-artist-name {
-  font-size: var(--font-size-title3);
+  font-size: var(--font-size-subheadline);
   font-weight: var(--font-weight-bold);
   color: var(--text-primary);
   overflow: hidden;
@@ -5906,7 +5906,7 @@ export default {
 
   .controls-section { gap: 12px; }
   .ctrl { width: 44px; height: 44px; font-size: var(--font-size-callout); }
-  .ctrl-main { width: 56px; height: 56px; font-size: var(--font-size-title3); }
+  .ctrl-main { width: 56px; height: 56px; font-size: var(--font-size-subheadline); }
 }
 
 @media (min-width: 1024px) and (orientation: landscape) {

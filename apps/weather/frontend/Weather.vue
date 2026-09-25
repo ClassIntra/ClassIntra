@@ -544,8 +544,8 @@ export default {
 
 .card {
   background: rgba(255,255,255,0.08);
-  backdrop-filter: blur(40px) saturate(180%);
-  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  backdrop-filter: var(--glass-blur-thick);
+  -webkit-backdrop-filter: var(--glass-blur-thick);
   border: 0.5px solid rgba(255,255,255,0.15);
   border-radius: var(--radius-lg);
   padding: 12px 14px;
@@ -615,7 +615,7 @@ export default {
   position: absolute;
   top: 0;
   height: 100%;
-  background: linear-gradient(90deg, #64B5F6, #FFB74D);
+  background: linear-gradient(90deg, var(--accent-weather), var(--warning-color));
   border-radius: var(--radius-pill);
 }
 .d-hi { width: 22px; font-size: var(--font-size-caption2); font-weight: 500; flex-shrink: 0; }
@@ -627,8 +627,8 @@ export default {
 
 .air-card, .life-card {
   background: rgba(255,255,255,0.08);
-  backdrop-filter: blur(40px) saturate(180%);
-  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  backdrop-filter: var(--glass-blur-thick);
+  -webkit-backdrop-filter: var(--glass-blur-thick);
   border: 0.5px solid rgba(255,255,255,0.15);
   border-radius: var(--radius-lg);
   padding: 12px 14px;

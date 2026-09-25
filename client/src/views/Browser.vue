@@ -522,7 +522,7 @@ export default {
   color: var(--text-tertiary);
 }
 .browser-bookmark-btn.bookmarked {
-  color: var(--warning, #FF9500);
+  color: var(--warning-color);
 }
 
 /* 分享按钮 */
@@ -717,7 +717,7 @@ export default {
 }
 .browser-item-icon--star {
   background: rgba(255, 149, 0, 0.12);
-  color: var(--warning, #FF9500);
+  color: var(--warning-color);
 }
 
 .browser-item-info {
@@ -756,14 +756,14 @@ export default {
   padding: 0 14px;
   height: 36px;
   background: transparent;
-  color: var(--danger, #FF3B30);
+  color: var(--danger-color);
   border: 1px solid var(--border-color);
   font-size: 13px;
   font-weight: var(--font-weight-medium, 500);
 }
 .browser-clear-btn:hover {
   background: rgba(255, 59, 48, 0.06);
-  border-color: var(--danger, #FF3B30);
+  border-color: var(--danger-color);
 }
 
 /* ========== 首页设置栏 ========== */
@@ -935,7 +935,7 @@ export default {
   background: var(--primary-hover);
 }
 .capsule-to-community {
-  background: var(--success, #34C759);
+  background: var(--success-color);
 }
 .capsule-to-community:hover {
   background: var(--success-color);
