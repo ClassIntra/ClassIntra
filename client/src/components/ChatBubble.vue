@@ -23,7 +23,7 @@
       @touchend="onTouchEnd"
       @touchmove="onTouchMove"
     >
-      <div v-if="!isOwn && message.recalled !== 1 && !groupedWithPrev" class="bubble-sender">{{ message.sender_name }}<span v-if="senderRole === 'admin'" class="admin-badge-inline">管理</span><img v-if="showLevel && senderLevel >= 0" :src="'/resources/public/level/Lv' + senderLevel + '.svg'" class="level-icon-chat" /></div>
+      <div v-if="!isOwn && message.recalled !== 1" class="bubble-sender">{{ message.sender_name }}<span v-if="senderRole === 'admin'" class="admin-badge-inline">管理</span><img v-if="showLevel && senderLevel >= 0" :src="'/resources/public/level/Lv' + senderLevel + '.svg'" class="level-icon-chat" /></div>
       <div v-if="message.recalled === 1" class="bubble-recalled">该消息已撤回</div>
       <div v-else-if="message.type === 'community_forward'" class="bubble-content bubble-forward" @click="onForwardClick">
         <div class="forward-label"><i class="fa-solid fa-share-from-square"></i> 社区帖子 · {{ forwardTypeLabel }}</div>
