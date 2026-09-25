@@ -1665,7 +1665,8 @@ export default {
       return generateTextCover(
         String(post.title || post.content || '帖'),
         postCoverExcerpt(post),
-        hashColor(String(post.user_id || post.id || 'x'))
+        hashColor(String(post.user_id || post.id || 'x')),
+        String(post.id || post.content || 'x')
       );
     },
     tagPillStyle: function(tag) {
