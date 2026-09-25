@@ -115,7 +115,13 @@
                 loading="lazy"
                 alt=""
               />
-              <img v-else class="post-cover" :src="textCoverUrl(post)" alt="" />
+              <img
+                v-else
+                class="post-cover"
+                :src="'/api/integrations/cover-image?seed=' + (post.id || post.user_id)"
+                alt=""
+                @error="textCoverUrl(post) && ($event.target.src = textCoverUrl(post))"
+              />
               <div class="post-info">
                 <div class="post-meta">
                   <span class="post-author">{{ post.is_anonymous && canViewAnonymous ? post.admin_net_name : (post.is_anonymous ? '匿名用户' : (post.net_name || '未知用户')) }}</span>
@@ -1658,7 +1664,7 @@ export default {
       var c = String(post.content || '');
       var m = c.match(/\[cloud-img:([a-f0-9]{64}(?:\.\w+)?)\]/);
       if (m) return '/api/cloud/files/' + m[1] + '?w=360';
-      var m2 = c.match(/!\[[^\]]*\]\((https?:\/\/[^\s)]+\.(?:png|jpe?g|webp|gif)[^\s)]*)\)/i);
+      var m2 = c.match(/!\[[^\]]*\]\(([^)\s]+\.(?:png|jpe?g|webp|gif)[^)\s]*)\)/i);
       if (m2) return m2[1];
       var m3 = c.match(/(https?:\/\/[^\s"'<>]+\.(?:png|jpe?g|webp|gif))/i);
       return m3 ? m3[1] : '';
