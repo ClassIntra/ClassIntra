@@ -92,8 +92,9 @@
                 </div>
               </div>
             </div>
+            <div class="waterfall-grid"><div class="waterfall-col" v-for="(colArr, wi) in waterfallColumns" :key="'wc' + wi">
             <div
-              v-for="post in displayPosts"
+              v-for="post in colArr"
               :key="post.id"
               class="list-item post-item"
               :class="{ active: currentPostId === post.id }"
@@ -204,6 +205,7 @@
               <i class="fa-solid fa-spinner fa-spin"></i>
               <span>加载中...</span>
             </div>
+            </div></div>
             <div v-if="postsLoadingMore" class="loading-more-indicator">
               <div class="spinner-small"></div>
             </div>
@@ -862,8 +864,8 @@
               <button class="toolbar-btn" :class="{ active: showEmojiPicker }" @click="toggleEmojiPicker" title="表情">
                 <i class="fa-regular fa-face-smile"></i>
               </button>
-              <button class="toolbar-btn" @click="commentCloudTarget = 'post'; showCloudPicker = true" title="云盘文件">
-                <i class="fa-solid fa-cloud"></i>
+              <button class="toolbar-btn toolbar-btn-cover" @click="commentCloudTarget = 'post'; showCloudPicker = true" title="从云盘选封面（选定的第一张图将作为封面）">
+                <i class="fa-solid fa-image"></i><span>封面</span>
               </button>
               <div class="char-counter" :class="{ over: isContentOverLimit }">{{ contentCharCount }}/{{ maxContentLength }}</div>
             </div>
@@ -1379,6 +1381,18 @@ export default {
       if (this.newPost.type === 'food' && (!this.newPost.foodForm.dish_name.trim() || !this.newPost.foodForm.canteen)) return false;
       if (this.newPost.type === 'hot' && !this.newPost.hotForm.title.trim()) return false;
       return true;
+    },
+    // 瀑布流分列：横屏 760-1023 三列、≥1024 四列，轮转分配保持阅读顺序
+    waterfallColumns: function() {
+      var wide = window.innerWidth >= 1024 && window.innerWidth > window.innerHeight;
+      var mid = window.innerWidth >= 760 && window.innerWidth > window.innerHeight;
+      var n = wide ? 4 : (mid ? 3 : 1);
+      var cols = [];
+      for (var i = 0; i < n; i++) cols.push([]);
+      for (var j = 0; j < this.displayPosts.length; j++) {
+        cols[j % n].push(this.displayPosts[j]);
+      }
+      return cols;
     },
     displayPosts: function() {
       var list;
@@ -3829,8 +3843,6 @@ export default {
 /* ===== 瀑布流（横屏平板：760-1023 三列，≥1024 四列；小红书式封面在顶） ===== */
 @media (min-width: 760px) and (orientation: landscape) {
   .content-list {
-    columns: 3;
-    column-gap: 10px;
     padding: 4px var(--spacing-sm);
   }
   .list-item.post-item {
@@ -3876,15 +3888,12 @@ export default {
   }
 }
 @media (min-width: 1024px) and (orientation: landscape) {
-  .content-list { columns: 4; }
 }
 
 
 /* ===== 瀑布流（横屏平板：760-1023 三列，≥1024 四列；小红书式封面在顶） ===== */
 @media (min-width: 760px) and (orientation: landscape) {
   .content-list {
-    columns: 3;
-    column-gap: 10px;
     padding: 4px var(--spacing-sm);
   }
   .list-item.post-item {
@@ -3930,7 +3939,41 @@ export default {
   }
 }
 @media (min-width: 1024px) and (orientation: landscape) {
-  .content-list { columns: 4; }
 }
+
+
+/* ===== 瀑布流（JS 分列，横屏 3/4 列；封面在顶自然比例） ===== */
+@media (min-width: 760px) and (orientation: landscape) {
+  .waterfall-grid {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 4px var(--spacing-sm);
+  }
+  .waterfall-col {
+    flex: 1;
+    min-width: 0;
+  }
+  .waterfall-col .list-item.post-item {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    margin: 0 0 10px;
+    overflow: hidden;
+  }
+  .waterfall-col .list-item.post-item >>> .user-avatar { display: none; }
+  .waterfall-col .post-cover {
+    order: -1;
+    width: calc(100% + 32px);
+    margin: -14px -16px 10px;
+    height: auto;
+    max-height: 340px;
+    border-radius: 0;
+    background: none;
+  }
+}
+
+.toolbar-btn-cover { width: auto; padding: 0 12px; gap: 5px; color: var(--primary-color); font-size: var(--font-size-caption1); font-weight: var(--font-weight-medium); }
+.toolbar-btn-cover span { line-height: 1; }
 
 </style>
