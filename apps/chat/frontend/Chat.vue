@@ -197,6 +197,7 @@
               :canRecall="canRecallMessage(msg)"
               :status="getMessageStatus(msg)"
               :showDateSeparator="shouldShowDateSeparator(index)"
+              :groupedWithPrev="isGroupedWithPrev(index)"
               :dateLabel="getDateLabel(index)"
               :searchTerm="searchText"
               :isPrivate="isPrivateChat"
@@ -250,7 +251,7 @@
             <textarea
               v-model="inputText"
               class="chat-input"
-              :placeholder="replyingTo ? '回复消息... (Shift+Enter换行)' : '输入消息... (Shift+Enter换行)'"
+              :placeholder="replyingTo ? '回复消息…' : '输入消息…'"
               rows="1"
               @keydown.enter.exact="onEnterKey"
               @focus="showEmoji = false"
@@ -2772,6 +2773,20 @@ export default {
       var d = new Date(msg.created_at);
       return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
     },
+    // 连发消息分组：同一发送者 5 分钟内、无撤回、无日期分隔 → 归入同组
+    isGroupedWithPrev: function(index) {
+      var list = this.filteredMessages;
+      if (index <= 0) return false;
+      var prev = list[index - 1];
+      var cur = list[index];
+      if (!prev || !cur || prev.recalled === 1 || cur.recalled === 1) return false;
+      if ((prev.sender_id || prev.user_id || '') !== (cur.sender_id || cur.user_id || '')) return false;
+      if (this.shouldShowDateSeparator(index)) return false;
+      var pt = new Date(prev.created_at).getTime();
+      var ct = new Date(cur.created_at).getTime();
+      if (isNaN(pt) || isNaN(ct)) return false;
+      return (ct - pt) <= 5 * 60 * 1000;
+    },
     shouldShowTimestamp: function(index) {
       var msgs = this.filteredMessages;
       if (index === 0) return true;
@@ -3855,6 +3870,11 @@ export default {
   border-top-color: var(--primary-color);
   border-radius: 50%;
   animation: spin 0.8s var(--ease-standard) infinite;
+}
+
+/* 触屏设备：消息流滚动条隐藏（触摸滚动天然可见位置），避免常驻灰条破坏沉浸感 */
+@media (hover: none) {
+  .chat-messages::-webkit-scrollbar { width: 0; height: 0; }
 }
 
 .chat-messages {
