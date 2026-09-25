@@ -17,13 +17,13 @@
     <div
       v-else
       class="chat-bubble"
-      :class="{ 'own-bubble': isOwn, 'recalled-bubble': message.recalled === 1 }"
+      :class="{ 'own-bubble': isOwn, 'recalled-bubble': message.recalled === 1, 'msg-grouped': groupedWithPrev && message.recalled !== 1 }"
       @contextmenu.prevent="onContextMenu"
       @touchstart="onTouchStart"
       @touchend="onTouchEnd"
       @touchmove="onTouchMove"
     >
-      <div v-if="!isOwn && message.recalled !== 1" class="bubble-sender">{{ message.sender_name }}<span v-if="senderRole === 'admin'" class="admin-badge-inline">管理</span><img v-if="showLevel && senderLevel >= 0" :src="'/resources/public/level/Lv' + senderLevel + '.svg'" class="level-icon-chat" /></div>
+      <div v-if="!isOwn && message.recalled !== 1 && !groupedWithPrev" class="bubble-sender">{{ message.sender_name }}<span v-if="senderRole === 'admin'" class="admin-badge-inline">管理</span><img v-if="showLevel && senderLevel >= 0" :src="'/resources/public/level/Lv' + senderLevel + '.svg'" class="level-icon-chat" /></div>
       <div v-if="message.recalled === 1" class="bubble-recalled">该消息已撤回</div>
       <div v-else-if="message.type === 'community_forward'" class="bubble-content bubble-forward" @click="onForwardClick">
         <div class="forward-label"><i class="fa-solid fa-share-from-square"></i> 社区帖子 · {{ forwardTypeLabel }}</div>
@@ -191,6 +191,11 @@ export default {
     message: {
       type: Object,
       required: true
+    },
+    // 与上一条消息同发送者同组（5 分钟内连发）：隐藏重复名字行、收紧间距与圆角
+    groupedWithPrev: {
+      type: Boolean,
+      default: false
     },
     isOwn: {
       type: Boolean,
@@ -659,7 +664,7 @@ export default {
 
 .chat-bubble {
   max-width: 65%;
-  margin-bottom: 12px;
+  margin-top: 12px;
   display: flex;
   flex-direction: column;
   position: relative;
@@ -667,6 +672,23 @@ export default {
   -webkit-user-select: none;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
+}
+
+.chat-bubble.msg-grouped {
+  margin-top: 3px;
+}
+
+.chat-bubble.msg-grouped:not(.own-bubble) .bubble-content {
+  border-top-left-radius: 7px;
+}
+
+.chat-bubble.msg-grouped.own-bubble .bubble-content {
+  border-top-right-radius: 7px;
+}
+
+/* 暗色：对方气泡用 iOS dark 提亮档（#2C2C2E），与纯黑背景拉开层次 */
+[data-theme="dark"] .chat-bubble:not(.own-bubble) .bubble-content {
+  background: #2C2C2E;
 }
 
 .chat-bubble.own-bubble {
