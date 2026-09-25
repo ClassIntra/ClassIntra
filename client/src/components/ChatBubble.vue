@@ -1147,7 +1147,6 @@ export default {
   margin: 4px 0;
   display: block;
   cursor: pointer;
-  background: var(--bg-color);
   will-change: transform;
 }
 
@@ -1421,6 +1420,20 @@ export default {
 
 .own-bubble .bubble-content.bubble-media {
   background: transparent;
+}
+
+
+/* 混排消息里的图片：负边距贴满气泡宽度，消除「相框」感 */
+.chat-bubble .bubble-content .msg-image {
+  margin-left: -14px;
+  margin-right: -14px;
+  max-width: calc(100% + 28px);
+  border-radius: 0;
+}
+.chat-bubble .bubble-content .msg-image:first-child {
+  margin-top: -10px;
+  border-top-left-radius: var(--radius-lg);
+  border-top-right-radius: var(--radius-lg);
 }
 
 </style>
