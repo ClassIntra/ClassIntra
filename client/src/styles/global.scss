@@ -444,9 +444,11 @@ a:focus-visible {
   justify-content: center;
   gap: var(--spacing-sm);
   padding: 10px 22px;
+  min-height: 44px; /* iOS 44pt 最小触控高度 */
+  box-sizing: border-box;
   background: var(--primary-color);
   color: #fff;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   font-size: var(--font-size-base);
   font-weight: var(--font-weight-semibold);
   border: none;

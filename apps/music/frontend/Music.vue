@@ -1,14 +1,12 @@
 <template>
   <div class="music-page" :data-theme="theme">
     <div class="music-list-page">
-      <div class="music-nav">
-        <button class="music-nav-btn" @click="goDesktop" title="返回桌面">
-          <i class="fa-solid fa-chevron-left"></i>
-        </button>
-        <h1 class="music-nav-title">音乐</h1>
-        <div class="music-nav-count" v-if="isNcmTab">{{ ncmCountLabel }}</div>
-        <div class="music-nav-count" v-else-if="songs.length > 0">{{ filteredSongs.length }} / {{ songs.length }}</div>
-      </div>
+      <AppNavBar title="音乐" :show-back="true">
+        <template #actions>
+          <div class="music-nav-count" v-if="isNcmTab">{{ ncmCountLabel }}</div>
+          <div class="music-nav-count" v-else-if="songs.length > 0">{{ filteredSongs.length }} / {{ songs.length }}</div>
+        </template>
+      </AppNavBar>
 
       <div class="list-layout" :class="{ 'with-mini-player': currentSong }">
         <div class="list-sidebar scrollbar-thin">
@@ -834,6 +832,7 @@
 
 <script>
 import lrcParser from '@/utils/lrc-parser';
+import AppNavBar from '@/components/AppNavBar.vue';
 import api from '@/utils/api';
 import audioManager from '@/utils/audio-manager';
 
@@ -849,6 +848,9 @@ function hue(s) { return hashStr(s) % 360; }
 
 export default {
   name: 'Music',
+  components: {
+    AppNavBar: AppNavBar
+  },
   data: function() {
     return {
       songsLoading: true,
@@ -2820,54 +2822,6 @@ export default {
   flex-direction: column;
   position: relative;
   z-index: 1;
-}
-
-.music-nav {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 0 20px;
-  height: 44px;
-  background: var(--nav-bg);
-  backdrop-filter: var(--glass-blur-container);
-  -webkit-backdrop-filter: var(--glass-blur-container);
-  border-bottom: 0.5px solid var(--separator-color);
-  -webkit-app-region: drag;
-  will-change: auto;
-}
-
-.music-nav-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: var(--radius-md);
-  color: var(--primary-color);
-  font-size: var(--font-size-callout);
-  cursor: pointer;
-  border: none;
-  background: none;
-  transition: background var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
-  -webkit-app-region: no-drag;
-  flex-shrink: 0;
-}
-
-.music-nav-btn:hover { background: var(--primary-light); }
-.music-nav-btn:active { transform: scale(0.94); opacity: 0.7; }
-
-.music-nav-title {
-  flex: 1;
-  min-width: 0;
-  font-size: var(--font-size-headline);
-  font-weight: var(--font-weight-bold);
-  color: var(--text-primary);
-  margin: 0;
-  letter-spacing: -0.02em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .music-nav-count {
@@ -6059,10 +6013,6 @@ export default {
 
 /* 768–1023 横屏（安卓平板竖放宽度的横向使用 / 折叠屏外屏）：收紧侧栏与播放页，保证列表可视宽度 */
 @media (min-width: 768px) and (max-width: 1023px) and (orientation: landscape) {
-  .music-nav {
-    height: 48px;
-  }
-
   .list-sidebar {
     width: 200px;
   }

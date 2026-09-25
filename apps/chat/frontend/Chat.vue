@@ -673,6 +673,7 @@ import helpers from '@/utils/helpers';
 import wsManager from '@/utils/websocket';
 import { autoConnect } from '@/utils/websocket';
 import api from '@/utils/api';
+import { hashColor } from '@/utils/ios-palette';
 import richTextRenderer from '@/utils/rich-text-renderer';
 import cloudPickerReceiver from '@/mixins/cloud-picker-receiver';
 var detectMediaType = richTextRenderer.detectMediaType;
@@ -2398,13 +2399,7 @@ export default {
       return this.remoteOnlineUsers.some(function(u) { return u.user_id === userId; });
     },
     getGroupColor: function(groupId) {
-      var colors = ['#007AFF', '#34C759', '#FF9500', '#AF52DE', '#FF3B30', '#5AC8FA', '#8E8E93', '#FF2D55'];
-      var hash = 0;
-      for (var i = 0; i < groupId.length; i++) {
-        hash = ((hash << 5) - hash) + groupId.charCodeAt(i);
-        hash = hash & hash;
-      }
-      return colors[Math.abs(hash) % colors.length];
+      return hashColor(groupId);
     },
     isDndChat: function(chatId) {
       return this.$store.getters['chat/isDnd'](chatId);

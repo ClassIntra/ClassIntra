@@ -1103,13 +1103,10 @@ import 'katex/dist/katex.min.css';
 import 'highlight.js/styles/github-dark.min.css';
 import LatexRenderer from '@/utils/latex-renderer';
 import { getMediaTypeByName } from '@/utils/media-recorder.js';
+import { IOS_PALETTE } from '@/utils/ios-palette';
 import { filterRenderable } from '@/utils/emoji-support';
 
-var TAG_COLORS = [
-  '#007AFF', '#34C759', '#FF9500', '#AF52DE', '#FF3B30',
-  '#5AC8FA', '#FF2D55', '#5856D6', '#00C7BE', '#FF6482',
-  '#8E8E93', '#636366', '#FFCC00', '#00D4FF', '#BF5AF2'
-];
+var TAG_COLORS = IOS_PALETTE;
 
 var customRenderer = new marked.Renderer();
 customRenderer.code = function(code, lang) {
@@ -2622,7 +2619,7 @@ export default {
       // marked 会保留 inline HTML；样式内联自包含，不受 scoped 样式影响）
       var gomokuCardHtml = function(code) {
         var c = String(code).toUpperCase();
-        return '<div class="gomoku-post-card" data-gomoku-room="' + c + '" style="display:flex;align-items:center;margin:10px 0;padding:12px 14px;border-radius:14px;border:1px solid rgba(176,125,43,0.35);background:linear-gradient(135deg,rgba(232,200,143,0.25),rgba(212,167,106,0.15));cursor:pointer;">' +
+        return '<div class="gomoku-post-card" data-gomoku-room="' + c + '" style="display:flex;align-items:center;margin:10px 0;padding:12px 14px;border-radius:var(--radius-lg);border:1px solid rgba(176,125,43,0.35);background:linear-gradient(135deg,rgba(232,200,143,0.25),rgba(212,167,106,0.15));cursor:pointer;">' +
           '<svg width="44" height="44" viewBox="0 0 44 44" style="display:block;border-radius:12px;flex-shrink:0;margin-right:12px;box-shadow:0 1px 3px rgba(0,0,0,0.18);" aria-hidden="true">' +
             '<defs>' +
               '<linearGradient id="gomokuPostWood" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F5E3B8"/><stop offset="1" stop-color="#DBB273"/></linearGradient>' +
@@ -2650,7 +2647,7 @@ export default {
       // 替换为内联 HTML 原文，marked 保留 inline HTML；样式内联自包含，不受 scoped 影响）
       var chessCardHtml = function(code) {
         var c = String(code).toUpperCase();
-        return '<div class="chess-post-card" data-chess-room="' + c + '" style="display:flex;align-items:center;margin:10px 0;padding:12px 14px;border-radius:14px;border:1px solid rgba(185,28,28,0.35);background:linear-gradient(135deg,rgba(245,214,196,0.28),rgba(220,164,138,0.16));cursor:pointer;">' +
+        return '<div class="chess-post-card" data-chess-room="' + c + '" style="display:flex;align-items:center;margin:10px 0;padding:12px 14px;border-radius:var(--radius-lg);border:1px solid rgba(var(--danger-rgb),0.35);background:linear-gradient(135deg,rgba(245,214,196,0.28),rgba(220,164,138,0.16));cursor:pointer;">' +
           '<svg width="44" height="44" viewBox="0 0 44 44" style="display:block;border-radius:12px;flex-shrink:0;margin-right:12px;box-shadow:0 1px 3px rgba(0,0,0,0.18);" aria-hidden="true">' +
             '<defs>' +
               '<linearGradient id="chessPostWood" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F5E3B8"/><stop offset="1" stop-color="#DBB273"/></linearGradient>' +
@@ -2666,9 +2663,9 @@ export default {
             '<text x="22" y="27" text-anchor="middle" font-size="12.5" font-weight="700" fill="#5E170E" style="font-family:\'Kaiti SC\',KaiTi,STKaiti,serif">帅</text>' +
           '</svg>' +
           '<span style="flex:1;min-width:0;">' +
-            '<span style="display:block;font-size:12px;font-weight:600;color:#b91c1c;letter-spacing:0.5px;">象棋对局邀请</span>' +
+            '<span style="display:block;font-size:12px;font-weight:600;color:var(--danger-color);letter-spacing:0.5px;">象棋对局邀请</span>' +
             '<span style="display:block;font-size:16px;font-weight:700;">房间码 ' + c + '</span>' +
-            '<span style="display:block;font-size:12px;color:#b91c1c;">点击加入对局（满员自动观战，空位可替补）</span>' +
+            '<span style="display:block;font-size:12px;color:var(--danger-color);">点击加入对局（满员自动观战，空位可替补）</span>' +
           '</span>' +
         '</div>';
       };
