@@ -138,7 +138,7 @@
         <div v-if="activeTab === 'bookmarks'" class="browser-list-content">
           <div v-if="bookmarks.length === 0" class="browser-empty">
             <i class="fa-regular fa-star"></i>
-            <span>暂无书签，浏览网页时点击 ☆ 收藏</span>
+            <span>暂无书签，浏览网页时点击地址栏的星标即可收藏</span>
           </div>
           <div
             v-for="(item, idx) in bookmarks"

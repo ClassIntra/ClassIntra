@@ -10,7 +10,8 @@
   <meta name="theme-color" content="#000000">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <link rel="preload" as="image" href="/resources/public/brand/logo-mark-white.png">
+  <link rel="icon" type="image/svg+xml" href="/resources/public/brand/favicon.svg">
+  <link rel="preload" as="image" href="/resources/public/brand/logo-mark-white.svg">
   <link rel="preload" as="image" href="/resources/public/icons/Chat.png">
   <link rel="preload" as="image" href="/resources/public/icons/Community.png">
   <link rel="preload" as="image" href="/resources/public/icons/AI-Chat.png">
@@ -160,11 +161,12 @@
       animation: al-rise 0.8s ease 0.74s both;
     }
 
-    /* 进度条：不确定进度 + 流光 */
+    /* 进度条：手机开机式的确定进度——启动后缓动填充到 76%，
+       Vue 就绪后（al-complete）冲到 100% 再整体淡出，模拟真实 boot 节奏 */
     #app-loading .al-progress {
       position: relative;
       width: 168px;
-      height: 3px;
+      height: 4px;
       margin-top: 36px;
       border-radius: 2px;
       background: rgba(255, 255, 255, 0.14);
@@ -175,16 +177,22 @@
       position: absolute;
       top: 0;
       left: 0;
-      width: 46%;
+      width: 0%;
       height: 100%;
       border-radius: 2px;
-      background-image: linear-gradient(90deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.55) 40%, #ffffff 72%, rgba(255, 255, 255, 0) 100%);
-      will-change: transform;
-      animation: al-prog 1.45s cubic-bezier(0.45, 0.05, 0.35, 1) 1.1s infinite;
+      background: #ffffff;
+      box-shadow: 0 0 10px rgba(255, 255, 255, 0.55);
+      /* 启动填充：长缓动（2.4s 到 76%），减速曲线模拟「越接近越慢」 */
+      transition: width 2.4s cubic-bezier(0.22, 0.61, 0.36, 1);
+      will-change: width;
     }
-    @keyframes al-prog {
-      0% { transform: translateX(-110%); }
-      100% { transform: translateX(232%); }
+    #app-loading.al-boot .al-progress-bar {
+      width: 76%;
+    }
+    /* 就绪：短促冲线 */
+    #app-loading.al-complete .al-progress-bar {
+      width: 100%;
+      transition: width 0.35s cubic-bezier(0.22, 0.61, 0.36, 1);
     }
 
     @keyframes al-rise {
@@ -237,24 +245,23 @@
         opacity: 1 !important;
       }
       #app-loading .al-mark-glow { opacity: 0.4 !important; }
-      #app-loading .al-progress-bar { animation: none !important; transform: none !important; }
+      #app-loading .al-progress-bar { transition: none !important; width: 76% !important; }
       #app-loading .al-stage { transition: none !important; }
     }
   </style>
   <script>(function(){window.__ciBootStart=Date.now();try{var u=JSON.parse(localStorage.getItem('user')||'null');if(u&&u.info&&u.info.dev===true)localStorage.setItem('_ci_dev_user','1');else localStorage.removeItem('_ci_dev_user');}catch(e){localStorage.removeItem('_ci_dev_user');}})();</script>
-  <script>function __ciDeviceId(){try{var k='_ci_device_id',v=localStorage.getItem(k);if(!v){v=([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,function(c){return(c^crypto.getRandomValues(new Uint8Array(1))[0]&15>>c/4).toString(16);});localStorage.setItem(k,v);}return v;}catch(e){return 'volatile-'+String(Date.now());}}function __ciDiagError(error,source){window.__ciDiagErrors=window.__ciDiagErrors||[];window.__ciDiagErrors.push({message:String(error&&error.message||error||'未知错误'),source:source||'unknown',stack:String(error&&error.stack||'').substring(0,4000),time:new Date().toISOString()});}function __ciSend(payload){try{if(!localStorage.getItem('_ci_dev_user'))return;var headers={'Content-Type':'application/json'},token=localStorage.getItem('token');if(token)headers.Authorization='Bearer '+token;fetch('/api/system/diagnostics',{method:'POST',headers:headers,credentials:'include',body:JSON.stringify(payload)}).catch(function(){});}catch(e){}}function __ciReportError(){__ciSend({device_id:__ciDeviceId(),url:location.href,errors:window.__ciDiagErrors||[],timestamp:new Date().toISOString(),error_only:true});}function __ciReport(retry){try{if(!localStorage.getItem('_ci_dev_user'))return;if(!retry&&localStorage.getItem('_ci_diag_sent'))return;var nav=navigator||{},scr=screen||{};var payload={device_id:__ciDeviceId(),retry:!!retry,url:location.href,user_agent:nav.userAgent||'',platform:nav.platform||'',language:nav.language||'',languages:nav.languages||[],hardware_concurrency:nav.hardwareConcurrency||null,device_memory:nav.deviceMemory||null,screen:{width:scr.width||0,height:scr.height||0,pixel_ratio:window.devicePixelRatio||1},viewport:{width:innerWidth||0,height:innerHeight||0},touch_points:nav.maxTouchPoints||0,connection:nav.connection?{effectiveType:nav.connection.effectiveType||'',rtt:nav.connection.rtt||null,downlink:nav.connection.downlink||null}:null,errors:window.__ciDiagErrors||[],timestamp:new Date().toISOString()};__ciSend(payload);if(!retry)localStorage.setItem('_ci_diag_sent','1');}catch(e){__ciDiagError(e,'diagnostics');}}window.addEventListener('error',function(e){__ciDiagError(e.error||e.message,'window.error');});window.addEventListener('unhandledrejection',function(e){__ciDiagError(e.reason,'unhandledrejection');});__ciReport(false);function __onVueReady(){window.__vueReady=true;var el=document.getElementById('app-loading');if(!el||el.classList.contains('al-done')||el.classList.contains('al-timeout'))return;var minShow=1500;var elapsed=Date.now()-(window.__ciBootStart||Date.now());var wait=Math.max(0,minShow-elapsed);setTimeout(function(){if(!el.parentNode)return;el.classList.add('al-done');setTimeout(function(){if(el.parentNode)el.parentNode.removeChild(el);},750);},wait);}window.__onVueReady=__onVueReady;setTimeout(function(){if(!window.__vueReady){var el=document.getElementById('app-loading');if(el&&!el.classList.contains('al-timeout')&&!el.classList.contains('al-done')){el.classList.add('al-timeout');el.innerHTML='<div class="al-timeout-inner"><img class="al-timeout-mark" src="/resources/public/brand/logo-mark-white.png" alt=""><div class="al-timeout-title">启动失败</div><div class="al-timeout-msg">加载时间较长，请尝试刷新</div><div class="al-timeout-error" id="ci-load-error"></div><button class="al-reload-btn" onclick="localStorage.removeItem(\'_ci_diag_sent\');__ciReport(true);location.reload(true)">刷新页面</button></div>';var errors=window.__ciDiagErrors||[];if(errors.length){document.getElementById('ci-load-error').textContent='错误：'+errors[errors.length-1].message;__ciReportError();}}}},15000);</script>
+  <script>function __ciDeviceId(){try{var k='_ci_device_id',v=localStorage.getItem(k);if(!v){v=([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,function(c){return(c^crypto.getRandomValues(new Uint8Array(1))[0]&15>>c/4).toString(16);});localStorage.setItem(k,v);}return v;}catch(e){return 'volatile-'+String(Date.now());}}function __ciDiagError(error,source){window.__ciDiagErrors=window.__ciDiagErrors||[];window.__ciDiagErrors.push({message:String(error&&error.message||error||'未知错误'),source:source||'unknown',stack:String(error&&error.stack||'').substring(0,4000),time:new Date().toISOString()});}function __ciSend(payload){try{if(!localStorage.getItem('_ci_dev_user'))return;var headers={'Content-Type':'application/json'},token=localStorage.getItem('token');if(token)headers.Authorization='Bearer '+token;fetch('/api/system/diagnostics',{method:'POST',headers:headers,credentials:'include',body:JSON.stringify(payload)}).catch(function(){});}catch(e){}}function __ciReportError(){__ciSend({device_id:__ciDeviceId(),url:location.href,errors:window.__ciDiagErrors||[],timestamp:new Date().toISOString(),error_only:true});}function __ciReport(retry){try{if(!localStorage.getItem('_ci_dev_user'))return;if(!retry&&localStorage.getItem('_ci_diag_sent'))return;var nav=navigator||{},scr=screen||{};var payload={device_id:__ciDeviceId(),retry:!!retry,url:location.href,user_agent:nav.userAgent||'',platform:nav.platform||'',language:nav.language||'',languages:nav.languages||[],hardware_concurrency:nav.hardwareConcurrency||null,device_memory:nav.deviceMemory||null,screen:{width:scr.width||0,height:scr.height||0,pixel_ratio:window.devicePixelRatio||1},viewport:{width:innerWidth||0,height:innerHeight||0},touch_points:nav.maxTouchPoints||0,connection:nav.connection?{effectiveType:nav.connection.effectiveType||'',rtt:nav.connection.rtt||null,downlink:nav.connection.downlink||null}:null,errors:window.__ciDiagErrors||[],timestamp:new Date().toISOString()};__ciSend(payload);if(!retry)localStorage.setItem('_ci_diag_sent','1');}catch(e){__ciDiagError(e,'diagnostics');}}window.addEventListener('error',function(e){__ciDiagError(e.error||e.message,'window.error');});window.addEventListener('unhandledrejection',function(e){__ciDiagError(e.reason,'unhandledrejection');});__ciReport(false);function __onVueReady(){window.__vueReady=true;var el=document.getElementById('app-loading');if(!el||el.classList.contains('al-done')||el.classList.contains('al-timeout'))return;var minShow=1500;var elapsed=Date.now()-(window.__ciBootStart||Date.now());var wait=Math.max(0,minShow-elapsed);setTimeout(function(){if(!el.parentNode)return;el.classList.add('al-complete');setTimeout(function(){if(!el.parentNode)return;el.classList.add('al-done');setTimeout(function(){if(el.parentNode)el.parentNode.removeChild(el);},750);},420);},wait);}window.__onVueReady=__onVueReady;setTimeout(function(){if(!window.__vueReady){var el=document.getElementById('app-loading');if(el&&!el.classList.contains('al-timeout')&&!el.classList.contains('al-done')){el.classList.add('al-timeout');el.innerHTML='<div class="al-timeout-inner"><img class="al-timeout-mark" src="/resources/public/brand/logo-mark-white.svg" alt=""><div class="al-timeout-title">启动失败</div><div class="al-timeout-msg">加载时间较长，请尝试刷新</div><div class="al-timeout-error" id="ci-load-error"></div><button class="al-reload-btn" onclick="localStorage.removeItem(\'_ci_diag_sent\');__ciReport(true);location.reload(true)">刷新页面</button></div>';var errors=window.__ciDiagErrors||[];if(errors.length){document.getElementById('ci-load-error').textContent='错误：'+errors[errors.length-1].message;__ciReportError();}}}},15000);</script>
 </head>
 <body>
   <script>(function(){var t=localStorage.getItem('theme');if(t&&t!=='light'){document.documentElement.setAttribute('data-theme',t);document.body&&(document.body.setAttribute('data-theme',t));}})();</script>
-  <!-- 系统启动动画：Vue 就绪后由 __onVueReady 淡出移除
-       标识图片为临时占位（Resources/public/brand/logo-mark-white.png），
-       替换时保持纯白 + 透明底 + 紧密裁切即可，尺寸自适应无需改样式 -->
+  <!-- 系统启动动画：Vue 就绪后由 __onVueReady 冲线（al-complete）再淡出移除
+       标识为矢量版（Resources/public/brand/logo-mark-white.svg），纯白 + 透明底 -->
   <div id="app-loading">
     <div class="al-stars" aria-hidden="true"></div>
     <div class="al-stage">
       <div class="al-mark-wrap">
-        <img class="al-mark-glow" src="/resources/public/brand/logo-mark-white.png" alt="" aria-hidden="true">
-        <img class="al-mark" src="/resources/public/brand/logo-mark-white.png" alt="ClassIntra">
+        <img class="al-mark-glow" src="/resources/public/brand/logo-mark-white.svg" alt="" aria-hidden="true">
+        <img class="al-mark" src="/resources/public/brand/logo-mark-white.svg" alt="ClassIntra">
       </div>
       <div class="al-brand">ClassIntra</div>
       <div class="al-tagline">智慧校园平台</div>
@@ -263,6 +270,7 @@
       </div>
     </div>
   </div>
+  <script>(function(){var el=document.getElementById('app-loading');if(!el)return;(window.requestAnimationFrame||function(f){setTimeout(f,16)})(function(){el.classList.add('al-boot');});})();</script>
   <div id="app"></div>
   <noscript>请启用 JavaScript 以正常使用本系统</noscript>
   <script type="module" src="/src/main.js"></script>

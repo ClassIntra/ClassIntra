@@ -221,7 +221,7 @@
                   <i class="fa-solid fa-calendar-check form-row-icon"></i>每日签到
                 </label>
                 <div class="daily-login-group">
-                  <span v-if="levelInfo.login_streak > 0" class="streak-badge">🔥 {{ levelInfo.login_streak }}天</span>
+                  <span v-if="levelInfo.login_streak > 0" class="streak-badge">连续 {{ levelInfo.login_streak }} 天</span>
                   <button class="btn-outline" :disabled="dailyLoginClaimed || dailyLoginLoading" @click="claimDailyLogin">
                     {{ dailyLoginClaimed ? '已签到' : '签到' }}
                   </button>
@@ -434,9 +434,7 @@
             <h2 class="section-title"><i class="fa-solid fa-circle-info section-title-icon"></i>关于系统</h2>
             <div class="form-card">
               <div class="about-logo">
-                <div class="about-logo-icon">
-                  <i class="fa-solid fa-graduation-cap"></i>
-                </div>
+                <img class="about-logo-icon" :src="brandSquare" alt="ClassIntra 标识" />
                 <div class="about-logo-text">ClassIntra</div>
               </div>
               <div class="about-item">
@@ -531,6 +529,9 @@ import AppNavBar from '@/components/AppNavBar.vue';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import { APP_REGISTRY } from '@/store/modules/desktop.js';
 
+// 品牌方形标（关于系统页）。运行时字符串，避免打包器把绝对路径解析成模块路径。
+var BRAND_SQUARE = '/resources/public/brand/logo-mark-square.svg';
+
 export default {
   name: 'Settings',
   components: {
@@ -539,6 +540,7 @@ export default {
   },
   data: function() {
     return {
+      brandSquare: BRAND_SQUARE,
       activeNav: 'profile',
       saving: false,
       avatarColor: '',
@@ -1831,17 +1833,13 @@ export default {
   margin-bottom: 8px;
 }
 
+/* 应用图标：直接使用品牌方形标（logo-mark-square.svg），不再用渐变方块占位 */
 .about-logo-icon {
-  width: 64px;
-  height: 64px;
-  border-radius: var(--radius-lg);
-  background: linear-gradient(135deg, var(--primary-dark), var(--primary-color));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: var(--font-size-title1);
-  color: #FFFFFF;
+  width: 68px;
+  height: 68px;
+  object-fit: contain;
   margin-bottom: 12px;
+  border-radius: var(--radius-lg);
   box-shadow: 0 4px 16px rgba(var(--primary-rgb), 0.2);
 }
 

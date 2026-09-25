@@ -110,17 +110,18 @@ export default {
   100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
 }
 
-.notif-icon .fa-comment { color: #3b82f6; }
-.notif-icon .fa-users { color: #3b82f6; }
-.notif-icon .fa-globe { color: #3b82f6; }
-.notif-icon .fa-user-plus { color: #f59e0b; }
-.notif-icon .fa-circle-exclamation { color: #f59e0b; }
-.notif-icon .fa-right-left { color: #f59e0b; }
-.notif-icon .fa-bell { color: #f59e0b; }
-.notif-icon .fa-circle-dot { color: #22c55e; }
-.notif-icon .fa-utensils { color: #10b981; }
-.notif-icon .fa-fire { color: #f59e0b; }
-.notif-icon .fa-newspaper { color: #6366f1; }
+/* 通知图标色统一走系统令牌（此前是 Tailwind 越界色值泄漏） */
+.notif-icon .fa-comment { color: var(--primary-color); }
+.notif-icon .fa-users { color: var(--primary-color); }
+.notif-icon .fa-globe { color: var(--primary-color); }
+.notif-icon .fa-user-plus { color: var(--warning-color); }
+.notif-icon .fa-circle-exclamation { color: var(--warning-color); }
+.notif-icon .fa-right-left { color: var(--warning-color); }
+.notif-icon .fa-bell { color: var(--warning-color); }
+.notif-icon .fa-circle-dot { color: var(--success-color); }
+.notif-icon .fa-utensils { color: var(--success-color); }
+.notif-icon .fa-fire { color: var(--warning-color); }
+.notif-icon .fa-newspaper { color: var(--accent-resource); }
 
 .notif-body {
   flex: 1;
