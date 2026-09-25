@@ -362,17 +362,17 @@ function ensureStyles() {
     '.ios-btn-md{padding:10px 16px;font-size:var(--font-size-body)}',
     '.ios-btn-lg{padding:14px 22px;font-size:var(--font-size-headline)}',
     '.ios-btn-filled{background:var(--primary-color);color:#fff}',
-    '.ios-btn-tinted{background:var(--secondary-bg);color:var(--primary-color)}',
+    '.ios-btn-tinted{background:rgba(120,120,128,0.12);color:var(--primary-color)}',
     '.ios-btn-plain{background:transparent;color:var(--primary-color)}',
     '.ios-btn-destructive{background:transparent;color:#ff3b30}',
     /* 卡片 */
-    '.ios-card{background:var(--card-bg,var(--secondary-bg));border-radius:var(--radius-lg);overflow:hidden}',
+    '.ios-card{background:var(--card-bg,rgba(120,120,128,0.12));border-radius:var(--radius-lg);overflow:hidden}',
     '.ios-card-padded{padding:var(--spacing-md)}',
     '.ios-card-title{font-size:var(--font-size-headline);font-weight:var(--font-weight-semibold);color:var(--text-primary)}',
     '.ios-card-subtitle{font-size:var(--font-size-footnote);color:var(--text-secondary);margin-top:2px}',
     '.ios-card-body{margin-top:var(--spacing-sm);color:var(--text-primary);font-size:var(--font-size-body)}',
     /* 列表 */
-    '.ios-list{background:var(--card-bg,var(--secondary-bg));border-radius:var(--radius-lg);overflow:hidden}',
+    '.ios-list{background:var(--card-bg,rgba(120,120,128,0.12));border-radius:var(--radius-lg);overflow:hidden}',
     '.ios-list-item{display:flex;align-items:center;justify-content:space-between;padding:12px var(--spacing-md);border-bottom:.5px solid var(--separator-color);min-height:44px}',
     '.ios-list-item:last-child{border-bottom:0}',
     '.ios-list-item-tappable{cursor:pointer}',
@@ -388,12 +388,12 @@ function ensureStyles() {
     '.ios-list-item-chevron{font-size:12px;color:var(--text-tertiary,#c7c7cc)}',
     /* 徽标 */
     '.ios-badge{display:inline-block;padding:2px 8px;border-radius:var(--radius-pill,9999px);font-size:var(--font-size-caption1);font-weight:var(--font-weight-medium)}',
-    '.ios-badge-default{background:var(--secondary-bg);color:var(--text-secondary)}',
+    '.ios-badge-default{background:rgba(120,120,128,0.12);color:var(--text-secondary)}',
     '.ios-badge-success{background:rgba(52,199,89,.15);color:#34c759}',
     '.ios-badge-warning{background:rgba(255,149,0,.15);color:#ff9500}',
     '.ios-badge-danger{background:rgba(255,59,48,.15);color:#ff3b30}',
     /* 分段控件 */
-    '.ios-segmented{display:inline-flex;background:var(--secondary-bg);border-radius:var(--radius-sm);padding:2px}',
+    '.ios-segmented{display:inline-flex;background:rgba(120,120,128,0.12);border-radius:var(--radius-sm);padding:2px}',
     '.ios-segmented-item{border:0;background:transparent;padding:6px 14px;font-size:var(--font-size-footnote);font-family:var(--font-family);color:var(--text-primary);cursor:pointer;border-radius:calc(var(--radius-sm) - 2px);transition:background var(--duration-fast) var(--ease-standard)}',
     '.ios-segmented-item.is-active{background:var(--card-bg,#fff);font-weight:var(--font-weight-semibold);box-shadow:0 1px 3px rgba(0,0,0,.1)}',
     /* 开关 */
@@ -406,7 +406,7 @@ function ensureStyles() {
     '.ios-switch-input:checked+.ios-switch-track .ios-switch-knob{transform:translateX(20px)}',
     '.ios-switch-label{font-size:var(--font-size-body);color:var(--text-primary)}',
     /* 搜索栏 */
-    '.ios-search-bar{display:flex;align-items:center;background:var(--input-bg,var(--secondary-bg));border-radius:var(--radius-sm);padding:8px 12px}',
+    '.ios-search-bar{display:flex;align-items:center;background:var(--input-bg,rgba(120,120,128,0.12));border-radius:var(--radius-sm);padding:8px 12px}',
     '.ios-search-bar>*+*{margin-left:8px}',
     '.ios-search-bar-icon{color:var(--text-tertiary,#c7c7cc);font-size:14px}',
     '.ios-search-bar-input{flex:1;border:0;background:transparent;outline:none;font-size:var(--font-size-body);font-family:var(--font-family);color:var(--text-primary)}',
@@ -422,7 +422,7 @@ function ensureStyles() {
     '.ios-spinner-text{font-size:var(--font-size-footnote);color:var(--text-secondary)}',
     '@keyframes ci-sdk-spin{to{transform:rotate(360deg)}}',
     /* 提示条 */
-    '.ios-toast{display:inline-block;padding:8px 14px;border-radius:var(--radius-sm);font-size:var(--font-size-footnote);background:var(--secondary-bg);color:var(--text-primary)}',
+    '.ios-toast{display:inline-block;padding:8px 14px;border-radius:var(--radius-sm);font-size:var(--font-size-footnote);background:rgba(120,120,128,0.12);color:var(--text-primary)}',
     '.ios-toast-success{background:rgba(52,199,89,.15);color:#34c759}',
     '.ios-toast-warning{background:rgba(255,149,0,.15);color:#ff9500}',
     '.ios-toast-danger{background:rgba(255,59,48,.15);color:#ff3b30}',

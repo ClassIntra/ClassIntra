@@ -767,9 +767,9 @@ export default {
 /* ===== Priority States ===== */
 /* 紧急通知：subtle 脉冲光晕（可中断 transition 而非 keyframe infinite） */
 .island-urgent {
-  box-shadow: 0 6px 32px rgba(var(--danger-rgb, 239, 68, 68), 0.45),
-              0 2px 12px rgba(var(--danger-rgb, 239, 68, 68), 0.25),
-              0 0 0 1px rgba(var(--danger-rgb, 239, 68, 68), 0.2) inset;
+  box-shadow: 0 6px 32px rgba(var(--danger-rgb, 255, 59, 48), 0.45),
+              0 2px 12px rgba(var(--danger-rgb, 255, 59, 48), 0.25),
+              0 0 0 1px rgba(var(--danger-rgb, 255, 59, 48), 0.2) inset;
   animation: island-urgent-glow 1.6s ease-in-out infinite;
 }
 
@@ -786,14 +786,14 @@ export default {
 
 @keyframes island-urgent-glow {
   0%, 100% {
-    box-shadow: 0 6px 32px rgba(var(--danger-rgb, 239, 68, 68), 0.45),
-                0 2px 12px rgba(var(--danger-rgb, 239, 68, 68), 0.25),
-                0 0 0 1px rgba(var(--danger-rgb, 239, 68, 68), 0.2) inset;
+    box-shadow: 0 6px 32px rgba(var(--danger-rgb, 255, 59, 48), 0.45),
+                0 2px 12px rgba(var(--danger-rgb, 255, 59, 48), 0.25),
+                0 0 0 1px rgba(var(--danger-rgb, 255, 59, 48), 0.2) inset;
   }
   50% {
-    box-shadow: 0 8px 40px rgba(var(--danger-rgb, 239, 68, 68), 0.6),
-                0 2px 16px rgba(var(--danger-rgb, 239, 68, 68), 0.35),
-                0 0 0 1.5px rgba(var(--danger-rgb, 239, 68, 68), 0.3) inset;
+    box-shadow: 0 8px 40px rgba(var(--danger-rgb, 255, 59, 48), 0.6),
+                0 2px 16px rgba(var(--danger-rgb, 255, 59, 48), 0.35),
+                0 0 0 1.5px rgba(var(--danger-rgb, 255, 59, 48), 0.3) inset;
   }
 }
 

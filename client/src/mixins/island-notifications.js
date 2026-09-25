@@ -61,21 +61,21 @@ export default {
       };
     },
     queueBadgeStyle: function() {
-      var color = '#3b82f6';
+      var color = 'var(--primary-color)';
       if (this.notification) {
-        if (this.notification.type === 'group_event') color = '#f59e0b';
-        else if (this.notification.type === 'online') color = '#22c55e';
+        if (this.notification.type === 'group_event') color = 'var(--warning-color)';
+        else if (this.notification.type === 'online') color = 'var(--success-color)';
       }
       return { background: color };
     },
     progressBarStyle: function() {
-      var color = '#3b82f6';
+      var color = 'var(--primary-color)';
       if (this.notification) {
-        if (this.notification.type === 'group_event') color = '#f59e0b';
-        else if (this.notification.type === 'online') color = '#22c55e';
+        if (this.notification.type === 'group_event') color = 'var(--warning-color)';
+        else if (this.notification.type === 'online') color = 'var(--success-color)';
       }
-      if (this.notificationPriority === 'urgent') color = '#ef4444';
-      else if (this.notificationPriority === 'low') color = '#9ca3af';
+      if (this.notificationPriority === 'urgent') color = 'var(--danger-color)';
+      else if (this.notificationPriority === 'low') color = 'var(--text-tertiary)';
       return { transform: 'scaleX(' + (this.progressWidth / 100) + ')', background: color };
     },
     filteredHistory: function() {

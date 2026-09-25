@@ -286,10 +286,6 @@ export default {
   padding: 0 24px 20px;
 }
 
-.modal-btn + .modal-btn {
-  margin-left: 10px;
-}
-
 .modal-btn {
   padding: 9px 22px;
   border-radius: var(--radius-md);

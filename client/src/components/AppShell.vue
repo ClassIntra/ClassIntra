@@ -277,7 +277,7 @@ export default {
 
 .app-shell-state h2 {
   color: var(--text-primary, #000);
-  font-size: var(--font-size-title3, 20px);
+  font-size: var(--font-size-subheadline, 20px);
   margin: 0;
 }
 
@@ -287,7 +287,7 @@ export default {
 }
 
 .app-shell-error-icon {
-  color: #ff3b30;
+  color: var(--danger-color);
   font-size: 28px;
 }
 
@@ -310,7 +310,7 @@ export default {
 
 .app-shell-actions .app-shell-secondary {
   color: var(--text-primary, #000);
-  background: var(--secondary-bg, rgba(120, 120, 128, 0.12));
+  background: rgba(120, 120, 128, 0.12);
 }
 
 .app-shell-spinner {

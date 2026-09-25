@@ -389,7 +389,7 @@ export default {
 .tw-class-dot.ongoing {
   opacity: 1;
   transform: scale(1.3);
-  box-shadow: 0 0 0 2px rgba(255,255,255,0.5);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.5);
 }
 .tw-class-dot.ended {
   opacity: 0.25;

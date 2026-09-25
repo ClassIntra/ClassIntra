@@ -596,7 +596,7 @@ export default {
 .sheet-title {
   font-size: 17px;
   font-weight: 600;
-  color: var(--text-color, #000);
+  color: var(--text-primary, #000);
 }
 
 .sheet-close-btn, .sheet-switch-btn {
@@ -607,7 +607,7 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-color, #000);
+  color: var(--text-primary, #000);
   font-size: 16px;
   -webkit-tap-highlight-color: transparent;
 }
@@ -628,7 +628,7 @@ export default {
 .record-timer {
   font-size: 36px;
   font-weight: 300;
-  color: var(--text-color, #000);
+  color: var(--text-primary, #000);
   font-variant-numeric: tabular-nums;
   margin-bottom: 16px;
 }
@@ -691,7 +691,7 @@ export default {
 }
 
 .record-btn.recording {
-  background: var(--text-color, #000);
+  background: var(--text-primary, #000);
 }
 
 .pause-btn {
@@ -701,7 +701,7 @@ export default {
   padding: 8px 16px;
   border-radius: var(--radius-xl);
   background: var(--bg-elevated, #f5f5f7);
-  color: var(--text-color, #000);
+  color: var(--text-primary, #000);
   font-size: 14px;
   margin-top: 12px;
   min-height: 44px;
@@ -715,7 +715,7 @@ export default {
 
 .record-hint {
   font-size: 13px;
-  color: var(--text-color-secondary, rgba(0, 0, 0, 0.5));
+  color: var(--text-secondary, rgba(0, 0, 0, 0.5));
   margin-top: 8px;
 }
 
@@ -729,7 +729,7 @@ export default {
   align-items: center;
   gap: 8px;
   font-size: 15px;
-  color: var(--text-color, #000);
+  color: var(--text-primary, #000);
   margin-bottom: 16px;
 }
 
@@ -757,7 +757,7 @@ export default {
 
 .action-btn-secondary {
   background: var(--bg-elevated, #f5f5f7);
-  color: var(--text-color, #000);
+  color: var(--text-primary, #000);
 }
 
 .action-btn-primary {
@@ -999,7 +999,7 @@ export default {
 .record-error {
   text-align: center;
   padding: 40px 20px;
-  color: var(--text-color, #000);
+  color: var(--text-primary, #000);
 }
 
 .record-error i {
@@ -1011,7 +1011,7 @@ export default {
 .record-error p {
   font-size: 14px;
   margin-bottom: 16px;
-  color: var(--text-color-secondary, rgba(0,0,0,0.5));
+  color: var(--text-secondary, rgba(0,0,0,0.5));
 }
 
 .record-error-btn {

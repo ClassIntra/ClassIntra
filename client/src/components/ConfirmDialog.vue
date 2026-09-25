@@ -82,7 +82,7 @@ export default {
 }
 .btn-confirm:active { transform: scale(0.94); opacity: 0.7; }
 .btn-danger { background: transparent; color: var(--danger-color); }
-.btn-danger:hover { background: var(--danger-lighter, rgba(255, 59, 48, 0.08)); }
+.btn-danger:hover { background: rgba(var(--danger-rgb), 0.08); }
 .btn-primary-confirm { background: transparent; color: var(--primary-color); }
 .btn-primary-confirm:hover { background: var(--primary-lighter); }
 .modal-fade-enter-active { transition: opacity var(--duration-normal) var(--ease-emphasized), transform var(--duration-normal) var(--motion-spring-snappy); }

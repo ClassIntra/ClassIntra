@@ -343,7 +343,7 @@
     <div v-if="showThinkingWarning" class="confirm-overlay" @click.self="showThinkingWarning = false">
       <div class="confirm-dialog thinking-warning-dialog">
         <div class="thinking-warning-icon">
-          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--warning-color)" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
         </div>
         <h3 class="thinking-warning-title">思考模式将消耗大量 Tokens</h3>
         <p class="thinking-warning-desc">思考模式会让 AI 在回答前进行深度推理，这会显著增加 Token 消耗（通常为普通模式的 3-5 倍）。非必要场景请勿使用。</p>
@@ -441,7 +441,7 @@
     <div v-if="viewerContent" class="viewer-overlay" @click.self="viewerContent = null">
       <div class="viewer-panel">
         <div class="viewer-header">
-          <span class="viewer-title">🤖 AI对话内容</span>
+          <span class="viewer-title">AI对话内容</span>
           <button class="viewer-close" @click="viewerContent = null"><i class="fa-solid fa-xmark"></i></button>
         </div>
         <div class="viewer-body scrollbar-thin markdown-body" v-html="renderMarkdown(viewerContent)"></div>
@@ -584,7 +584,7 @@ export default {
         if (self.availableModels[i].id === self.currentModel) return self.availableModels[i];
       }
       // 兜底：模型列表未加载或当前模型已被移除
-      return { id: self.currentModel, label: self.currentModel === 'default' ? 'GPT' : self.currentModel, color: '#6366f1', supports_thinking: false, supports_search: false, is_free: false };
+      return { id: self.currentModel, label: self.currentModel === 'default' ? 'GPT' : self.currentModel, color: 'var(--accent-ai)', supports_thinking: false, supports_search: false, is_free: false };
     },
     greetingText: function() {
       var hour = new Date().getHours();
@@ -678,7 +678,7 @@ export default {
       try {
         var msgs = JSON.parse(decodeURIComponent(viewBatch));
         self.viewerContent = msgs.map(function(m) {
-          var label = m.role === 'user' ? '🙋 用户' : '🤖 AI';
+          var label = m.role === 'user' ? '用户' : 'AI';
           return '### ' + label + '\n\n' + m.content;
         }).join('\n\n---\n\n');
       } catch (e) {}
@@ -1403,7 +1403,7 @@ export default {
       var title = content.substring(0, 30).replace(/[#*`\n]/g, '').trim() || 'AI对话分享';
       var postData = {
         type: 'forum',
-        title: '🤖 ' + title,
+        title: title,
         content: '> 以下内容来自AI对话\n\n' + content,
         is_anonymous: false
       };
@@ -1599,11 +1599,11 @@ export default {
       if (messages.length === 0) return;
 
       // 合并所有消息为一个帖子
-      var title = '🤖 AI对话记录（' + messages.length + '条）';
+      var title = 'AI对话记录（' + messages.length + '条）';
       var content = '> 以下内容来自AI对话\n\n';
       for (var i = 0; i < messages.length; i++) {
         var msg = messages[i];
-        var roleLabel = msg.role === 'user' ? '**🙋 用户：**' : '**🤖 AI：**';
+        var roleLabel = msg.role === 'user' ? '**用户：**' : '**AI：**';
         content += roleLabel + '\n\n' + msg.content + '\n\n---\n\n';
       }
 
@@ -2266,12 +2266,12 @@ export default {
 
 .model-tag-free {
   background: rgba(16, 185, 129, 0.12);
-  color: #10b981;
+  color: var(--success-color);
 }
 
 .model-tag-off {
   background: rgba(148, 163, 184, 0.15);
-  color: #94a3b8;
+  color: var(--text-tertiary);
 }
 
 .model-panel-footer {
@@ -2403,7 +2403,7 @@ export default {
 }
 
 .confirm-btn.primary:hover {
-  background: #d97706;
+  background: var(--warning-color);
 }
 
 .header-btn {
@@ -2444,7 +2444,7 @@ export default {
 }
 
 .stop-btn:hover {
-  background: #e0342b;
+  background: var(--danger-color);
 }
 
 .stop-btn:active {
@@ -2711,7 +2711,7 @@ export default {
 }
 
 .retry-btn:hover {
-  background: #c82333;
+  background: var(--danger-color);
 }
 
 .msg-actions {
@@ -3299,7 +3299,7 @@ export default {
 }
 
 .confirm-btn.danger:hover {
-  background: #c82333;
+  background: var(--danger-color);
 }
 
 @media (max-width: 768px) {
@@ -3584,10 +3584,10 @@ export default {
   align-items: center;
   gap: 10px;
   padding: 12px 18px;
-  background: #fffbeb;
-  border: 1px solid #fbbf24;
+  background: rgba(var(--warning-rgb), 0.08);
+  border: 1px solid rgba(var(--warning-rgb), 0.35);
   border-radius: var(--radius-md);
-  color: #92400e;
+  color: var(--warning-color);
   font-size: var(--font-size-sm);
   font-weight: 500;
   box-shadow: var(--shadow-md);
@@ -3611,7 +3611,7 @@ export default {
   background: none;
   border: none;
   cursor: pointer;
-  color: #92400e;
+  color: var(--warning-color);
   font-size: var(--font-size-sm);
   flex-shrink: 0;
   transition: background var(--duration-fast) var(--ease-standard);
@@ -3686,7 +3686,7 @@ export default {
 .forward-sheet-title {
   text-align: center;
   font-size: 13px;
-  color: var(--text-color-secondary, #999);
+  color: var(--text-secondary, #999);
   padding: 12px 0;
   border-bottom: 0.5px solid var(--separator-color, #e5e5ea);
 }
@@ -3699,11 +3699,11 @@ export default {
   background: none;
   border: none;
   font-size: 16px;
-  color: var(--text-color, #000);
+  color: var(--text-primary, #000);
   cursor: pointer;
 }
-.forward-option:active { background: var(--bg-color-secondary, #f5f5f5); }
-.forward-option i { width: 24px; text-align: center; color: var(--text-color-secondary, #999); }
+.forward-option:active { background: var(--bg-color, #f5f5f5); }
+.forward-option i { width: 24px; text-align: center; color: var(--text-secondary, #999); }
 .forward-cancel {
   width: 100%;
   padding: 16px;
@@ -3712,7 +3712,7 @@ export default {
   border: none;
   border-top: 0.5px solid var(--separator-color, #e5e5ea);
   font-size: 16px;
-  color: var(--text-color, #000);
+  color: var(--text-primary, #000);
   cursor: pointer;
 }
 
@@ -3747,13 +3747,13 @@ export default {
 .viewer-title {
   font-size: 16px;
   font-weight: 600;
-  color: var(--text-color, #000);
+  color: var(--text-primary, #000);
 }
 .viewer-close {
   background: none;
   border: none;
   font-size: 18px;
-  color: var(--text-color-secondary, #999);
+  color: var(--text-secondary, #999);
   cursor: pointer;
   padding: 4px 8px;
 }
@@ -3762,7 +3762,7 @@ export default {
   overflow-y: auto;
   font-size: 14px;
   line-height: 1.6;
-  color: var(--text-color, #000);
+  color: var(--text-primary, #000);
 }
 
 /* 多选模式 - 导航栏按钮激活态 */
@@ -3837,7 +3837,7 @@ export default {
   border: 0.5px solid var(--separator-color, #e5e5ea);
   border-radius: var(--radius-md, 10px);
   font-size: var(--font-size-caption1, 13px);
-  color: var(--text-color, #000);
+  color: var(--text-primary, #000);
   cursor: pointer;
   transition: opacity var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
 }
@@ -3861,14 +3861,14 @@ export default {
 .batch-btn-primary:disabled {
   background: var(--separator-color, #e5e5ea);
   border-color: var(--separator-color, #e5e5ea);
-  color: var(--text-color-secondary, #999);
+  color: var(--text-secondary, #999);
 }
 
 .batch-count {
   flex: 1;
   text-align: center;
   font-size: var(--font-size-caption1, 13px);
-  color: var(--text-color-secondary, #999);
+  color: var(--text-secondary, #999);
 }
 
 @media (max-width: 768px) {

@@ -44,21 +44,21 @@ export default {
       };
     },
     queueBadgeStyle: function() {
-      var color = '#3b82f6';
+      var color = 'var(--primary-color)';
       if (this.notification) {
-        if (this.notification.type === 'group_event') color = '#f59e0b';
-        else if (this.notification.type === 'online') color = '#22c55e';
+        if (this.notification.type === 'group_event') color = 'var(--warning-color)';
+        else if (this.notification.type === 'online') color = 'var(--success-color)';
       }
       return { background: color };
     },
     progressBarStyle: function() {
-      var color = '#3b82f6';
+      var color = 'var(--primary-color)';
       if (this.notification) {
-        if (this.notification.type === 'group_event') color = '#f59e0b';
-        else if (this.notification.type === 'online') color = '#22c55e';
+        if (this.notification.type === 'group_event') color = 'var(--warning-color)';
+        else if (this.notification.type === 'online') color = 'var(--success-color)';
       }
-      if (this.priority === 'urgent') color = '#ef4444';
-      else if (this.priority === 'low') color = '#9ca3af';
+      if (this.priority === 'urgent') color = 'var(--danger-color)';
+      else if (this.priority === 'low') color = 'var(--text-tertiary)';
       return { transform: 'scaleX(' + (this.progressWidth / 100) + ')', background: color };
     }
   }
@@ -100,14 +100,14 @@ export default {
 }
 
 .notif-icon-urgent {
-  background: rgba(239, 68, 68, 0.2) !important;
+  background: rgba(var(--danger-rgb), 0.2) !important;
   animation: notif-icon-urgent-pulse 1.2s ease-in-out infinite;
 }
 
 @keyframes notif-icon-urgent-pulse {
-  0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
-  50% { transform: scale(1.1); box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
-  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+  0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(var(--danger-rgb), 0.4); }
+  50% { transform: scale(1.1); box-shadow: 0 0 0 6px rgba(var(--danger-rgb), 0); }
+  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(var(--danger-rgb), 0); }
 }
 
 /* 通知图标色统一走系统令牌（此前是 Tailwind 越界色值泄漏） */
@@ -193,13 +193,13 @@ export default {
 }
 
 .ptag-urgent {
-  background: rgba(239, 68, 68, 0.15);
-  color: #ef4444;
+  background: rgba(var(--danger-rgb), 0.15);
+  color: var(--danger-color);
 }
 
 .ptag-low {
   background: rgba(156, 163, 175, 0.15);
-  color: #9ca3af;
+  color: var(--text-tertiary);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1077,7 +1077,7 @@ export default {
   background: var(--danger-color);
 }
 .tag-adjust {
-  background: #FF9500;
+  background: var(--warning-color);
 }
 
 .period-cell {
@@ -1181,7 +1181,7 @@ tr.period-start .period-cell {
   height: 14px;
   line-height: 14px;
   border-radius: 50%;
-  background: #FF9500;
+  background: var(--warning-color);
   color: #fff;
   text-align: center;
 }
@@ -1252,7 +1252,7 @@ tr.period-start .period-cell {
 }
 .banner-adjust {
   background: rgba(var(--warning-rgb), 0.12);
-  color: #FF9500;
+  color: var(--warning-color);
 }
 
 /* 下节课卡片 */
@@ -1353,7 +1353,7 @@ tr.period-start .period-cell {
 .reset-overrides-btn {
   border: none;
   background: rgba(var(--warning-rgb), 0.12);
-  color: #FF9500;
+  color: var(--warning-color);
   font-size: var(--font-size-sm, 13px);
   padding: 4px 10px;
   border-radius: var(--radius-md);
@@ -1396,7 +1396,7 @@ tr.period-start .period-cell {
   transform: translateY(-50%);
   width: 3px;
   height: 60%;
-  background: #FF9500;
+  background: var(--warning-color);
   border-radius: var(--radius-pill);
 }
 .today-item-time {
@@ -1427,7 +1427,7 @@ tr.period-start .period-cell {
 .ti-adjusted-tag {
   font-size: 9px;
   font-weight: 700;
-  background: #FF9500;
+  background: var(--warning-color);
   color: #fff;
   padding: 1px 5px;
   border-radius: var(--radius-xs);

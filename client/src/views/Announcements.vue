@@ -45,7 +45,7 @@
             <i class="fa-solid fa-bullhorn"></i>
           </div>
           <p class="ann-empty-title">暂无公告</p>
-          <p class="ann-empty-desc">这里的公告会显示在这里</p>
+          <p class="ann-empty-desc">老师发布的公告会在这里展示</p>
         </div>
 
         <div

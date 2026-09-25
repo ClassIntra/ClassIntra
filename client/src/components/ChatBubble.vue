@@ -1330,7 +1330,7 @@ export default {
   min-width: 2px;
   max-width: 6px;
   border-radius: var(--radius-pill);
-  background: var(--text-color-secondary, rgba(0, 0, 0, 0.3));
+  background: var(--text-secondary, rgba(0, 0, 0, 0.3));
   transition: background var(--duration-fast) var(--ease-standard);
 }
 
@@ -1359,7 +1359,7 @@ export default {
 .chat-bubble >>> .voice-duration {
   flex-shrink: 0;
   font-size: 12px;
-  color: var(--text-color-secondary, rgba(0, 0, 0, 0.5));
+  color: var(--text-secondary, rgba(0, 0, 0, 0.5));
   margin-left: 8px;
   min-width: 28px;
   text-align: right;

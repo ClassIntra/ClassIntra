@@ -13,6 +13,16 @@
       <span v-if="pinned" class="app-icon-pin-lock" aria-label="已固定">
         <i class="fa-solid fa-lock"></i>
       </span>
+      <!-- 编辑态删除徽章：iPadOS 左上角减号（固定图标不可移除） -->
+      <span
+        v-if="editing && !pinned"
+        class="app-icon-remove"
+        role="button"
+        :aria-label="'移除' + app.label"
+        @click.stop="onRemove"
+      >
+        <i class="fa-solid fa-minus"></i>
+      </span>
     </div>
     <span v-if="showLabel" class="app-icon-label">{{ app.label }}</span>
   </button>
@@ -46,6 +56,9 @@ export default {
       // 编辑态下点击图标不启动应用（仅 wiggle），符合 iPad 行为
       if (this.editing) return;
       this.$emit('launch', this.app);
+    },
+    onRemove: function() {
+      this.$emit('remove', this.app);
     }
   }
 };
@@ -98,7 +111,7 @@ export default {
 
 /* 标签 */
 .app-icon-label {
-  font-size: 12px;
+  font-size: var(--font-size-caption1, 12px);
   color: var(--text-on-wallpaper, #fff);
   text-shadow: var(--text-shadow-wallpaper, 0 1px 3px rgba(0, 0, 0, 0.6));
   white-space: nowrap;
@@ -107,6 +120,29 @@ export default {
   max-width: 64px;
   line-height: 1.2;
   pointer-events: none;
+}
+
+/* 编辑态删除徽章：与 widget 编辑钮同一深玻璃语言 */
+.app-icon-remove {
+  position: absolute;
+  top: -6px;
+  left: -6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(28, 28, 30, 0.68);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  z-index: 2;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.app-icon-remove:active {
+  transform: scale(0.9);
 }
 
 /* 角标 */

@@ -771,7 +771,7 @@ export default {
 .upload-code-display {
   text-align: center;
   padding: 16px 0;
-  background: var(--bg-color-secondary);
+  background: var(--bg-color);
   border-radius: var(--radius-md);
   margin-bottom: 8px;
 }
@@ -796,7 +796,7 @@ export default {
   display: flex;
   gap: 8px;
   padding: 10px;
-  background: var(--bg-color-secondary);
+  background: var(--bg-color);
   border-radius: var(--radius-sm);
 }
 .upload-code-tips > i {
@@ -899,7 +899,7 @@ export default {
   text-align: left;
   cursor: pointer;
 }
-.folder-context-menu button:hover { background: var(--bg-color-secondary); }
+.folder-context-menu button:hover { background: var(--bg-color); }
 .folder-context-menu button.danger { color: var(--danger-color, #ff3b30); }
 .folder-context-menu button i { width: 20px; margin-right: 6px; text-align: center; }
 
@@ -925,7 +925,7 @@ export default {
   flex-direction: column;
   align-items: center;
   padding: 80px 20px;
-  color: var(--text-color-secondary);
+  color: var(--text-secondary);
 }
 .empty-state i { font-size: 48px; margin-bottom: 16px; opacity: 0.3; }
 .upload-btn {
@@ -974,7 +974,7 @@ export default {
   width: 100%;
   height: 0;
   padding-bottom: 100%; /* 1:1 正方形容器（Chrome 80 兼容：替代 aspect-ratio: 1） */
-  background: var(--bg-color-secondary);
+  background: var(--bg-color);
   overflow: hidden;
   position: relative;
 }
@@ -998,9 +998,9 @@ export default {
   justify-content: center;
   gap: 8px;
 }
-.video-thumb { background: linear-gradient(135deg, #2c3e50, #34495e); color: #fff; }
-.audio-thumb { background: linear-gradient(135deg, #8e44ad, #9b59b6); color: #fff; }
-.other-thumb { background: linear-gradient(135deg, #7f8c8d, #95a5a6); color: #fff; }
+.video-thumb { background: linear-gradient(135deg, #3A82F7, #0B4BD8); color: #fff; }
+.audio-thumb { background: linear-gradient(135deg, #AF52DE, #8E3DC8); color: #fff; }
+.other-thumb { background: linear-gradient(135deg, #8E8E93, #6D6D72); color: #fff; }
 .media-thumb i { font-size: 36px; opacity: 0.9; }
 .media-thumb-label { font-size: var(--font-size-caption2); opacity: 0.8; }
 .file-info { padding: 8px; }
@@ -1013,7 +1013,7 @@ export default {
 }
 .file-size {
   font-size: var(--font-size-caption2);
-  color: var(--text-color-secondary);
+  color: var(--text-secondary);
 }
 .file-delete {
   position: absolute;
@@ -1127,7 +1127,7 @@ export default {
   font-size: var(--font-size-body);
   cursor: pointer;
 }
-.btn-cancel { background: var(--bg-color-secondary); color: var(--text-secondary); }
+.btn-cancel { background: var(--bg-color); color: var(--text-secondary); }
 .btn-confirm { background: var(--primary-color); color: #fff; }
 .btn-confirm:disabled { opacity: 0.5; cursor: not-allowed; }
 
@@ -1150,7 +1150,7 @@ export default {
   cursor: pointer;
   text-align: left;
 }
-.modal-folder-option:hover { background: var(--bg-color-secondary); }
+.modal-folder-option:hover { background: var(--bg-color); }
 .modal-folder-option i { margin-right: 10px; color: var(--primary-color); }
 .folder-opt-count { margin-left: auto; font-size: var(--font-size-caption2); color: var(--text-secondary); }
 
@@ -1162,7 +1162,7 @@ export default {
   justify-content: center;
   gap: 12px;
   padding: 16px;
-  background: var(--bg-color-secondary);
+  background: var(--bg-color);
   border-radius: var(--radius-md);
   margin-bottom: 12px;
 }
@@ -1213,7 +1213,7 @@ export default {
   align-items: center;
   gap: 8px;
   padding: 12px;
-  background: var(--bg-color-secondary);
+  background: var(--bg-color);
   border-radius: var(--radius-md);
   margin-bottom: 8px;
   font-size: var(--font-size-body);
@@ -1263,7 +1263,7 @@ export default {
 .audio-icon {
   width: 96px; height: 96px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #8e44ad, #9b59b6);
+  background: linear-gradient(135deg, #AF52DE, #8E3DC8);
   display: flex; align-items: center; justify-content: center;
   color: #fff; font-size: 40px;
 }

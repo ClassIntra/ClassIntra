@@ -148,8 +148,8 @@ export default {
   align-items: center;
   gap: 8px;
   padding: 7px 12px;
-  background: rgba(100, 181, 246, 0.12);
-  border: 1px solid rgba(100, 181, 246, 0.18);
+  background: rgba(74, 144, 217, 0.12);
+  border: 1px solid rgba(74, 144, 217, 0.18);
   border-radius: var(--radius-md);
   margin-bottom: 4px;
   min-width: 0;
@@ -157,7 +157,7 @@ export default {
 }
 
 .rain-icon {
-  color: #64B5F6;
+  color: #4A90D9;
   flex-shrink: 0;
   display: flex;
   align-items: center;

@@ -1497,7 +1497,7 @@ export default {
 .reset-desktop-btn {
   padding: 6px 16px;
   border-radius: var(--radius-xs);
-  background: var(--fill-color);
+  background: rgba(120,120,128,0.16);
   border: none;
   color: var(--text-primary);
   font-size: var(--font-size-footnote);

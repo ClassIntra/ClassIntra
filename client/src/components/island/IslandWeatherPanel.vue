@@ -73,14 +73,14 @@ export default {
   computed: {
     alertColor: function() {
       var w = this.alert;
-      if (!w) return '#F59E0B';
+      if (!w) return 'var(--warning-color)';
       if (w.color) {
         var c = w.color;
         return 'rgba(' + c.red + ',' + c.green + ',' + c.blue + ',' + (c.alpha != null ? c.alpha : 1) + ')';
       }
       // minor=蓝色  moderate=黄色  severe=橙色  extreme=红色
-      var sevMap = { minor: '#3B82F6', moderate: '#F59E0B', severe: '#F97316', extreme: '#EF4444' };
-      return sevMap[w.severity] || '#F59E0B';
+      var sevMap = { minor: 'var(--info-color)', moderate: 'var(--warning-color)', severe: 'var(--warning-color)', extreme: 'var(--danger-color)' };
+      return sevMap[w.severity] || 'var(--warning-color)';
     },
 
     // 天气图标代码：根据事件类型匹配，无匹配返回 null → 用感叹号

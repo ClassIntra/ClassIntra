@@ -332,14 +332,14 @@ export default {
       testResult: null,
       confirmingDelete: null,
       confirmingTimer: null,
-      colorChoices: ['#f59e0b', '#10b981', '#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#06b6d4', '#84cc16'],
+      colorChoices: ['var(--warning-color)', 'var(--success-color)', 'var(--accent-resource)', 'var(--accent-ai)', 'var(--accent-music)', 'var(--danger-color)', 'var(--info-color)', 'var(--success-color)'],
       presets: [
-        { name: '智谱 GLM（bigmodel.cn）', api_url: 'https://open.bigmodel.cn/api/paas/v4/chat/completions', model: 'glm-4-flash', color: '#6366f1', supports_thinking: true, api_style: 'deepseek', is_free: true, label: '智谱 GLM-4-Flash' },
-        { name: 'DeepSeek 官方', api_url: 'https://api.deepseek.com/chat/completions', model: 'deepseek-chat', color: '#10b981', supports_thinking: true, api_style: 'deepseek', is_free: false, label: 'DeepSeek' },
+        { name: '智谱 GLM（bigmodel.cn）', api_url: 'https://open.bigmodel.cn/api/paas/v4/chat/completions', model: 'glm-4-flash', color: 'var(--accent-resource)', supports_thinking: true, api_style: 'deepseek', is_free: true, label: '智谱 GLM-4-Flash' },
+        { name: 'DeepSeek 官方', api_url: 'https://api.deepseek.com/chat/completions', model: 'deepseek-chat', color: 'var(--success-color)', supports_thinking: true, api_style: 'deepseek', is_free: false, label: 'DeepSeek' },
         { name: '月之暗面 Kimi', api_url: 'https://api.moonshot.cn/v1/chat/completions', model: 'moonshot-v1-8k', color: '#111827', supports_thinking: false, is_free: false, label: 'Kimi' },
-        { name: '阿里 Qwen（百炼兼容模式）', api_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', model: 'qwen-plus', color: '#8b5cf6', supports_thinking: false, is_free: false, label: 'Qwen' },
-        { name: '硅基流动 SiliconFlow', api_url: 'https://api.siliconflow.cn/v1/chat/completions', model: 'deepseek-ai/DeepSeek-V3', color: '#06b6d4', supports_thinking: false, is_free: false, label: 'SiliconFlow' },
-        { name: 'OpenAI 官方', api_url: 'https://api.openai.com/v1/chat/completions', model: 'gpt-4o-mini', color: '#f59e0b', supports_thinking: false, is_free: false, label: 'GPT' }
+        { name: '阿里 Qwen（百炼兼容模式）', api_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', model: 'qwen-plus', color: 'var(--accent-ai)', supports_thinking: false, is_free: false, label: 'Qwen' },
+        { name: '硅基流动 SiliconFlow', api_url: 'https://api.siliconflow.cn/v1/chat/completions', model: 'deepseek-ai/DeepSeek-V3', color: 'var(--info-color)', supports_thinking: false, is_free: false, label: 'SiliconFlow' },
+        { name: 'OpenAI 官方', api_url: 'https://api.openai.com/v1/chat/completions', model: 'gpt-4o-mini', color: 'var(--warning-color)', supports_thinking: false, is_free: false, label: 'GPT' }
       ]
     };
   },
@@ -498,7 +498,7 @@ export default {
         api_url: m.api_url || '',
         api_key: '',
         model: '',
-        color: m.color || '#6366f1',
+        color: m.color || 'var(--accent-resource)',
         api_style: m.api_style === 'deepseek' ? 'deepseek' : 'openai',
         supports_thinking: !!m.supports_thinking,
         supports_search: !!m.supports_search,
@@ -601,7 +601,7 @@ export default {
         api_url: m.api_url || '',
         api_key: '',
         model: m.model || '',
-        color: m.color || '#6366f1',
+        color: m.color || 'var(--accent-resource)',
         api_style: m.api_style === 'deepseek' ? 'deepseek' : 'openai',
         supports_thinking: !!m.supports_thinking,
         supports_search: !!m.supports_search,
@@ -1095,7 +1095,7 @@ export default {
 
 .cim-tag-free {
   background: rgba(16, 185, 129, 0.12);
-  color: #10b981;
+  color: var(--success-color);
 }
 
 .cim-tag-off {
@@ -1147,12 +1147,12 @@ export default {
 
 .cim-icon-btn.danger:hover {
   background: rgba(239, 68, 68, 0.08);
-  color: #ef4444;
+  color: var(--danger-color);
 }
 
 .cim-icon-btn.confirming {
   background: rgba(239, 68, 68, 0.12);
-  color: #ef4444;
+  color: var(--danger-color);
   font-size: 13px;
   min-width: auto;
   padding: 0 10px;
@@ -1214,7 +1214,7 @@ export default {
 }
 
 .cim-required {
-  color: #ef4444;
+  color: var(--danger-color);
 }
 
 .cim-select {
@@ -1343,14 +1343,14 @@ export default {
   border-radius: var(--radius-sm, 8px);
   font-size: 13px;
   background: rgba(239, 68, 68, 0.08);
-  color: #ef4444;
+  color: var(--danger-color);
   margin-bottom: 14px;
   line-height: 1.5;
 }
 
 .cim-test-result.ok {
   background: rgba(16, 185, 129, 0.08);
-  color: #10b981;
+  color: var(--success-color);
 }
 
 .cim-test-latency {

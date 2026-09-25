@@ -455,14 +455,14 @@ h3 { color: var(--text-primary); font-size: 16px; }
 button:disabled { opacity: .55; cursor: not-allowed; }
 .market-error { display: flex; align-items: center; gap: 10px; padding: 14px 16px; margin-bottom: 24px; border-radius: var(--radius-md); background: rgba(255, 59, 48, .1); color: #ff3b30; }
 .market-error button { margin-left: auto; color: #ff3b30; background: transparent; border-color: currentColor; }
-.market-progress, .market-source-status { display: flex; align-items: center; gap: 8px; padding: 10px 14px; margin-bottom: 16px; border-radius: var(--radius-md); background: var(--secondary-bg); color: var(--text-secondary); font-size: 13px; }
+.market-progress, .market-source-status { display: flex; align-items: center; gap: 8px; padding: 10px 14px; margin-bottom: 16px; border-radius: var(--radius-md); background: rgba(120,120,128,0.12); color: var(--text-secondary); font-size: 13px; }
 .market-source-status { color: #248a3d; }
 .market-loading, .empty-state { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 12px; min-height: 180px; color: var(--text-secondary); }
 .market-section { margin-bottom: 34px; }
 .section-heading { margin-bottom: 14px; }
 .section-meta, .count-badge, .installed-info span, .app-title span { color: var(--text-secondary); font-size: 12px; }
 .section-meta { display: block; margin-top: 4px; }
-.count-badge { padding: 5px 9px; border-radius: var(--radius-pill); background: var(--secondary-bg); }
+.count-badge { padding: 5px 9px; border-radius: var(--radius-pill); background: rgba(120,120,128,0.12); }
 .app-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
 .app-card, .installed-card { background: var(--card-bg); border: 1px solid var(--separator-color); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); }
 .app-card { padding: 18px; min-height: 160px; display: flex; flex-direction: column; justify-content: space-between; gap: 18px; }
@@ -476,7 +476,7 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .app-description { min-height: 36px; line-height: 1.5; font-size: 13px; }
 /* 能力披露 chips：安装前让用户一眼看到应用会用到什么 */
 .app-caps { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
-.cap-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: var(--radius-pill); background: var(--secondary-bg); color: var(--text-secondary); font-size: 11px; line-height: 1.4; white-space: nowrap; }
+.cap-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: var(--radius-pill); background: rgba(120,120,128,0.12); color: var(--text-secondary); font-size: 11px; line-height: 1.4; white-space: nowrap; }
 .cap-chip i { font-size: 10px; }
 /* notice 级：需要用户留意的能力，用警示色轻描边区分 */
 .cap-chip-notice { background: rgba(var(--warning-rgb, 255, 149, 0), 0.12); color: rgb(var(--warning-rgb, 255, 149, 0)); }

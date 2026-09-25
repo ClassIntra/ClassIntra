@@ -280,13 +280,13 @@ export default {
 }
 
 .ptag-urgent {
-  background: rgba(239, 68, 68, 0.15);
-  color: #ef4444;
+  background: rgba(var(--danger-rgb), 0.15);
+  color: var(--danger-color);
 }
 
 .ptag-low {
   background: rgba(156, 163, 175, 0.15);
-  color: #9ca3af;
+  color: var(--text-tertiary);
 }
 
 .scrollbar-thin::-webkit-scrollbar { width: 4px; }

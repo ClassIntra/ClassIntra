@@ -368,7 +368,7 @@
               <div v-if="currentGroup && currentGroup.announcement" class="announcement-content">
                 {{ currentGroup.announcement }}
               </div>
-              <div v-else class="announcement-empty">暂无公告</div>
+              <div v-else class="announcement-empty"><i class="fa-solid fa-bullhorn announcement-empty-icon"></i><span>暂无公告</span></div>
               <button v-if="isGroupOwnerOfCurrent" class="settings-action-btn" @click="editAnnouncement"><i class="fa-solid fa-pen"></i> 编辑</button>
             </div>
             <div v-else class="announcement-editor">
@@ -4603,9 +4603,18 @@ export default {
 }
 
 .announcement-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 18px 0 6px;
   font-size: var(--font-size-sm);
   color: var(--text-tertiary);
-  font-style: italic;
+}
+
+.announcement-empty-icon {
+  font-size: 22px;
+  margin-bottom: 8px;
+  opacity: 0.6;
 }
 
 .announcement-editor {

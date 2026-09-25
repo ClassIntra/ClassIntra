@@ -166,6 +166,7 @@
                 :data-src-app="slot.name"
                 :data-flip-key="'page-app-' + slot.name"
                 @launch="launchApp"
+                @remove="onRemoveApp(pageIndex, index)"
               />
               <DesktopFolder
                 v-else-if="slot.type === 'folder'"
@@ -226,6 +227,16 @@
           <img :src="dockAppMeta(name).icon" :alt="dockAppMeta(name).label" loading="eager">
         </div>
         <span v-if="appBadges[name]" class="dock-badge" :class="{ 'dock-badge-dot': appBadges[name] === '●' }">{{ appBadges[name] === '●' ? '' : appBadges[name] }}</span>
+        <!-- 编辑态删除徽章：从 Dock 移除（固定图标不可移除） -->
+        <span
+          v-if="isEditMode && pinnedAppNames.indexOf(name) === -1"
+          class="dock-remove-btn"
+          role="button"
+          :aria-label="'从 Dock 移除' + dockAppMeta(name).label"
+          @click.stop="onRemoveDockApp(i)"
+        >
+          <i class="fa-solid fa-minus"></i>
+        </span>
       </div>
     </transition-group>
 
@@ -1354,7 +1365,7 @@ export default {
   height: 100%;
   position: relative;
   overflow: hidden;
-  background: #0a0a1a;
+  background: #000;
 }
 
 .desktop-video-wallpaper {
@@ -1442,7 +1453,7 @@ export default {
 }
 .desktop-widget.widget-editing {
   animation: widgetWiggle var(--duration-normal) ease-in-out infinite;
-  outline: 2px dashed rgba(0, 122, 255, 0.5);
+  outline: 2px dashed rgba(var(--primary-rgb), 0.5);
   outline-offset: -2px;
 }
 .desktop-widget.widget-editing:hover {
@@ -1475,7 +1486,7 @@ export default {
   z-index: 10;
   transition: transform var(--duration-fast) var(--ease-standard);
 }
-.widget-remove-btn:hover { transform: scale(1.15); background: #FF453A; }
+.widget-remove-btn:hover { transform: scale(1.15); background: var(--danger-color); }
 .widget-remove-btn:active { transform: scale(0.9); }
 
 /* widget 编辑态控制按钮（resize/config/refresh） */
@@ -1593,8 +1604,8 @@ export default {
   backdrop-filter: var(--glass-blur-container);
   border-radius: var(--radius-2xl);
   border: none;
-  -webkit-box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.06);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.06);
+  -webkit-box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-lg);
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
@@ -1744,6 +1755,29 @@ export default {
   object-fit: cover;
 }
 
+/* Dock 编辑态删除徽章（与 AppIcon 删除徽章同语言） */
+.dock-remove-btn {
+  position: absolute;
+  top: -6px;
+  left: -6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(28, 28, 30, 0.68);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  z-index: 2;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.dock-remove-btn:active {
+  transform: scale(0.9);
+}
+
 .dock-badge {
   position: absolute;
   top: -4px;
@@ -1756,7 +1790,7 @@ export default {
   font-weight: 700;
   color: #fff;
   background: var(--danger-color);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-pill);
   padding: 0 5px;
   -webkit-box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
@@ -2163,7 +2197,7 @@ export default {
   height: 26px;
   border-radius: var(--radius-pill);
   border: none;
-  background: var(--separator-color, #e9e9ea);
+  background: rgba(120, 120, 128, 0.16);
   position: relative;
   cursor: pointer;
   transition: background var(--duration-fast) var(--ease-standard);
