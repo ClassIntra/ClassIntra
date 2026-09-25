@@ -3795,4 +3795,66 @@ export default {
   user-select: none;
 }
 
+
+/* ===== 双列瀑布流（横屏平板；小红书式封面在顶，竖列错落） ===== */
+@media (min-width: 760px) and (orientation: landscape) {
+  .content-list {
+    columns: 2;
+    column-gap: 12px;
+    padding: 4px var(--spacing-sm);
+  }
+  .list-item.post-item {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    break-inside: avoid;
+    -webkit-column-break-inside: avoid;
+    margin: 0 0 12px;
+    overflow: hidden;
+  }
+  .post-cover {
+    order: -1;
+    width: calc(100% + 32px);
+    margin: -14px -16px 10px;
+    height: auto;
+    max-height: 240px;
+    border-radius: 0;
+  }
+  .post-cover-text {
+    height: 96px;
+    font-size: 30px;
+  }
+}
+
+
+/* ===== 双列瀑布流（横屏平板；小红书式封面在顶，竖列错落） ===== */
+@media (min-width: 760px) and (orientation: landscape) {
+  .content-list {
+    columns: 2;
+    column-gap: 12px;
+    padding: 4px var(--spacing-sm);
+  }
+  .list-item.post-item {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    break-inside: avoid;
+    -webkit-column-break-inside: avoid;
+    margin: 0 0 12px;
+    overflow: hidden;
+  }
+  .post-cover {
+    order: -1;
+    width: calc(100% + 32px);
+    margin: -14px -16px 10px;
+    height: auto;
+    max-height: 240px;
+    border-radius: 0;
+  }
+  .post-cover-text {
+    height: 96px;
+    font-size: 30px;
+  }
+}
+
 </style>
