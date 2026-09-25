@@ -3847,9 +3847,10 @@ export default {
     order: -1;
     width: calc(100% + 32px);
     margin: -14px -16px 10px;
-    height: 132px;
+    /* 自然长宽比：不强制高度，图按原始比例、文帖封面按内容行数自适应 */
+    height: auto;
+    max-height: 340px;
     border-radius: 0;
-    object-fit: cover;
     background: none;
   }
   /* 文字封面：哈希色渐变 + 摘要排版（不转图片，纯 CSS 排印） */
@@ -3900,9 +3901,10 @@ export default {
     order: -1;
     width: calc(100% + 32px);
     margin: -14px -16px 10px;
-    height: 132px;
+    /* 自然长宽比：不强制高度，图按原始比例、文帖封面按内容行数自适应 */
+    height: auto;
+    max-height: 340px;
     border-radius: 0;
-    object-fit: cover;
     background: none;
   }
   /* 文字封面：哈希色渐变 + 摘要排版（不转图片，纯 CSS 排印） */
