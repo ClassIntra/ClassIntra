@@ -139,7 +139,7 @@
         </div>
         <div class="forward-action">点击加入对局 <i class="fa-solid fa-chevron-right"></i></div>
       </div>
-      <div v-else class="bubble-content">
+      <div v-else class="bubble-content" :class="{ 'bubble-media': isMediaOnly && message.recalled !== 1 }">
         <div v-if="message.reply_to" class="reply-quote" @click="onReplyQuoteClick">
           <div class="reply-quote-name">{{ message.reply_to.user_name }}</div>
           <div class="reply-quote-preview">{{ message.reply_to.content_preview }}</div>
@@ -271,6 +271,15 @@ export default {
     };
   },
   computed: {
+    // 纯媒体消息（除媒体标记外无正文）：气泡去衬底，媒体贴边无框呈现
+    isMediaOnly: function() {
+      var c = String(this.message.content || '');
+      var stripped = c
+        .replace(/\[cloud-(img|video|audio):[a-f0-9]{64}(?:\.\w+)?\]/g, '')
+        .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+        .replace(/https?:\/\/[^\s"'<>]+\.(?:png|jpe?g|webp|gif|mp4|webm|mov)/gi, '');
+      return stripped.replace(/\s/g, '') === '';
+    },
     forwardData: function() {
       if (this.message.type !== 'community_forward' && this.message.type !== 'music_playlist') return {};
       try {
@@ -1396,4 +1405,22 @@ export default {
 .chat-bubble >>> .msg-media {
   cursor: pointer;
 }
+
+/* 纯媒体气泡：去衬底与内边距，媒体即气泡（Telegram 式无框呈现） */
+.chat-bubble .bubble-content.bubble-media {
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.chat-bubble .bubble-content.bubble-media .msg-image,
+.chat-bubble .bubble-content.bubble-media .msg-media-wrapper {
+  margin: 0;
+  border-radius: var(--radius-lg);
+}
+
+.own-bubble .bubble-content.bubble-media {
+  background: transparent;
+}
+
 </style>
