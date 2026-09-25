@@ -277,6 +277,34 @@
   --shadow-xl: var(--ci-shadow-xl, 0 24px 80px rgba(0,0,0,0.5));
 }
 
+/* ============================================================
+   Acrylic 噪点肌理（借鉴 Fluent Design）
+   ------------------------------------------------------------
+   Fluent Acrylic 区别于普通毛玻璃的关键是材质里的细颗粒，
+   它让玻璃「有牙齿」，避免大面积模糊糊成一团。
+   实现：全屏极低透明度噪点覆盖层（内联 SVG feTurbulence，平铺），
+   位于内容之下、背景之上；只动 opacity 不动 blend，GPU 友好。
+   低性能设备与减弱透明度场景直接关闭。
+   ============================================================ */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 1;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 160px 160px;
+  opacity: 0.028;
+}
+
+[data-perf="low"] body::before,
+[data-no-motion="true"] body::before {
+  display: none;
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -861,6 +889,14 @@ input[type="radio"]:checked::after {
   --dock-bg: rgba(255, 255, 255, 0.95);
   --nav-bg: rgba(249, 249, 249, 0.95);
   --sidebar-bg: rgba(242, 242, 247, 0.95);
+}
+
+/* 暗色壳层质感：玻璃上缘受光边（Fluent 暗色材质立体感来源） */
+[data-theme="dark"] .dock-bar,
+[data-theme="dark"] .app-nav-bar,
+[data-theme="dark"] .ios-sheet,
+[data-theme="dark"] .global-toast {
+  box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.09), var(--shadow-lg);
 }
 
 /* 暗色主题 + 低性能：玻璃提到不透明深色表面，避免「暗色系统白色 Dock」断裂 */
