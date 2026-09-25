@@ -9,6 +9,10 @@ module.exports = {
     expiresIn: process.env.JWT_EXPIRES_IN || '7d'
   },
   adminUserIds: (process.env.ADMIN_USER_IDS || '').split(',').filter(function(s) { return s.trim() !== ''; }),
+  // 机器人管理员：由 AstrBot 这类自动化账号组成，天然不受「按班级分组」限制
+  // （user_id 不是 YYCCxx 形式，canAdminManageUser 的班级比对必然失败）。
+  // 仅影响「跨班用户操作」与「PM2 等仅班管可操作」的端点，不改变人类管理员的既有权限。
+  botAdminIds: (process.env.BOT_ADMIN_IDS || '').split(',').filter(function(s) { return s.trim() !== ''; }),
   qweather: {
     key: process.env.QWEATHER_KEY || '',
     location: process.env.QWEATHER_LOCATION || '',

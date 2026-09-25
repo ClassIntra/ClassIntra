@@ -16,8 +16,8 @@ function getUserAdminClass(userId) {
 
 // 检查管理员是否能操作指定用户（班管只能操作本班用户，班干通过前缀匹配）
 function canAdminManageUser(adminUserId, targetUserId) {
-  // 开发者账号拥有全部管理权限（constants.js 定义）
-  if (adminUserId === '999999') return true;
+  // 开发者账号 / 机器人管理员拥有全部管理权限：这类账号没有班号，不参与班级比对
+  if (constants.isSystemAdmin(adminUserId)) return true;
   var adminClass = getUserAdminClass(adminUserId);
   if (!adminClass) {
     // 班干或其他授权用户：通过 user_id 班级前缀判断
@@ -1470,7 +1470,8 @@ router.get('/chat/groups/:groupId/messages', auth.requirePermission('manage_chat
 });
 
 function isClassAdminUser(req) {
-  return req.user && constants.isClassAdmin(req.user.user_id);
+  if (!req.user) return false;
+  return constants.isClassAdmin(req.user.user_id) || constants.isSystemAdmin(req.user.user_id);
 }
 
 var _pm2Module = null;

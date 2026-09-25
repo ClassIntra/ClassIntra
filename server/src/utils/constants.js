@@ -25,6 +25,15 @@ function getAdminClass(userId) {
   return null;
 }
 
+// 系统级管理员：开发者账号 999999，或 .env BOT_ADMIN_IDS 登记的机器人账号。
+// 这类账号没有 YYCCxx 形式的班号，无法参与「按班级」的权限比对，
+// 因此在跨班用户操作、PM2 控制等处直接放行（等价于开发者账号的豁免）。
+function isSystemAdmin(userId) {
+  if (!userId) return false;
+  if (String(userId) === '999999') return true;
+  return (config.botAdminIds || []).indexOf(String(userId)) !== -1;
+}
+
 // 判断用户是否为管理员（班管或班干）
 function isAdmin(userId) {
   if (isClassAdmin(userId)) return true;
@@ -63,6 +72,7 @@ function relayEvent(eventType, payload) {
 
 module.exports = {
   isClassAdmin: isClassAdmin,
+  isSystemAdmin: isSystemAdmin,
   getAdminClass: getAdminClass,
   isAdmin: isAdmin,
   extractToken: extractToken,
