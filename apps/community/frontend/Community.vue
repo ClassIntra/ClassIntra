@@ -1643,14 +1643,14 @@ export default {
         .replace(/\[[^\]]*\]/g, '')
         .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
         .trim();
-      return t ? t.substring(0, 2) : '帖';
+      return t ? t.substring(0, 48) : '写点什么记录一下吧';
     },
     postCoverTint: function(post) {
       var hex = hashColor(String(post.user_id || post.id || 'x'));
       var r = parseInt(hex.substring(1, 3), 16);
       var g = parseInt(hex.substring(3, 5), 16);
       var b = parseInt(hex.substring(5, 7), 16);
-      return { background: 'rgba(' + r + ',' + g + ',' + b + ',0.16)', color: hex };
+      return { background: 'linear-gradient(155deg, rgba(' + r + ',' + g + ',' + b + ',0.92) 0%, rgba(' + Math.round(r*0.55) + ',' + Math.round(g*0.55) + ',' + Math.round(b*0.55) + ',0.96) 100%)' };
     },
     previewMedia: function(media) {
       if (typeof media === 'string') {
@@ -3796,11 +3796,11 @@ export default {
 }
 
 
-/* ===== 双列瀑布流（横屏平板；小红书式封面在顶，竖列错落） ===== */
+/* ===== 瀑布流（横屏平板：760-1023 三列，≥1024 四列；小红书式封面在顶） ===== */
 @media (min-width: 760px) and (orientation: landscape) {
   .content-list {
-    columns: 2;
-    column-gap: 12px;
+    columns: 3;
+    column-gap: 10px;
     padding: 4px var(--spacing-sm);
   }
   .list-item.post-item {
@@ -3809,29 +3809,52 @@ export default {
     align-items: stretch;
     break-inside: avoid;
     -webkit-column-break-inside: avoid;
-    margin: 0 0 12px;
+    margin: 0 0 10px;
     overflow: hidden;
   }
+  /* 瀑布流里不放头像（信息由底部作者行承担） */
+  .list-item.post-item >>> .user-avatar { display: none; }
   .post-cover {
     order: -1;
     width: calc(100% + 32px);
     margin: -14px -16px 10px;
     height: auto;
-    max-height: 240px;
+    min-height: 150px;
+    max-height: 280px;
     border-radius: 0;
+    background: none;
   }
+  /* 文字封面：哈希色渐变 + 摘要排版（不转图片，纯 CSS 排印） */
   .post-cover-text {
-    height: 96px;
-    font-size: 30px;
+    height: 150px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    font-size: 15px;
+    font-weight: var(--font-weight-semibold);
+    line-height: 1.45;
+    text-align: left;
+    color: rgba(255, 255, 255, 0.94);
+    text-shadow: 0 1px 8px rgba(0, 0, 0, 0.35);
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+    white-space: normal;
+    word-break: break-word;
   }
+}
+@media (min-width: 1024px) and (orientation: landscape) {
+  .content-list { columns: 4; }
 }
 
 
-/* ===== 双列瀑布流（横屏平板；小红书式封面在顶，竖列错落） ===== */
+/* ===== 瀑布流（横屏平板：760-1023 三列，≥1024 四列；小红书式封面在顶） ===== */
 @media (min-width: 760px) and (orientation: landscape) {
   .content-list {
-    columns: 2;
-    column-gap: 12px;
+    columns: 3;
+    column-gap: 10px;
     padding: 4px var(--spacing-sm);
   }
   .list-item.post-item {
@@ -3840,21 +3863,44 @@ export default {
     align-items: stretch;
     break-inside: avoid;
     -webkit-column-break-inside: avoid;
-    margin: 0 0 12px;
+    margin: 0 0 10px;
     overflow: hidden;
   }
+  /* 瀑布流里不放头像（信息由底部作者行承担） */
+  .list-item.post-item >>> .user-avatar { display: none; }
   .post-cover {
     order: -1;
     width: calc(100% + 32px);
     margin: -14px -16px 10px;
     height: auto;
-    max-height: 240px;
+    min-height: 150px;
+    max-height: 280px;
     border-radius: 0;
+    background: none;
   }
+  /* 文字封面：哈希色渐变 + 摘要排版（不转图片，纯 CSS 排印） */
   .post-cover-text {
-    height: 96px;
-    font-size: 30px;
+    height: 150px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    font-size: 15px;
+    font-weight: var(--font-weight-semibold);
+    line-height: 1.45;
+    text-align: left;
+    color: rgba(255, 255, 255, 0.94);
+    text-shadow: 0 1px 8px rgba(0, 0, 0, 0.35);
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+    white-space: normal;
+    word-break: break-word;
   }
+}
+@media (min-width: 1024px) and (orientation: landscape) {
+  .content-list { columns: 4; }
 }
 
 </style>
