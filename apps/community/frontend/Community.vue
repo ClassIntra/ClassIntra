@@ -179,7 +179,7 @@
                   <i class="fa-solid fa-chevron-right playlist-share-arrow"></i>
                 </div>
                 <div class="post-tags" v-if="post.tags && post.tags.length > 0">
-                  <span v-for="tag in post.tags" :key="tag" class="tag-badge" @click.stop="selectTag(tag)">{{ tag }}</span>
+                  <span v-for="tag in post.tags" :key="tag" class="tag-badge" :style="tagPillStyle(tag)" @click.stop="selectTag(tag)">{{ tag }}</span>
                 </div>
                 <div class="post-stats">
                   <span class="stat-item" :class="{ liked: post.liked }">
@@ -414,7 +414,7 @@
                       <span v-if="post.featured" class="featured-badge"><i class="fa-solid fa-star"></i> 精选</span>
                       <div class="post-preview">{{ getPostPreview(post.content) }}</div>
                       <div class="post-tags" v-if="post.tags && post.tags.length > 0">
-                        <span v-for="tag in post.tags" :key="tag" class="tag-badge" @click.stop="selectTag(tag)">{{ tag }}</span>
+                        <span v-for="tag in post.tags" :key="tag" class="tag-badge" :style="tagPillStyle(tag)" @click.stop="selectTag(tag)">{{ tag }}</span>
                       </div>
                       <div class="post-stats">
                         <span class="stat-item" :class="{ liked: post.liked }">
@@ -1642,6 +1642,7 @@ export default {
       var t = String(post.content || post.title || '')
         .replace(/\[[^\]]*\]/g, '')
         .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+        .replace(/(?:https?:\/\/|\/)[^\s"'<>]+\.(?:png|jpe?g|webp|gif|mp4|webm|mov)(?:\?[^\s]*)?/gi, '')
         .trim();
       return t ? t.substring(0, 48) : '写点什么记录一下吧';
     },
@@ -1651,6 +1652,14 @@ export default {
       var g = parseInt(hex.substring(3, 5), 16);
       var b = parseInt(hex.substring(5, 7), 16);
       return { background: 'linear-gradient(155deg, rgba(' + r + ',' + g + ',' + b + ',0.92) 0%, rgba(' + Math.round(r*0.55) + ',' + Math.round(g*0.55) + ',' + Math.round(b*0.55) + ',0.96) 100%)' };
+    },
+    // 标签胶囊：LoveCards 式按标签哈希色淡染（全站 iOS 色板同源）
+    tagPillStyle: function(tag) {
+      var hex = hashColor(String(tag));
+      var r = parseInt(hex.substring(1, 3), 16);
+      var g = parseInt(hex.substring(3, 5), 16);
+      var b = parseInt(hex.substring(5, 7), 16);
+      return { background: 'rgba(' + r + ',' + g + ',' + b + ',0.14)', color: hex };
     },
     previewMedia: function(media) {
       if (typeof media === 'string') {
@@ -2933,12 +2942,12 @@ export default {
 .playlist-share-meta { font-size: var(--font-size-caption2); color: var(--text-tertiary); margin-top: 1px; }
 .playlist-share-arrow { color: var(--text-tertiary); font-size: var(--font-size-caption); flex-shrink: 0; }
 .post-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
-.tag-badge { display: inline-flex; align-items: center; gap: 3px; font-size: var(--font-size-caption2); padding: 1px 8px; border-radius: var(--radius-md); background: rgba(var(--primary-rgb),0.1); color: var(--primary-color); cursor: pointer; transition: background-color, border-color, color, transform, opacity, box-shadow var(--duration-fast) var(--ease-standard); white-space: nowrap; }
+.tag-badge { display: inline-flex; align-items: center; gap: 3px; font-size: var(--font-size-caption2); padding: 2px 9px; border-radius: var(--radius-pill); background: rgba(var(--primary-rgb),0.1); color: var(--primary-color); cursor: pointer; transition: background-color, border-color, color, transform, opacity, box-shadow var(--duration-fast) var(--ease-standard); white-space: nowrap; }
 .tag-badge:hover { background: rgba(var(--primary-rgb),0.2); }
 .tag-badge.removable { padding-right: 5px; }
 .tag-badge.removable i { font-size: 9px; margin-left: 2px; opacity: 0.6; }
 .tag-badge.removable i:hover { opacity: 1; }
-.post-stats { display: flex; gap: 14px; margin-top: 6px; }
+.post-stats { display: flex; gap: 18px; margin-top: 10px; padding-top: 9px; border-top: 0.5px solid var(--border-color); }
 .stat-item { font-size: var(--font-size-caption); color: var(--text-secondary); display: flex; align-items: center; gap: 4px; transition: color var(--duration-fast) var(--ease-standard); }
 .stat-item.liked { color: var(--danger-color); }
 
