@@ -50,7 +50,7 @@
       <div v-else-if="message.type === 'ai_forward'" class="bubble-content bubble-forward bubble-ai" @click="onAiForwardClick">
         <div class="forward-label"><i class="fa-solid fa-robot"></i> AI对话内容</div>
         <div class="forward-card forward-card-ai">
-          <div class="forward-title">🤖 {{ aiForwardRoleLabel }}</div>
+          <div class="forward-title">{{ aiForwardRoleLabel }}</div>
           <div class="forward-preview">{{ aiForwardPreviewText }}</div>
         </div>
         <div class="forward-action">点击查看全文 <i class="fa-solid fa-chevron-right"></i></div>
@@ -58,7 +58,7 @@
       <div v-else-if="message.type === 'ai_batch'" class="bubble-content bubble-forward bubble-ai" @click="onAiBatchClick">
         <div class="forward-label"><i class="fa-solid fa-robot"></i> AI对话记录（{{ aiBatchCount }}条）</div>
         <div class="forward-card forward-card-ai">
-          <div class="forward-title">🤖 对话记录</div>
+          <div class="forward-title">对话记录</div>
           <div class="forward-preview">{{ aiBatchPreview }}</div>
         </div>
         <div class="forward-action">点击查看全文 <i class="fa-solid fa-chevron-right"></i></div>

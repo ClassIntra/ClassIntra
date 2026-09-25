@@ -19,7 +19,9 @@
         <div v-if="islandMode === 'compact'" key="compact" class="island-body">
           <div class="compact-content">
             <span class="compact-icon" :class="{ 'compact-icon-pulse': hasLiveActivities }">
-              <i :class="compactIcon"></i>
+              <!-- 空闲品牌态：用白色品牌标替代无名圆点 -->
+              <img v-if="compactDisplayText === 'ClassIntra'" class="compact-brand-mark" :src="'/resources/public/brand/logo-mark-white.svg'" alt="" />
+              <i v-else :class="compactIcon"></i>
             </span>
             <span class="compact-text">{{ compactDisplayText }}</span>
           </div>
@@ -865,6 +867,13 @@ export default {
   height: 22px;
   border-radius: 50%;
   transition: opacity var(--duration-normal) var(--ease-standard);
+}
+
+/* 空闲品牌态的白色标识（灵动岛黑底上保持锐利） */
+.compact-brand-mark {
+  width: 15px;
+  height: 16px;
+  object-fit: contain;
 }
 
 .compact-icon-pulse {

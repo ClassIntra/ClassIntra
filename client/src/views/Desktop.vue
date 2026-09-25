@@ -332,13 +332,15 @@ import { mergeMarketApps } from '@/core/app-registry';
 import { marketRegistry } from '@/core/market-registry';
 import { getWidget } from '@/core/widget-aggregator';
 
+// 渐变壁纸预设：多层合成（主渐变 + radial 光晕），与 utils/wallpaper-bg.js
+// 的 GRADIENT_MAP 保持一致，两边若调整需同步。
 var WALLPAPER_MAP = {
-  'default': 'linear-gradient(135deg, #007AFF 0%, #5AC8FA 50%, #BFEEFF 100%)',
-  'ocean': 'linear-gradient(135deg, #003D7A 0%, #007AFF 50%, #5AC8FA 100%)',
-  'sky': 'linear-gradient(135deg, #0A84FF 0%, #5AC8FA 40%, #BFEEFF 100%)',
+  'default': 'radial-gradient(90% 70% at 82% 8%, rgba(191,238,255,0.85) 0%, rgba(191,238,255,0) 55%), radial-gradient(110% 85% at 8% 96%, rgba(0,61,122,0.55) 0%, rgba(0,61,122,0) 60%), linear-gradient(135deg, #0A84FF 0%, #2E7CF6 48%, #4FB3F9 100%)',
+  'ocean': 'radial-gradient(100% 75% at 80% 12%, rgba(90,200,250,0.5) 0%, rgba(90,200,250,0) 55%), linear-gradient(140deg, #001D45 0%, #003D7A 40%, #0055B8 75%, #007AFF 100%)',
+  'sky': 'radial-gradient(90% 70% at 85% 6%, rgba(255,255,255,0.75) 0%, rgba(255,255,255,0) 55%), linear-gradient(135deg, #0A84FF 0%, #3FA1F8 45%, #5AC8FA 75%, #BFEEFF 100%)',
   'night': 'linear-gradient(135deg, #000000 0%, #1C1C1E 50%, #2C2C2E 100%)',
-  'dawn': 'linear-gradient(135deg, #FF9500 0%, #FF2D55 30%, #FFCC00 100%)',
-  'arctic': 'linear-gradient(135deg, #E3F2FD 0%, #BBDEFB 50%, #90CAF9 100%)'
+  'dawn': 'radial-gradient(90% 70% at 80% 10%, rgba(255,204,0,0.55) 0%, rgba(255,204,0,0) 55%), linear-gradient(135deg, #FF2D55 0%, #FF9500 55%, #FFCC00 100%)',
+  'arctic': 'radial-gradient(90% 70% at 82% 10%, rgba(255,255,255,0.8) 0%, rgba(255,255,255,0) 55%), linear-gradient(135deg, #90CAF9 0%, #BBDEFB 50%, #E3F2FD 100%)'
 };
 
 var VIDEO_EXTS = ['.mp4', '.webm', '.mov'];
@@ -1283,7 +1285,7 @@ export default {
       localStorage.setItem('classintra_birthday_celebrated', todayFull);
       // 显示生日祝福 Toast
       self.$store.commit('toast/SHOW_TOAST', {
-        message: '🎂 生日快乐！愿你今天充满惊喜与欢乐！',
+        message: '今天是你的生日，祝你生日快乐！',
         type: 'success',
         duration: 4000
       });
@@ -1450,6 +1452,8 @@ export default {
   0%, 100% { transform: rotate(-0.5deg); }
   50% { transform: rotate(0.5deg); }
 }
+/* widget 编辑态控制按钮：iPadOS 摇晃编辑态的统一玻璃圆钮——
+   除「移除」外一律中性深玻璃，hover 只提亮不改色相，消除四种颜色的混搭感 */
 .widget-remove-btn {
   position: absolute;
   top: 6px;
@@ -1457,7 +1461,7 @@ export default {
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(28, 28, 30, 0.68);
   color: #fff;
   border: none;
   font-size: 12px;
@@ -1481,7 +1485,7 @@ export default {
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(28, 28, 30, 0.68);
   color: #fff;
   border: none;
   font-size: 11px;
@@ -1499,13 +1503,14 @@ export default {
 .widget-ctrl-btn:hover { transform: scale(1.15); }
 .widget-ctrl-btn:active { transform: scale(0.9); }
 .widget-resize-minus { right: 6px; }
-.widget-resize-minus:hover { background: rgba(0, 0, 0, 0.8); }
 .widget-resize-plus { right: 32px; }
-.widget-resize-plus:hover { background: rgba(0, 0, 0, 0.8); }
 .widget-config-btn { right: 58px; }
-.widget-config-btn:hover { background: var(--primary-color, #007AFF); }
 .widget-refresh-btn { right: 84px; }
-.widget-refresh-btn:hover { background: var(--success-color, #34C759); }
+/* 中性按钮统一 hover：提亮而不是换色相 */
+.widget-resize-minus:hover,
+.widget-resize-plus:hover,
+.widget-config-btn:hover,
+.widget-refresh-btn:hover { background: rgba(80, 80, 84, 0.85); }
 
 /* ===== 4×6 网格（widget + app icon 共用） ===== */
 .desktop-grid {

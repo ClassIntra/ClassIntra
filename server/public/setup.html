@@ -4,46 +4,49 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <title>ClassIntra 初始化配置</title>
+<link rel="icon" type="image/svg+xml" href="/resources/public/brand/favicon.svg">
 <style>
 :root {
-  --primary-color: #2196F3;
-  --primary-hover: #1976D2;
-  --primary-dark: #1565C0;
-  --primary-rgb: 33,150,243;
-  --primary-light: rgba(33,150,243,0.08);
-  --primary-lighter: rgba(33,150,243,0.04);
-  --bg-color: #f5f7fa;
+  /* 色板与主系统对齐（global.scss 的 iOS System Blue 体系） */
+  --primary-color: #007AFF;
+  --primary-hover: #0066CC;
+  --primary-dark: #004E99;
+  --primary-rgb: 0,122,255;
+  --primary-light: rgba(0,122,255,0.1);
+  --primary-lighter: rgba(0,122,255,0.05);
+  --bg-color: #F2F2F7;
   --card-bg: #ffffff;
-  --text-primary: #1a1a2e;
-  --text-secondary: #6b7280;
-  --text-tertiary: #9ca3af;
-  --border-color: #e5e7eb;
-  --danger-color: #ef4444;
-  --danger-rgb: 239,68,68;
-  --success-color: #22c55e;
-  --warning-color: #f59e0b;
-  --radius: 8px;
-  --radius-lg: 12px;
+  --text-primary: #1C1C1E;
+  --text-secondary: rgba(60,60,67,0.6);
+  --text-tertiary: rgba(60,60,67,0.35);
+  --border-color: rgba(60,60,67,0.12);
+  --danger-color: #FF3B30;
+  --danger-rgb: 255,59,48;
+  --success-color: #34C759;
+  --warning-color: #FF9500;
+  --radius: 10px;
+  --radius-lg: 14px;
 }
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html{font-size:14px}
 body{
-  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',sans-serif;
-  background:linear-gradient(135deg,var(--primary-dark) 0%,var(--primary-color) 100%);
+  font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','PingFang SC','Noto Sans CJK SC','Helvetica Neue','Microsoft YaHei',sans-serif;
+  background:radial-gradient(120% 90% at 85% 0%, rgba(0,122,255,0.08) 0%, rgba(0,122,255,0) 55%),#F2F2F7;
   min-height:100vh;display:flex;align-items:center;justify-content:center;
   padding:12px;color:var(--text-primary);-webkit-font-smoothing:antialiased;
 }
-.container{background:var(--card-bg);border-radius:var(--radius-lg);box-shadow:0 20px 60px rgba(0,0,0,0.2);max-width:880px;width:100%;overflow:hidden}
-.header{background:linear-gradient(135deg,var(--primary-dark),var(--primary-color));color:#fff;padding:20px 28px}
-.header h1{font-size:20px;font-weight:700;margin-bottom:4px}
-.header p{font-size:13px;opacity:0.85}
+.container{background:var(--card-bg);border-radius:var(--radius-lg);box-shadow:0 20px 60px rgba(0,0,0,0.12);max-width:880px;width:100%;overflow:hidden}
+.header{background:#fff;border-bottom:1px solid var(--border-color);color:var(--text-primary);padding:20px 28px;display:flex;align-items:center;gap:14px}
+.header img{width:44px;height:44px;flex-shrink:0;border-radius:10px;box-shadow:0 2px 10px rgba(0,122,255,0.18)}
+.header h1{font-size:19px;font-weight:600;margin-bottom:3px;letter-spacing:0.2px}
+.header p{font-size:13px;color:var(--text-secondary)}
 .body{padding:20px 28px}
 
 .steps{display:flex;align-items:center;margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid var(--border-color);flex-wrap:wrap;gap:2px}
 .step{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-tertiary);font-weight:500;white-space:nowrap;border-radius:6px;padding:4px 8px;transition:background .15s;cursor:pointer}
 .step.active{color:var(--primary-color)}
 .step.done{color:var(--success-color)}
-.step.done:hover{background:rgba(34,197,94,0.06)}
+.step.done:hover{background:rgba(52,199,89,0.06)}
 .step-num{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;border:2px solid var(--border-color);color:var(--text-tertiary);background:#fff;transition:all .2s;flex-shrink:0}
 .step.active .step-num{border-color:var(--primary-color);color:var(--primary-color);background:var(--primary-light)}
 .step.done .step-num{border-color:var(--success-color);color:#fff;background:var(--success-color)}
@@ -68,7 +71,7 @@ textarea{resize:vertical;min-height:100px}
 .btn-primary:hover{background:var(--primary-hover)}
 .btn-primary:active{background:var(--primary-dark)}
 .btn-success{background:var(--success-color);color:#fff}
-.btn-success:hover{background:#16a34a}
+.btn-success:hover{background:#2EAE4E}
 .btn-outline{background:#fff;color:var(--text-primary);border:1px solid var(--border-color)}
 .btn-outline:hover{background:var(--bg-color)}
 .btn-danger-outline{background:#fff;color:var(--danger-color);border:1px solid rgba(var(--danger-rgb),0.3)}
@@ -79,9 +82,9 @@ textarea{resize:vertical;min-height:100px}
 
 .tag{display:inline-flex;align-items:center;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:500}
 .tag-blue{background:var(--primary-light);color:var(--primary-color)}
-.tag-green{background:rgba(34,197,94,0.1);color:var(--success-color)}
+.tag-green{background:rgba(52,199,89,0.1);color:var(--success-color)}
 .tag-red{background:rgba(var(--danger-rgb),0.08);color:var(--danger-color)}
-.tag-orange{background:rgba(245,158,11,0.1);color:var(--warning-color)}
+.tag-orange{background:rgba(255,149,0,0.1);color:var(--warning-color)}
 
 .people-table{width:100%;border-collapse:collapse;font-size:12px}
 .people-table th{background:var(--bg-color);padding:8px 10px;text-align:left;font-weight:600;color:var(--text-secondary);border-bottom:1px solid var(--border-color);position:-webkit-sticky;position:sticky;top:0;z-index:1}
@@ -102,8 +105,8 @@ textarea{resize:vertical;min-height:100px}
 
 .alert{padding:10px 14px;border-radius:var(--radius);font-size:12px;margin-bottom:12px;display:flex;align-items:flex-start;gap:6px;line-height:1.5}
 .alert-info{background:rgba(var(--primary-rgb),0.06);color:var(--primary-dark);border:1px solid rgba(var(--primary-rgb),0.15)}
-.alert-success{background:rgba(34,197,94,0.06);color:#166534;border:1px solid rgba(34,197,94,0.2)}
-.alert-warning{background:rgba(245,158,11,0.06);color:#92400e;border:1px solid rgba(245,158,11,0.2)}
+.alert-success{background:rgba(52,199,89,0.06);color:#1E7A3C;border:1px solid rgba(52,199,89,0.2)}
+.alert-warning{background:rgba(255,149,0,0.06);color:#8A5300;border:1px solid rgba(255,149,0,0.2)}
 
 .modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:1000}
 .modal{background:#fff;border-radius:var(--radius-lg);padding:20px;width:90%;max-width:420px;box-shadow:0 20px 60px rgba(0,0,0,0.2)}
@@ -111,7 +114,7 @@ textarea{resize:vertical;min-height:100px}
 .modal .form-group{margin-bottom:10px}
 .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}
 
-.success-icon{width:60px;height:60px;border-radius:50%;background:rgba(34,197,94,0.1);color:var(--success-color);display:flex;align-items:center;justify-content:center;font-size:30px;margin:0 auto 16px}
+.success-icon{width:60px;height:60px;border-radius:50%;background:rgba(52,199,89,0.1);color:var(--success-color);display:flex;align-items:center;justify-content:center;font-size:30px;margin:0 auto 16px}
 .success-title{font-size:18px;font-weight:700;text-align:center;color:var(--text-primary);margin-bottom:6px}
 .success-desc{font-size:13px;text-align:center;color:var(--text-secondary);margin-bottom:20px}
 
@@ -194,8 +197,11 @@ textarea{resize:vertical;min-height:100px}
 
 <div class="container">
   <div class="header">
-    <h1>ClassIntra 初始化配置</h1>
-    <p>按步骤完成届数、班级、预注册名单和班管设置</p>
+    <img src="/resources/public/brand/logo-mark-square.svg" alt="">
+    <div>
+      <h1>ClassIntra 初始化配置</h1>
+      <p>按步骤完成届数、班级、预注册名单和班管设置</p>
+    </div>
   </div>
   <div class="body">
     <!-- 步骤指示器 -->

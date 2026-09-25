@@ -27,10 +27,12 @@
       <div class="greeting-card" :class="{ 'greeting-card--show': showCard }">
         <div class="greeting-glow"></div>
         <div class="greeting-inner">
-          <div class="greeting-cake">🎂</div>
-          <div class="greeting-title">生日快乐!</div>
+          <div class="greeting-cake">
+            <i class="fa-solid fa-cake-candles" aria-hidden="true"></i>
+          </div>
+          <div class="greeting-title">生日快乐</div>
           <div class="greeting-name">{{ userName }}</div>
-          <div class="greeting-sub">愿你今天充满惊喜与欢乐 ✨</div>
+          <div class="greeting-sub">愿你今天充满惊喜与欢乐</div>
         </div>
       </div>
 
@@ -44,10 +46,11 @@
 
 <script>
 // ============ Confetti 粒子配置 ============
+// 色盘与系统 iOS 多彩语义色对齐（global.scss 的 accent/semantic 值），
+// Canvas 里读不到 CSS 变量，故用同一批硬编码色值并在此注明来源。
 var CONFETTI_COLORS = [
-  '#FF6B6B', '#FFD93D', '#6BCB77', '#4D96FF', '#FF6FB7',
-  '#F473B9', '#FFB830', '#00C9A7', '#C084FC', '#FB7185',
-  '#FBBF24', '#34D399', '#60A5FA', '#F472B6', '#F87171'
+  '#FF2D55', '#FF9500', '#FFCC00', '#34C759', '#007AFF',
+  '#5856D6', '#AF52DE', '#5AC8FA', '#FF6482', '#FFB340'
 ];
 
 var CONFETTI_COUNT = 120;
@@ -89,15 +92,14 @@ function randomStar(canvasW, canvasH) {
 }
 
 // ============ 气球生成 ============
+// 气球色同样对齐 iOS 系统色盘（与 CONFETTI_COLORS 同源）
 var BALLOON_COLORS = [
-  'linear-gradient(135deg, #FF6B6B 0%, #EE5A5A 100%)',
-  'linear-gradient(135deg, #FFD93D 0%, #F0C800 100%)',
-  'linear-gradient(135deg, #6BCB77 0%, #4CAF50 100%)',
-  'linear-gradient(135deg, #4D96FF 0%, #3B7FE0 100%)',
-  'linear-gradient(135deg, #FF6FB7 0%, #F05A9E 100%)',
-  'linear-gradient(135deg, #C084FC 0%, #A855F7 100%)',
-  'linear-gradient(135deg, #FFB830 0%, #F09820 100%)',
-  'linear-gradient(135deg, #00C9A7 0%, #00A88C 100%)'
+  'linear-gradient(135deg, #FF6482 0%, #FF2D55 100%)',
+  'linear-gradient(135deg, #FFD54D 0%, #FFCC00 100%)',
+  'linear-gradient(135deg, #5BD876 0%, #34C759 100%)',
+  'linear-gradient(135deg, #3F9BFF 0%, #007AFF 100%)',
+  'linear-gradient(135deg, #B45AFF 0%, #AF52DE 100%)',
+  'linear-gradient(135deg, #FFB340 0%, #FF9500 100%)'
 ];
 
 var BALLOON_COUNT = 12;
@@ -463,11 +465,23 @@ export default {
     inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
+/* 蛋糕图标：暖橙色 + 底部衬一层淡金光斑，替代原来的 emoji 主视觉 */
 .greeting-cake {
-  font-size: 56px;
-  margin-bottom: 8px;
+  width: 72px;
+  height: 72px;
+  margin: 0 auto 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 38%, rgba(255, 204, 0, 0.22) 0%, rgba(255, 204, 0, 0) 72%);
   animation: cake-bounce 0.8s ease-in-out infinite;
-  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.1));
+}
+
+.greeting-cake i {
+  font-size: 40px;
+  color: var(--warning-color, #FF9500);
+  filter: drop-shadow(0 4px 10px rgba(255, 149, 0, 0.3));
 }
 
 @keyframes cake-bounce {
@@ -479,7 +493,7 @@ export default {
 .greeting-title {
   font-size: 26px;
   font-weight: 700;
-  color: #1a1a2e;
+  color: var(--text-primary);
   margin-bottom: 4px;
   letter-spacing: 1px;
 }
@@ -487,13 +501,13 @@ export default {
 .greeting-name {
   font-size: 18px;
   font-weight: 600;
-  color: #e85d75;
+  color: var(--accent-music, #FF2D55);
   margin-bottom: 8px;
 }
 
 .greeting-sub {
   font-size: 14px;
-  color: #888;
+  color: var(--text-secondary);
   font-weight: 400;
 }
 
