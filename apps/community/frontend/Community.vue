@@ -106,6 +106,15 @@
                 :size="40"
                 @click.stop="!post.is_anonymous && showUserProfile(post.user_id)"
               />
+              <!-- 帖子封面：有图取首图，纯文本取文字封面瓦片（单图右置卡片模式） -->
+              <img
+                v-if="postCover(post)"
+                class="post-cover"
+                :src="postCover(post)"
+                loading="lazy"
+                alt=""
+              />
+              <div v-else class="post-cover post-cover-text" :style="postCoverTint(post)">{{ postCoverText(post) }}</div>
               <div class="post-info">
                 <div class="post-meta">
                   <span class="post-author">{{ post.is_anonymous && canViewAnonymous ? post.admin_net_name : (post.is_anonymous ? '匿名用户' : (post.net_name || '未知用户')) }}</span>
@@ -1103,7 +1112,7 @@ import 'katex/dist/katex.min.css';
 import 'highlight.js/styles/github-dark.min.css';
 import LatexRenderer from '@/utils/latex-renderer';
 import { getMediaTypeByName } from '@/utils/media-recorder.js';
-import { IOS_PALETTE } from '@/utils/ios-palette';
+import { IOS_PALETTE, hashColor } from '@/utils/ios-palette';
 import { filterRenderable } from '@/utils/emoji-support';
 
 var TAG_COLORS = IOS_PALETTE;
@@ -1618,6 +1627,30 @@ export default {
         clearTimeout(this.mdLongPressTimer);
         this.mdLongPressTimer = null;
       }
+    },
+    // ===== 帖子封面（单图右置卡片模式） =====
+    postCover: function(post) {
+      var c = String(post.content || '');
+      var m = c.match(/\[cloud-img:([a-f0-9]{64}(?:\.\w+)?)\]/);
+      if (m) return '/api/cloud/files/' + m[1] + '?w=360';
+      var m2 = c.match(/!\[[^\]]*\]\((https?:\/\/[^\s)]+\.(?:png|jpe?g|webp|gif)[^\s)]*)\)/i);
+      if (m2) return m2[1];
+      var m3 = c.match(/(https?:\/\/[^\s"'<>]+\.(?:png|jpe?g|webp|gif))/i);
+      return m3 ? m3[1] : '';
+    },
+    postCoverText: function(post) {
+      var t = String(post.title || post.content || '')
+        .replace(/\[[^\]]*\]/g, '')
+        .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+        .trim();
+      return t ? t.substring(0, 2) : '帖';
+    },
+    postCoverTint: function(post) {
+      var hex = hashColor(String(post.user_id || post.id || 'x'));
+      var r = parseInt(hex.substring(1, 3), 16);
+      var g = parseInt(hex.substring(3, 5), 16);
+      var b = parseInt(hex.substring(5, 7), 16);
+      return { background: 'rgba(' + r + ',' + g + ',' + b + ',0.16)', color: hex };
     },
     previewMedia: function(media) {
       if (typeof media === 'string') {
@@ -3720,4 +3753,46 @@ export default {
   text-align: center;
   color: var(--text-secondary, #8e8e93);
 }
+
+/* ===== 帖子卡片（贴吧/微博 单图右置模式，走系统令牌） ===== */
+.list-item.post-item {
+  display: flex;
+  align-items: flex-start;
+  background: var(--card-bg);
+  border: 0.5px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  margin: 0 var(--spacing-sm) var(--spacing-sm);
+  padding: 14px 16px;
+  box-shadow: none;
+  transition: transform var(--duration-fast) var(--ease-standard),
+              background-color var(--duration-fast) var(--ease-standard);
+}
+
+.list-item.post-item:active {
+  transform: scale(0.985);
+}
+
+.post-cover {
+  order: 2;
+  flex-shrink: 0;
+  width: 92px;
+  height: 92px;
+  margin-left: 12px;
+  border-radius: var(--radius-lg);
+  object-fit: cover;
+  background: var(--bg-color);
+}
+
+/* 纯文本帖的文字封面瓦片：取标题前两字 + 作者哈希色淡染 */
+.post-cover-text {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 </style>

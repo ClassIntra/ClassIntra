@@ -82,6 +82,7 @@
 })();
 
 import Vue from 'vue';
+import '@/utils/media-coordinator'; // 全局音视频互斥：任何一处播放自动暂停其他
 import App from './App.vue';
 import router from './router';
 import store from './store';

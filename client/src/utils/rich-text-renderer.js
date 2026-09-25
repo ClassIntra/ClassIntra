@@ -135,7 +135,7 @@ function generateMediaHtml(url, type) {
       '<text x=%22100%22 y=%22140%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%2213%22 font-family=%22sans-serif%22>文件已删除</text>' +
       '</svg>';
     var deletedPlaceholder = 'data:image/svg+xml,' + deletedSvg;
-    return '<img class="msg-image msg-media" data-media-url="' + url + '" data-media-type="image" src="' + src + '" alt="图片" loading="lazy" decoding="async" width="200" height="200" ' +
+    return '<img class="msg-image msg-media" data-media-url="' + url + '" data-media-type="image" src="' + src + '" alt="图片" loading="lazy" decoding="async" ' +
       'onerror="if(this.src.indexOf(\'data:image/svg+xml\')===-1){this.src=\'' + deletedPlaceholder + '\';this.classList.add(\'msg-image-deleted\');}" />';
   }
   if (type === 'video') {
