@@ -19,7 +19,7 @@
 
       <!-- 视频模式：原生 video 全屏播放（Chrome 80 兼容，移除 video.js v8 依赖） -->
       <div v-else-if="mediaType === 'video'" class="media-preview-content video-preview-wrap" @click.stop>
-        <video ref="videoPlayer" class="preview-video-player" controls autoplay muted playsinline webkit-playsinline :src="imageUrl" @error="onVideoError"></video>
+        <video ref="videoPlayer" class="preview-video-player" controls autoplay playsinline webkit-playsinline :src="imageUrl" @error="onVideoError"></video>
       </div>
 
       <!-- 音频模式：原生 audio 播放 -->
@@ -231,7 +231,7 @@ export default {
   display: flex; align-items: center; justify-content: center;
 }
 .video-preview-wrap { max-width: 100vw; max-height: 100vh; }
-.preview-video-player { width: 100%; height: 100%; }
+.preview-video-player { width: 100%; height: 100%; object-fit: contain; background: #000; }
 .audio-preview-wrap { width: 100%; display: flex; align-items: center; justify-content: center; }
 .audio-preview-card {
   text-align: center; width: 300px; max-width: 90vw;

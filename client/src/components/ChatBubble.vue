@@ -1129,13 +1129,15 @@ export default {
 
 /* Message image — 固定尺寸防止图片加载时布局重排导致滚动卡顿 */
 .chat-bubble >>> .msg-image {
-  width: 200px;
-  height: 200px;
+  /* 按图片原始宽高比显示，不再强制 1:1 裁切；max 约束防超大图撑破气泡 */
+  width: auto;
+  height: auto;
+  max-width: 240px;
+  max-height: 320px;
   border-radius: var(--radius-md);
   margin: 4px 0;
   display: block;
   cursor: pointer;
-  object-fit: cover;
   background: var(--bg-color);
   will-change: transform;
 }
