@@ -671,10 +671,11 @@ export default {
   margin: 4px 0;
 }
 
-/* QQ 化：全圆角气泡 + 紧凑组距；同组 4px、组间 10px */
+/* QQ NT 版式：所有气泡统一 ~14px 垂直间距，不因同组缩紧（QQ 的疏朗感来源）；
+   同组只省略重复昵称行，间距与普通消息一致 */
 .chat-bubble {
   max-width: 65%;
-  margin-top: 10px;
+  margin-top: 14px;
   display: flex;
   flex-direction: column;
   position: relative;
@@ -685,7 +686,7 @@ export default {
 }
 
 .chat-bubble.msg-grouped {
-  margin-top: 4px;
+  margin-top: 14px;
 }
 
 /* 暗色：对方气泡用 iOS dark 提亮档（#2C2C2E），与纯黑背景拉开层次 */
