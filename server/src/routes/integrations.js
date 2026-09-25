@@ -169,4 +169,59 @@ router.post('/webhook', function(req, res, next) {
   next();
 }, webhookReceiver);
 
+
+// 帖子封面兜底图：随机风景（服务端代理，避免平板直连外网不稳定）
+// 帖子封面兜底图：随机风景（服务端代理）
+// 稳定性关键：seed（帖子 id）→ 图床直链 的映射缓存在内存里，
+// 同一帖子永远返回同一张图，刷新不变。图床直链由 fengjing.php 的 302 解析而来。
+var coverUrlCache = {};
+
+router.get('/cover-image', function(req, res) {
+  var seed = String(req.query.seed || 'default').substring(0, 64);
+  var UA = { 'User-Agent': 'Mozilla/5.0 (Linux; Android 9) AppleWebKit/537.36 Chrome/89 Mobile Safari/537.36' };
+
+  function serveImage(imageUrl) {
+    fetch(imageUrl, { headers: UA, signal: AbortSignal.timeout(10000) })
+      .then(function(img) {
+        var type = img.headers.get('content-type') || '';
+        if (!img.ok || type.indexOf('image/') !== 0) throw new Error('non-image');
+        return img.arrayBuffer().then(function(buf) {
+          res.set('Content-Type', type);
+          res.set('Cache-Control', 'public, max-age=604800');
+          res.send(Buffer.from(buf));
+        });
+      })
+      .catch(function() {
+        delete coverUrlCache[seed]; // 失效则允许下次重新解析
+        res.status(502).json({ code: 502, message: 'cover source unavailable' });
+      });
+  }
+
+  if (coverUrlCache[seed]) {
+    serveImage(coverUrlCache[seed]);
+    return;
+  }
+
+  var api = 'https://tu.ltyuanfang.cn/api/fengjing.php?seed=' + encodeURIComponent(seed);
+  fetch(api, { redirect: 'manual', headers: UA, signal: AbortSignal.timeout(8000) })
+    .then(function(up) {
+      var loc = up.headers.get('location');
+      if (up.status >= 300 && up.status < 400 && loc) {
+        coverUrlCache[seed] = loc;
+        serveImage(loc);
+      } else if (up.ok && (up.headers.get('content-type') || '').indexOf('image/') === 0) {
+        return up.arrayBuffer().then(function(buf) {
+          res.set('Content-Type', up.headers.get('content-type'));
+          res.set('Cache-Control', 'public, max-age=604800');
+          res.send(Buffer.from(buf));
+        });
+      } else {
+        res.status(502).json({ code: 502, message: 'cover source unavailable' });
+      }
+    })
+    .catch(function() {
+      res.status(502).json({ code: 502, message: 'cover source unavailable' });
+    });
+});
+
 module.exports = router;
