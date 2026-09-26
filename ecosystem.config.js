@@ -113,6 +113,26 @@ module.exports = {
       }
     },
     {
+      name: 'tunnel-gateway',
+      script: 'src/tunnel-gateway.js',
+      cwd: serverDir,
+      exec_mode: 'fork',
+      autorestart: true,
+      max_restarts: 10,
+      restart_delay: 5000,
+      watch: false,
+      log_date_format: 'YYYY-MM-DD HH:mm:ss',
+      error_file: path.join(__dirname, 'logs', 'gateway-error.log'),
+      out_file: path.join(__dirname, 'logs', 'gateway-out.log'),
+      merge_logs: true,
+      env: {
+        NODE_ENV: 'production',
+        NODE_PATH: path.join(serverDir, 'node_modules'),
+        TUNNEL_GATEWAY_PORT: '9002',
+        UPSTREAM_PORT: envVars.PORT || '9001'
+      }
+    },
+    {
       name: 'chmlfrp-frpc',
       script: path.join(frpcDir, 'frpc.exe'),
       args: '-c frpc.ini',
