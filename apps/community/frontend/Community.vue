@@ -110,15 +110,20 @@
               <!-- 帖子封面：有图取首图，纯文本取文字封面瓦片（单图右置卡片模式） -->
               <img
                 v-if="postCover(post)"
-                class="post-cover"
+                class="post-cover post-cover-loading"
                 :src="postCover(post)"
                 loading="lazy"
+                decoding="async"
+                :data-seed="post.id || post.user_id"
                 alt=""
+                @load="onCoverLoad"
+                @error="onCoverLoad"
               />
               <img
                 v-else
-                class="post-cover"
+                class="post-cover post-cover-loading"
                 :src="'/api/integrations/cover-image?seed=' + (post.id || post.user_id)"
+                :data-seed="post.id || post.user_id"
                 alt=""
                 @error="textCoverUrl(post) && ($event.target.src = textCoverUrl(post))"
               />
@@ -1663,7 +1668,7 @@ export default {
     postCover: function(post) {
       var c = String(post.content || '');
       var m = c.match(/\[cloud-img:([a-f0-9]{64}(?:\.\w+)?)\]/);
-      if (m) return '/api/cloud/files/' + m[1] + '?w=360';
+      if (m) return '/api/cloud/files/' + m[1] + '?w=720';
       var m2 = c.match(/!\[[^\]]*\]\(([^)\s]+\.(?:png|jpe?g|webp|gif)[^)\s]*)\)/i);
       if (m2) return m2[1];
       var m3 = c.match(/(https?:\/\/[^\s"'<>]+\.(?:png|jpe?g|webp|gif))/i);
@@ -1681,6 +1686,18 @@ export default {
     },
     // 标签胶囊：LoveCards 式按标签哈希色淡染（全站 iOS 色板同源）
     // 纯文本帖：Canvas 生成封面图（哈希色渐变 + 首字水印 + 摘要排印），确定性缓存
+    // 封面加载完成：渐显；图片帖加载失败时回退 Canvas 文字封面
+    onCoverLoad: function(e) {
+      var el = e && e.target;
+      if (!el || el.tagName !== 'IMG') return;
+      if (el.dataset.failed) return;
+      if (e.type === 'error' && el.src.indexOf('data:') === -1) {
+        el.dataset.failed = '1';
+        el.src = textCoverUrl({ title: '帖', content: '', id: el.dataset.seed });
+        return;
+      }
+      el.classList.add('img-loaded');
+    },
     textCoverUrl: function(post) {
       return generateTextCover(
         String(post.title || post.content || '帖'),
@@ -3968,6 +3985,18 @@ export default {
     overflow: hidden;
   }
   .waterfall-col .list-item.post-item >>> .user-avatar { display: none; }
+  .post-cover-loading {
+    background: linear-gradient(100deg, rgba(120,120,128,0.08) 30%, rgba(120,120,128,0.16) 50%, rgba(120,120,128,0.08) 70%);
+    background-size: 200% 100%;
+    animation: cover-shimmer 1.4s ease-in-out infinite;
+  }
+  @keyframes cover-shimmer {
+    from { background-position: 200% 0; }
+    to { background-position: -200% 0; }
+  }
+  .post-cover { opacity: 0; transition: opacity var(--duration-normal, 0.22s) var(--ease-standard, ease); }
+  .post-cover.img-loaded { opacity: 1; }
+
   .waterfall-col .post-cover {
     order: -1;
     width: calc(100% + 32px);
