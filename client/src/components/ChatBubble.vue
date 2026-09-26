@@ -1139,6 +1139,11 @@ export default {
   max-width: 240px;
   max-height: 320px;
   min-height: 60px;
+  background: linear-gradient(100deg, rgba(120,120,128,0.1) 30%, rgba(120,120,128,0.2) 50%, rgba(120,120,128,0.1) 70%);
+  background-size: 200% 100%;
+  animation: msg-img-shimmer 1.4s ease-in-out infinite;
+  opacity: 0;
+  transition: opacity var(--duration-normal, 0.22s) var(--ease-standard, ease);
   border-radius: var(--radius-md);
   margin: 4px 0;
   display: block;
@@ -1430,6 +1435,18 @@ export default {
   margin-top: -10px;
   border-top-left-radius: var(--radius-lg);
   border-top-right-radius: var(--radius-lg);
+}
+
+
+.msg-image.img-loaded {
+  opacity: 1;
+  animation: none;
+  background: none;
+}
+
+@keyframes msg-img-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
 }
 
 </style>
