@@ -1698,7 +1698,7 @@ export default {
       if (el.dataset.failed) return;
       if (e.type === 'error' && el.src.indexOf('data:') === -1) {
         el.dataset.failed = '1';
-        el.src = textCoverUrl({ title: '帖', content: '', id: el.dataset.seed });
+        el.src = this.textCoverUrl({ title: '帖', content: '', id: el.dataset.seed });
         return;
       }
       el.classList.add('img-loaded');
