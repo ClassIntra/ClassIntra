@@ -107,12 +107,13 @@
                 :size="40"
                 @click.stop="!post.is_anonymous && showUserProfile(post.user_id)"
               />
-              <!-- 帖子封面：有图取首图，纯文本取文字封面瓦片（单图右置卡片模式） -->
+              <!-- 帖子封面：有图取首图，无图走风景代理；3:2 预留框保证加载前后零跳动 -->
+              <div class="post-cover-frame">
               <img
                 v-if="postCover(post)"
                 class="post-cover post-cover-loading"
                 :src="postCover(post)"
-                loading="lazy"
+                :loading="pi === 0 ? 'eager' : 'lazy'"
                 decoding="async"
                 :data-seed="post.id || post.user_id"
                 alt=""
@@ -124,9 +125,13 @@
                 class="post-cover post-cover-loading"
                 :src="'/api/integrations/cover-image?seed=' + (post.id || post.user_id)"
                 :data-seed="post.id || post.user_id"
+                :loading="pi === 0 ? 'eager' : 'lazy'"
+                decoding="async"
                 alt=""
-                @error="textCoverUrl(post) && ($event.target.src = textCoverUrl(post))"
+                @error="onCoverLoad"
               />
+              </div>
+              <div class="post-info">
               <div class="post-info">
                 <div class="post-meta">
                   <span class="post-author">{{ post.is_anonymous && canViewAnonymous ? post.admin_net_name : (post.is_anonymous ? '匿名用户' : (post.net_name || '未知用户')) }}</span>
@@ -4000,13 +4005,26 @@ export default {
     to { opacity: 1; }
   }
 
-  .waterfall-col .post-cover {
+  .waterfall-col .post-cover-frame {
     order: -1;
+    position: relative;
     width: calc(100% + 32px);
     margin: -14px -16px 10px;
-    height: auto;
-    max-height: 340px;
+    /* 3:2 预留框：加载前后卡片高度恒定，根治「图片到了弹一下」 */
+    padding-top: 66%;
+    overflow: hidden;
+    background: rgba(120,120,128,0.08);
+  }
+  .waterfall-col .post-cover {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    max-height: none;
     border-radius: 0;
+    object-fit: cover;
     background: none;
   }
 }
