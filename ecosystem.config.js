@@ -37,6 +37,9 @@ var serverDir = path.resolve(__dirname, 'server');
 var envFile = path.join(serverDir, '.env');
 var envVars = parseEnv(envFile);
 
+// ChmlFrp 内网穿透客户端（家庭上传链路：uk.frp.one:14225 网页 / :10721 WebSocket）
+var frpcDir = 'C:\\Users\\iflytek\\Documents\\ChmlFrp-0.51.2_251023_2_windows_amd64';
+
 module.exports = {
   apps: [
     {
@@ -108,6 +111,23 @@ module.exports = {
         NODE_PATH: path.join(serverDir, 'node_modules'),
         DETECT_PORT: envVars.DETECT_PORT || '7998'
       }
+    },
+    {
+      name: 'chmlfrp-frpc',
+      script: path.join(frpcDir, 'frpc.exe'),
+      args: '-c frpc.ini',
+      cwd: frpcDir,
+      exec_mode: 'fork',
+      autorestart: true,
+      max_restarts: 20,
+      restart_delay: 10000,
+      exp_backoff_restart_delay: 200,
+      min_uptime: '30s',
+      watch: false,
+      log_date_format: 'YYYY-MM-DD HH:mm:ss',
+      error_file: path.join(__dirname, 'logs', 'frpc-error.log'),
+      out_file: path.join(__dirname, 'logs', 'frpc-out.log'),
+      merge_logs: true
     }
   ]
 };
