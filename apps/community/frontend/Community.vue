@@ -3994,8 +3994,11 @@ export default {
     from { background-position: 200% 0; }
     to { background-position: -200% 0; }
   }
-  .post-cover { opacity: 0; transition: opacity var(--duration-normal, 0.22s) var(--ease-standard, ease); }
-  .post-cover.img-loaded { opacity: 1; }
+  .post-cover { animation: cover-in 0.35s var(--ease-standard, ease) both; }
+  @keyframes cover-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
 
   .waterfall-col .post-cover {
     order: -1;
