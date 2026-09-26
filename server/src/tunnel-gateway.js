@@ -20,6 +20,13 @@ function isAllowedApi(url) {
 var server = http.createServer(function (req, res) {
   var url = req.url || '/';
 
+  // 公网入口自动进入专属上传/下载页
+  if (url === '/' || url.indexOf('/?') === 0) {
+    res.writeHead(302, { Location: '/cloud-lite' });
+    res.end();
+    return;
+  }
+
   if (url.indexOf('/api/') === 0 && !isAllowedApi(url)) {
     // 403（而非 401）：401 会触发前端登出逻辑，403 仅静默失败
     res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });

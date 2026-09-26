@@ -17,7 +17,8 @@
       { "path": "/cloud", "routeName": "CloudDrive", "component": "./frontend/CloudDrive.vue" },
       { "path": "/cloud-picker", "routeName": "CloudFilePicker", "component": "./frontend/CloudFilePicker.vue" },
       { "path": "/cloud-upload", "routeName": "CloudUpload", "component": "./frontend/CloudUpload.vue" },
-      { "path": "/guest-upload", "routeName": "GuestUpload", "component": "./frontend/GuestUpload.vue", "requiresAuth": false, "appControl": false }
+      { "path": "/guest-upload", "routeName": "GuestUpload", "component": "./frontend/GuestUpload.vue", "requiresAuth": false, "appControl": false },
+      { "path": "/cloud-lite", "routeName": "CloudLite", "component": "./frontend/CloudLite.vue", "requiresAuth": false, "appControl": false }
     ]
   },
   "backend": {

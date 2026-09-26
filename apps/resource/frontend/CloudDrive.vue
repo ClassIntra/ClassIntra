@@ -9,12 +9,15 @@
         <button class="nav-action-btn" @click="triggerUpload" title="上传">
           <i class="fa-solid fa-cloud-arrow-up"></i>
         </button>
+        <button v-if="isAdmin" class="nav-action-btn" :class="{ 'review-active': reviewMode }" @click="toggleReviewMode" title="上传审核">
+          <i class="fa-solid fa-shield-halved"></i>
+        </button>
       </template>
     </AppNavBar>
 
     <div class="cloud-content">
-      <!-- 上传码卡片 -->
-      <div class="upload-code-card">
+      <!-- 上传码卡片（审核模式下隐藏） -->
+      <div v-if="!reviewMode" class="upload-code-card">
         <div class="upload-code-header">
           <div class="upload-code-title">
             <i class="fa-solid fa-key"></i>
@@ -41,8 +44,8 @@
         </div>
       </div>
 
-      <!-- 分组标签栏 -->
-      <div class="folder-tabs">
+      <!-- 分组标签栏（审核模式下隐藏） -->
+      <div v-if="!reviewMode" class="folder-tabs">
         <div class="folder-tabs-scroll">
           <button
             class="folder-tab"
@@ -85,6 +88,46 @@
 
       <div v-if="loading" class="loading-state">
         <div class="skeleton-pulse"></div>
+      </div>
+
+      <!-- 上传审核面板（班管） -->
+      <div v-else-if="reviewMode" class="review-panel">
+        <div class="review-toolbar">
+          <button class="review-filter" :class="{ active: reviewFilter === 'all' }" @click="setReviewFilter('all')">全部</button>
+          <button class="review-filter" :class="{ active: reviewFilter === 'hidden' }" @click="setReviewFilter('hidden')">已下架</button>
+          <span class="review-count" v-if="!reviewLoading">共 {{ reviewFiles.length }} 条</span>
+        </div>
+        <div v-if="reviewLoading" class="loading-state">
+          <div class="skeleton-pulse"></div>
+        </div>
+        <div v-else-if="reviewFiles.length === 0" class="empty-state">
+          <i class="fa-solid fa-shield-halved"></i>
+          <p>{{ reviewFilter === 'hidden' ? '没有已下架的文件' : '暂无上传记录' }}</p>
+        </div>
+        <div v-else class="review-list">
+          <div v-for="f in reviewFiles" :key="f.hash" class="review-item" :class="{ moderated: f.status === 'hidden' }">
+            <div class="review-thumb">
+              <img v-if="getMediaType(f) === 'image'" :src="f.url + '?w=200'" loading="lazy" :alt="f.name" />
+              <div v-else class="media-thumb" :class="getMediaType(f) + '-thumb'">
+                <i :class="getMediaType(f) === 'video' ? 'fa-solid fa-play' : (getMediaType(f) === 'audio' ? 'fa-solid fa-music' : 'fa-solid fa-file')"></i>
+              </div>
+              <span v-if="f.status === 'hidden'" class="review-badge">已下架</span>
+              <span v-else-if="f.deleted" class="review-badge deleted-badge">已删除</span>
+            </div>
+            <div class="review-info">
+              <span class="review-name">{{ f.name }}</span>
+              <span class="review-meta">{{ f.owner_name }} · {{ formatTime(f.created_at) }} · {{ formatSize(f.size) }}</span>
+            </div>
+            <div class="review-actions">
+              <button v-if="f.status !== 'hidden'" class="review-btn danger" :disabled="f.deleted" @click="setFileStatus(f, 'hidden')">
+                <i class="fa-solid fa-eye-slash"></i> 下架
+              </button>
+              <button v-else class="review-btn restore" @click="setFileStatus(f, 'ok')">
+                <i class="fa-solid fa-rotate-left"></i> 恢复
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div v-else-if="files.length === 0" class="empty-state">
@@ -310,8 +353,22 @@ export default {
       folderMenu: { target: null, style: {} },
       // Toast
       toastMsg: '',
-      toastTimer: null
+      toastTimer: null,
+      // 上传审核（班管）
+      reviewMode: false,
+      reviewFiles: [],
+      reviewLoading: false,
+      reviewFilter: 'all'
     };
+  },
+  computed: {
+    isAdmin: function() {
+      var u = this.$store && this.$store.state.auth ? this.$store.state.auth.user : null;
+      if (!u) {
+        try { u = JSON.parse(localStorage.getItem('user') || 'null'); } catch (e) { u = null; }
+      }
+      return !!(u && (u.is_admin === 1 || u.is_class_admin === true));
+    }
   },
   mounted: function() {
     this.loadFiles();
@@ -344,6 +401,62 @@ export default {
       this.exitSelectMode();
       this.closeFolderMenu();
       this.loadFiles();
+    },
+
+    // ====== 上传审核（班管） ======
+    toggleReviewMode: function() {
+      this.reviewMode = !this.reviewMode;
+      this.exitSelectMode();
+      if (this.reviewMode) {
+        this.loadReviewFiles();
+      } else {
+        this.loadFiles();
+      }
+    },
+    setReviewFilter: function(filter) {
+      this.reviewFilter = filter;
+      this.loadReviewFiles();
+    },
+    loadReviewFiles: function() {
+      var self = this;
+      self.reviewLoading = true;
+      var params = { limit: 300 };
+      if (self.reviewFilter !== 'all') params.status = self.reviewFilter;
+      api.get('/cloud/admin/uploads', { params: params }).then(function(res) {
+        self.reviewFiles = (res.data.data && res.data.data.files) || [];
+        self.reviewLoading = false;
+      }).catch(function(err) {
+        self.reviewLoading = false;
+        self.reviewFiles = [];
+        var msg = (err.response && err.response.data && err.response.data.message) || '加载失败';
+        self.showToast(msg);
+        if (err.response && err.response.status === 403) self.reviewMode = false;
+      });
+    },
+    setFileStatus: function(file, status) {
+      var self = this;
+      var tip = status === 'hidden' ? '确定下架「' + file.name + '」？下架后所有人（包括上传者）都无法查看。' : '确定恢复「' + file.name + '」？';
+      if (!confirm(tip)) return;
+      api.patch('/cloud/admin/files/' + file.hash + '/status', { status: status }).then(function(res) {
+        if (res.data.code === 200) {
+          self.showToast(res.data.message || (status === 'hidden' ? '已下架' : '已恢复'));
+          if (self.reviewFilter === 'hidden' && status === 'hidden') {
+            self.reviewFiles = self.reviewFiles.filter(function(x) { return x.hash !== file.hash; });
+          } else {
+            file.status = status;
+          }
+        }
+      }).catch(function(err) {
+        var msg = (err.response && err.response.data && err.response.data.message) || '操作失败';
+        self.showToast(msg);
+      });
+    },
+    formatTime: function(s) {
+      if (!s) return '';
+      var d = new Date(s.indexOf('T') > -1 ? s : s.replace(' ', 'T') + 'Z');
+      if (isNaN(d.getTime())) return s;
+      function p(n) { return (n < 10 ? '0' : '') + n; }
+      return (d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
     },
 
     // ====== 分组管理 ======
@@ -1295,4 +1408,45 @@ export default {
   from { opacity: 0; transform: translateX(-50%) translateY(10px); }
   to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
+
+/* ====== 上传审核（班管） ====== */
+.review-panel { padding-bottom: 90px; }
+.review-toolbar { display: flex; align-items: center; gap: 8px; padding: 4px 16px 10px; }
+.review-filter {
+  border: none; background: rgba(118, 118, 128, 0.12); color: #3a3a3c;
+  padding: 6px 14px; border-radius: 999px; font-size: 13px; cursor: pointer;
+}
+.review-filter.active { background: #5856D6; color: #fff; }
+.review-count { margin-left: auto; font-size: 12px; color: #8e8e93; }
+.review-list { padding: 0 16px; display: flex; flex-direction: column; gap: 10px; }
+.review-item {
+  display: flex; align-items: center; gap: 12px;
+  background: #fff; border-radius: 14px; padding: 10px 12px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+.review-item.moderated { opacity: 0.6; }
+.review-thumb {
+  position: relative; width: 56px; height: 56px; border-radius: 10px; overflow: hidden;
+  background: #f2f2f7; flex-shrink: 0;
+}
+.review-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.review-thumb .media-thumb { width: 100%; height: 100%; border-radius: 0; }
+.review-badge {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  background: rgba(255, 59, 48, 0.85); color: #fff; font-size: 10px;
+  text-align: center; padding: 1px 0;
+}
+.review-badge.deleted-badge { background: rgba(142, 142, 147, 0.85); }
+.review-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.review-name { font-size: 14px; font-weight: 600; color: #1c1c1e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-meta { font-size: 12px; color: #8e8e93; }
+.review-actions { flex-shrink: 0; }
+.review-btn {
+  border: none; border-radius: 999px; padding: 6px 14px; font-size: 13px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.review-btn.danger { background: rgba(255, 59, 48, 0.12); color: #FF3B30; }
+.review-btn.restore { background: rgba(88, 86, 214, 0.12); color: #5856D6; }
+.review-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.nav-action-btn.review-active { color: #5856D6; }
 </style>
