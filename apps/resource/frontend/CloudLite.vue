@@ -41,14 +41,56 @@
       </button>
     </div>
 
-    <!-- 已登录：上传 + 队列 + 文件列表 -->
+    <!-- 已登录 -->
     <template v-else>
-      <!-- 上传区 -->
-      <div class="upload-card" @click="triggerUpload">
-        <input ref="fileInput" type="file" accept="image/*,audio/*,video/*,.txt,.md,.json,.csv,.log,.xml,.yml" multiple style="display:none" @change="onFileSelect" />
-        <i class="fa-solid fa-cloud-arrow-up upload-icon"></i>
-        <p class="upload-text">{{ queueRunning ? '上传中 ' + doneCount + '/' + queue.length : '点击选择文件' }}</p>
-        <p class="upload-sub">{{ queueRunning ? '可以锁屏休息一下，中断的文件可一键重试' : '图片 / 音频 / 视频 / 文本（txt、md、json 等）' }}</p>
+      <!-- 分组栏 -->
+      <div class="folder-bar">
+        <button class="fchip" :class="{ on: currentFolder === '' }" @click="switchFolder('')">
+          全部<span class="fchip-count">{{ files.length }}</span>
+        </button>
+        <button class="fchip" :class="{ on: currentFolder === '__root__' }" @click="switchFolder('__root__')">
+          未分组
+        </button>
+        <button
+          v-for="f in folders"
+          :key="f.id"
+          class="fchip"
+          :class="{ on: currentFolder === f.name }"
+          @click="switchFolder(f.name)"
+        >
+          <i v-if="f.hide_from_all" class="fa-solid fa-eye-slash fchip-hidden"></i>
+          {{ f.name }}<span class="fchip-count">{{ f.file_count }}</span>
+        </button>
+        <button class="fchip manage" @click="openManage">
+          <i class="fa-solid fa-folder-plus"></i> 管理
+        </button>
+      </div>
+
+      <!-- 上传入口：相机 / 录像 / 相册 / 文件 -->
+      <div class="upload-card">
+        <div class="entry-grid">
+          <input ref="camInput" type="file" accept="image/*" capture="environment" style="display:none" @change="onFileSelect" />
+          <input ref="vidInput" type="file" accept="video/*" capture="environment" style="display:none" @change="onFileSelect" />
+          <input ref="galInput" type="file" accept="image/*,video/*" multiple style="display:none" @change="onFileSelect" />
+          <input ref="fileInput" type="file" multiple style="display:none" @change="onFileSelect" />
+          <button class="entry" @click="pickEntry('cam')">
+            <i class="fa-solid fa-camera"></i><span>拍照</span>
+          </button>
+          <button class="entry" @click="pickEntry('vid')">
+            <i class="fa-solid fa-video"></i><span>录像</span>
+          </button>
+          <button class="entry" @click="pickEntry('gal')">
+            <i class="fa-solid fa-images"></i><span>相册</span>
+          </button>
+          <button class="entry" @click="pickEntry('file')">
+            <i class="fa-solid fa-file-arrow-up"></i><span>文件</span>
+          </button>
+        </div>
+        <p class="upload-sub">
+          <template v-if="queueRunning">上传中 {{ doneCount }}/{{ queue.length }} · 可锁屏休息，中断可重试</template>
+          <template v-else-if="currentFolderName">将上传到分组「{{ currentFolderName }}」</template>
+          <template v-else>支持多选 · 图片 / 音频 / 视频 / 文本</template>
+        </p>
       </div>
 
       <!-- 上传队列 -->
@@ -70,9 +112,7 @@
             <div v-if="item.status === 'uploading' || item.status === 'done'" class="progress-track">
               <div class="progress-fill" :class="{ full: item.status === 'done' }" :style="{ width: (item.status === 'done' ? 100 : item.progress) + '%' }"></div>
             </div>
-            <span class="queue-status" :class="item.status">
-              {{ statusText(item) }}
-            </span>
+            <span class="queue-status" :class="item.status">{{ statusText(item) }}</span>
           </div>
           <button v-if="item.status === 'failed'" class="queue-retry" @click="retryItem(item)">
             <i class="fa-solid fa-rotate-right"></i> 重试
@@ -93,10 +133,9 @@
       </div>
       <div v-else-if="files.length === 0" class="lite-empty">
         <i class="fa-solid fa-folder-open"></i>
-        <p>云盘还是空的，先上传一个文件吧</p>
+        <p>{{ currentFolderName ? '这个分组还是空的' : '云盘还是空的，先上传一个文件吧' }}</p>
       </div>
       <template v-else>
-        <!-- 类型筛选 -->
         <div class="filter-bar">
           <button v-for="f in filters" :key="f.key" class="filter-chip" :class="{ active: activeFilter === f.key }" @click="activeFilter = f.key">
             {{ f.label }} <span class="filter-count">{{ countByType(f.key) }}</span>
@@ -126,9 +165,8 @@
               :title="downloads[file.hash] ? '下载中 ' + downloads[file.hash] + '%' : '下载'"
             >
               <i v-if="downloads[file.hash]" class="fa-solid fa-spinner fa-spin"></i>
-              <span v-else-if="downloads[file.hash] === 0"></span>
-              <i v-else class="fa-solid fa-download"></i>
               <em v-if="downloads[file.hash]">{{ downloads[file.hash] }}%</em>
+              <i v-else class="fa-solid fa-download"></i>
             </button>
             <button class="lite-delete" @click="deleteFile(file)" title="删除">
               <i class="fa-solid fa-trash-can"></i>
@@ -138,7 +176,48 @@
       </template>
     </template>
 
-    <!-- 查看器：大图 / 视频 / 音频 -->
+    <!-- 分组管理弹层 -->
+    <div v-if="manageOpen" class="modal-mask" @click.self="closeManage">
+      <div class="modal-sheet">
+        <div class="sh-head">
+          <span class="sh-title">分组管理</span>
+          <button class="sh-close" @click="closeManage"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="sh-sec">
+          <h4>创建分组</h4>
+          <div class="row">
+            <input v-model.trim="newFolderName" class="lite-input row-inp" type="text" placeholder="分组名称" maxlength="50" @keyup.enter="createFolder" />
+            <button class="row-btn" @click="createFolder">创建</button>
+          </div>
+        </div>
+        <div class="sh-sec">
+          <h4>导入他人分享</h4>
+          <div class="row">
+            <input v-model.trim="importCode" class="lite-input row-inp" type="text" placeholder="输入 8 位分享码" maxlength="8" style="text-transform:uppercase" @keyup.enter="importShare" />
+            <button class="row-btn" @click="importShare">导入</button>
+          </div>
+          <div v-if="shareInfo" class="share-code">
+            <b>{{ shareInfo.code }}</b>
+            <span>「{{ shareInfo.name }}」的分享码 · 可发给同学导入</span>
+          </div>
+        </div>
+        <div class="sh-sec">
+          <h4>我的分组（点名称可跳转）</h4>
+          <p v-if="folders.length === 0" class="sh-empty">还没有分组，先创建一个吧</p>
+          <div v-for="f in folders" :key="f.id" class="frow">
+            <span class="frow-name" @click="switchFolder(f.name); closeManage()">
+              <i v-if="f.hide_from_all" class="fa-solid fa-eye-slash"></i>{{ f.name }}
+              <em>{{ f.file_count }} 个</em>
+            </span>
+            <button class="frow-act brand" @click="shareFolder(f)">分享</button>
+            <button class="frow-act" @click="toggleHide(f)">{{ f.hide_from_all ? '显示' : '隐藏' }}</button>
+            <button class="frow-act danger" @click="deleteFolder(f)">删除</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 查看器：大图 / 视频 / 音频 / 文本 -->
     <div v-if="viewer.open" class="viewer" @touchstart="viewerTouchStart" @touchend="viewerTouchEnd">
       <div class="viewer-top">
         <span class="viewer-count" v-if="viewerImages.length > 1">{{ viewer.index + 1 }} / {{ viewerImages.length }}</span>
@@ -168,10 +247,12 @@
       <p class="viewer-name">{{ viewerImages[viewer.index].display_name || viewerImages[viewer.index].name }}</p>
     </div>
 
-    <!-- 查看器：视频 / 音频播放 -->
     <div v-if="mediaOverlay.open" class="viewer">
       <div class="viewer-top">
         <div class="viewer-top-actions">
+          <button class="viewer-btn" @click="downloadFile(mediaOverlay.file)" title="下载">
+            <i class="fa-solid fa-download"></i>
+          </button>
           <button class="viewer-btn" @click="closeMedia" title="关闭">
             <i class="fa-solid fa-xmark"></i>
           </button>
@@ -245,7 +326,12 @@ export default {
       loginLoading: false,
       loginError: '',
       files: [],
-      loading: false,
+      folders: [],
+      currentFolder: '',
+      newFolderName: '',
+      importCode: '',
+      manageOpen: false,
+      shareInfo: null,
       activeFilter: 'all',
       filters: [
         { key: 'all', label: '全部' },
@@ -255,16 +341,13 @@ export default {
         { key: 'text', label: '文本' },
         { key: 'other', label: '其他' }
       ],
-      // 上传队列
       queue: [],
       queueSeq: 0,
       pumping: false,
       lastProgressAt: 0,
-      // 下载进度 { hash: percent }
       downloads: {},
-      // 图片查看器 / 媒体播放
       viewer: { open: false, index: 0 },
-      mediaOverlay: { open: false, file: null, type: '' },
+      mediaOverlay: { open: false, file: null, type: '', loading: false, content: '', error: '' },
       toastMsg: '',
       toastTimer: null
     };
@@ -272,6 +355,9 @@ export default {
   computed: {
     isLoggedIn: function() {
       return !!(this.$store.state.auth.token);
+    },
+    currentFolderName: function() {
+      return (this.currentFolder !== '' && this.currentFolder !== '__root__') ? this.currentFolder : '';
     },
     queueRunning: function() {
       return this.queue.some(function(q) { return q.status === 'waiting' || q.status === 'uploading'; });
@@ -300,6 +386,7 @@ export default {
     if (this.isLoggedIn) {
       var user = this.$store.state.auth.user;
       if (user && user.account) this.account = user.account;
+      this.loadFolders();
       this.loadFiles();
     }
   },
@@ -321,11 +408,9 @@ export default {
     onVisibility: function() {
       if (document.visibilityState !== 'visible') return;
       var self = this;
-      // 1) 强制重绘：X5/旧内核锁屏后 GPU 合成层可能丢失导致黑屏
       var body = document.body;
       body.style.visibility = 'hidden';
       setTimeout(function() { body.style.visibility = ''; }, 60);
-      // 2) 上传看门狗：长时间无进度的"上传中"文件判定为中断
       var stuck = null;
       self.queue.forEach(function(q) {
         if (q.status === 'uploading' && Date.now() - self.lastProgressAt > STALL_TIMEOUT) {
@@ -342,15 +427,105 @@ export default {
       }
     },
 
+    // ====== 分组 ======
+    loadFolders: function() {
+      var self = this;
+      return api.get('/cloud/folders').then(function(res) {
+        self.folders = (res.data.data && res.data.data.folders) || [];
+      }).catch(function() {
+        self.folders = [];
+      });
+    },
+    switchFolder: function(name) {
+      this.currentFolder = name;
+      this.loadFiles();
+    },
+    openManage: function() {
+      this.manageOpen = true;
+      this.shareInfo = null;
+    },
+    closeManage: function() {
+      this.manageOpen = false;
+      this.shareInfo = null;
+    },
+    createFolder: function() {
+      var self = this;
+      var name = self.newFolderName.trim();
+      if (!name) { self.showToast('请输入分组名称'); return; }
+      if (name.length > 50) { self.showToast('分组名称不能超过50个字符'); return; }
+      api.post('/cloud/folders', { name: name }).then(function(res) {
+        if (res.data.code === 200) {
+          self.showToast('分组「' + name + '」已创建');
+          self.newFolderName = '';
+          self.loadFolders();
+        }
+      }).catch(function(err) {
+        self.showToast((err.response && err.response.data && err.response.data.message) || '创建失败');
+      });
+    },
+    deleteFolder: function(f) {
+      var self = this;
+      if (!confirm('删除分组「' + f.name + '」？分组内的文件会移回未分组，不会丢失。')) return;
+      api.delete('/cloud/folders/' + f.id).then(function() {
+        self.showToast('分组已删除，文件已移回未分组');
+        if (self.currentFolder === f.name) self.currentFolder = '';
+        self.loadFolders();
+        self.loadFiles();
+      }).catch(function(err) {
+        self.showToast((err.response && err.response.data && err.response.data.message) || '删除失败');
+      });
+    },
+    toggleHide: function(f) {
+      var self = this;
+      api.patch('/cloud/folders/' + f.id + '/toggle-hide').then(function() {
+        self.showToast(f.hide_from_all ? '「' + f.name + '」已恢复显示' : '「' + f.name + '」已隐藏');
+        self.loadFolders();
+      }).catch(function(err) {
+        self.showToast((err.response && err.response.data && err.response.data.message) || '操作失败');
+      });
+    },
+    shareFolder: function(f) {
+      var self = this;
+      api.post('/cloud/folders/' + f.id + '/share').then(function(res) {
+        var d = res.data.data;
+        if (d && d.share_code) {
+          self.shareInfo = { name: f.name, code: d.share_code };
+        } else {
+          self.showToast((res.data && res.data.message) || '生成失败');
+        }
+      }).catch(function(err) {
+        self.showToast((err.response && err.response.data && err.response.data.message) || '生成失败');
+      });
+    },
+    importShare: function() {
+      var self = this;
+      var code = self.importCode.trim().toUpperCase();
+      if (!code) { self.showToast('请输入 8 位分享码'); return; }
+      api.post('/cloud/folders/import/' + encodeURIComponent(code)).then(function(res) {
+        var d = res.data.data;
+        if (res.data.code === 200 && d) {
+          self.showToast('成功导入 ' + d.imported + ' 个文件' + (d.skipped > 0 ? '，' + d.skipped + ' 个已存在' : ''));
+          self.importCode = '';
+          self.loadFolders();
+          self.loadFiles();
+        }
+      }).catch(function(err) {
+        self.showToast((err.response && err.response.data && err.response.data.message) || '导入失败：分享码无效');
+      });
+    },
+
     // ====== 上传队列 ======
-    triggerUpload: function() {
-      if (!this.queueRunning) this.$refs.fileInput.click();
+    pickEntry: function(kind) {
+      if (this.queueRunning) { this.showToast('当前队列上传中，请稍候'); return; }
+      var ref = { cam: 'camInput', vid: 'vidInput', gal: 'galInput', file: 'fileInput' }[kind];
+      if (ref && this.$refs[ref]) this.$refs[ref].click();
     },
     onFileSelect: function(e) {
       var self = this;
       var list = Array.prototype.slice.call(e.target.files || []);
       e.target.value = '';
       if (list.length === 0) return;
+      var folder = self.currentFolderName;
       list.forEach(function(f) {
         var isImage = getMediaType({ name: f.name, mime_type: f.type }) === 'image';
         self.queue.push({
@@ -358,6 +533,7 @@ export default {
           name: f.name,
           size: f.size,
           file: f,
+          folder: folder,
           status: 'waiting',
           progress: 0,
           speed: '',
@@ -367,6 +543,7 @@ export default {
           _lastTime: 0
         });
       });
+      if (list.length > 1) self.showToast('已加入 ' + list.length + ' 个文件');
       self.pump();
     },
     pump: function() {
@@ -377,7 +554,6 @@ export default {
         if (!item && q.status === 'waiting') item = q;
       });
       if (!item) {
-        // 队列跑完：汇总 + 刷新列表
         if (self.queue.length > 0) {
           var ok = self.queue.filter(function(q) { return q.status === 'done'; }).length;
           var fail = self.queue.filter(function(q) { return q.status === 'failed'; }).length;
@@ -386,6 +562,7 @@ export default {
           }
         }
         self.loadFiles();
+        self.loadFolders();
         return;
       }
       item.status = 'uploading';
@@ -400,6 +577,7 @@ export default {
       var fd = new FormData();
       fd.append('file', item.file, item.name);
       fd.append('source', 'lite');
+      if (item.folder) fd.append('folder', item.folder);
       api.post('/cloud/upload', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 0,
@@ -407,11 +585,9 @@ export default {
           var now = Date.now();
           self.lastProgressAt = now;
           if (evt.total) item.progress = Math.round((evt.loaded / evt.total) * 100);
-          // 瞬时速度（1 秒窗口平滑）
           var dt = now - item._lastTime;
           if (dt > 800 && evt.loaded > item._lastLoaded) {
-            var bps = (evt.loaded - item._lastLoaded) / (dt / 1000);
-            item.speed = self.formatSize(Math.round(bps)) + '/s';
+            item.speed = self.formatSize(Math.round((evt.loaded - item._lastLoaded) / (dt / 1000))) + '/s';
             item._lastLoaded = evt.loaded;
             item._lastTime = now;
           }
@@ -437,7 +613,7 @@ export default {
     statusText: function(item) {
       if (item.status === 'waiting') return '等待上传';
       if (item.status === 'uploading') return '上传中 ' + item.progress + '%' + (item.speed ? ' · ' + item.speed : '');
-      if (item.status === 'done') return '已完成';
+      if (item.status === 'done') return '已完成' + (item.folder ? ' → ' + item.folder : '');
       return item.error || '上传失败';
     },
     retryItem: function(item) {
@@ -482,7 +658,7 @@ export default {
         if (idx === -1) idx = 0;
         this.viewer = { open: true, index: idx };
       } else if (type === 'video' || type === 'audio') {
-        this.mediaOverlay = { open: true, file: file, type: type };
+        this.mediaOverlay = { open: true, file: file, type: type, loading: false, content: '', error: '' };
       } else if (type === 'text') {
         if ((file.size || 0) > 5 * 1024 * 1024) {
           this.showToast('文件较大，请直接下载查看');
@@ -504,7 +680,7 @@ export default {
       this.viewer = { open: false, index: 0 };
     },
     closeMedia: function() {
-      this.mediaOverlay = { open: false, file: null, type: '' };
+      this.mediaOverlay = { open: false, file: null, type: '', loading: false, content: '', error: '' };
     },
     viewerStep: function(delta) {
       var len = this.viewerImages.length;
@@ -525,12 +701,15 @@ export default {
     // ====== 文件列表 ======
     refreshList: function() {
       if (this.loading) return;
+      this.loadFolders();
       this.loadFiles();
     },
     loadFiles: function() {
       var self = this;
       self.loading = true;
-      api.get('/cloud/files').then(function(res) {
+      var params = {};
+      if (self.currentFolder) params.folder = self.currentFolder;
+      api.get('/cloud/files', { params: params }).then(function(res) {
         self.files = (res.data.data && res.data.data.files) || [];
         self.loading = false;
       }).catch(function() {
@@ -545,6 +724,7 @@ export default {
         if (res.data.code === 200) {
           self.showToast('已删除：' + name);
           self.loadFiles();
+          self.loadFolders();
         }
       }).catch(function(err) {
         var msg = (err.response && err.response.data && err.response.data.message) || '删除失败';
@@ -592,6 +772,7 @@ export default {
       self.$store.dispatch('auth/login', { account: self.account, password: self.password }).then(function() {
         try { localStorage.setItem('ci_last_account', self.account); } catch (e) {}
         self.password = '';
+        self.loadFolders();
         self.loadFiles();
       }).catch(function(err) {
         self.loginError = (err.response && err.response.data && err.response.data.message) || err.message || '登录失败';
@@ -603,7 +784,10 @@ export default {
       var self = this;
       self.$store.dispatch('auth/logout').then(function() {
         self.files = [];
-        self.account = '';
+        self.folders = [];
+        self.queue = [];
+        self.currentFolder = '';
+        self.closeManage();
       });
     },
 
@@ -635,7 +819,10 @@ export default {
   overscroll-behavior-y: contain;
   background: #f2f2f7;
   font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  padding-bottom: 40px;
+  padding-bottom: 48px;
+}
+@media (min-width: 760px) {
+  .cloud-lite { max-width: 720px; margin: 0 auto; }
 }
 .lite-header {
   position: sticky; top: 0; z-index: 10;
@@ -679,17 +866,41 @@ export default {
   width: 18px; height: 18px; border: 2px solid rgba(255, 255, 255, 0.4);
   border-top-color: #fff; border-radius: 50%; animation: lite-spin 0.8s linear infinite;
 }
+.btn-loading.dark { border-color: rgba(0, 0, 0, 0.15); border-top-color: #5856D6; }
 @keyframes lite-spin { to { transform: rotate(360deg); } }
+/* ====== 分组栏 ====== */
+.folder-bar { display: flex; align-items: center; padding: 14px 16px 0; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.folder-bar::-webkit-scrollbar { display: none; }
+.fchip {
+  border: none; background: rgba(118, 118, 128, 0.12); color: #3a3a3c;
+  padding: 6px 13px; border-radius: 999px; font-size: 13px; cursor: pointer;
+  white-space: nowrap; margin-right: 8px; flex-shrink: 0;
+  display: inline-flex; align-items: center;
+}
+.fchip.on { background: #5856D6; color: #fff; }
+.fchip-count { font-size: 11px; opacity: 0.7; margin-left: 4px; }
+.fchip-hidden { font-size: 11px; margin-right: 4px; opacity: 0.75; }
+.fchip.manage { background: rgba(88, 86, 214, 0.12); color: #5856D6; margin-right: 0; }
+/* ====== 上传入口 ====== */
 .upload-card {
-  margin: 16px 16px 0;
-  background: #fff; border-radius: 16px; padding: 26px 18px;
-  text-align: center; cursor: pointer;
+  margin: 14px 16px 0;
+  background: #fff; border-radius: 16px; padding: 16px 14px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
-.upload-icon { font-size: 36px; color: #5856D6; margin-bottom: 8px; }
-.upload-text { margin: 0 0 4px; font-size: 15px; font-weight: 600; color: #1c1c1e; }
-.upload-sub { margin: 0; font-size: 12px; color: #8e8e93; }
-/* ====== 上传队列 ====== */
+.entry-grid { display: grid; grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 420px) {
+  .entry-grid { grid-template-columns: repeat(2, 1fr); row-gap: 10px; }
+}
+.entry {
+  border: none; background: rgba(88, 86, 214, 0.1); color: #5856D6;
+  border-radius: 12px; padding: 13px 4px; cursor: pointer; font-family: inherit;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.entry i { font-size: 20px; margin-bottom: 6px; }
+.entry span { font-size: 12px; font-weight: 600; }
+.entry:active { background: rgba(88, 86, 214, 0.18); }
+.upload-sub { margin: 10px 0 0; font-size: 12px; color: #8e8e93; text-align: center; }
+/* ====== 队列 ====== */
 .queue-card {
   margin: 12px 16px 0;
   background: #fff; border-radius: 16px; padding: 12px 14px;
@@ -702,7 +913,7 @@ export default {
   padding: 4px 12px; border-radius: 999px; font-size: 12px; cursor: pointer;
   display: inline-flex; align-items: center; gap: 4px;
 }
-.queue-item { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+.queue-item { display: flex; align-items: center; padding: 8px 0; }
 .queue-thumb {
   width: 42px; height: 42px; border-radius: 8px; overflow: hidden; flex-shrink: 0;
   background: #f2f2f7; display: flex; align-items: center; justify-content: center;
@@ -725,22 +936,26 @@ export default {
 }
 .queue-done-icon { color: #34C759; font-size: 18px; flex-shrink: 0; }
 /* ====== 类型筛选 ====== */
-.filter-bar { display: flex; align-items: center; gap: 8px; padding: 14px 16px 0; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.filter-bar { display: flex; align-items: center; padding: 14px 16px 0; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.filter-bar::-webkit-scrollbar { display: none; }
 .filter-chip {
   border: none; background: rgba(118, 118, 128, 0.12); color: #3a3a3c;
   padding: 6px 14px; border-radius: 999px; font-size: 13px; cursor: pointer; flex-shrink: 0;
-  display: inline-flex; align-items: center; gap: 4px;
+  display: inline-flex; align-items: center; gap: 4px; margin-right: 8px;
 }
 .filter-chip.active { background: #5856D6; color: #fff; }
 .filter-count { font-size: 11px; opacity: 0.7; }
 /* ====== 文件列表 ====== */
 .lite-loading, .lite-empty { text-align: center; color: #8e8e93; padding: 50px 20px; font-size: 14px; }
 .lite-empty i { font-size: 34px; margin-bottom: 10px; display: block; color: #c7c7cc; }
-.lite-list { margin: 14px 16px 0; display: flex; flex-direction: column; gap: 10px; }
+.lite-list { margin: 14px 16px 0; display: grid; grid-template-columns: 1fr; }
+@media (min-width: 860px) {
+  .lite-list { grid-template-columns: 1fr 1fr; column-gap: 10px; }
+}
 .lite-item {
   display: flex; align-items: center; gap: 12px;
   background: #fff; border-radius: 14px; padding: 10px 12px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05); margin-bottom: 10px;
 }
 .lite-thumb {
   width: 52px; height: 52px; border-radius: 10px; overflow: hidden;
@@ -764,6 +979,50 @@ export default {
 .lite-delete { background: rgba(255, 59, 48, 0.1); color: #FF3B30; }
 .lite-download.downloading { background: rgba(88, 86, 214, 0.2); }
 .lite-download em { position: absolute; bottom: -14px; left: 0; right: 0; font-size: 9px; color: #5856D6; text-align: center; font-style: normal; }
+/* ====== 分组管理弹层 ====== */
+.modal-mask {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 150;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex; align-items: flex-end; justify-content: center;
+}
+@media (min-width: 640px) { .modal-mask { align-items: center; } }
+.modal-sheet {
+  background: #f2f2f7; width: 100%; max-width: 560px; max-height: 86vh;
+  border-radius: 18px 18px 0 0; padding: 16px; overflow-y: auto; -webkit-overflow-scrolling: touch;
+}
+@media (min-width: 640px) { .modal-sheet { border-radius: 18px; } }
+.sh-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.sh-title { font-size: 16px; font-weight: 700; }
+.sh-close {
+  border: none; background: rgba(118, 118, 128, 0.12); color: #3a3a3c;
+  width: 30px; height: 30px; border-radius: 50%; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.sh-sec { background: #fff; border-radius: 14px; padding: 14px; margin-bottom: 12px; }
+.sh-sec h4 { font-size: 13px; color: #8e8e93; margin-bottom: 10px; font-weight: 600; }
+.row { display: flex; align-items: center; }
+.row-inp { margin-bottom: 0; margin-right: 10px; flex: 1; }
+.row-btn {
+  border: none; background: #5856D6; color: #fff;
+  min-height: 40px; padding: 0 16px; border-radius: 10px; font-size: 14px; cursor: pointer; flex-shrink: 0;
+}
+.share-code {
+  margin-top: 12px; background: #f2f2f7; border-radius: 12px; padding: 12px; text-align: center;
+}
+.share-code b { display: block; font-size: 24px; letter-spacing: 4px; color: #5856D6; margin-bottom: 6px; font-family: Menlo, Consolas, monospace; }
+.share-code span { font-size: 12px; color: #8e8e93; }
+.sh-empty { font-size: 13px; color: #8e8e93; text-align: center; padding: 8px 0; }
+.frow { display: flex; align-items: center; padding: 9px 0; border-bottom: 1px solid rgba(0, 0, 0, 0.05); }
+.frow:last-child { border-bottom: none; }
+.frow-name { flex: 1; min-width: 0; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.frow-name i { font-size: 11px; color: #8e8e93; margin-right: 5px; }
+.frow-name em { font-style: normal; font-size: 11px; color: #8e8e93; margin-left: 5px; }
+.frow-act {
+  border: none; background: rgba(118, 118, 128, 0.12); color: #3a3a3c;
+  padding: 5px 10px; border-radius: 8px; font-size: 12px; cursor: pointer; margin-left: 6px; flex-shrink: 0;
+}
+.frow-act.danger { background: rgba(255, 59, 48, 0.1); color: #FF3B30; }
+.frow-act.brand { background: rgba(88, 86, 214, 0.12); color: #5856D6; }
 /* ====== 骨架屏 ====== */
 .skeleton-pulse { animation: sk-pulse 1.4s ease-in-out infinite; }
 @keyframes sk-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
@@ -808,18 +1067,6 @@ export default {
 .audio-icon { font-size: 48px; color: #5856D6; }
 .audio-name { color: rgba(255, 255, 255, 0.85); font-size: 15px; margin: 14px 0 22px; }
 .viewer-audio { width: 100%; max-width: 480px; }
-/* ====== Toast ====== */
-.lite-toast {
-  position: fixed; bottom: 60px; left: 50%; transform: translateX(-50%);
-  background: rgba(28, 28, 30, 0.9); color: #fff;
-  padding: 10px 18px; border-radius: 999px; font-size: 13px;
-  max-width: 86vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  z-index: 300;
-}
-.toast-fade-enter-active, .toast-fade-leave-active { transition: opacity 0.25s; }
-.toast-fade-enter, .toast-fade-leave-to { opacity: 0; }
-
-/* ====== 文本查看 ====== */
 .text-panel {
   background: #fff; width: 100%; max-width: 720px; max-height: 100%;
   overflow: auto; border-radius: 12px; padding: 16px;
@@ -832,5 +1079,14 @@ export default {
   white-space: pre-wrap; word-break: break-all; margin: 0; width: 100%;
 }
 .v-err { color: #FF3B30; font-size: 14px; text-align: center; }
-.btn-loading.dark { border-color: rgba(0, 0, 0, 0.15); border-top-color: #5856D6; }
+/* ====== Toast ====== */
+.lite-toast {
+  position: fixed; bottom: 60px; left: 50%; transform: translateX(-50%);
+  background: rgba(28, 28, 30, 0.9); color: #fff;
+  padding: 10px 18px; border-radius: 999px; font-size: 13px;
+  max-width: 86vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  z-index: 300;
+}
+.toast-fade-enter-active, .toast-fade-leave-active { transition: opacity 0.25s; }
+.toast-fade-enter, .toast-fade-leave-to { opacity: 0; }
 </style>
