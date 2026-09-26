@@ -1142,8 +1142,6 @@ export default {
   background: linear-gradient(100deg, rgba(120,120,128,0.1) 30%, rgba(120,120,128,0.2) 50%, rgba(120,120,128,0.1) 70%);
   background-size: 200% 100%;
   animation: msg-img-shimmer 1.4s ease-in-out infinite;
-  opacity: 0;
-  transition: opacity var(--duration-normal, 0.22s) var(--ease-standard, ease);
   border-radius: var(--radius-md);
   margin: 4px 0;
   display: block;
