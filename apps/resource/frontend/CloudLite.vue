@@ -386,6 +386,7 @@ export default {
 
       var fd = new FormData();
       fd.append('file', item.file, item.name);
+      fd.append('source', 'lite');
       api.post('/cloud/upload', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 0,
