@@ -94,25 +94,6 @@ module.exports = {
       }
     },
     {
-      name: 'browser-detect',
-      script: 'src/detect-server.js',
-      cwd: serverDir,
-      exec_mode: 'fork',
-      autorestart: true,
-      max_restarts: 5,
-      restart_delay: 3000,
-      watch: false,
-      log_date_format: 'YYYY-MM-DD HH:mm:ss',
-      error_file: path.join(__dirname, 'logs', 'detect-error.log'),
-      out_file: path.join(__dirname, 'logs', 'detect-out.log'),
-      merge_logs: true,
-      env: {
-        NODE_ENV: 'production',
-        NODE_PATH: path.join(serverDir, 'node_modules'),
-        DETECT_PORT: envVars.DETECT_PORT || '7998'
-      }
-    },
-    {
       name: 'tunnel-gateway',
       script: 'src/tunnel-gateway.js',
       cwd: serverDir,
