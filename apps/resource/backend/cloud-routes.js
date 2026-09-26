@@ -80,6 +80,56 @@ function resolveUploadExt(originalname, mimetype) {
   return null;
 }
 
+// 魔数嗅探：扩展名与 MIME 都缺失时（安卓相册/缓存导出常见），读文件头判断真实类型
+function sniffMediaExt(filePath) {
+  var fd = null;
+  try {
+    fd = fs.openSync(filePath, 'r');
+    var buf = Buffer.alloc(16);
+    var n = fs.readSync(fd, buf, 0, 16, 0);
+    if (n < 4) return null;
+    if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return '.jpg';
+    if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) return '.png';
+    if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return '.gif';
+    if (buf[0] === 0x42 && buf[1] === 0x4D) return '.bmp';
+    if (buf[0] === 0x49 && buf[1] === 0x44 && buf[2] === 0x33) return '.mp3';
+    if (buf[0] === 0xFF && (buf[1] === 0xFB || buf[1] === 0xF3 || buf[1] === 0xF2)) return '.mp3';
+    if (buf[0] === 0x4F && buf[1] === 0x67 && buf[2] === 0x67 && buf[3] === 0x53) return '.ogg';
+    if (buf[0] === 0x1A && buf[1] === 0x45 && buf[2] === 0xDF && buf[3] === 0xA3) return '.webm';
+    var fourCC = buf.toString('ascii', 0, 4);
+    if (fourCC === 'RIFF') {
+      var sub = buf.toString('ascii', 8, 12);
+      if (sub === 'WEBP') return '.webp';
+      if (sub === 'WAVE') return '.wav';
+    }
+    if (buf.toString('ascii', 4, 8) === 'ftyp') {
+      var brand = buf.toString('ascii', 8, 12);
+      return brand.indexOf('qt') === 0 ? '.mov' : '.mp4';
+    }
+    return null;
+  } catch (e) {
+    return null;
+  } finally {
+    try { if (fd !== null) fs.closeSync(fd); } catch (e2) { /* ignore */ }
+  }
+}
+
+// 上传落盘后的兜底：扩展名与 MIME 都不可用时嗅探文件头并重命名临时文件
+// 返回 true = 可用；false = 无法识别为媒体（调用方应 400 并清理临时文件）
+function finalizeUploadExt(file) {
+  if (resolveUploadExt(file.originalname, file.mimetype)) return true;
+  var sniffed = sniffMediaExt(file.path);
+  if (!sniffed) return false;
+  var newPath = file.path.substring(0, file.path.length - path.extname(file.path).length) + sniffed;
+  try {
+    fs.renameSync(file.path, newPath);
+    file.path = newPath;
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 // ========== 文件服务 ==========
 
 // 流式发送媒体文件，支持 Range 请求（视频/音频播放必需）
@@ -418,9 +468,9 @@ var storage = multer.diskStorage({
 var upload = multer({
   storage: storage,
   limits: { fileSize: 200 * 1024 * 1024 },
+  // 不在 filter 里拒收：扩展名/MIME 全缺失的文件也要落盘后靠魔数嗅探判定（见 finalizeUploadExt）
   fileFilter: function(req, file, cb) {
-    if (resolveUploadExt(file.originalname, file.mimetype)) return cb(null, true);
-    return cb(new Error('不支持的文件类型，仅支持图片/音频/视频'));
+    cb(null, true);
   }
 });
 
@@ -449,8 +499,7 @@ var guestUpload = multer({
   storage: guestStorage,
   limits: { fileSize: 200 * 1024 * 1024 },
   fileFilter: function(req, file, cb) {
-    if (resolveUploadExt(file.originalname, file.mimetype)) return cb(null, true);
-    return cb(new Error('不支持的文件类型，仅支持图片/音频/视频'));
+    cb(null, true);
   }
 });
 
@@ -494,6 +543,10 @@ router.post('/verify-code', function(req, res) {
 router.post('/guest-upload', guestUpload.single('file'), function(req, res) {
   if (!req.file) {
     return res.status(400).json({ code: 400, message: '未收到文件' });
+  }
+  if (!finalizeUploadExt(req.file)) {
+    try { if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path); } catch (e) { /* ignore */ }
+    return res.status(400).json({ code: 400, message: '不支持的文件类型，仅支持图片/音频/视频' });
   }
   var ownerId = req.guestOwnerId;
   var filePath = req.file.path;
@@ -593,6 +646,10 @@ router.post('/upload', auth.requireAuth, upload.single('file'), function(req, re
   if (!req.file) {
     return res.status(400).json({ code: 400, message: '未收到文件' });
   }
+  if (!finalizeUploadExt(req.file)) {
+    try { if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path); } catch (e) { /* ignore */ }
+    return res.status(400).json({ code: 400, message: '不支持的文件类型，仅支持图片/音频/视频' });
+  }
   var userId = req.user.user_id;
   var filePath = req.file.path;
   var originalName = req.file.originalname;
@@ -626,6 +683,12 @@ router.post('/upload-batch', auth.requireAuth, upload.array('files', 10), functi
     }
     var f = files[idx];
     idx++;
+    if (!finalizeUploadExt(f)) {
+      try { if (fs.existsSync(f.path)) fs.unlinkSync(f.path); } catch (e) { /* ignore */ }
+      results.push({ error: '不支持的文件类型，仅支持图片/音频/视频' });
+      processNext();
+      return;
+    }
     processUploadedFile(f.path, f.originalname, userId, folder, source).then(function(result) {
       results.push(result);
       processNext();
