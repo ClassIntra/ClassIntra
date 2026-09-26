@@ -45,10 +45,10 @@
     <template v-else>
       <!-- 上传区 -->
       <div class="upload-card" @click="triggerUpload">
-        <input ref="fileInput" type="file" accept="image/*,audio/*,video/*" multiple style="display:none" @change="onFileSelect" />
+        <input ref="fileInput" type="file" accept="image/*,audio/*,video/*,.txt,.md,.json,.csv,.log,.xml,.yml" multiple style="display:none" @change="onFileSelect" />
         <i class="fa-solid fa-cloud-arrow-up upload-icon"></i>
-        <p class="upload-text">{{ queueRunning ? '上传中 ' + doneCount + '/' + queue.length : '点击选择图片 / 音频 / 视频' }}</p>
-        <p class="upload-sub">{{ queueRunning ? '可以锁屏休息一下，中断的文件可一键重试' : '可一次选择多个文件' }}</p>
+        <p class="upload-text">{{ queueRunning ? '上传中 ' + doneCount + '/' + queue.length : '点击选择文件' }}</p>
+        <p class="upload-sub">{{ queueRunning ? '可以锁屏休息一下，中断的文件可一键重试' : '图片 / 音频 / 视频 / 文本（txt、md、json 等）' }}</p>
       </div>
 
       <!-- 上传队列 -->
@@ -102,12 +102,16 @@
             {{ f.label }} <span class="filter-count">{{ countByType(f.key) }}</span>
           </button>
         </div>
-        <div class="lite-list">
+        <div v-if="filteredFiles.length === 0" class="lite-empty">
+          <p>该类型下没有文件</p>
+        </div>
+        <div v-else class="lite-list">
           <div v-for="file in filteredFiles" :key="file.hash" class="lite-item">
             <div class="lite-thumb" @click="openViewer(file)">
               <img v-if="getMediaType(file) === 'image'" :src="file.url + '?w=200'" loading="lazy" :alt="file.name" />
               <i v-else-if="getMediaType(file) === 'video'" class="fa-solid fa-circle-play"></i>
               <i v-else-if="getMediaType(file) === 'audio'" class="fa-solid fa-music"></i>
+              <i v-else-if="getMediaType(file) === 'text'" class="fa-solid fa-file-lines"></i>
               <i v-else class="fa-solid fa-file"></i>
             </div>
             <div class="lite-info" @click="openViewer(file)">
@@ -182,6 +186,11 @@
           playsinline
           autoplay
         ></video>
+        <div v-else-if="mediaOverlay.type === 'text'" class="text-panel">
+          <span v-if="mediaOverlay.loading" class="btn-loading dark"></span>
+          <pre v-else-if="mediaOverlay.content !== null" class="v-text">{{ mediaOverlay.content }}</pre>
+          <p v-else class="v-err">{{ mediaOverlay.error || '加载失败' }}</p>
+        </div>
         <div v-else class="audio-panel">
           <i class="fa-solid fa-music audio-icon"></i>
           <p class="audio-name">{{ mediaOverlay.file.display_name || mediaOverlay.file.name }}</p>
@@ -203,6 +212,7 @@ import api from '@/utils/api';
 var IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
 var VIDEO_EXTS = ['.mp4', '.mov', '.webm', '.mkv', '.avi', '.3gp'];
 var AUDIO_EXTS = ['.mp3', '.m4a', '.aac', '.wav', '.ogg', '.opus'];
+var TEXT_EXTS = ['.txt', '.md', '.json', '.csv', '.log', '.xml', '.yml'];
 
 function getMediaType(file) {
   if (!file) return 'other';
@@ -210,6 +220,7 @@ function getMediaType(file) {
     if (file.mime_type.indexOf('image/') === 0) return 'image';
     if (file.mime_type.indexOf('video/') === 0) return 'video';
     if (file.mime_type.indexOf('audio/') === 0) return 'audio';
+    if (file.mime_type.indexOf('text/') === 0 || file.mime_type === 'application/json') return 'text';
   }
   var name = file.name || file.display_name || '';
   var idx = name.lastIndexOf('.');
@@ -217,6 +228,7 @@ function getMediaType(file) {
   if (IMAGE_EXTS.indexOf(ext) > -1) return 'image';
   if (VIDEO_EXTS.indexOf(ext) > -1) return 'video';
   if (AUDIO_EXTS.indexOf(ext) > -1) return 'audio';
+  if (TEXT_EXTS.indexOf(ext) > -1) return 'text';
   return 'other';
 }
 
@@ -240,6 +252,7 @@ export default {
         { key: 'image', label: '图片' },
         { key: 'video', label: '视频' },
         { key: 'audio', label: '音频' },
+        { key: 'text', label: '文本' },
         { key: 'other', label: '其他' }
       ],
       // 上传队列
@@ -470,6 +483,21 @@ export default {
         this.viewer = { open: true, index: idx };
       } else if (type === 'video' || type === 'audio') {
         this.mediaOverlay = { open: true, file: file, type: type };
+      } else if (type === 'text') {
+        if ((file.size || 0) > 5 * 1024 * 1024) {
+          this.showToast('文件较大，请直接下载查看');
+          return;
+        }
+        var self = this;
+        self.mediaOverlay = { open: true, file: file, type: 'text', loading: true, content: '', error: '' };
+        api.get('/cloud/files/' + encodeURIComponent(file.hash), { responseType: 'text', timeout: 60000 }).then(function(res) {
+          self.mediaOverlay.content = typeof res.data === 'string' ? res.data : String(res.data || '');
+          self.mediaOverlay.loading = false;
+        }).catch(function(err) {
+          self.mediaOverlay.loading = false;
+          self.mediaOverlay.content = null;
+          self.mediaOverlay.error = (err.response && err.response.data && err.response.data.message) || '加载失败';
+        });
       }
     },
     closeViewer: function() {
@@ -790,4 +818,19 @@ export default {
 }
 .toast-fade-enter-active, .toast-fade-leave-active { transition: opacity 0.25s; }
 .toast-fade-enter, .toast-fade-leave-to { opacity: 0; }
+
+/* ====== 文本查看 ====== */
+.text-panel {
+  background: #fff; width: 100%; max-width: 720px; max-height: 100%;
+  overflow: auto; border-radius: 12px; padding: 16px;
+  display: flex; align-items: center; justify-content: center; min-height: 120px;
+  -webkit-overflow-scrolling: touch;
+}
+.v-text {
+  font-family: Menlo, Consolas, 'Courier New', monospace;
+  font-size: 13px; line-height: 1.6; color: #1c1c1e;
+  white-space: pre-wrap; word-break: break-all; margin: 0; width: 100%;
+}
+.v-err { color: #FF3B30; font-size: 14px; text-align: center; }
+.btn-loading.dark { border-color: rgba(0, 0, 0, 0.15); border-top-color: #5856D6; }
 </style>
