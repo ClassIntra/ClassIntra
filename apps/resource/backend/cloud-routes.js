@@ -1438,8 +1438,8 @@ router.get('/admin/uploads', auth.requireAuth, auth.requirePermission('cloud_rev
     ];
     var params = [];
     if (req.query.channel === 'external') {
-      // 班管审核默认只看家庭上传通道（专属页/上传码），教室应用内上传不进入审核流
-      sql.push("AND IFNULL(cf.source, 'app') != 'app'");
+      // 班管审核只看「专属上传页」传来的文件；上传码(guest)与教室应用内(app)均不进审核流
+      sql.push("AND IFNULL(cf.source, 'app') = 'lite'");
     }
     if (statusFilter === 'hidden') {
       sql.push("AND IFNULL(cf.status, 'ok') = 'hidden'");
