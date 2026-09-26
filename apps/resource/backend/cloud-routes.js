@@ -53,6 +53,33 @@ var MEDIA_MIME = {
   '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp'
 };
 
+// MIME → 扩展名：手机相册/网盘导出的文件常无扩展名（如 Image_1787579382045_5529），
+// 此时以浏览器报告的 MIME 类型为准
+var EXT_FROM_MIME = {
+  'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif',
+  'image/webp': '.webp', 'image/bmp': '.bmp',
+  'audio/mpeg': '.mp3', 'audio/mp4': '.m4a', 'audio/aac': '.aac',
+  'audio/wav': '.wav', 'audio/x-wav': '.wav', 'audio/ogg': '.ogg',
+  'audio/opus': '.opus', 'audio/webm': '.webm',
+  'video/mp4': '.mp4', 'video/quicktime': '.mov', 'video/webm': '.webm',
+  'video/x-matroska': '.mkv', 'video/msvideo': '.avi', 'video/x-msvideo': '.avi',
+  'video/3gpp': '.3gp'
+};
+
+function resolveUploadExt(originalname, mimetype) {
+  var ext = path.extname(originalname || '').toLowerCase();
+  var allowed = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp',
+                 '.mp3', '.m4a', '.aac', '.wav', '.ogg', '.opus',
+                 '.mp4', '.mov', '.webm', '.mkv', '.avi', '.3gp'];
+  if (allowed.indexOf(ext) !== -1) return ext;
+  var mime = (mimetype || '').toLowerCase().split(';')[0].trim();
+  if (EXT_FROM_MIME[mime]) return EXT_FROM_MIME[mime];
+  if (mime.indexOf('image/') === 0) return '.jpg';
+  if (mime.indexOf('audio/') === 0) return '.mp3';
+  if (mime.indexOf('video/') === 0) return '.mp4';
+  return null;
+}
+
 // ========== 文件服务 ==========
 
 // 流式发送媒体文件，支持 Range 请求（视频/音频播放必需）
@@ -382,7 +409,7 @@ var storage = multer.diskStorage({
     cb(null, tmpDir);
   },
   filename: function(req, file, cb) {
-    var ext = path.extname(file.originalname) || '.bin';
+    var ext = resolveUploadExt(file.originalname, file.mimetype) || '.bin';
     var tmpName = 'upload_' + Date.now() + '_' + crypto.randomBytes(4).toString('hex') + ext;
     cb(null, tmpName);
   }
@@ -391,14 +418,8 @@ var upload = multer({
   storage: storage,
   limits: { fileSize: 200 * 1024 * 1024 },
   fileFilter: function(req, file, cb) {
-    var allowed = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp',
-                   '.mp3', '.m4a', '.aac', '.wav', '.ogg', '.opus',
-                   '.mp4', '.mov', '.webm', '.mkv', '.avi', '.3gp'];
-    var ext = path.extname(file.originalname).toLowerCase();
-    if (allowed.indexOf(ext) === -1) {
-      return cb(new Error('不支持的文件类型，仅支持图片/音频/视频'));
-    }
-    cb(null, true);
+    if (resolveUploadExt(file.originalname, file.mimetype)) return cb(null, true);
+    return cb(new Error('不支持的文件类型，仅支持图片/音频/视频'));
   }
 });
 
@@ -418,7 +439,7 @@ var guestStorage = multer.diskStorage({
     cb(null, tmpDir);
   },
   filename: function(req, file, cb) {
-    var ext = path.extname(file.originalname) || '.bin';
+    var ext = resolveUploadExt(file.originalname, file.mimetype) || '.bin';
     var tmpName = 'guest_' + Date.now() + '_' + crypto.randomBytes(4).toString('hex') + ext;
     cb(null, tmpName);
   }
@@ -427,14 +448,8 @@ var guestUpload = multer({
   storage: guestStorage,
   limits: { fileSize: 200 * 1024 * 1024 },
   fileFilter: function(req, file, cb) {
-    var allowed = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp',
-                   '.mp3', '.m4a', '.aac', '.wav', '.ogg', '.opus',
-                   '.mp4', '.mov', '.webm', '.mkv', '.avi', '.3gp'];
-    var ext = path.extname(file.originalname).toLowerCase();
-    if (allowed.indexOf(ext) === -1) {
-      return cb(new Error('不支持的文件类型，仅支持图片/音频/视频'));
-    }
-    cb(null, true);
+    if (resolveUploadExt(file.originalname, file.mimetype)) return cb(null, true);
+    return cb(new Error('不支持的文件类型，仅支持图片/音频/视频'));
   }
 });
 

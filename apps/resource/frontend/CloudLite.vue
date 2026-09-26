@@ -6,7 +6,12 @@
         <i class="fa-solid fa-cloud"></i>
         <span>云盘 · 上传下载</span>
       </div>
-      <button v-if="isLoggedIn" class="lite-logout" @click="logout">退出</button>
+      <div class="lite-header-actions">
+        <button v-if="isLoggedIn" class="lite-logout" @click="refreshList" title="刷新">
+          <i class="fa-solid fa-rotate" :class="{ 'fa-spin': loading }"></i>
+        </button>
+        <button v-if="isLoggedIn" class="lite-logout" @click="logout">退出</button>
+      </div>
     </div>
 
     <!-- 未登录：内嵌登录卡片 -->
@@ -305,6 +310,10 @@ export default {
     },
 
     // ====== 文件列表 ======
+    refreshList: function() {
+      if (this.loading) return;
+      this.loadFiles();
+    },
     loadFiles: function() {
       var self = this;
       self.loading = true;
@@ -378,7 +387,11 @@ export default {
 
 <style scoped>
 .cloud-lite {
-  min-height: 100vh;
+  /* 页面自身作为滚动容器：主应用外壳锁了 body 滚动，依赖 body 滑动会整页滑不动 */
+  height: 100%;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
   background: #f2f2f7;
   font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
   padding-bottom: 40px;
@@ -396,6 +409,7 @@ export default {
   border: none; background: rgba(118, 118, 128, 0.12); color: #3a3a3c;
   padding: 6px 14px; border-radius: 999px; font-size: 13px; cursor: pointer;
 }
+.lite-header-actions { display: flex; align-items: center; gap: 8px; }
 .login-card {
   margin: 60px 24px 0;
   background: #fff; border-radius: 16px; padding: 28px 22px;
