@@ -280,7 +280,8 @@ function getUserDir(userId) {
 
 // 处理已保存到 .tmp/ 的文件：转码 → 哈希 → 去重 → 入库
 // 返回 { hash, displayName, size, url } 或抛错
-function processUploadedFile(tmpFilePath, originalName, userId, folder) {
+// source：上传渠道标记（'app' 应用内 / 'lite' 专属上传页 / 'guest' 上传码），班管审核只看非 'app'
+function processUploadedFile(tmpFilePath, originalName, userId, folder, source) {
   return tryTranscodeVideoToMp4(tmpFilePath).then(function(newName) {
     // 转码成功后 tmp 文件已被替换为 mp4，路径变了
     var finalPath = newName ? path.join(path.dirname(tmpFilePath), newName) : tmpFilePath;
@@ -329,7 +330,7 @@ function processUploadedFile(tmpFilePath, originalName, userId, folder) {
       var destPath = path.join(sharedDir, storagePath);
       fs.renameSync(finalPath, destPath);
 
-      db.prepare('INSERT INTO cloud_files (hash, owner_user_id, original_name, size, mime_type, storage_path) VALUES (?, ?, ?, ?, ?, ?)').run(hash, userId, originalName, stat.size, mimeType, storagePath);
+      db.prepare('INSERT INTO cloud_files (hash, owner_user_id, original_name, size, mime_type, storage_path, source) VALUES (?, ?, ?, ?, ?, ?, ?)').run(hash, userId, originalName, stat.size, mimeType, storagePath, source || 'app');
       db.prepare('INSERT INTO cloud_user_files (user_id, file_hash, display_name, folder) VALUES (?, ?, ?, ?)').run(userId, hash, originalName, folder || '');
 
       return {
@@ -498,7 +499,7 @@ router.post('/guest-upload', guestUpload.single('file'), function(req, res) {
   var filePath = req.file.path;
   var originalName = req.file.originalname;
 
-  processUploadedFile(filePath, originalName, ownerId).then(function(result) {
+  processUploadedFile(filePath, originalName, ownerId, '', 'guest').then(function(result) {
     res.json({ code: 200, data: result });
   }).catch(function(err) {
     console.error('[Cloud] guest-upload 处理失败:', err);
@@ -596,8 +597,9 @@ router.post('/upload', auth.requireAuth, upload.single('file'), function(req, re
   var filePath = req.file.path;
   var originalName = req.file.originalname;
   var folder = (req.body.folder || '').trim();
+  var source = req.body.source === 'lite' ? 'lite' : 'app';
 
-  processUploadedFile(filePath, originalName, userId, folder).then(function(result) {
+  processUploadedFile(filePath, originalName, userId, folder, source).then(function(result) {
     res.json({ code: 200, data: result });
   }).catch(function(err) {
     console.error('[Cloud] 上传处理失败:', err);
@@ -613,6 +615,7 @@ router.post('/upload-batch', auth.requireAuth, upload.array('files', 10), functi
   }
   var userId = req.user.user_id;
   var folder = (req.body.folder || '').trim();
+  var source = req.body.source === 'lite' ? 'lite' : 'app';
   var files = req.files;
   var results = [];
   var idx = 0;
@@ -623,7 +626,7 @@ router.post('/upload-batch', auth.requireAuth, upload.array('files', 10), functi
     }
     var f = files[idx];
     idx++;
-    processUploadedFile(f.path, f.originalname, userId, folder).then(function(result) {
+    processUploadedFile(f.path, f.originalname, userId, folder, source).then(function(result) {
       results.push(result);
       processNext();
     }).catch(function(err) {
@@ -1427,13 +1430,17 @@ router.get('/admin/uploads', auth.requireAuth, auth.requirePermission('cloud_rev
   try {
     var sql = [
       'SELECT cf.hash, cf.original_name, cf.size, cf.mime_type, IFNULL(cf.status, \'ok\') AS status, cf.deleted, cf.created_at,',
-      '       cf.owner_user_id, u.net_name AS owner_net_name, u.real_name AS owner_real_name,',
+      '       cf.owner_user_id, IFNULL(cf.source, \'app\') AS source, u.net_name AS owner_net_name, u.real_name AS owner_real_name,',
       '       (SELECT COUNT(*) FROM cloud_user_files cuf2 WHERE cuf2.file_hash = cf.hash) AS ref_count',
       'FROM cloud_files cf',
       'LEFT JOIN users u ON u.user_id = cf.owner_user_id',
       'WHERE 1=1'
     ];
     var params = [];
+    if (req.query.channel === 'external') {
+      // 班管审核默认只看家庭上传通道（专属页/上传码），教室应用内上传不进入审核流
+      sql.push("AND IFNULL(cf.source, 'app') != 'app'");
+    }
     if (statusFilter === 'hidden') {
       sql.push("AND IFNULL(cf.status, 'ok') = 'hidden'");
     } else if (statusFilter === 'ok') {
@@ -1458,6 +1465,7 @@ router.get('/admin/uploads', auth.requireAuth, auth.requirePermission('cloud_rev
         deleted: r.deleted === 1,
         created_at: r.created_at,
         owner_id: r.owner_user_id,
+        source: r.source,
         owner_name: r.owner_real_name || r.owner_net_name || r.owner_user_id,
         ref_count: r.ref_count,
         url: '/api/cloud/files/' + r.hash

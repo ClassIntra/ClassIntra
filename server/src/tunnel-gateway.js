@@ -2,10 +2,27 @@
 // frpc 两条隧道均指向本网关（127.0.0.1:9002），网关按白名单转发到主服务（127.0.0.1:9001）
 // 教室局域网仍直连主服务端口，不经过本网关，功能不受影响
 var http = require('http');
+var fs = require('fs');
+var path = require('path');
 
 var PORT = parseInt(process.env.TUNNEL_GATEWAY_PORT, 10) || 9002;
 var UPSTREAM_PORT = parseInt(process.env.UPSTREAM_PORT, 10) || 9001;
 var UPSTREAM_HOST = '127.0.0.1';
+
+// 公网专属轻量页（独立单文件，零依赖）——隧道入口直接服务，不落 Vue 大应用
+var LITE_PAGE = path.join(__dirname, '../public/cloud-lite.html');
+var liteCache = null;
+function litePage() {
+  try {
+    var mtime = fs.statSync(LITE_PAGE).mtimeMs;
+    if (!liteCache || liteCache.mtime !== mtime) {
+      liteCache = { mtime: mtime, body: fs.readFileSync(LITE_PAGE) };
+    }
+    return liteCache.body;
+  } catch (e) {
+    return null;
+  }
+}
 
 // API 白名单：/api/auth/ 登录、登出、状态检查；/api/cloud/ 云盘文件、上传码、分组
 var ALLOWED_API_PREFIXES = ['/api/auth/', '/api/cloud/'];
@@ -20,10 +37,16 @@ function isAllowedApi(url) {
 var server = http.createServer(function (req, res) {
   var url = req.url || '/';
 
-  // 公网入口自动进入专属上传/下载页
+  // 公网入口：直接服务轻量上传/下载页（加载失败时回退到 SPA 的 /cloud-lite）
   if (url === '/' || url.indexOf('/?') === 0) {
-    res.writeHead(302, { Location: '/cloud-lite' });
-    res.end();
+    var body = litePage();
+    if (body) {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end(body);
+    } else {
+      res.writeHead(302, { Location: '/cloud-lite' });
+      res.end();
+    }
     return;
   }
 

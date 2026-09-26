@@ -420,7 +420,7 @@ export default {
     loadReviewFiles: function() {
       var self = this;
       self.reviewLoading = true;
-      var params = { limit: 300 };
+      var params = { limit: 300, channel: 'external' };
       if (self.reviewFilter !== 'all') params.status = self.reviewFilter;
       api.get('/cloud/admin/uploads', { params: params }).then(function(res) {
         self.reviewFiles = (res.data.data && res.data.data.files) || [];
