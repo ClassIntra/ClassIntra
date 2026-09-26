@@ -50,7 +50,10 @@ var MEDIA_MIME = {
   '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac',
   '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.opus': 'audio/opus',
   '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
-  '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp'
+  '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp',
+  '.txt': 'text/plain', '.md': 'text/plain', '.log': 'text/plain',
+  '.xml': 'text/plain', '.yml': 'text/plain',
+  '.json': 'application/json', '.csv': 'text/csv'
 };
 
 // MIME → 扩展名：手机相册/网盘导出的文件常无扩展名（如 Image_1787579382045_5529），
@@ -63,15 +66,29 @@ var EXT_FROM_MIME = {
   'audio/opus': '.opus', 'audio/webm': '.webm',
   'video/mp4': '.mp4', 'video/quicktime': '.mov', 'video/webm': '.webm',
   'video/x-matroska': '.mkv', 'video/msvideo': '.avi', 'video/x-msvideo': '.avi',
-  'video/3gpp': '.3gp'
+  'video/3gpp': '.3gp',
+  'text/plain': '.txt', 'text/csv': '.csv', 'text/markdown': '.md',
+  'text/xml': '.xml', 'application/json': '.json',
+  'application/x-yaml': '.yml'
 };
+
+// 文本类扩展名：允许上传并支持在线查看（注意：绝不放行 .html/.svg/.js 等可执行格式，防同源 XSS）
+var TEXT_EXTS = ['.txt', '.md', '.json', '.csv', '.log', '.xml', '.yml'];
+
+// 安全黑名单：能在浏览器同源执行的格式一律拒绝上传
+var BLOCKED_EXTS = ['.html', '.htm', '.svg', '.js', '.mjs', '.xhtml', '.xsl', '.xslt'];
+var BLOCKED_MIMES = ['text/html', 'text/javascript', 'application/javascript', 'application/x-javascript', 'image/svg+xml', 'application/xhtml+xml'];
 
 function resolveUploadExt(originalname, mimetype) {
   var ext = path.extname(originalname || '').toLowerCase();
+  if (BLOCKED_EXTS.indexOf(ext) !== -1) return null;
   var allowed = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp',
                  '.mp3', '.m4a', '.aac', '.wav', '.ogg', '.opus',
-                 '.mp4', '.mov', '.webm', '.mkv', '.avi', '.3gp'];
+                 '.mp4', '.mov', '.webm', '.mkv', '.avi', '.3gp'].concat(TEXT_EXTS);
   if (allowed.indexOf(ext) !== -1) return ext;
+  var mime = (mimetype || '').toLowerCase().split(';')[0].trim();
+  if (BLOCKED_MIMES.indexOf(mime) !== -1) return null;
+  if (EXT_FROM_MIME[mime]) return EXT_FROM_MIME[mime];
   var mime = (mimetype || '').toLowerCase().split(';')[0].trim();
   if (EXT_FROM_MIME[mime]) return EXT_FROM_MIME[mime];
   if (mime.indexOf('image/') === 0) return '.jpg';
@@ -85,8 +102,8 @@ function sniffMediaExt(filePath) {
   var fd = null;
   try {
     fd = fs.openSync(filePath, 'r');
-    var buf = Buffer.alloc(16);
-    var n = fs.readSync(fd, buf, 0, 16, 0);
+    var buf = Buffer.alloc(512);
+    var n = fs.readSync(fd, buf, 0, 512, 0);
     if (n < 4) return null;
     if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return '.jpg';
     if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) return '.png';
@@ -104,8 +121,16 @@ function sniffMediaExt(filePath) {
     }
     if (buf.toString('ascii', 4, 8) === 'ftyp') {
       var brand = buf.toString('ascii', 8, 12);
-      return brand.indexOf('qt') === 0 ? '.mov' : '.mp4';
+      if (brand.indexOf('qt') === 0) return '.mov';
+      if (brand.indexOf('M4A') === 0) return '.m4a';
+      return '.mp4';
     }
+    // 文本兜底：前 512 字节不含 0x00 即视为文本（UTF-8/GBK 均无 0x00，二进制格式头部几乎必含）
+    var hasNul = false;
+    for (var i = 0; i < n; i++) {
+      if (buf[i] === 0) { hasNul = true; break; }
+    }
+    if (!hasNul) return '.txt';
     return null;
   } catch (e) {
     return null;
