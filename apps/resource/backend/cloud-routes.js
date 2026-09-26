@@ -139,6 +139,24 @@ function sendDeletedPlaceholder(res, mimeType) {
   }
 }
 
+// 发送"文件已被管理员下架"占位响应（班管审核下架后）
+function sendModeratedPlaceholder(res, mimeType) {
+  if (mimeType && mimeType.indexOf('image/') === 0) {
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300">' +
+      '<rect fill="#f2f2f2" width="400" height="300" rx="12"/>' +
+      '<rect fill="#d9d9d9" x="163" y="100" width="74" height="74" rx="8"/>' +
+      '<text x="200" y="145" text-anchor="middle" fill="#8e8e93" font-size="34" font-family="sans-serif">✕</text>' +
+      '<text x="200" y="215" text-anchor="middle" fill="#999" font-size="16" font-family="sans-serif">该文件已被管理员下架</text>' +
+      '<text x="200" y="240" text-anchor="middle" fill="#bbb" font-size="12" font-family="sans-serif">Content Moderated</text>' +
+      '</svg>';
+    res.set('Content-Type', 'image/svg+xml');
+    res.set('Cache-Control', 'no-cache');
+    res.send(Buffer.from(svg, 'utf8'));
+  } else {
+    res.status(410).json({ code: 410, message: '该文件已被管理员下架' });
+  }
+}
+
 // 根据扩展名和文件名猜测 MIME 类型
 function guessMimeType(ext, filename) {
   var lower = (filename || '').toLowerCase();
@@ -500,7 +518,7 @@ router.get('/files', auth.requireAuth, function(req, res) {
         '       cf.size, cf.mime_type, cf.owner_user_id',
         'FROM cloud_user_files cuf',
         'JOIN cloud_files cf ON cuf.file_hash = cf.hash',
-        'WHERE cuf.user_id = ? AND cf.deleted = 0 AND cuf.folder = \'\'',
+        'WHERE cuf.user_id = ? AND cf.deleted = 0 AND IFNULL(cf.status, \'ok\') != \'hidden\' AND cuf.folder = \'\'',
         'ORDER BY cuf.uploaded_at DESC'
       ].join('\n');
       params = [userId];
@@ -511,7 +529,7 @@ router.get('/files', auth.requireAuth, function(req, res) {
         '       cf.size, cf.mime_type, cf.owner_user_id',
         'FROM cloud_user_files cuf',
         'JOIN cloud_files cf ON cuf.file_hash = cf.hash',
-        'WHERE cuf.user_id = ? AND cf.deleted = 0 AND cuf.folder = ?',
+        'WHERE cuf.user_id = ? AND cf.deleted = 0 AND IFNULL(cf.status, \'ok\') != \'hidden\' AND cuf.folder = ?',
         'ORDER BY cuf.uploaded_at DESC'
       ].join('\n');
       params = [userId, folderFilter];
@@ -523,7 +541,7 @@ router.get('/files', auth.requireAuth, function(req, res) {
         'FROM cloud_user_files cuf',
         'JOIN cloud_files cf ON cuf.file_hash = cf.hash',
         'LEFT JOIN cloud_folders cfolder ON cfolder.user_id = cuf.user_id AND cfolder.name = cuf.folder',
-        'WHERE cuf.user_id = ? AND cf.deleted = 0',
+        'WHERE cuf.user_id = ? AND cf.deleted = 0 AND IFNULL(cf.status, \'ok\') != \'hidden\'',
         '  AND (cuf.folder = \'\' OR cfolder.id IS NULL OR cfolder.hide_from_all = 0)',
         'ORDER BY cuf.uploaded_at DESC'
       ].join('\n');
@@ -654,7 +672,7 @@ router.get('/files/:param', auth.requireAuth, function(req, res) {
   }
 
   // 哈希查找
-  var file = db.prepare('SELECT storage_path, deleted, mime_type FROM cloud_files WHERE hash = ?').get(fileHash);
+  var file = db.prepare('SELECT storage_path, deleted, mime_type, status FROM cloud_files WHERE hash = ?').get(fileHash);
   if (!file) {
     // CC 同步：数据库中无记录，尝试扫描磁盘（Syncthing 同步的文件）
     file = findSyncedFile(fileHash);
@@ -665,6 +683,11 @@ router.get('/files/:param', auth.requireAuth, function(req, res) {
 
   if (file.deleted === 1) {
     return sendDeletedPlaceholder(res, file.mime_type);
+  }
+
+  // 班管审核下架的文件：所有访问者均返回占位（先上传再审核，下架即全网不可见）
+  if (file.status === 'hidden') {
+    return sendModeratedPlaceholder(res, file.mime_type);
   }
 
   var filePath = path.join(sharedDir, file.storage_path);
@@ -1373,6 +1396,86 @@ router.post('/folders/import/:code', auth.requireAuth, function(req, res) {
       total: sourceFiles.length
     },
     message: '成功导入 ' + imported + ' 个文件' + (skipped > 0 ? '，' + skipped + ' 个已存在跳过' : '')
+  });
+});
+
+// ============ 班管审核 ============
+
+// 全班上传流：所有云盘文件记录（含已下架），班管审查用
+router.get('/admin/uploads', auth.requireAuth, auth.requirePermission('cloud_review'), function(req, res) {
+  var statusFilter = (req.query.status || '').toLowerCase();
+  var userFilter = (req.query.user_id || '').trim();
+  var limit = Math.min(parseInt(req.query.limit, 10) || 200, 500);
+
+  if (statusFilter !== 'ok' && statusFilter !== 'hidden') statusFilter = '';
+
+  try {
+    var sql = [
+      'SELECT cf.hash, cf.original_name, cf.size, cf.mime_type, IFNULL(cf.status, \'ok\') AS status, cf.deleted, cf.created_at,',
+      '       cf.owner_user_id, u.net_name AS owner_net_name, u.real_name AS owner_real_name,',
+      '       (SELECT COUNT(*) FROM cloud_user_files cuf2 WHERE cuf2.file_hash = cf.hash) AS ref_count',
+      'FROM cloud_files cf',
+      'LEFT JOIN users u ON u.user_id = cf.owner_user_id',
+      'WHERE 1=1'
+    ];
+    var params = [];
+    if (statusFilter === 'hidden') {
+      sql.push("AND IFNULL(cf.status, 'ok') = 'hidden'");
+    } else if (statusFilter === 'ok') {
+      sql.push("AND IFNULL(cf.status, 'ok') = 'ok' AND cf.deleted = 0");
+    }
+    if (userFilter) {
+      sql.push('AND cf.owner_user_id = ?');
+      params.push(userFilter);
+    }
+    sql.push('ORDER BY cf.created_at DESC, cf.rowid DESC LIMIT ' + limit);
+
+    var stmt = db.prepare(sql.join('\n'));
+    var rows = stmt.all.apply(stmt, params);
+
+    var files = rows.map(function(r) {
+      return {
+        hash: r.hash,
+        name: r.original_name,
+        size: r.size,
+        mime_type: r.mime_type,
+        status: r.status,
+        deleted: r.deleted === 1,
+        created_at: r.created_at,
+        owner_id: r.owner_user_id,
+        owner_name: r.owner_real_name || r.owner_net_name || r.owner_user_id,
+        ref_count: r.ref_count,
+        url: '/api/cloud/files/' + r.hash
+      };
+    });
+    res.json({ code: 200, data: { files: files } });
+  } catch (e) {
+    console.error('[Cloud] 班管上传流查询失败:', e);
+    res.status(500).json({ code: 500, message: '查询失败' });
+  }
+});
+
+// 下架 / 恢复（下架后所有列表不可见、文件下发返回占位）
+router.patch('/admin/files/:hash/status', auth.requireAuth, auth.requirePermission('cloud_review'), function(req, res) {
+  var hash = req.params.hash;
+  if (!/^[a-f0-9]{64}$/.test(hash)) {
+    return res.status(400).json({ code: 400, message: '无效的文件标识' });
+  }
+  var status = req.body ? req.body.status : '';
+  if (status !== 'ok' && status !== 'hidden') {
+    return res.status(400).json({ code: 400, message: 'status 仅支持 ok / hidden' });
+  }
+
+  var file = db.prepare('SELECT hash, original_name FROM cloud_files WHERE hash = ?').get(hash);
+  if (!file) {
+    return res.status(404).json({ code: 404, message: '文件不存在' });
+  }
+
+  db.prepare('UPDATE cloud_files SET status = ? WHERE hash = ?').run(status, hash);
+  res.json({
+    code: 200,
+    message: (status === 'hidden' ? '已下架：' : '已恢复：') + file.original_name,
+    data: { hash: hash, status: status }
   });
 });
 
