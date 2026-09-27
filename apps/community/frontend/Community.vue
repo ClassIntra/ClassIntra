@@ -203,7 +203,9 @@
                     <i :class="post.liked ? 'fa-solid fa-heart' : 'fa-regular fa-heart'"></i> {{ post.like_count || 0 }}
                   </span>
                   <span class="stat-item"><i class="fa-regular fa-comment"></i> {{ post.comment_count || 0 }}</span>
-                  <span v-if="post.share_count" class="stat-item"><i class="fa-solid fa-share"></i> {{ post.share_count }}</span>
+                  <span class="stat-item stat-share" @click.stop="forwardToChat(post)" title="转发到聊天">
+                    <i class="fa-solid fa-share"></i>{{ post.share_count || 0 }}
+                  </span>
                 </div>
               </div>
             </div>
@@ -663,6 +665,7 @@
             <div v-if="comments.length === 0" class="empty-hint">暂无评论，来说点什么吧</div>
           </div>
         </div>
+      </div>
         <div class="full-detail-comment-bar">
           <div v-if="replyToUser" class="reply-indicator">
             <span>回复 @{{ replyToUser }}</span>
@@ -3045,7 +3048,7 @@ export default {
 .btn-bookmark-lg:hover { border-color: var(--warning-color); color: var(--warning-color); }
 .btn-bookmark-lg.bookmarked { background: rgba(var(--warning-rgb),0.08); border-color: var(--warning-color); color: var(--warning-color); }
 .btn-bookmark-lg:active { transform: scale(0.94); opacity: 0.7; }
-.btn-forward { display: flex; align-items: center; gap: 6px; padding: 10px 18px; border-radius: var(--radius-xl); border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-secondary); font-size: var(--font-size-sm); cursor: pointer; transition: background-color, border-color, color, transform, opacity, box-shadow var(--duration-normal) var(--ease-standard); min-height: 44px; font-weight: 500; }
+.btn-forward { display: flex; align-items: center; gap: 6px; padding: 10px 18px; border-radius: var(--radius-pill); border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-secondary); font-size: var(--font-size-sm); cursor: pointer; transition: background-color, border-color, color, transform, opacity, box-shadow var(--duration-normal) var(--ease-standard); min-height: 44px; font-weight: 500; }
 .btn-forward:hover { border-color: var(--primary-color); color: var(--primary-color); }
 .btn-forward:active { transform: scale(0.94); opacity: 0.7; }
 /* 点赞弹跳：0 -> 1.28（对齐 --motion-spring-bouncy 的过冲幅度）-> 1 */
@@ -3061,7 +3064,7 @@ export default {
 .reply-to { font-size: var(--font-size-caption2); color: var(--primary-color); font-weight: 500; }
 .comment-time { font-size: var(--font-size-caption2); color: var(--text-secondary); }
 .comment-text { font-size: var(--font-size-sm); color: var(--text-primary); line-height: 1.5; word-break: break-word; }
-.comment-replies { margin-top: 6px; padding-left: 12px; border-left: 2px solid var(--border-color); }
+.comment-replies { margin-top: 6px; padding-left: 12px; border-left: 0.5px solid var(--separator-color); }
 .comment-reply { padding: 6px 0; border-bottom: none; }
 .comment-input-wrap { display: flex; gap: 8px; align-items: center; padding-top: 10px; border-top: 0.5px solid var(--separator-color); }
 .comment-input { flex: 1; height: 40px; padding: 0 12px; border-radius: var(--radius-pill); border: none; background: rgba(118, 118, 128, 0.12); color: var(--text-primary); font-size: var(--font-size-sm); outline: none; transition: background var(--duration-normal) var(--ease-standard); }
@@ -3214,7 +3217,7 @@ export default {
 .full-detail-author-info { flex: 1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .full-detail-author-name { font-size: var(--font-size-callout); font-weight: 600; color: var(--text-primary); }
 .full-detail-author-time { font-size: var(--font-size-caption); color: var(--text-secondary); }
-.full-detail-title { font-size: var(--font-size-title2); font-weight: 700; color: var(--text-primary); line-height: 1.4; margin-bottom: 16px; word-break: break-word; }
+.full-detail-title { font-size: var(--font-size-title2); font-weight: 600; color: var(--text-primary); line-height: 1.4; margin-bottom: 16px; word-break: break-word; }
 .full-detail-content { font-size: var(--font-size-callout); line-height: 1.8; color: var(--text-primary); margin-bottom: 16px; word-break: break-word; }
 /* 详情页媒体与信息流卡片同语言：统一圆角与间距 */
 .full-detail-content img { border-radius: var(--radius-lg); }
