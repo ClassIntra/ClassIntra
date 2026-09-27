@@ -313,6 +313,10 @@
   var AUD_EXTS = ['.mp3', '.m4a', '.aac', '.wav', '.ogg', '.opus'];
   var TXT_EXTS = ['.txt', '.md', '.json', '.csv', '.log', '.xml', '.yml'];
   var STALL = 30000;
+  // 上传性能与稳定性：2 路并行（多流吃满隧道带宽）；45 秒无进度自动断开；自动重试 2 次带退避
+  var PARALLEL = 2;
+  var MAX_RETRY = 2;
+  var STALL_ABORT = 45000;
 
   // ====== 状态 ======
   var state = {
@@ -325,9 +329,7 @@
     loading: false,
     queue: [],
     seq: 0,
-    pumping: false,
     lastProgressAt: 0,
-    downloads: {},
     viewer: { open: false, idx: 0 },
     media: null,
     manageOpen: false,
@@ -394,6 +396,7 @@
     return new Promise(function (resolve, reject) {
       var x = new XMLHttpRequest();
       x.open(opts.method || 'GET', opts.url, true);
+      if (opts.onCreate) opts.onCreate(x);
       if (state.token) x.setRequestHeader('Authorization', 'Bearer ' + state.token);
       if (opts.responseType) x.responseType = opts.responseType;
       if (opts.timeout !== undefined) x.timeout = opts.timeout;
@@ -414,6 +417,7 @@
       };
       x.onerror = function () { reject({ status: 0, message: '网络错误' }); };
       x.ontimeout = function () { reject({ status: 0, message: '请求超时' }); };
+      x.onabort = function () { reject({ status: 0, message: '连接中断' }); };
       if (opts.onprogress) {
         if (opts.upload) x.upload.onprogress = opts.onprogress;
         else x.onprogress = opts.onprogress;
@@ -670,46 +674,17 @@
     }).catch(function (e) { toast(e.message || '删除失败'); });
   }
 
-  // ====== 下载（带进度） ======
+  // ====== 下载：服务端附件下发（Content-Disposition），浏览器原生进度，兼容旧内核 ======
   function downloadFile(f) {
-    var key = f.hash;
-    if (state.downloads[key] !== undefined) return;
-    state.downloads[key] = 0;
-    renderListOnly();
-    xhr({
-      url: '/api/cloud/files/' + encodeURIComponent(key),
-      responseType: 'blob',
-      timeout: 0,
-      onprogress: function (e) {
-        if (e.total) {
-          var p = Math.round((e.loaded / e.total) * 100);
-          if (p !== state.downloads[key]) {
-            state.downloads[key] = p;
-            updateDlBadge(key, p);
-          }
-        }
-      }
-    }).then(function (res) {
-      var url = URL.createObjectURL(res.body);
-      var a = document.createElement('a');
-      a.href = url;
-      a.download = f.display_name || f.name;
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(function () { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);
-      toast('已下载：' + (f.display_name || f.name));
-    }).catch(function () {
-      toast('下载失败');
-    }).then(function () {
-      delete state.downloads[key];
-      renderListOnly();
-    });
-  }
-  function updateDlBadge(hash, p) {
-    var el = document.querySelector('[data-dl="' + hash + '"]');
-    if (el) {
-      el.innerHTML = '<span class="spin dark"></span><em>' + p + '%</em>';
-    }
+    var name = f.display_name || f.name;
+    toast('开始下载：' + name + '（进度见浏览器下载栏）');
+    var a = document.createElement('a');
+    a.href = f.url + '?download=1';
+    a.download = name;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () { document.body.removeChild(a); }, 1000);
   }
 
   // ====== 上传队列 ======
@@ -735,9 +710,11 @@
         progress: 0,
         speed: '',
         error: '',
+        attempts: 0,
         preview: isImage ? URL.createObjectURL(f) : null,
         _ll: 0,
-        _lt: 0
+        _spT: 0,
+        _lastProg: 0
       });
     });
     if (list.length > 1) toast('已加入 ' + list.length + ' 个文件');
@@ -748,10 +725,15 @@
     return state.queue.some(function (q) { return q.status === 'waiting' || q.status === 'uploading'; });
   }
   function pump() {
-    if (state.pumping) return;
-    var item = null;
-    state.queue.forEach(function (q) { if (!item && q.status === 'waiting') item = q; });
-    if (!item) {
+    var uploading = state.queue.filter(function (q) { return q.status === 'uploading'; }).length;
+    while (uploading < PARALLEL) {
+      var next = null;
+      state.queue.forEach(function (q) { if (!next && q.status === 'waiting') next = q; });
+      if (!next) break;
+      startUpload(next);
+      uploading++;
+    }
+    if (uploading === 0) {
       var all = state.queue.length > 0 && state.queue.every(function (q) { return q.status === 'done' || q.status === 'failed'; });
       if (all) {
         var ok = state.queue.filter(function (q) { return q.status === 'done'; }).length;
@@ -761,15 +743,24 @@
       loadFiles();
       loadFolders();
       render();
-      return;
     }
+  }
+  function armStall(item) {
+    clearTimeout(item._stall);
+    item._stall = setTimeout(function () {
+      if (item.status === 'uploading' && item._xhr) {
+        try { item._xhr.abort(); } catch (e) { /* ignore */ }
+      }
+    }, STALL_ABORT);
+  }
+  function startUpload(item) {
     item.status = 'uploading';
     item.progress = 0;
     item.speed = '';
     item.error = '';
     item._ll = 0;
-    item._lt = Date.now();
-    state.pumping = true;
+    item._spT = 0;
+    item._lastProg = Date.now();
     state.lastProgressAt = Date.now();
     renderQueue();
 
@@ -783,50 +774,62 @@
       body: fd,
       timeout: 0,
       upload: true,
+      onCreate: function (x) { item._xhr = x; armStall(item); },
       onprogress: function (e) {
         var now = Date.now();
         state.lastProgressAt = now;
+        item._lastProg = now;
         if (e.total) item.progress = Math.round((e.loaded / e.total) * 100);
-        var dt = now - item._lt;
-        if (dt > 800 && e.loaded > item._ll) {
-          item.speed = fmtSize(Math.round((e.loaded - item._ll) / (dt / 1000))) + '/s';
+        if (now - item._spT > 800 && e.loaded > item._ll) {
+          item.speed = fmtSize(Math.round((e.loaded - item._ll) / ((now - item._spT) / 1000))) + '/s';
           item._ll = e.loaded;
-          item._lt = now;
+          item._spT = now;
         }
+        armStall(item);
         renderQueue();
       }
     }).then(function () {
+      clearTimeout(item._stall);
       item.status = 'done';
       item.progress = 100;
       item.speed = '';
       if (item.preview) { URL.revokeObjectURL(item.preview); item.preview = null; }
-    }).catch(function (e) {
-      item.status = 'failed';
-      item.progress = 0;
-      item.speed = '';
-      item.error = e.message || '上传失败';
-    }).then(function () {
-      state.pumping = false;
       renderQueue();
+      pump();
+    }).catch(function (e) {
+      clearTimeout(item._stall);
+      var retryable = !e.status || e.status >= 500 || e.status === 408 || e.status === 429;
+      if (retryable && item.attempts < MAX_RETRY) {
+        item.attempts++;
+        item.status = 'waiting';
+        item.progress = 0;
+        item.error = '网络中断，自动重试 ' + item.attempts + '/' + MAX_RETRY;
+        renderQueue();
+        setTimeout(function () { pump(); }, 2000 * item.attempts);
+      } else {
+        item.status = 'failed';
+        item.error = e.message || '上传失败';
+        renderQueue();
+      }
       pump();
     });
   }
   function qStatusText(q) {
-    if (q.status === 'waiting') return '等待上传';
+    if (q.status === 'waiting') return q.error || '等待上传';
     if (q.status === 'uploading') return '上传中 ' + q.progress + '%' + (q.speed ? ' · ' + q.speed : '');
     if (q.status === 'done') return '已完成' + (q.folder ? ' → ' + q.folder : '');
     return q.error || '上传失败';
   }
   function retryItem(id) {
     state.queue.forEach(function (q) {
-      if (q.id === id && q.status === 'failed') { q.status = 'waiting'; q.error = ''; }
+      if (q.id === id && q.status === 'failed') { q.status = 'waiting'; q.error = ''; q.attempts = 0; }
     });
     renderQueue();
     pump();
   }
   function retryAllFailed() {
     state.queue.forEach(function (q) {
-      if (q.status === 'failed') { q.status = 'waiting'; q.error = ''; }
+      if (q.status === 'failed') { q.status = 'waiting'; q.error = ''; q.attempts = 0; }
     });
     renderQueue();
     pump();
@@ -1030,25 +1033,17 @@
     files.forEach(function (f) {
       var t = mediaType(f);
       var icon = t === 'video' ? ICON.play : (t === 'audio' ? ICON.music : (t === 'text' ? ICON.text : ICON.file));
-      var dl = state.downloads[f.hash];
-      var dlHtml = dl !== undefined
-        ? '<span class="it-btn dl" disabled><span class="spin dark"></span><em>' + dl + '%</em></span>'
-        : '<button class="it-btn dl" data-dl="' + f.hash + '">' + ICON.dl + '</button>';
       h += '<div class="it">'
         + '<div class="it-th" data-view="' + f.hash + '">' + (t === 'image' ? '<img src="' + f.url + '?w=200" loading="lazy" alt="">' : icon) + '</div>'
         + '<div class="it-body" data-view="' + f.hash + '">'
         + '<span class="it-name">' + esc(f.display_name || f.name) + '</span>'
         + '<span class="it-meta">' + fmtSize(f.size) + ' · ' + fmtTime(f.uploaded_at) + '</span>'
         + '</div>'
-        + dlHtml
-        + '<button class="it-btn del" data-del="' + f.hash + '">' + ICON.trash + '</button>'
+        + '<button class="it-btn dl" data-dl="' + f.hash + '" title="下载">' + ICON.dl + '</button>'
+        + '<button class="it-btn del" data-del="' + f.hash + '" title="删除">' + ICON.trash + '</button>'
         + '</div>';
     });
     return h;
-  }
-  function renderListOnly() {
-    var el = document.getElementById('fileList');
-    if (el) el.innerHTML = listHTML();
   }
   function renderQueue() {
     var el = document.getElementById('queueItems');
@@ -1186,19 +1181,12 @@
     var body = document.body;
     body.style.visibility = 'hidden';
     setTimeout(function () { body.style.visibility = ''; }, 60);
-    var stuck = null;
+    // 上传中文件若已长时间无进度（后台被冻结导致看门狗失灵），主动断开触发自动重试
     state.queue.forEach(function (q) {
-      if (q.status === 'uploading' && Date.now() - state.lastProgressAt > STALL) stuck = q;
+      if (q.status === 'uploading' && q._xhr && Date.now() - q._lastProg > STALL_ABORT) {
+        try { q._xhr.abort(); } catch (e) { /* ignore */ }
+      }
     });
-    if (stuck) {
-      stuck.status = 'failed';
-      stuck.error = '锁屏中断，请重试';
-      stuck.progress = 0;
-      state.pumping = false;
-      toast('检测到上传中断，可点击重试');
-      renderQueue();
-      setTimeout(function () { pump(); }, 300);
-    }
   });
 
   // ====== 启动 ======

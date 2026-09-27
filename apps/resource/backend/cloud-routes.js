@@ -778,7 +778,7 @@ router.get('/files/:param', auth.requireAuth, function(req, res) {
   }
 
   // 哈希查找
-  var file = db.prepare('SELECT storage_path, deleted, mime_type, status FROM cloud_files WHERE hash = ?').get(fileHash);
+  var file = db.prepare('SELECT storage_path, deleted, mime_type, status, original_name FROM cloud_files WHERE hash = ?').get(fileHash);
   if (!file) {
     // CC 同步：数据库中无记录，尝试扫描磁盘（Syncthing 同步的文件）
     file = findSyncedFile(fileHash);
@@ -803,9 +803,15 @@ router.get('/files/:param', auth.requireAuth, function(req, res) {
     return sendDeletedPlaceholder(res, file.mime_type);
   }
 
-  // 图片实时缩放（?w= 参数，sharp 可用时生效）
+  // 下载模式：附件下发（浏览器原生下载进度，兼容旧内核 WebView 的 blob 下载缺陷）
+  if (req.query.download === '1') {
+    var fname = file.original_name || fileHash;
+    res.set('Content-Disposition', 'attachment; filename="' + String(fname).replace(/[^\x20-\x7E]/g, '_') + '"; filename*=UTF-8\'\'' + encodeURIComponent(fname));
+  }
+
+  // 图片实时缩放（?w= 参数，sharp 可用时生效；下载模式跳过缩放直接发原图）
   var targetWidth = parseInt(req.query.w, 10);
-  if (targetWidth > 0 && sharp && file.mime_type && file.mime_type.indexOf('image/') === 0) {
+  if (targetWidth > 0 && req.query.download !== '1' && sharp && file.mime_type && file.mime_type.indexOf('image/') === 0) {
     var cacheKey = fileHash + '_w' + targetWidth;
     var cached = getCachedResize(cacheKey);
     if (cached) {

@@ -157,16 +157,8 @@
               <span class="lite-name">{{ file.display_name || file.name }}</span>
               <span class="lite-meta">{{ formatSize(file.size) }} · {{ formatTime(file.uploaded_at) }}</span>
             </div>
-            <button
-              class="lite-download"
-              :class="{ downloading: downloads[file.hash] }"
-              :disabled="!!downloads[file.hash]"
-              @click="downloadFile(file)"
-              :title="downloads[file.hash] ? '下载中 ' + downloads[file.hash] + '%' : '下载'"
-            >
-              <i v-if="downloads[file.hash]" class="fa-solid fa-spinner fa-spin"></i>
-              <em v-if="downloads[file.hash]">{{ downloads[file.hash] }}%</em>
-              <i v-else class="fa-solid fa-download"></i>
+            <button class="lite-download" @click="downloadFile(file)" title="下载">
+              <i class="fa-solid fa-download"></i>
             </button>
             <button class="lite-delete" @click="deleteFile(file)" title="删除">
               <i class="fa-solid fa-trash-can"></i>
@@ -289,6 +281,7 @@
 
 <script>
 import api from '@/utils/api';
+import axios from 'axios';
 
 var IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
 var VIDEO_EXTS = ['.mp4', '.mov', '.webm', '.mkv', '.avi', '.3gp'];
@@ -314,8 +307,11 @@ function getMediaType(file) {
 }
 
 // 锁屏/切后台后浏览器可能冻结或杀掉上传中的请求：
-// 可见时若某文件超过该时长无进度事件，判定为中断，标记失败等待重试
-var STALL_TIMEOUT = 30000;
+// 可见时若某文件超过该时长无进度事件，主动断开触发自动重试
+var STALL_ABORT = 45000;
+// 上传性能与稳定性：2 路并行（多流吃满隧道带宽）；自动重试 2 次带退避
+var PARALLEL = 2;
+var MAX_RETRY = 2;
 
 export default {
   name: 'CloudLite',
@@ -343,9 +339,7 @@ export default {
       ],
       queue: [],
       queueSeq: 0,
-      pumping: false,
       lastProgressAt: 0,
-      downloads: {},
       viewer: { open: false, index: 0 },
       mediaOverlay: { open: false, file: null, type: '', loading: false, content: '', error: '' },
       toastMsg: '',
@@ -411,20 +405,12 @@ export default {
       var body = document.body;
       body.style.visibility = 'hidden';
       setTimeout(function() { body.style.visibility = ''; }, 60);
-      var stuck = null;
+      // 上传中文件若已长时间无进度（后台被冻结导致看门狗失灵），主动断开触发自动重试
       self.queue.forEach(function(q) {
-        if (q.status === 'uploading' && Date.now() - self.lastProgressAt > STALL_TIMEOUT) {
-          stuck = q;
+        if (q.status === 'uploading' && q._cancel && Date.now() - q._lastProg > STALL_ABORT) {
+          q._cancel.cancel('stall');
         }
       });
-      if (stuck) {
-        stuck.status = 'failed';
-        stuck.error = '锁屏中断，请重试';
-        stuck.progress = 0;
-        self.pumping = false;
-        self.showToast('检测到上传中断，可点击重试');
-        setTimeout(function() { self.pump(); }, 300);
-      }
     },
 
     // ====== 分组 ======
@@ -538,9 +524,11 @@ export default {
           progress: 0,
           speed: '',
           error: '',
+          attempts: 0,
           preview: isImage ? URL.createObjectURL(f) : null,
           _lastLoaded: 0,
-          _lastTime: 0
+          _spT: 0,
+          _lastProg: 0
         });
       });
       if (list.length > 1) self.showToast('已加入 ' + list.length + ' 个文件');
@@ -548,12 +536,15 @@ export default {
     },
     pump: function() {
       var self = this;
-      if (self.pumping) return;
-      var item = null;
-      self.queue.forEach(function(q) {
-        if (!item && q.status === 'waiting') item = q;
-      });
-      if (!item) {
+      var uploading = self.queue.filter(function(q) { return q.status === 'uploading'; }).length;
+      while (uploading < PARALLEL) {
+        var next = null;
+        self.queue.forEach(function(q) { if (!next && q.status === 'waiting') next = q; });
+        if (!next) break;
+        self.startUpload(next);
+        uploading++;
+      }
+      if (uploading === 0) {
         if (self.queue.length > 0) {
           var ok = self.queue.filter(function(q) { return q.status === 'done'; }).length;
           var fail = self.queue.filter(function(q) { return q.status === 'failed'; }).length;
@@ -563,16 +554,28 @@ export default {
         }
         self.loadFiles();
         self.loadFolders();
-        return;
       }
+    },
+    armStall: function(item) {
+      var self = this;
+      clearTimeout(item._stall);
+      item._stall = setTimeout(function() {
+        if (item.status === 'uploading' && item._cancel) {
+          item._cancel.cancel('stall');
+        }
+      }, STALL_ABORT);
+    },
+    startUpload: function(item) {
+      var self = this;
       item.status = 'uploading';
       item.progress = 0;
       item.speed = '';
       item.error = '';
       item._lastLoaded = 0;
-      item._lastTime = Date.now();
-      self.pumping = true;
+      item._spT = 0;
+      item._lastProg = Date.now();
       self.lastProgressAt = Date.now();
+      item._cancel = axios.CancelToken.source();
 
       var fd = new FormData();
       fd.append('file', item.file, item.name);
@@ -581,43 +584,55 @@ export default {
       api.post('/cloud/upload', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 0,
+        cancelToken: item._cancel ? item._cancel.token : undefined,
         onUploadProgress: function(evt) {
           var now = Date.now();
           self.lastProgressAt = now;
+          item._lastProg = now;
           if (evt.total) item.progress = Math.round((evt.loaded / evt.total) * 100);
-          var dt = now - item._lastTime;
-          if (dt > 800 && evt.loaded > item._lastLoaded) {
-            item.speed = self.formatSize(Math.round((evt.loaded - item._lastLoaded) / (dt / 1000))) + '/s';
+          if (now - item._spT > 800 && evt.loaded > item._lastLoaded) {
+            item.speed = self.formatSize(Math.round((evt.loaded - item._lastLoaded) / ((now - item._spT) / 1000))) + '/s';
             item._lastLoaded = evt.loaded;
-            item._lastTime = now;
+            item._spT = now;
           }
+          self.armStall(item);
         }
       }).then(function() {
+        clearTimeout(item._stall);
         item.status = 'done';
         item.progress = 100;
         item.speed = '';
         if (item.preview) { URL.revokeObjectURL(item.preview); item.preview = null; }
+        self.pump();
       }).catch(function(err) {
-        item.status = 'failed';
-        item.progress = 0;
-        item.speed = '';
-        item.error = (err.response && err.response.data && err.response.data.message) || '上传失败';
-        if (err.response && err.response.status === 401) {
-          self.showToast('登录已过期，请重新登录');
+        clearTimeout(item._stall);
+        var status = err.response ? err.response.status : 0;
+        var retryable = !status || status >= 500 || status === 408 || status === 429;
+        if (retryable && item.attempts < MAX_RETRY) {
+          item.attempts++;
+          item.status = 'waiting';
+          item.progress = 0;
+          item.error = '网络中断，自动重试 ' + item.attempts + '/' + MAX_RETRY;
+          setTimeout(function() { self.pump(); }, 2000 * item.attempts);
+        } else {
+          item.status = 'failed';
+          item.error = (err.response && err.response.data && err.response.data.message) || '上传失败';
+          if (status === 401) {
+            self.showToast('登录已过期，请重新登录');
+          }
         }
-      }).then(function() {
-        self.pumping = false;
         self.pump();
       });
     },
     statusText: function(item) {
-      if (item.status === 'waiting') return '等待上传';
+      if (item.status === 'waiting') return item.error || '等待上传';
       if (item.status === 'uploading') return '上传中 ' + item.progress + '%' + (item.speed ? ' · ' + item.speed : '');
       if (item.status === 'done') return '已完成' + (item.folder ? ' → ' + item.folder : '');
       return item.error || '上传失败';
     },
     retryItem: function(item) {
       if (item.status !== 'failed') return;
+      item.attempts = 0;
       item.status = 'waiting';
       item.error = '';
       this.pump();
@@ -626,6 +641,7 @@ export default {
       var self = this;
       self.queue.forEach(function(q) {
         if (q.status === 'failed') {
+          q.attempts = 0;
           q.status = 'waiting';
           q.error = '';
         }
@@ -732,35 +748,19 @@ export default {
       });
     },
 
-    // ====== 下载（带进度） ======
+    // ====== 下载：服务端附件下发（Content-Disposition），浏览器原生进度，兼容旧内核 ======
     downloadFile: function(file) {
-      var self = this;
-      var key = file.hash;
-      if (self.downloads[key] !== undefined) return;
-      self.$set(self.downloads, key, 0);
-      api.get('/cloud/files/' + encodeURIComponent(key), {
-        responseType: 'blob',
-        timeout: 0,
-        onDownloadProgress: function(evt) {
-          if (evt.total) self.$set(self.downloads, key, Math.round((evt.loaded / evt.total) * 100));
-        }
-      }).then(function(res) {
-        var url = URL.createObjectURL(res.data);
-        var a = document.createElement('a');
-        a.href = url;
-        a.download = file.display_name || file.name;
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(function() {
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
-        }, 1000);
-        self.showToast('已下载：' + (file.display_name || file.name));
-      }).catch(function() {
-        self.showToast('下载失败');
-      }).then(function() {
-        setTimeout(function() { self.$delete(self.downloads, key); }, 600);
-      });
+      var name = file.display_name || file.name;
+      this.showToast('开始下载：' + name + '（进度见浏览器下载栏）');
+      var a = document.createElement('a');
+      a.href = file.url + '?download=1';
+      a.download = name;
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function() {
+        document.body.removeChild(a);
+      }, 1000);
     },
 
     // ====== 登录 ======
@@ -977,8 +977,6 @@ export default {
 }
 .lite-download { background: rgba(88, 86, 214, 0.12); }
 .lite-delete { background: rgba(255, 59, 48, 0.1); color: #FF3B30; }
-.lite-download.downloading { background: rgba(88, 86, 214, 0.2); }
-.lite-download em { position: absolute; bottom: -14px; left: 0; right: 0; font-size: 9px; color: #5856D6; text-align: center; font-style: normal; }
 /* ====== 分组管理弹层 ====== */
 .modal-mask {
   position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 150;
