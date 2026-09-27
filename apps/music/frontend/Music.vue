@@ -1297,7 +1297,7 @@ export default {
     },
     coverFallbackStyle: function(song) {
       var h = hue(song.title);
-      var l = this.isDark ? 22 : 82;
+      var l = this.isDark ? 30 : 82;
       return { background: 'linear-gradient(135deg, hsl(' + h + ',45%,' + l + '%), hsl(' + ((h + 50) % 360) + ',35%,' + (l - 6) + '%))' };
     },
     // 封面加载失败（图片中转断网等）：清空地址让占位渐变兜底
@@ -6506,4 +6506,7 @@ export default {
   justify-content: center;
   padding: 8px 24px 20px;
 }
+
+.cover-fallback-sm i { color: rgba(255, 255, 255, 0.6); font-size: 20px; }
+
 </style>
