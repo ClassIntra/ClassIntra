@@ -666,7 +666,7 @@
           </div>
         </div>
       </div>
-        <div class="full-detail-comment-bar">
+        <div v-if="showFullDetail && currentPost" class="full-detail-comment-bar">
           <div v-if="replyToUser" class="reply-indicator">
             <span>回复 @{{ replyToUser }}</span>
             <button class="reply-clear" @click="clearReplyTo"><i class="fa-solid fa-xmark"></i></button>
