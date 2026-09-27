@@ -1,5 +1,5 @@
 <template>
-  <div class="music-page" :data-theme="theme">
+  <div class="music-page">
     <div class="music-list-page">
       <AppNavBar title="音乐" :show-back="true">
         <template #actions>
@@ -3050,7 +3050,7 @@ export default {
   cursor: pointer;
   transition: color var(--duration-fast) var(--ease-standard), background var(--duration-fast) var(--ease-standard);
 }
-.ncm-history-clear:hover { color: #e0506e; background: rgba(224, 80, 110, 0.08); }
+.ncm-history-clear:hover { color: var(--accent-music); background: rgba(224, 80, 110, 0.08); }
 .ncm-history-clear:active { transform: scale(0.94); opacity: 0.7; }
 .ncm-history-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .ncm-history-chip {

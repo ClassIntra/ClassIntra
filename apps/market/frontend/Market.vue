@@ -453,10 +453,10 @@ h3 { color: var(--text-primary); font-size: 16px; }
 .source-select, .refresh-btn, .app-action, .secondary-action, .danger-action, .market-error button { border: 1px solid var(--separator-color); border-radius: var(--radius-md); padding: 9px 14px; background: var(--card-bg); color: var(--text-primary); cursor: pointer; }
 .refresh-btn { background: var(--primary-color); color: #fff; border-color: var(--primary-color); }
 button:disabled { opacity: .55; cursor: not-allowed; }
-.market-error { display: flex; align-items: center; gap: 10px; padding: 14px 16px; margin-bottom: 24px; border-radius: var(--radius-md); background: rgba(255, 59, 48, .1); color: #ff3b30; }
-.market-error button { margin-left: auto; color: #ff3b30; background: transparent; border-color: currentColor; }
+.market-error { display: flex; align-items: center; gap: 10px; padding: 14px 16px; margin-bottom: 24px; border-radius: var(--radius-md); background: rgba(255, 59, 48, .1); color: var(--danger-color); }
+.market-error button { margin-left: auto; color: var(--danger-color); background: transparent; border-color: currentColor; }
 .market-progress, .market-source-status { display: flex; align-items: center; gap: 8px; padding: 10px 14px; margin-bottom: 16px; border-radius: var(--radius-md); background: rgba(120,120,128,0.12); color: var(--text-secondary); font-size: 13px; }
-.market-source-status { color: #248a3d; }
+.market-source-status { color: var(--success-color); }
 .market-loading, .empty-state { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 12px; min-height: 180px; color: var(--text-secondary); }
 .market-section { margin-bottom: 34px; }
 .section-heading { margin-bottom: 14px; }
@@ -465,7 +465,10 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .count-badge { padding: 5px 9px; border-radius: var(--radius-pill); background: rgba(120,120,128,0.12); }
 .app-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
 .app-card, .installed-card { background: var(--card-bg); border: 1px solid var(--separator-color); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); }
-.app-card { padding: 18px; min-height: 160px; display: flex; flex-direction: column; justify-content: space-between; gap: 18px; }
+.app-card { padding: 18px; min-height: 160px; display: flex; flex-direction: column; justify-content: space-between; gap: 18px;   transition: transform var(--duration-fast) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard);
+}
+.app-card:hover { box-shadow: var(--shadow-md); border-color: rgba(var(--primary-rgb), 0.4); }
+.app-card:active { transform: scale(0.98); }
 .app-card-header { display: flex; align-items: center; gap: 12px; }
 .app-icon { width: 48px; height: 48px; border-radius: var(--radius-pill); display: flex; align-items: center; justify-content: center; color: #fff; overflow: hidden; flex-shrink: 0; }
 .app-icon.small { width: 42px; height: 42px; border-radius: var(--radius-md); }
@@ -481,7 +484,7 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 /* notice 级：需要用户留意的能力，用警示色轻描边区分 */
 .cap-chip-notice { background: rgba(var(--warning-rgb, 255, 149, 0), 0.12); color: rgb(var(--warning-rgb, 255, 149, 0)); }
 .app-card-footer { border-top: 1px solid var(--separator-color); padding-top: 14px; }
-.installed-label { color: #34c759; font-size: 12px; }
+.installed-label { color: var(--success-color); font-size: 12px; }
 .app-author { color: var(--text-secondary); font-size: 12px; }
 .app-action { background: var(--primary-light); color: var(--primary-color); border-color: transparent; font-weight: 600; }
 .installed-list { display: flex; flex-direction: column; gap: 10px; }
@@ -490,14 +493,14 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .installed-title-row { display: flex; align-items: center; gap: 8px; }
 .installed-info p { margin: 5px 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .status-badge { padding: 3px 7px; border-radius: var(--radius-pill); font-size: 11px; }
-.status-badge.enabled { color: #248a3d; background: rgba(52, 199, 89, .12); }
-.status-badge.disabled { color: #b42318; background: rgba(255, 59, 48, .12); }
+.status-badge.enabled { color: var(--success-color); background: rgba(52, 199, 89, .12); }
+.status-badge.disabled { color: var(--danger-color); background: rgba(255, 59, 48, .12); }
 .status-hint { display: block; margin-top: 5px; color: var(--text-secondary); font-size: 11px; }
 .control-action { border: 1px solid transparent; border-radius: var(--radius-md); padding: 9px 12px; background: transparent; cursor: pointer; }
-.control-action.enable { color: #248a3d; border-color: rgba(52, 199, 89, .35); }
-.control-action.disable { color: #b42318; border-color: rgba(255, 59, 48, .25); }
+.control-action.enable { color: var(--success-color); border-color: rgba(52, 199, 89, .35); }
+.control-action.disable { color: var(--danger-color); border-color: rgba(255, 59, 48, .25); }
 .secondary-action { color: var(--primary-color); }
-.danger-action { color: #ff3b30; }
+.danger-action { color: var(--danger-color); }
 .spinner, .mini-spinner { border: 3px solid var(--separator-color); border-top-color: var(--primary-color); border-radius: 50%; animation: spin .8s linear infinite; }
 .spinner { width: 30px; height: 30px; }
 .mini-spinner { display: inline-block; width: 13px; height: 13px; border-width: 2px; vertical-align: -2px; }

@@ -390,7 +390,7 @@
             v-for="card in annotationCards"
             :key="card.id"
             class="annotation-card"
-            :style="{ borderLeftColor: card.color || '#ffc107' }"
+            :style="{ borderLeftColor: card.color || 'var(--accent-notes, #FFCC00)' }"
           >
             <div class="annotation-card-header">
               <span class="annotation-card-time">{{ formatDate(card.createdAt) }}</span>
@@ -1209,7 +1209,7 @@ export default {
       annoDrawing: false,
       annotationInput: '',
       annotationSelectedText: '',
-      annotationColor: '#ffc107',
+      annotationColor: 'var(--accent-notes, #FFCC00)',
       showAnnotationInput: false,
       showResourcePicker: false,
       resourcePickerItems: [],
@@ -3324,7 +3324,7 @@ export default {
       }
       self.annotationInput = '';
       self.annotationSelectedText = selectedText || '';
-      self.annotationColor = '#ffc107';
+      self.annotationColor = 'var(--accent-notes, #FFCC00)';
       self.showAnnotationInput = true;
       // 不弹出原生 prompt，显示内置输入框
       self.$nextTick(function() {
@@ -3773,7 +3773,7 @@ export default {
 }
 
 .file-type-icon.draw-type {
-  color: #ff6b6b;
+  color: var(--danger-color);
 }
 
 .file-item-date {
@@ -4629,7 +4629,7 @@ export default {
 }
 
 .annotation-card {
-  border-left: 4px solid #ffc107;
+  border-left: 4px solid var(--accent-notes, #FFCC00);
   background: var(--card-bg);
   padding: 10px 14px;
   margin-bottom: 10px;
