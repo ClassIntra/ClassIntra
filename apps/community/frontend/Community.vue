@@ -3217,7 +3217,7 @@ export default {
 .full-detail-back:active { transform: scale(0.94); opacity: 0.7; }
 .full-detail-back i { font-size: var(--font-size-sm); }
 .full-detail-header-title { flex: 1; min-width: 0; font-size: var(--font-size-callout); font-weight: 600; color: var(--text-primary); text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.full-detail-body { flex: 1; overflow-y: auto; padding: 24px 32px; max-width: 900px; margin: 0 auto; width: 100%; }
+.full-detail-body { flex: 1; overflow-y: auto; padding: 20px 24px 24px; max-width: 744px; margin: 12px auto 0; width: 100%; box-sizing: border-box; background: var(--card-bg); border: 0.5px solid var(--border-color); border-radius: var(--radius-2xl); }
 .full-detail-author { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; padding-bottom: 16px; border-bottom: 0.5px solid var(--separator-color); }
 .full-detail-author-info { flex: 1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .full-detail-author-name { font-size: var(--font-size-callout); font-weight: 600; color: var(--text-primary); }
