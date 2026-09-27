@@ -1696,17 +1696,22 @@ export default {
     // 纯文本帖：Canvas 生成封面图（哈希色渐变 + 首字水印 + 摘要排印），确定性缓存
     // 封面加载完成：渐显；图片帖加载失败时回退 Canvas 文字封面
     onCoverLoad: function(e) {
-      var el = e && e.target;
-      if (!el || el.tagName !== 'IMG') return;
-      if (el.dataset.failed) return;
-      if (e.type === 'error' && el.src.indexOf('data:') === -1) {
-        el.dataset.failed = '1';
-        el.classList.add('post-cover-portrait');
-        if (el.parentElement) el.parentElement.classList.add('post-cover-frame-auto');
-        el.src = this.textCoverUrl({ title: '帖', content: '', id: el.dataset.seed });
-        return;
+      // 封面加载兜底：任何异常都不得冒泡打断页面渲染（历史教训：这里抛错过）
+      try {
+        var el = e && e.target;
+        if (!el || el.tagName !== 'IMG') return;
+        if (el.dataset.failed) return;
+        if (e.type === 'error') {
+          // 破图处理：隐藏图片，框体落到素色渐变底（无 JS 计算，零抛错面）
+          el.dataset.failed = '1';
+          el.style.display = 'none';
+          if (el.parentElement) el.parentElement.classList.add('post-cover-frame-fallback');
+          return;
+        }
+        el.classList.add('img-loaded');
+      } catch (err) {
+        try { if (e && e.target) e.target.style.display = 'none'; } catch (e2) {}
       }
-      el.classList.add('img-loaded');
     },
     textCoverUrl: function(post) {
       return generateTextCover(
@@ -4020,6 +4025,10 @@ export default {
     overflow: hidden;
     background: rgba(120,120,128,0.08);
   }
+  .post-cover-frame-fallback {
+    background: linear-gradient(155deg, #1B1D23 0%, #262932 100%) !important;
+  }
+
   .waterfall-col .post-cover {
     position: absolute;
     top: 0;
