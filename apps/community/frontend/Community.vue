@@ -124,6 +124,8 @@
                 v-else
                 class="post-cover post-cover-loading"
                 :src="'/api/integrations/cover-image?seed=' + (post.id || post.user_id)"
+                :data-title="post.title || '帖'"
+                :data-user="post.user_id || post.id"
                 :data-seed="post.id || post.user_id"
                 :loading="pi === 0 ? 'eager' : 'lazy'"
                 decoding="async"
@@ -671,14 +673,6 @@
             <span>回复 @{{ replyToUser }}</span>
             <button class="reply-clear" @click="clearReplyTo"><i class="fa-solid fa-xmark"></i></button>
           </div>
-          <div class="comment-toolbar">
-            <button class="comment-tool-btn" @click="commentEmojiOpen = !commentEmojiOpen" title="表情">
-              <i class="fa-regular fa-face-smile"></i>
-            </button>
-            <button class="comment-tool-btn" @click="commentCloudTarget = 'comment'; showCloudPicker = true" title="云盘文件">
-              <i class="fa-solid fa-cloud"></i>
-            </button>
-          </div>
           <div v-if="commentEmojiOpen" class="emoji-picker comment-emoji-picker">
             <button
               v-for="emoji in emojiList"
@@ -688,6 +682,12 @@
             >{{ emoji }}</button>
           </div>
           <div class="full-detail-input-wrap">
+            <button class="comment-tool-btn" @click="commentEmojiOpen = !commentEmojiOpen" title="表情">
+              <i class="fa-regular fa-face-smile"></i>
+            </button>
+            <button class="comment-tool-btn" @click="commentCloudTarget = 'comment'; showCloudPicker = true" title="插入云盘图片">
+              <i class="fa-solid fa-cloud"></i>
+            </button>
             <input
               class="detail-comment-input"
               v-model="commentText"
@@ -1696,14 +1696,28 @@ export default {
     // 纯文本帖：Canvas 生成封面图（哈希色渐变 + 首字水印 + 摘要排印），确定性缓存
     // 封面加载完成：渐显；图片帖加载失败时回退 Canvas 文字封面
     onCoverLoad: function(e) {
-      // 封面加载兜底：任何异常都不得冒泡打断页面渲染（历史教训：这里抛错过）
+      // 封面加载兜底链：原图 → 风景代理 → Canvas 文字封面 → 素色渐变
+      // 任何一步异常都不能冒泡打断页面渲染（历史教训）
       try {
         var el = e && e.target;
         if (!el || el.tagName !== 'IMG') return;
-        if (el.dataset.failed) return;
+        var stage = Number(el.dataset.coverStage || 0);
         if (e.type === 'error') {
-          // 破图处理：隐藏图片，框体落到素色渐变底（无 JS 计算，零抛错面）
-          el.dataset.failed = '1';
+          if (stage === 0) {
+            // 第一级失败（云盘图 404 / 图源不稳）：换风景代理
+            el.dataset.coverStage = '1';
+            el.src = '/api/integrations/cover-image?seed=' + (el.dataset.seed || 'x');
+            return;
+          }
+          if (stage === 1) {
+            // 第二级失败（图源不可用）：Canvas 生成文帖封面
+            el.dataset.coverStage = '2';
+            el.src = generateTextCover(
+              el.dataset.title || '帖', '', hashColor(String(el.dataset.user || 'x')), el.dataset.seed || 'x'
+            );
+            return;
+          }
+          // 最终兜底：隐藏破图，露出框体素色渐变
           el.style.display = 'none';
           if (el.parentElement) el.parentElement.classList.add('post-cover-frame-fallback');
           return;
