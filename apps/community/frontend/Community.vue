@@ -1698,6 +1698,8 @@ export default {
       if (el.dataset.failed) return;
       if (e.type === 'error' && el.src.indexOf('data:') === -1) {
         el.dataset.failed = '1';
+        el.classList.add('post-cover-portrait');
+        if (el.parentElement) el.parentElement.classList.add('post-cover-frame-auto');
         el.src = this.textCoverUrl({ title: '帖', content: '', id: el.dataset.seed });
         return;
       }
@@ -1705,8 +1707,8 @@ export default {
     },
     textCoverUrl: function(post) {
       return generateTextCover(
-        String(post.title || post.content || '帖'),
-        postCoverExcerpt(post),
+        String(post.title || post.content || '帖').replace(/\[[^\]]*\]/g, '').trim(),
+        post.is_anonymous ? '' : (post.net_name || ''),
         hashColor(String(post.user_id || post.id || 'x')),
         String(post.id || post.content || 'x')
       );
@@ -4028,6 +4030,9 @@ export default {
     background: none;
   }
 }
+
+  .post-cover-frame-auto { padding-top: 0; height: auto; overflow: visible; background: none; }
+  .post-cover-portrait { position: static !important; width: 100% !important; height: auto !important; max-height: none !important; border-radius: var(--radius-md) !important; }
 
 .toolbar-btn-cover { width: auto; padding: 0 12px; gap: 5px; color: var(--primary-color); font-size: var(--font-size-caption1); font-weight: var(--font-weight-medium); }
 .toolbar-btn-cover span { line-height: 1; }

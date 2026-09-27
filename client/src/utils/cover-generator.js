@@ -1,57 +1,34 @@
 /**
- * 文字封面生成器（Canvas 版 · 网格光斑风）
+ * 文字封面生成器（Canvas 版 · MD2Card 风）
  *
- * 每帖封面像一张小壁纸：由哈希色扩展出的类比色系画 3 个大光斑（位置/半径按
- * 帖子种子变化），叠柔光圆环与点阵肌理；构图四种轮换。高度随内容行数分档，
- * 瀑布流天然错落。结果确定性缓存，一张只画一次。
+ * 两套模板按帖子轮换，复刻小红书文转图封面：
+ *   A 条纹卡：粉彩斜纹底 + 白色圆角内衬卡 + 特大黑体标题 + 关键词圆形高亮
+ *   B 笔记纸：米白横线纸 + 红色页边线 + 深蓝粗体标题 + 关键词荧光笔标记
+ * 3:4 竖版；关键词位置与配色由帖子种子决定；确定性缓存。
  */
 
 var cache = {};
 
-function hexToRgb(hex) {
-  return {
-    r: parseInt(hex.substring(1, 3), 16),
-    g: parseInt(hex.substring(3, 5), 16),
-    b: parseInt(hex.substring(5, 7), 16)
-  };
+function seedNum(seed) {
+  return Math.abs(String(seed || 'x').split('').reduce(function (a, ch) { return a + ch.charCodeAt(0); }, 0));
 }
 
-// 色相旋转 ±deg 生成类比色（保持同族和谐又有变化）
-function hueShift(hex, deg) {
-  var c = hexToRgb(hex);
-  var r = c.r / 255, g = c.g / 255, b = c.b / 255;
+function hexToHslDeg(hex) {
+  var r = parseInt(hex.substring(1, 3), 16) / 255;
+  var g = parseInt(hex.substring(3, 5), 16) / 255;
+  var b = parseInt(hex.substring(5, 7), 16) / 255;
   var max = Math.max(r, g, b), min = Math.min(r, g, b);
   var h, s, l = (max + min) / 2;
-  if (max === min) { h = 0; s = 0; }
+  if (max === min) { h = 210; s = 0.6; }
   else {
     var d = max - min;
     s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-    if (max === r) h = ((g - b) / d + (g < b ? 6 : 0));
+    if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
     else if (max === g) h = (b - r) / d + 2;
     else h = (r - g) / d + 4;
-    h /= 6;
+    h = h / 6 * 360;
   }
-  h = (h + deg / 360) % 1;
-  if (h < 0) h += 1;
-  // HSL → RGB
-  var q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-  var p = 2 * l - q;
-  function t2v(t) {
-    if (t < 0) t += 1;
-    if (t > 1) t -= 1;
-    if (t < 1 / 6) return p + (q - p) * 6 * t;
-    if (t < 1 / 2) return q;
-    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
-    return p;
-  }
-  var r2 = Math.round(t2v(h + 1 / 3) * 255);
-  var g2 = Math.round(t2v(h) * 255);
-  var b2 = Math.round(t2v(h - 1 / 3) * 255);
-  return '#' + [r2, g2, b2].map(function (v) { return ('0' + v.toString(16)).slice(-2); }).join('');
-}
-
-function seedNum(seed) {
-  return Math.abs(String(seed || 'x').split('').reduce(function (a, ch) { return a + ch.charCodeAt(0); }, 0));
+  return { h: h, s: Math.max(s, 0.35) };
 }
 
 var FONT_STACK = '-apple-system, "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif';
@@ -67,89 +44,94 @@ function wrapLines(text, perLine, maxLines) {
   return lines;
 }
 
-// 柔光斑：径向渐变圆（中心实、边缘透明），叠加出壁纸质感
-function blob(ctx, x, y, r, color, alpha) {
-  var g = ctx.createRadialGradient(x, y, 0, x, y, r);
-  g.addColorStop(0, color);
-  g.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.save();
-  ctx.globalAlpha = alpha;
-  ctx.fillStyle = g;
-  ctx.fillRect(x - r, y - r, r * 2, r * 2);
-  ctx.restore();
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
 }
 
 export function generateTextCover(title, excerpt, colorHex, seed) {
-  var key = String(seed) + '|' + colorHex + '|' + title;
+  var text = String(title || excerpt || '').trim();
+  if (!text) text = '写点什么记录一下吧';
+  var key = String(seed) + '|' + text;
   if (cache[key]) return cache[key];
   if (typeof document === 'undefined') return '';
 
-  var text = String(excerpt || '').trim();
-  var lines = wrapLines(text, 17, 3);
-
-  var w = 360;
-  var h = lines.length <= 1 ? 190 : lines.length === 2 ? 225 : 265;
+  var w = 360, h = 480;
   var sn = seedNum(seed);
-  var variant = sn % 4;
+  var styleT = sn % 2;
+  var hue = hexToHslDeg(colorHex).h;
+
+  var fs = styleT === 0 ? 44 : 40;
+  var perLine = styleT === 0 ? 7 : 8;
+  var lh = styleT === 0 ? 62 : 58;
+  var lines = wrapLines(text, perLine, 4);
 
   var canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
+  canvas.width = w; canvas.height = h;
   var ctx = canvas.getContext('2d');
   if (!ctx) return '';
 
-  // 底：近黑
-  ctx.fillStyle = '#101319';
-  ctx.fillRect(0, 0, w, h);
+  var textX = styleT === 0 ? 54 : 58;
+  var blockH = (lines.length - 1) * lh;
+  var textY = Math.round(h / 2 - blockH / 2 + fs * 0.05);
 
-  // 类比色系：哈希色 ±32° 色相，三色光斑按种子散布
-  var c1 = colorHex;
-  var c2 = hueShift(colorHex, 32);
-  var c3 = hueShift(colorHex, -32);
-  var pos = [
-    [[w * 0.75, h * 0.2, w * 0.62], [w * 0.15, h * 0.75, w * 0.55], [w * 0.55, h * 0.55, w * 0.4]],
-    [[w * 0.25, h * 0.25, w * 0.6], [w * 0.8, h * 0.7, w * 0.58], [w * 0.5, h * 0.5, w * 0.38]],
-    [[w * 0.2, h * 0.2, w * 0.5], [w * 0.85, h * 0.35, w * 0.5], [w * 0.45, h * 0.85, w * 0.55]],
-    [[w * 0.6, h * 0.15, w * 0.5], [w * 0.2, h * 0.6, w * 0.55], [w * 0.85, h * 0.8, w * 0.45]]
-  ][variant];
-  blob(ctx, pos[0][0], pos[0][1], pos[0][2], c1, 0.6);
-  blob(ctx, pos[1][0], pos[1][1], pos[1][2], c2, 0.42);
-  blob(ctx, pos[2][0], pos[2][2], pos[2][2], c3, 0.34);
-
-  // 装饰变体：细圆环（种子偶数帖）
-  if (sn % 2 === 0) {
-    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-    ctx.lineWidth = 1.2;
-    ctx.beginPath();
-    ctx.arc(w - 46, 40 + (sn % 24), 26 + (sn % 18), 0, Math.PI * 2);
-    ctx.stroke();
+  if (styleT === 0) {
+    // ===== A 条纹卡 =====
+    var base = 'hsl(' + hue + ', 62%, 86%)';
+    var stripe = 'hsl(' + hue + ', 58%, 78%)';
+    ctx.fillStyle = base; ctx.fillRect(0, 0, w, h);
+    ctx.save();
+    ctx.translate(w / 2, h / 2);
+    ctx.rotate(-Math.PI / 5);
+    ctx.fillStyle = stripe;
+    for (var sx = -720; sx < 720; sx += 96) ctx.fillRect(sx, -720, 48, 1440);
+    ctx.restore();
+    // 白色内衬卡
+    ctx.save();
+    ctx.shadowColor = 'rgba(30,50,90,0.10)'; ctx.shadowBlur = 28; ctx.shadowOffsetY = 6;
+    ctx.fillStyle = '#FFFFFF';
+    roundRect(ctx, 30, 30, w - 60, h - 60, 36); ctx.fill();
+    ctx.restore();
+  } else {
+    // ===== B 笔记纸 =====
+    ctx.fillStyle = '#FCFAF4'; ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = 'rgba(190,185,175,0.5)'; ctx.lineWidth = 1;
+    for (var ry = 52; ry < h; ry += 46) { ctx.beginPath(); ctx.moveTo(0, ry + 0.5); ctx.lineTo(w, ry + 0.5); ctx.stroke(); }
+    ctx.strokeStyle = 'rgba(222,120,110,0.55)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(36, 0); ctx.lineTo(36, h); ctx.stroke();
   }
 
-  // 点阵肌理
-  ctx.fillStyle = 'rgba(255,255,255,0.035)';
-  for (var y = 14; y < h; y += 24) {
-    for (var x = 14; x < w; x += 24) {
-      ctx.beginPath();
-      ctx.arc(x, y, 1, 0, Math.PI * 2);
-      ctx.fill();
-    }
+  // 关键词高亮：种子选定第 idx 个字（取 2 字），先画底衬再叠字
+  var hlIdx = Math.min(sn % Math.max(text.length - 2, 1), text.length - 2);
+  var hlLine = Math.floor(hlIdx / perLine);
+  var hlPos = hlIdx % perLine;
+  if (hlLine >= lines.length) hlLine = lines.length - 1;
+  var hlLineText = lines[hlLine];
+  if (hlPos > hlLineText.length - 2) hlPos = Math.max(hlLineText.length - 2, 0);
+  var prefixW = ctx.measureText(hlLineText.substring(0, hlPos)).width;
+  var keyW = ctx.measureText(hlLineText.substring(hlPos, hlPos + 2)).width;
+  var hlCx = textX + prefixW + keyW / 2;
+  var hlCy = textY + hlLine * lh;
+
+  if (styleT === 0) {
+    ctx.fillStyle = 'rgba(250,158,128,0.55)';
+    ctx.beginPath(); ctx.arc(hlCx, hlCy + 4, fs * 0.56, 0, Math.PI * 2); ctx.fill();
+  } else {
+    ctx.fillStyle = 'rgba(110,170,255,0.6)';
+    roundRect(ctx, hlCx - keyW / 2 - 6, hlCy + 12, keyW + 12, fs * 0.4, 8); ctx.fill();
   }
 
-  // 底部渐隐压暗，保证摘要可读
-  var veil = ctx.createLinearGradient(0, h - 100, 0, h);
-  veil.addColorStop(0, 'rgba(8,10,16,0)');
-  veil.addColorStop(1, 'rgba(8,10,16,0.72)');
-  ctx.fillStyle = veil;
-  ctx.fillRect(0, h - 100, w, 100);
-
-  // 摘要排印
-  ctx.fillStyle = 'rgba(255,255,255,0.96)';
-  ctx.font = '600 17px ' + FONT_STACK;
-  ctx.textBaseline = 'alphabetic';
-  var lineHeight = 24;
-  var baseY = h - 16 - (lines.length - 1) * lineHeight;
-  for (var l = 0; l < lines.length; l++) {
-    ctx.fillText(lines[l], 16, baseY + l * lineHeight);
+  // 标题文字
+  ctx.fillStyle = styleT === 0 ? '#1A1A1A' : '#2B3A55';
+  ctx.font = '700 ' + fs + 'px ' + FONT_STACK;
+  ctx.textBaseline = 'middle';
+  for (var li = 0; li < lines.length; li++) {
+    ctx.fillText(lines[li], textX, textY + li * lh);
   }
 
   var url = canvas.toDataURL('image/png');
