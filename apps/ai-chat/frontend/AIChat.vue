@@ -26,8 +26,13 @@
           </button>
         </div>
         <div v-if="loadingConvs" class="sidebar-loading">
-          <div class="spinner-sm"></div>
-          <span>加载中...</span>
+          <div v-for="n in 4" :key="n" class="conv-skeleton">
+            <div class="skeleton skeleton-avatar-sm"></div>
+            <div class="skeleton-lines">
+              <div class="skeleton skeleton-line-60"></div>
+              <div class="skeleton skeleton-line-80"></div>
+            </div>
+          </div>
         </div>
         <div v-else-if="conversations.length === 0" class="sidebar-empty">
           <i class="fa-regular fa-comment-dots"></i>
@@ -3884,4 +3889,30 @@ export default {
     font-size: 12px;
   }
 }
+
+/* 会话列表骨架屏：复用全局 .skeleton 微光，补排布尺寸 */
+.sidebar-loading { padding: 8px 10px; }
+
+.conv-skeleton {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+}
+
+.skeleton-avatar-sm {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.skeleton-lines {
+  flex: 1;
+  min-width: 0;
+}
+
+.skeleton-line-60 { height: 14px; width: 60%; border-radius: var(--radius-sm); margin-bottom: 8px; }
+.skeleton-line-80 { height: 12px; width: 80%; border-radius: var(--radius-sm); }
+
 </style>

@@ -72,7 +72,7 @@
             <div class="day-events" v-if="cell.events.length || cell.birthdays.length">
               <span v-for="(ev, ei) in cell.events.slice(0, 3)" :key="ei" class="event-dot" :style="{ background: getCategoryColor(ev.category) }"></span>
               <span v-if="cell.events.length > 3" class="event-more">+{{ cell.events.length - 3 }}</span>
-              <span v-if="cell.birthdays.length" class="birthday-icon" title="生日">🎂</span>
+              <span v-if="cell.birthdays.length" class="birthday-icon" title="生日"><i class="fa-solid fa-cake-candles"></i></span>
             </div>
           </div>
         </div>
@@ -115,7 +115,7 @@
           </div>
           <!-- 生日列表 -->
           <div v-for="(bd, bi) in selectedDateBirthdays" :key="'bd' + bi" class="birthday-item">
-            <span class="bi-icon">🎂</span>
+            <span class="bi-icon"><i class="fa-solid fa-cake-candles"></i></span>
             <span class="bi-name">{{ bd.net_name || bd.real_name }}</span>
             <span class="bi-label">生日</span>
           </div>
