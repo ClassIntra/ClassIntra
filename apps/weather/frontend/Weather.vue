@@ -22,7 +22,7 @@
     <div v-else class="weather-main" :class="{ 'show': contentVisible }">
       <div class="scroll-all">
         <div class="hero">
-          <div class="hero-location">庐江</div>
+          <div class="hero-location">{{ cityName }}</div>
           <div class="hero-temp">{{ current ? parseInt(current.temp, 10) : '--' }}°</div>
           <div class="hero-range" v-if="daily.length">
             最高 {{ parseInt(daily[0].tempMax, 10) }}° &nbsp;&nbsp; 最低 {{ parseInt(daily[0].tempMin, 10) }}°
@@ -148,6 +148,7 @@ export default {
   components: { WeatherIcon, AirQuality, LifeIndex, WarningCard, RainAlert, AppNavBar, WeatherAnimation },
   data: function() {
     return {
+      cityName: '庐江',
       loading: false,
       error: '',
       current: null,

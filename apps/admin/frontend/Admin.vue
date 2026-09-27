@@ -738,7 +738,7 @@
                       <span :class="folder.state === 'idle' ? 'status-active' : folder.state === 'syncing' ? 'status-pending' : 'status-inactive'">{{ folder.state === 'idle' ? '空闲' : folder.state === 'syncing' ? '同步中' : folder.state === 'scanning' ? '扫描中' : folder.state }}</span>
                     </div>
                     <div style="font-size:12px;color:rgba(255,255,255,0.5);">{{ folder.path }} · {{ folder.globalFiles }} 文件</div>
-                    <div v-if="folder.needFiles > 0" style="font-size:12px;color:#f59e0b;">待同步: {{ folder.needFiles }} 文件</div>
+                    <div v-if="folder.needFiles > 0" style="font-size:12px;color:var(--warning-color);">待同步: {{ folder.needFiles }} 文件</div>
                   </div>
                 </div>
               </div>
@@ -1000,7 +1000,7 @@
             <p class="perm-desc">开启后，用户连续快速点击屏幕 5 次即可锁屏；锁屏后连续点击屏幕右上角 10 次解锁。关闭后锁屏手势不再生效。</p>
             <div class="app-control-grid">
               <div class="app-control-card" :class="{ disabled: !lockScreenEnabled }">
-                <div class="app-control-icon" style="background-color:#5856d6">
+                <div class="app-control-icon" style="background-color:var(--accent-resource)">
                   <i class="fa-solid fa-lock"></i>
                 </div>
                 <div class="app-control-info">
@@ -3845,7 +3845,7 @@ export default {
   border-right: none;
 }
 .btn-group-label {
-  background: var(--bg-secondary) !important;
+  background: var(--bg-color) !important;
   color: var(--text-secondary) !important;
   cursor: default !important;
   font-weight: var(--font-weight-medium) !important;
@@ -4411,7 +4411,7 @@ export default {
 .pm2-details { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
 .pm2-logs-section { margin-top: 8px; }
 .pm2-log-viewer {
-  background: #0d1117;
+  background: rgba(0,0,0,0.35);
   border-radius: var(--radius-sm);
   padding: 12px;
   max-height: 400px;
@@ -4421,7 +4421,7 @@ export default {
   line-height: 1.6;
 }
 .pm2-log-line {
-  color: #c9d1d9;
+  color: var(--text-secondary);
   white-space: pre-wrap;
   word-break: break-all;
   border-bottom: 0.5px solid rgba(255,255,255,0.04);
@@ -5454,7 +5454,7 @@ export default {
 .weather-check-result {
   margin-top: 20px;
   padding: 12px;
-  background: var(--bg-secondary);
+  background: var(--bg-color);
   border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
 }
@@ -5468,7 +5468,7 @@ export default {
 .check-item {
   padding: 10px;
   border-radius: var(--radius-sm);
-  background: var(--bg-primary);
+  background: var(--card-bg);
   border: 1px solid var(--border-color);
 }
 

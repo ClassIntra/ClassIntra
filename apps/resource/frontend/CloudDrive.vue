@@ -1111,7 +1111,7 @@ export default {
   justify-content: center;
   gap: 8px;
 }
-.video-thumb { background: linear-gradient(135deg, #3A82F7, #0B4BD8); color: #fff; }
+.video-thumb { background: linear-gradient(135deg, var(--primary-color), var(--primary-dark)); color: #fff; }
 .audio-thumb { background: linear-gradient(135deg, #AF52DE, #8E3DC8); color: #fff; }
 .other-thumb { background: linear-gradient(135deg, #8E8E93, #6D6D72); color: #fff; }
 .media-thumb i { font-size: 36px; opacity: 0.9; }
@@ -1421,7 +1421,7 @@ export default {
 .review-list { padding: 0 16px; display: flex; flex-direction: column; gap: 10px; }
 .review-item {
   display: flex; align-items: center; gap: 12px;
-  background: #fff; border-radius: 14px; padding: 10px 12px;
+  background: var(--card-bg); border-radius: 14px; padding: 10px 12px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 .review-item.moderated { opacity: 0.6; }

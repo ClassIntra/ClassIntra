@@ -1,10 +1,7 @@
 <template>
   <div class="integration-page">
+    <AppNavBar title="集成管理" :show-back="false" />
     <div class="page-header">
-      <h1 class="page-title">
-        <i class="fa-solid fa-plug"></i>
-        集成管理
-      </h1>
       <p class="page-subtitle">管理外部系统与 ClassIntra 的集成连接</p>
     </div>
 
@@ -140,9 +137,13 @@
 
 <script>
 import api from '@/utils/api';
+import AppNavBar from '@/components/AppNavBar.vue';
 
 export default {
   name: 'Integration',
+  components: {
+    AppNavBar: AppNavBar
+  },
   data: function() {
     return {
       loadingList: true,
@@ -269,7 +270,10 @@ export default {
 .integration-page {
   max-width: 960px;
   margin: 0 auto;
-  padding: 24px 20px 40px;
+  padding: 0 20px 40px;
+  width: 100%;
+  background: var(--bg-color);
+  min-height: 100%;
 }
 
 .page-header {

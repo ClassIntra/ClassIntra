@@ -1163,7 +1163,7 @@ export default {
   background: rgba(0,0,0,0.6);
   border-radius: var(--radius-xl);
   color: #fff;
-  font-size: 15px;
+  font-size: var(--font-size-body);
   font-family: 'SF Mono', 'Menlo', monospace;
   font-weight: 600;
 }
@@ -1171,7 +1171,7 @@ export default {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #ff3b30;
+  background: var(--danger-color);
   animation: rec-blink 1s infinite;
 }
 @keyframes rec-blink {
@@ -1203,14 +1203,14 @@ export default {
   z-index: 3;
 }
 .vf-error i { font-size: 56px; }
-.vf-error p { margin: 0; font-size: 15px; text-align: center; padding: 0 24px; }
+.vf-error p { margin: 0; font-size: var(--font-size-body); text-align: center; padding: 0 24px; }
 .vf-error-btn {
   padding: 10px 32px;
   background: var(--primary-color, #007aff);
   color: #fff;
   border: none;
   border-radius: var(--radius-2xl);
-  font-size: 15px;
+  font-size: var(--font-size-body);
   font-weight: 600;
   cursor: pointer;
 }
@@ -1270,7 +1270,7 @@ export default {
 }
 .vf-record-btn.recording .vf-btn-inner {
   border-radius: var(--radius-xs);
-  background: #ff3b30;
+  background: var(--danger-color);
   transform: scale(0.45);
 }
 .vf-record-btn:active { transform: scale(0.94); }
