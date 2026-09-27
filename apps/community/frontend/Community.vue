@@ -557,7 +557,7 @@
             </div>
             <button v-if="!hasVoted(currentPost)" class="btn-primary poll-submit-btn" @click="submitSurveyVote(currentPost)">提交问卷</button>
           </div>
-          <div v-if="currentPost.title && currentPost.type === 'forum'" class="full-detail-title">{{ currentPost.title }}</div>
+          <div v-if="currentPost.title" class="full-detail-title">{{ currentPost.title }}</div>
           <div v-if="currentPost.type !== 'poll' && currentPost.type !== 'survey'" class="full-detail-content markdown-body" v-html="renderMarkdown(currentPost.content, currentPost.user_id)" @click="onMarkdownClick" @touchstart="onMarkdownTouchStart" @touchmove="onMarkdownTouchMove" @touchend="onMarkdownTouchEnd"></div>
           <div v-if="getPlaylistShare(currentPost)" class="playlist-share-card" @click="openPlaylistFromPost(currentPost)">
             <div class="playlist-share-icon"><i class="fa-solid fa-music"></i></div>
@@ -3044,12 +3044,12 @@ export default {
 .detail-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
 .detail-tags .tag-badge { font-size: var(--font-size-caption); padding: 2px 10px; }
 .detail-actions { display: flex; gap: 8px; padding-bottom: 14px; border-bottom: 0.5px solid var(--separator-color); margin-bottom: 14px; flex-wrap: wrap; }
-.btn-like-lg { display: flex; align-items: center; gap: 6px; padding: 10px 18px; border-radius: var(--radius-xl); border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-secondary); font-size: var(--font-size-sm); cursor: pointer; transition: color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), background var(--duration-fast) var(--ease-standard); min-height: 44px; font-weight: 500; }
+.btn-like-lg { display: flex; align-items: center; gap: 6px; padding: 10px 18px; border-radius: var(--radius-pill); border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-secondary); font-size: var(--font-size-sm); cursor: pointer; transition: color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), background var(--duration-fast) var(--ease-standard); min-height: 44px; font-weight: 500; }
 .btn-like-lg:hover { border-color: var(--primary-color); color: var(--primary-color); }
 .btn-like-lg.liked { background: rgba(var(--danger-rgb),0.08); border-color: var(--danger-color); color: var(--danger-color); }
 .btn-like-lg.liked i { animation: likeAnim var(--duration-slow) var(--motion-spring-bouncy); }
 .btn-like-lg:active { transform: scale(0.94); opacity: 0.7; transition: transform var(--duration-fast) var(--motion-spring-interactive); }
-.btn-bookmark-lg { display: flex; align-items: center; gap: 6px; padding: 10px 18px; border-radius: var(--radius-xl); border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-secondary); font-size: var(--font-size-sm); cursor: pointer; transition: background-color, border-color, color, transform, opacity, box-shadow var(--duration-normal) var(--ease-standard); min-height: 44px; font-weight: 500; }
+.btn-bookmark-lg { display: flex; align-items: center; gap: 6px; padding: 10px 18px; border-radius: var(--radius-pill); border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-secondary); font-size: var(--font-size-sm); cursor: pointer; transition: background-color, border-color, color, transform, opacity, box-shadow var(--duration-normal) var(--ease-standard); min-height: 44px; font-weight: 500; }
 .btn-bookmark-lg:hover { border-color: var(--warning-color); color: var(--warning-color); }
 .btn-bookmark-lg.bookmarked { background: rgba(var(--warning-rgb),0.08); border-color: var(--warning-color); color: var(--warning-color); }
 .btn-bookmark-lg:active { transform: scale(0.94); opacity: 0.7; }
@@ -3218,17 +3218,18 @@ export default {
 .full-detail-back i { font-size: var(--font-size-sm); }
 .full-detail-header-title { flex: 1; min-width: 0; font-size: var(--font-size-callout); font-weight: 600; color: var(--text-primary); text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .full-detail-body { flex: 1; overflow-y: auto; padding: 20px 24px 24px; max-width: 744px; margin: 12px auto 0; width: 100%; box-sizing: border-box; background: var(--card-bg); border: 0.5px solid var(--border-color); border-radius: var(--radius-2xl); }
-.full-detail-author { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; padding-bottom: 16px; border-bottom: 0.5px solid var(--separator-color); }
+.full-detail-author { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
 .full-detail-author-info { flex: 1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .full-detail-author-name { font-size: var(--font-size-callout); font-weight: 600; color: var(--text-primary); }
 .full-detail-author-time { font-size: var(--font-size-caption); color: var(--text-secondary); }
 .full-detail-title { font-size: var(--font-size-title2); font-weight: 600; color: var(--text-primary); line-height: 1.4; margin-bottom: 16px; word-break: break-word; }
 .full-detail-content { font-size: var(--font-size-callout); line-height: 1.8; color: var(--text-primary); margin-bottom: 16px; word-break: break-word; }
 /* 详情页媒体与信息流卡片同语言：统一圆角与间距 */
-.full-detail-content img {
+.full-detail-content >>> img {
   border-radius: var(--radius-lg);
-  /* 破图优雅化：隐藏 alt 文本，占位微光块替代裸图标+文件名 */
+  /* 破图优雅化：隐藏 alt 文本，占位微光块替代裸图标+文件名（v-html 内容需深度选择器） */
   font-size: 0;
+  min-width: 240px;
   min-height: 120px;
   background: linear-gradient(100deg, rgba(120,120,128,0.08) 30%, rgba(120,120,128,0.16) 50%, rgba(120,120,128,0.08) 70%);
   background-size: 200% 100%;
@@ -3242,13 +3243,13 @@ export default {
 .full-detail-content .msg-media-wrapper,
 .full-detail-content .md-video-wrapper { border-radius: var(--radius-lg); overflow: hidden; }
 .full-detail-title { letter-spacing: 0.2px; }
-.full-detail-actions { display: flex; gap: 10px; padding: 16px 0; border-top: 0.5px solid var(--separator-color); border-bottom: 0.5px solid var(--separator-color); margin-bottom: 20px; flex-wrap: wrap; }
+.full-detail-actions { display: flex; gap: 8px; padding: 4px 0 16px; margin-bottom: 8px; flex-wrap: wrap; }
 .full-detail-comment-bar { padding: 10px 20px; border-top: 0.5px solid var(--separator-color); background: var(--card-bg); flex-shrink: 0; }
 .reply-indicator { display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; background: rgba(var(--primary-rgb),0.06); border-radius: var(--radius-sm) var(--radius-sm) 0 0; font-size: var(--font-size-caption); color: var(--primary-color); }
 .reply-clear { border: none; background: transparent; color: var(--text-secondary); cursor: pointer; padding: 2px; font-size: var(--font-size-caption); }
 .reply-clear:hover { color: var(--text-primary); }
 .full-detail-input-wrap { display: flex; gap: 8px; align-items: center; }
-.detail-comment-input { flex: 1; height: 46px; padding: 0 16px; border-radius: var(--radius-xl); border: 1px solid var(--border-color); background: var(--bg-color); color: var(--text-primary); font-size: var(--font-size-sm); outline: none; transition: border-color var(--duration-normal) var(--ease-standard); }
+.detail-comment-input { flex: 1; height: 44px; padding: 0 16px; border-radius: var(--radius-xl); border: 1px solid var(--border-color); background: var(--bg-color); color: var(--text-primary); font-size: var(--font-size-sm); outline: none; transition: border-color var(--duration-normal) var(--ease-standard); }
 .detail-comment-input:focus { border-color: var(--primary-color); }
 
 /* 全屏详情滑入动画 */
