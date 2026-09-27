@@ -919,7 +919,7 @@ export default {
   background: rgba(var(--primary-rgb), 0.1);
 }
 .edit-icon {
-  font-size: 11px;
+  font-size: var(--font-size-caption1);
   opacity: 0.4;
   margin-left: 2px;
 }
@@ -1050,14 +1050,14 @@ export default {
 }
 .day-date {
   display: block;
-  font-size: 10px;
+  font-size: var(--font-size-caption2);
   opacity: 0.45;
   margin-top: 2px;
 }
 .no-school-tag {
   display: block;
-  font-size: 9px;
-  color: #8E8E93;
+  font-size: var(--font-size-caption2);
+  color: var(--text-tertiary);
   margin-top: 1px;
 }
 /* 节假日/调休角标 */
@@ -1065,7 +1065,7 @@ export default {
   position: absolute;
   top: 2px;
   right: 2px;
-  font-size: 9px;
+  font-size: var(--font-size-caption2);
   font-weight: 700;
   width: 14px;
   height: 14px;
@@ -1144,7 +1144,7 @@ tr.period-start .period-cell {
   line-height: 1.1;
 }
 .class-time {
-  font-size: 10px;
+  font-size: var(--font-size-caption2);
   opacity: 0.65;
   font-weight: 500;
 }
@@ -1162,7 +1162,7 @@ tr.period-start .period-cell {
   position: absolute;
   top: 3px;
   right: 3px;
-  font-size: 9px;
+  font-size: var(--font-size-caption2);
   opacity: 0;
   transition: opacity var(--duration-fast) var(--ease-standard);
   pointer-events: none;
@@ -1175,7 +1175,7 @@ tr.period-start .period-cell {
   position: absolute;
   top: 3px;
   left: 3px;
-  font-size: 9px;
+  font-size: var(--font-size-caption2);
   font-weight: 700;
   width: 14px;
   height: 14px;
@@ -1187,7 +1187,7 @@ tr.period-start .period-cell {
 }
 /* 已调课单元格的虚线提示边框 */
 .class-item.adjusted {
-  outline: 1px dashed rgba(255, 149, 0, 0.6);
+  outline: 1px dashed rgba(var(--warning-rgb), 0.6);
   outline-offset: -2px;
 }
 
@@ -1403,7 +1403,7 @@ tr.period-start .period-cell {
   display: flex;
   flex-direction: column;
   align-items: center;
-  font-size: 11px;
+  font-size: var(--font-size-caption1);
   font-weight: 600;
   min-width: 42px;
   opacity: 0.7;
@@ -1425,7 +1425,7 @@ tr.period-start .period-cell {
   font-weight: 700;
 }
 .ti-adjusted-tag {
-  font-size: 9px;
+  font-size: var(--font-size-caption2);
   font-weight: 700;
   background: var(--warning-color);
   color: #fff;
@@ -1584,9 +1584,9 @@ tr.period-start .period-cell {
   }
   .class-cell { height: 46px; }
   .class-name { font-size: 14px; }
-  .class-time { font-size: 9px; }
+  .class-time { font-size: var(--font-size-caption2); }
   .day-name { font-size: 12px; }
-  .day-date { font-size: 9px; }
+  .day-date { font-size: var(--font-size-caption2); }
   .period-name { font-size: 12px; }
   .next-class-subject { width: 48px; height: 48px; font-size: 20px; }
   .ncs-name { font-size: 18px; }
