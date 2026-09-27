@@ -3225,7 +3225,20 @@ export default {
 .full-detail-title { font-size: var(--font-size-title2); font-weight: 600; color: var(--text-primary); line-height: 1.4; margin-bottom: 16px; word-break: break-word; }
 .full-detail-content { font-size: var(--font-size-callout); line-height: 1.8; color: var(--text-primary); margin-bottom: 16px; word-break: break-word; }
 /* 详情页媒体与信息流卡片同语言：统一圆角与间距 */
-.full-detail-content img { border-radius: var(--radius-lg); }
+.full-detail-content img {
+  border-radius: var(--radius-lg);
+  /* 破图优雅化：隐藏 alt 文本，占位微光块替代裸图标+文件名 */
+  font-size: 0;
+  min-height: 120px;
+  background: linear-gradient(100deg, rgba(120,120,128,0.08) 30%, rgba(120,120,128,0.16) 50%, rgba(120,120,128,0.08) 70%);
+  background-size: 200% 100%;
+  animation: detail-img-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes detail-img-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
 .full-detail-content .msg-media-wrapper,
 .full-detail-content .md-video-wrapper { border-radius: var(--radius-lg); overflow: hidden; }
 .full-detail-title { letter-spacing: 0.2px; }
