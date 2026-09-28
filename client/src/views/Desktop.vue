@@ -243,7 +243,7 @@
     <!-- 文件夹展开层 -->
     <transition name="folder-expand">
       <DesktopFolder
-        v-if="openFolderId"
+        v-if="openFolderId && folderById(openFolderId)"
         :folder="folderById(openFolderId)"
         :expanded="true"
         :editing="isEditMode"
@@ -600,6 +600,19 @@ export default {
   },
   mounted: function() {
     var self = this;
+    // 悬空引用守卫：打开中的文件夹被解散（拖出最后一个应用/管控清空）时自动收起，
+    // 避免 folder=null 渲染崩溃（拖出定住/禁用后打开报错的共同根因）
+    self._unwatchFolderGone = self.$store.watch(
+      function (state, getters) {
+        var id = getters['desktop/openFolderId'];
+        return id ? (getters['desktop/folderById'](id) || null) : 'idle';
+      },
+      function (folder) {
+        if (folder === null) {
+          self.$store.commit('desktop/SET_OPEN_FOLDER', null);
+        }
+      }
+    );
     self.detectPerformanceLevel();
     self.$nextTick(function() {
       self.entered = true;
@@ -626,6 +639,10 @@ export default {
     window.addEventListener('focus', self._focusHandler);
   },
   beforeDestroy: function() {
+    if (this._unwatchFolderGone) {
+      this._unwatchFolderGone();
+      this._unwatchFolderGone = null;
+    }
     if (this._marketUnsubscribe) {
       this._marketUnsubscribe();
       this._marketUnsubscribe = null;
