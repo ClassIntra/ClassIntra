@@ -292,6 +292,14 @@ export default {
   align-items: center;
   justify-content: center;
   z-index: 1000;
+  /* 遮罩淡入：与卡片 folderExpand 弹性浮现同步 */
+  animation: folderOverlayIn 0.25s var(--ease-standard, ease) both;
+}
+
+@keyframes folderOverlayIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
   -webkit-tap-highlight-color: transparent;
 }
 
