@@ -55,7 +55,11 @@ function roundRect(ctx, x, y, w, h, r) {
 }
 
 export function generateTextCover(title, excerpt, colorHex, seed) {
-  var text = String(title || excerpt || '').trim();
+  title = String(title == null ? '' : title);
+  excerpt = String(excerpt == null ? '' : excerpt);
+  colorHex = String(colorHex || '#007AFF');
+  seed = String(seed == null ? 'x' : seed);
+  var text = title || excerpt;
   if (!text) text = '写点什么记录一下吧';
   var key = String(seed) + '|' + text;
   if (cache[key]) return cache[key];

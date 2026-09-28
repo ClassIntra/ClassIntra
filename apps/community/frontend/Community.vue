@@ -121,6 +121,14 @@
                 @error="onCoverLoad"
               />
               <img
+                v-else-if="post.type === 'poll' || post.type === 'survey'"
+                class="post-cover post-cover-loading"
+                :src="pollCoverUrl(post)"
+                :data-seed="post.id || post.user_id"
+                alt=""
+                @load="onCoverLoad"
+              />
+              <img
                 v-else
                 class="post-cover post-cover-loading"
                 :src="'/api/integrations/cover-image?seed=' + (post.id || post.user_id)"
@@ -1726,6 +1734,29 @@ export default {
         try { if (e && e.target) e.target.style.display = 'none'; } catch (e2) {}
       }
     },
+    // 投票/问卷封面：问题 + 前两个选项摘要（Canvas 文帖封面生成器）
+    pollCoverUrl: function(post) {
+      // 整体兜底：任何异常回退风景代理，绝不在渲染期抛错
+      try {
+        var q = String(post.title || '').trim();
+        if (!q && post.content) q = String(post.content).split(String.fromCharCode(10))[0].trim();
+        var opts = (post.options || post.poll_options || []);
+        var optText = '';
+        try {
+          if (!opts.length && typeof post.options === 'string') opts = JSON.parse(post.options);
+          optText = opts.slice(0, 2).map(function (o) { return typeof o === 'string' ? o : (o.text || o.label || ''); }).join(' / ');
+        } catch (e2) {}
+        var kind = post.type === 'survey' ? '问卷调查' : '投票';
+        return generateTextCover(
+          q || (kind + '邀请'),
+          (kind + ' · ' + (optText || '快来参与')),
+          hashColor(String(post.user_id || post.id || 'x')),
+          String(post.id || 'x')
+        );
+      } catch (e) {
+        return '/api/integrations/cover-image?seed=' + (post.id || 'x');
+      }
+    },
     textCoverUrl: function(post) {
       return generateTextCover(
         String(post.title || post.content || '帖').replace(/\[[^\]]*\]/g, '').trim(),
@@ -2919,12 +2950,12 @@ export default {
 .post-type-badge.anon { background: rgba(158,158,158,0.12); color: var(--text-tertiary); }
 
 .post-poll { margin: 10px 0; }
-.poll-option { position: relative; padding: 10px 14px; margin-bottom: 8px; border-radius: var(--radius-md); background: var(--bg-color); cursor: pointer; overflow: hidden; transition: background-color, border-color, color, transform, opacity, box-shadow var(--duration-normal) var(--ease-standard); border: 2px solid var(--border-color); display: flex; align-items: center; }
+.poll-option { position: relative; padding: 8px 12px; margin-bottom: 6px; border-radius: var(--radius-pill); background: var(--bg-color); cursor: pointer; overflow: hidden; transition: background-color, border-color, color, transform, opacity, box-shadow var(--duration-normal) var(--ease-standard); border: 1px solid var(--border-color); display: flex; align-items: center; }
 .poll-option:hover:not(.voted) { border-color: var(--primary-color); transform: translateY(-1px); box-shadow: var(--shadow-sm); }
 .poll-option:active:not(.voted) { transform: scale(0.94); opacity: 0.7; }
 .poll-option.voted { cursor: default; }
 .poll-option.selected { border-color: var(--primary-color); background: rgba(var(--primary-rgb),0.04); }
-.poll-option-bar { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(var(--primary-rgb),0.08); border-radius: var(--radius-md); /* 规范例外：投票结果条生长动画，0.6s 属节奏参数（§5.5.1 第 9 项） */ transition: width 0.6s var(--ease-decelerate); pointer-events: none; }
+.poll-option-bar { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(var(--primary-rgb),0.08); border-radius: var(--radius-pill); /* 规范例外：投票结果条生长动画，0.6s 属节奏参数（§5.5.1 第 9 项） */ transition: width 0.6s var(--ease-decelerate); pointer-events: none; }
 .poll-option-bar.bar-leading { background: rgba(var(--primary-rgb),0.15); }
 .poll-option-check { position: relative; z-index: 1; margin-right: 8px; color: var(--primary-color); font-size: var(--font-size-body); flex-shrink: 0; transition: transform var(--duration-normal) var(--ease-standard); }
 .poll-option-text { position: relative; z-index: 1; font-size: var(--font-size-sm); flex: 1; min-width: 0; color: var(--text-primary); }
