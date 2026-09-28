@@ -614,6 +614,10 @@ bus.register('community_event', function(payload, ctx) {
       // 标准化时间戳为 SQLite datetime 格式（统一 TEXT 排序）
       var normalizedTime = normalizeSqliteTime(rp.created_at);
 
+      // 回源预取：帖子内容引用的云盘图（跨班封面/正文图）先拉到本地，
+      // 否则 [cloud-img]/markdown 引用的 hash 在本地无文件，封面必然 404
+      try { preFetchCloudFiles(rp.content || '', ctx.sourceServer); } catch (e) {}
+
       // Try to insert with original ID first
       var insertResult = ctx.db.prepare(
         'INSERT OR IGNORE INTO community_posts (id, user_id, type, title, content, anonymous, visible_groups, hidden_groups, like_count, comment_count, extra_json, tags, share_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
@@ -658,6 +662,7 @@ bus.register('community_event', function(payload, ctx) {
           localPostIdForComment = mapping.local_id;
         }
       }
+      try { preFetchCloudFiles(rc.content || '', ctx.sourceServer); } catch (e) {}
       ctx.ss.commentInsert.run(rc.id, localPostIdForComment, rc.user_id, rc.parent_id, rc.content, 0, rc.created_at || new Date().toISOString());
       ctx.db.prepare('UPDATE community_posts SET comment_count = comment_count + 1 WHERE id = ?').run(localPostIdForComment);
       ctx.relaySync.updateWatermark('community_comments', rc.id);
