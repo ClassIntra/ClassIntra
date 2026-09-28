@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.3] - 2026-09-28
+【修复】
+- 管控中心「用户管理」列表在平板上划不动：client/src/styles/global.scss 的全局规则（星号选择器上的 overscroll-behavior-y: contain）会掐断「嵌套滚动容器 → 父级」的链式滚动；叠加 .data-table-wrapper 的 overflow-x: auto（使其成为滚动容器）后，落在表格上的纵向手势完全失效，而落在内容区留白（命中 .admin-content）上仍可滚 —— 即用户反馈的「列表划不动、滑边缘却可以」。修复：给 .data-table-wrapper 显式 overscroll-behavior-y: auto
+- 修正上一轮误判：touch-action 不是根因（补丁已上线仍无效，且会禁用表格区缩放）；验收改为派发真实手势量 scrollTop
+【其他】
+- 新增手势级验收探针 scripts/touch-scroll-probe/：CDP 派发真实触摸 + 自签 token 加载真实管理页 + 反向对照；内置「开屏动画遮挡」「注入 token 的 activeTab 竞态」两个假阴性陷阱的处理
+
 ## [1.2.2] - 2026-09-12
 【新增】
 - 插件市场：catalog 支持 plugins 段，市场页可拉取、安装、卸载服务端插件并热挂载（安装位置为运行时 plugins/ 目录）

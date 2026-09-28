@@ -1800,7 +1800,12 @@ export default {
     loadUsers: function() {
       if (this.isAdmin) this.loadPolicies();
       var self = this;
-      self.usersLoading = true;
+      // 静默刷新：已有数据时不切 loading（v-if 切换会销毁重建整个表格，
+      // admin-content 的 scrollTop 归零 —— 用户滚动到一半被刷新就「弹回顶部/滑不动」）
+      var keepScroll = !!(self.users && self.users.length > 0);
+      if (!keepScroll) self.usersLoading = true;
+      var contentEl = self.$el && self.$el.querySelector ? self.$el.querySelector('.admin-content') : null;
+      var savedTop = keepScroll && contentEl ? contentEl.scrollTop : 0;
       var params = { limit: 9999 };
       if (self.userClassFilter) params.class = self.userClassFilter;
       api.get('/admin/users', { params: params }).then(function(response) {
@@ -1812,6 +1817,13 @@ export default {
         self.usersTotal = total;
         self.selectedUsers = [];
         self.userDisplayCount = self.userPageSize;
+        self.usersLoading = false;
+        // 静默刷新后原位恢复滚动（DOM 以 user_id 为 key 复用，仅需补偿高度变化）
+        if (keepScroll && contentEl) {
+          self.$nextTick(function() {
+            if (contentEl) contentEl.scrollTop = Math.min(savedTop, Math.max(0, contentEl.scrollHeight - contentEl.clientHeight));
+          });
+        }
       }).catch(function(err) {
         console.error('加载用户列表失败:', err);
         self.$store.commit('toast/SHOW_TOAST', { message: '加载用户列表失败', type: 'error' });
@@ -3266,6 +3278,11 @@ export default {
   overflow-y: auto;
   padding: 24px 32px;
   min-height: 0;
+  /* 触摸滚动：本容器只负责纵向手势，横向手势留给表格 wrapper。
+     注意：真正「吞掉」纵向手势的不是 touch-action，而是 global.scss 里
+     全局 * { overscroll-behavior-y: contain } —— 见 .data-table-wrapper 处说明。 */
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
 }
 
 .admin-section {
@@ -3359,6 +3376,15 @@ export default {
 /* ====== Data Table (iOS Inset Grouped) ====== */
 .data-table-wrapper {
   overflow-x: auto;
+  /* overflow-x:auto 使本元素成为「滚动容器」；纵向没有可滚动范围时，
+     触摸手势必须向父级 .admin-content 做链式滚动（scroll chaining）。
+     而 global.scss 的 * { overscroll-behavior-y: contain } 会掐断这条链 →
+     手指落在表格上完全滑不动，落在内容区留白（32px 内边距，命中 .admin-content）
+     上却能正常滑。这正是「列表划不动、滑边缘可以」的根因。
+     实测（Chrome 153 触摸模拟，768×1024）：contain 时中间 0px / 边缘 +741px；
+     本行改为 auto 后中间 +733px。 */
+  overscroll-behavior-y: auto;
+  touch-action: pan-x pan-y;
   border-radius: var(--radius-lg);
   background: var(--card-bg);
   border: 0.5px solid var(--separator-color);
