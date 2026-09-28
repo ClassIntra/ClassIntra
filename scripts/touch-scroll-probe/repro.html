@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<script>
+  // 变体开关：contain(现状) / auto(去掉全局 contain) / nowrapper(表格外层不是滚动容器)
+  var v = new URLSearchParams(location.search).get('v') || 'contain';
+  document.documentElement.setAttribute('data-v', v);
+</script>
+<style>
+/* ===== 复刻 client/src/styles/global.scss 的全局 * 规则 ===== */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  overscroll-behavior-y: contain;      /* ← 头号嫌疑 */
+  -webkit-overflow-scrolling: touch;
+}
+/* 变体 A2：把全局 contain 还原为 auto */
+html[data-v="auto"] * { overscroll-behavior-y: auto; }
+/* 变体 A4：只把表格外层这一处还原（= 拟采用的修复写法）*/
+html[data-v="wraponly"] .wrapper { overscroll-behavior-y: auto; }
+
+html, body {
+  width: 100%; height: 100%;
+  overflow: hidden;
+  font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: #f2f2f7;
+}
+.page { display: flex; flex-direction: column; height: 100%; width: 100%; }
+
+/* ===== 复刻 .admin-content ===== */
+.admin-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px 32px;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+  background: #e9e9ee;
+}
+.section { max-width: 1100px; }
+
+/* ===== 复刻 .data-table-wrapper ===== */
+.wrapper {
+  overflow-x: auto;
+  touch-action: pan-x pan-y;
+  border-radius: 12px;
+  background: #fff;
+  border: 0.5px solid #ddd;
+}
+/* 变体 A3：取消横向滚动容器（overflow-x 非滚动值）*/
+html[data-v="nowrapper"] .wrapper { overflow-x: visible; touch-action: auto; }
+
+table { width: 100%; border-collapse: collapse; }
+th, td {
+  padding: 12px 16px;
+  text-align: left;
+  font-size: 14px;
+  border-bottom: 0.5px solid #eee;
+  white-space: nowrap;
+}
+th { position: sticky; top: 0; z-index: 1; background: #f7f7fa; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="admin-content" id="content">
+    <div class="section">
+      <div class="wrapper" id="wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>选择</th><th>用户ID</th><th>网名</th><th>真实姓名</th>
+              <th>角色</th><th>AI模型</th><th>AI 策略</th><th>状态</th><th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+  var rows = '';
+  for (var i = 0; i < 60; i++) {
+    rows += '<tr><td><input type="checkbox"></td>'
+      + '<td>2518' + String(i).padStart(2, '0') + '</td>'
+      + '<td><strong>用户网名' + i + '</strong></td>'
+      + '<td>张三丰' + i + '</td>'
+      + '<td>普通用户</td>'
+      + '<td>基元律动 ds-v4</td>'
+      + '<td>标准策略</td>'
+      + '<td>正常</td>'
+      + '<td>编辑 封禁 删除</td></tr>';
+  }
+  document.getElementById('tbody').innerHTML = rows;
+</script>
+</body>
+</html>
