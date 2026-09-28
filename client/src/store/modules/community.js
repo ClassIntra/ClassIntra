@@ -43,7 +43,7 @@ var state = {
 };
 
 var mutations = {
-  SET_POSTS: function(state, data) { state.posts = data.posts; state.postsTotal = data.total; },
+  SET_POSTS: function(state, data) { data = data || {}; state.posts = Array.isArray(data.posts) ? data.posts : []; state.postsTotal = data.total || 0; },
   ADD_POST: function(state, post) { state.posts.unshift(post); },
   REMOVE_POST: function(state, postId) {
     state.posts = state.posts.filter(function(p) { return p.id !== postId; });

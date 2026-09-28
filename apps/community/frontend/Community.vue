@@ -54,14 +54,14 @@
             </div>
           </div>
           <!-- 标签过滤 -->
-          <div v-if="tagList.length > 0" class="tag-filter-bar">
+          <div v-if="tagList && tagList.length > 0" class="tag-filter-bar">
             <button
               class="tag-filter-chip"
               :class="{ active: !selectedTag }"
               @click="selectTag('')"
             >全部</button>
             <button
-              v-for="tag in tagList"
+              v-for="tag in tagList || []"
               :key="tag"
               class="tag-filter-chip"
               :class="{ active: selectedTag === tag }"
