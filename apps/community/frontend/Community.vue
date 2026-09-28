@@ -107,10 +107,9 @@
                 :size="40"
                 @click.stop="!post.is_anonymous && showUserProfile(post.user_id)"
               />
-              <!-- 帖子封面：有图取首图，无图走风景代理；3:2 预留框保证加载前后零跳动 -->
-              <div class="post-cover-frame">
+<!-- 帖子封面：有图取首图（3:2 框防跳动）；文帖/投票走 MD2Card 竖版文字卡（取标题显示） -->
+              <div class="post-cover-frame" v-if="postCover(post)">
               <img
-                v-if="postCover(post)"
                 class="post-cover post-cover-loading"
                 :src="postCover(post)"
                 :loading="pi === 0 ? 'eager' : 'lazy'"
@@ -120,28 +119,15 @@
                 @load="onCoverLoad"
                 @error="onCoverLoad"
               />
+              </div>
               <img
-                v-else-if="post.type === 'poll' || post.type === 'survey'"
-                class="post-cover post-cover-loading"
-                :src="pollCoverUrl(post)"
+                v-else
+                class="post-cover post-cover-portrait"
+                :src="post.type === 'poll' || post.type === 'survey' ? pollCoverUrl(post) : textCoverUrl(post)"
                 :data-seed="post.id || post.user_id"
                 alt=""
                 @load="onCoverLoad"
               />
-              <img
-                v-else
-                class="post-cover post-cover-loading"
-                :src="'/api/integrations/cover-image?seed=' + (post.id || post.user_id)"
-                :data-title="post.title || '帖'"
-                :data-user="post.user_id || post.id"
-                :data-seed="post.id || post.user_id"
-                :loading="pi === 0 ? 'eager' : 'lazy'"
-                decoding="async"
-                alt=""
-                @error="onCoverLoad"
-              />
-              </div>
-              <div class="post-info">
               <div class="post-info">
                 <div class="post-meta">
                   <span class="post-author">{{ post.is_anonymous && canViewAnonymous ? post.admin_net_name : (post.is_anonymous ? '匿名用户' : (post.net_name || '未知用户')) }}</span>
@@ -3261,7 +3247,7 @@ export default {
 .full-detail-back:active { transform: scale(0.94); opacity: 0.7; }
 .full-detail-back i { font-size: var(--font-size-sm); }
 .full-detail-header-title { flex: 1; min-width: 0; font-size: var(--font-size-callout); font-weight: 600; color: var(--text-primary); text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.full-detail-body { flex: 1; overflow-y: auto; padding: 20px 24px 24px; max-width: 744px; margin: 12px auto 0; width: 100%; box-sizing: border-box; background: var(--card-bg); border: 0.5px solid var(--border-color); border-radius: var(--radius-2xl); }
+.full-detail-body { flex: 1; overflow-y: auto; padding: 20px 24px 96px; max-width: 744px; margin: 12px auto 0; width: 100%; box-sizing: border-box; background: var(--card-bg); border: 0.5px solid var(--border-color); border-radius: var(--radius-2xl); }
 .full-detail-author { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
 .full-detail-author-info { flex: 1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .full-detail-author-name { font-size: var(--font-size-callout); font-weight: 600; color: var(--text-primary); }
@@ -3412,7 +3398,7 @@ export default {
   .list-item { padding: 12px 14px; min-height: 50px; margin-bottom: 6px; border-radius: var(--radius-md); }
   .post-preview { font-size: var(--font-size-caption); -webkit-line-clamp: 2; }
   .tag-filter-bar { padding: 6px 18px; }
-  .full-detail-body { max-width: 900px; padding: 24px 32px; }
+  .full-detail-body { max-width: 900px; padding: 24px 32px 110px; }
   .full-detail-author { gap: 14px; }
   .full-detail-title { font-size: var(--font-size-headline); }
   .full-detail-content { font-size: var(--font-size-body); }
@@ -3427,7 +3413,7 @@ export default {
   .modal-box { width: 85%; min-width: 280px; }
   .search-box { display: none; }
   .tag-filter-bar { padding: 8px 12px; }
-  .full-detail-body { padding: 16px; max-width: 100%; }
+  .full-detail-body { padding: 16px 16px 96px; max-width: 100%; }
   .full-detail-title { font-size: var(--font-size-subheadline); }
   .full-detail-content { font-size: var(--font-size-body); }
 }
@@ -4085,6 +4071,18 @@ export default {
   }
   .post-cover-frame-fallback {
     background: linear-gradient(155deg, #1B1D23 0%, #262932 100%) !important;
+  }
+
+  /* MD2Card 竖版文字卡：自然 3:4 比例，不被 3:2 框裁切 */
+  .waterfall-col .post-cover-portrait,
+  .post-cover-portrait {
+    position: static;
+    width: calc(100% + 32px);
+    height: auto;
+    max-height: none;
+    margin: -14px -16px 10px;
+    border-radius: 0;
+    background: none;
   }
 
   .waterfall-col .post-cover {
