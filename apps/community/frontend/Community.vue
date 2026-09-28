@@ -121,9 +121,9 @@
               />
               </div>
               <img
-                v-else
+                v-else-if="post.type !== 'poll' && post.type !== 'survey'"
                 class="post-cover post-cover-portrait"
-                :src="post.type === 'poll' || post.type === 'survey' ? pollCoverUrl(post) : textCoverUrl(post)"
+                :src="textCoverUrl(post)"
                 :data-seed="post.id || post.user_id"
                 alt=""
                 @load="onCoverLoad"
@@ -3263,7 +3263,7 @@ export default {
   min-height: 120px;
   background: linear-gradient(100deg, rgba(120,120,128,0.08) 30%, rgba(120,120,128,0.16) 50%, rgba(120,120,128,0.08) 70%);
   background-size: 200% 100%;
-  animation: detail-img-shimmer 1.4s ease-in-out infinite;
+  animation: detail-img-shimmer 1.4s ease-in-out 2;
 }
 
 @keyframes detail-img-shimmer {

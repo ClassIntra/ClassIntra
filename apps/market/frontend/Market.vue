@@ -7,6 +7,10 @@
           <h1>应用市场</h1>
           <p>浏览、安装和管理 ClassIntra 应用</p>
         </div>
+        <div class="market-search">
+          <i class="fa-solid fa-magnifying-glass"></i>
+          <input v-model="searchQuery" type="text" placeholder="搜索应用名称…" />
+        </div>
         <div class="market-toolbar-actions">
           <select v-model="selectedSource" class="source-select" :disabled="loading || actionLoading">
             <option v-for="source in sources" :key="source.id" :value="source.id">{{ source.label }}</option>
@@ -48,7 +52,7 @@
             <span class="count-badge">{{ catalogApps.length }} 个应用</span>
           </div>
           <div v-if="catalogApps.length" class="app-grid">
-            <article v-for="app in catalogApps" :key="app.name" class="app-card">
+            <article v-for="app in filteredCatalog" :key="app.name" class="app-card">
               <div class="app-card-header">
                 <div class="app-icon" :style="{ background: app.color || '#5856D6' }">
                   <img v-if="app.icon" :src="app.icon" :alt="app.label" @error="onIconError" />
@@ -185,6 +189,7 @@ export default {
       selectedSource: 'gitee',
       catalogApps: [],
       installedApps: [],
+      searchQuery: '',
       catalogPlugins: [],
       installedPlugins: [],
       catalogUpdatedAt: '',
@@ -196,6 +201,13 @@ export default {
     };
   },
   computed: {
+    filteredCatalog: function() {
+      var q = String(this.searchQuery || '').trim().toLowerCase();
+      if (!q) return this.catalogApps;
+      return this.catalogApps.filter(function (app) {
+        return (app.label || '').toLowerCase().indexOf(q) > -1 || (app.name || '').toLowerCase().indexOf(q) > -1;
+      });
+    },
     installedMap: function() {
       var result = {};
       this.installedApps.forEach(function(app) { result[app.name] = app; });
@@ -442,7 +454,55 @@ export default {
 .market-page { width: 100%; height: 100%; display: flex; flex-direction: column; background: var(--bg-color); }
 .market-content { flex: 1; min-height: 0; padding: 28px 34px 48px; overflow-y: auto; }
 .market-toolbar, .section-heading, .app-card-footer, .installed-card { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.market-toolbar { margin-bottom: 26px; }
+.market-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: var(--card-bg);
+  border: 0.5px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  padding: 16px 20px;
+  margin-bottom: 20px;
+}
+
+.market-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  max-width: 320px;
+  padding: 0 14px;
+  height: 40px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-color);
+  border: 1px solid var(--border-color);
+}
+
+.market-search i { color: var(--text-tertiary); font-size: var(--font-size-sm); }
+
+.market-search input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  outline: none;
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+}
+
+.market-section { position: relative; padding-left: 14px; }
+.market-section::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--primary-color);
+  opacity: 0.8;
+}
 h1, h2, h3, p { margin: 0; }
 h1 { color: var(--text-primary); font-size: 28px; }
 h2 { color: var(--text-primary); font-size: 20px; }

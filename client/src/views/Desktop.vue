@@ -613,6 +613,17 @@ export default {
         }
       }
     );
+    // 拖拽流畅性：拖拽期间暂停视频壁纸（解码是掉帧主因），结束自动恢复
+    self._unwatchDragging = self.$store.watch(
+      function (state, getters) { return getters['desktop/isDragging']; },
+      function (dragging) {
+        var videos = document.querySelectorAll('.desktop-wallpaper-video video, video.desktop-video');
+        if (!videos.length && self.$refs.videoA) videos = [self.$refs.videoA];
+        for (var i = 0; i < videos.length; i++) {
+          try { if (dragging) { videos[i].pause(); } else if (!videos[i].paused && self.videoWallpaper) { videos[i].play(); } } catch (e) {}
+        }
+      }
+    );
     self.detectPerformanceLevel();
     self.$nextTick(function() {
       self.entered = true;
@@ -642,6 +653,10 @@ export default {
     if (this._unwatchFolderGone) {
       this._unwatchFolderGone();
       this._unwatchFolderGone = null;
+    }
+    if (this._unwatchDragging) {
+      this._unwatchDragging();
+      this._unwatchDragging = null;
     }
     if (this._marketUnsubscribe) {
       this._marketUnsubscribe();
