@@ -1263,7 +1263,10 @@ export default {
 .chat-bubble >>> .msg-video {
   display: block;
   width: 100%;
-  max-height: 200px;
+  height: auto;
+  max-height: 320px;
+  object-fit: cover;
+  background: transparent;
   border-radius: var(--radius-md);
   -webkit-touch-callout: none;
   -webkit-tap-highlight-color: transparent;
