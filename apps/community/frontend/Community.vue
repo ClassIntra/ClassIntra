@@ -668,6 +668,7 @@
           </div>
         </div>
       </div>
+    </transition>
         <div v-if="showFullDetail && currentPost" class="full-detail-comment-bar">
           <div v-if="replyToUser" class="reply-indicator">
             <span>回复 @{{ replyToUser }}</span>
@@ -699,8 +700,6 @@
             </button>
           </div>
         </div>
-      </div>
-    </transition>
 
     <!-- 投票/问卷结果弹窗 -->
     <div v-if="showResultsPanel" class="modal-overlay" @click.self="closeResults">
@@ -3258,7 +3257,7 @@ export default {
 .full-detail-content .md-video-wrapper { border-radius: var(--radius-lg); overflow: hidden; }
 .full-detail-title { letter-spacing: 0.2px; }
 .full-detail-actions { display: flex; gap: 8px; padding: 4px 0 16px; margin-bottom: 8px; flex-wrap: wrap; }
-.full-detail-comment-bar { padding: 10px 20px; border-top: 0.5px solid var(--separator-color); background: var(--card-bg); flex-shrink: 0; }
+.full-detail-comment-bar { position: fixed; bottom: 0; left: 0; right: 0; z-index: 10002; max-width: 744px; margin: 0 auto; padding: 10px 20px; border-top: 0.5px solid var(--separator-color); background: var(--card-bg); }
 .reply-indicator { display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; background: rgba(var(--primary-rgb),0.06); border-radius: var(--radius-sm) var(--radius-sm) 0 0; font-size: var(--font-size-caption); color: var(--primary-color); }
 .reply-clear { border: none; background: transparent; color: var(--text-secondary); cursor: pointer; padding: 2px; font-size: var(--font-size-caption); }
 .reply-clear:hover { color: var(--text-primary); }
