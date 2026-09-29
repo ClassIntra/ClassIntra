@@ -14,7 +14,7 @@
         ref="videoA"
         class="desktop-video-wallpaper"
         :class="{ 'video-active': activeVideo === 'A' }"
-        :src="videoPlaybackSrc"
+        :src="videoASrc || videoWallpaperSrc"
         preload="auto"
         autoplay
         muted
@@ -30,7 +30,7 @@
         ref="videoB"
         class="desktop-video-wallpaper"
         :class="{ 'video-active': activeVideo === 'B' }"
-        :src="videoPlaybackSrc"
+        :src="videoBSrc || videoWallpaperSrc"
         preload="auto"
         muted
         playsinline
@@ -407,8 +407,13 @@ export default {
       videoRetryCount: 0,
       videoWallpaperFailed: false,
       videoPerformanceLevel: 2,
-      // 全量预载的视频 blob 源（播放期零网络依赖，双缓冲实例共享同一份数据）
+      // 全量预载的视频 blob 源（播放期零网络依赖）
       videoBlobUrl: '',
+      // A/B 实例各自的数据源：空 = 回退 videoWallpaperSrc（URL 流式）。
+      // 红线：正在播放（活跃）的实例严禁换 src —— 触发重载必然黑屏一下；
+      // blob 就绪后只给待命实例换源（opacity 0 无感），退场实例淡出后再换。
+      videoASrc: '',
+      videoBSrc: '',
       performanceCheckTimer: null,
       activeVideo: 'A',
       unreadAnnouncements: [],
@@ -447,10 +452,8 @@ export default {
       }
       return '';
     },
-    // 实际喂给 <video> 的源：blob 预载成功用 blob（零网络依赖），否则回退原 URL 流式播放
-    videoPlaybackSrc: function() {
-      return this.videoBlobUrl || this.videoWallpaperSrc;
-    },
+    // 实际喂给 <video> 的源由 data 的 videoASrc/videoBSrc 驱动（模板里空值回退 URL），
+    // blob 就绪后只换待命实例的源，绝不打断正在播放的实例（换 src = 重载 = 黑屏）
     staticWallpaperStyle: function() {
       var wp = this.wallpaper || 'default';
       if (wp.startsWith('/') || wp.startsWith('http')) {
@@ -786,12 +789,28 @@ export default {
   watch: {
     videoWallpaperSrc: function() {
       var self = this;
-      // 换壁纸：预载新视频 blob（成功后 videoPlaybackSrc 切到 blob 源，
-      // 两个 <video> 经 :src 响应式同步重新加载）+ 主动拉起播放
+      // 换壁纸：清掉旧 blob（对应旧视频，继续用会张冠李戴）和实例源覆盖，
+      // 让两个 <video> 经模板回退切到新 URL；随后预载新 blob、拉起播放
+      if (self.videoBlobUrl) {
+        try { URL.revokeObjectURL(self.videoBlobUrl); } catch (e) {}
+        self.videoBlobUrl = '';
+      }
+      self.videoASrc = '';
+      self.videoBSrc = '';
       self.preloadVideoBlob(self.videoWallpaperSrc);
       self.$nextTick(function() {
         self.playVideoWallpaper();
       });
+    },
+    // blob 预载就绪：只给「待命」实例换 blob 源（opacity 0 无感重载）。
+    // 绝不碰活跃实例 —— 播放中换 src 会触发重载，全屏黑一下（用户感知的「闪得更严重」根因）
+    videoBlobUrl: function(url) {
+      if (!url) return;
+      if (this.activeVideo === 'A') {
+        this.videoBSrc = url;
+      } else {
+        this.videoASrc = url;
+      }
     },
     // 编辑态暂停视频壁纸：编辑态已对壁纸施加 brightness(0.6)+blur(4px)，
     // 视频动态细节几乎不可见，暂停可显著降低 CPU/GPU 占用，提升拖拽流畅度
@@ -1026,10 +1045,13 @@ export default {
       if (d - video.currentTime > 0.4) return;
       var nextRef = refName === 'videoA' ? 'videoB' : 'videoA';
       var next = self.$refs[nextRef];
-      if (!next || next.readyState < 3 || next === video) return;
+      // 待命实例必须完全就绪（数据够 + 不在 seek 中）才能接棒，
+      // 否则交叉淡入期间它出不了帧 → 全屏黑一下；此处 return 交给原生 loop 兜底续播
+      if (!next || next.readyState < 3 || next.seeking || next === video) return;
       self.switchVideoBuffer(nextRef === 'videoB' ? 'B' : 'A');
     },
     switchVideoBuffer: function(to) {
+      var self = this;
       if (this.activeVideo === to) return;
       var current = this.$refs[this.activeVideo === 'B' ? 'videoB' : 'videoA'];
       var next = this.$refs[to === 'B' ? 'videoB' : 'videoA'];
@@ -1038,9 +1060,14 @@ export default {
       var playP = next.play();
       if (playP && playP.catch) playP.catch(function() {});
       this.activeVideo = to;
-      // 旧实例淡出后暂停待命（CSS opacity 0.8s 过渡期间保持最后一帧）
+      // 旧实例淡出后暂停待命（CSS opacity 0.8s 过渡期间保持最后一帧），
+      // 并把它的源换成 blob 预载下一次接棒 —— 退场实例 opacity 已为 0，重载无视觉影响
       setTimeout(function() {
         if (current) { try { current.pause(); } catch (e) {} }
+        if (self.videoBlobUrl) {
+          if (current === self.$refs.videoA) { self.videoASrc = self.videoBlobUrl; }
+          else { self.videoBSrc = self.videoBlobUrl; }
+        }
       }, 850);
     },
     onVideoMeta: function(e) {
