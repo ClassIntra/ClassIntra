@@ -52,17 +52,17 @@ export default {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* 小屏适配：Dock bottom 8px + height ~76px = 顶边 84px，指示器需 bottom ≥ 105px 避开阴影 */
+/* 小屏适配：Dock bottom 8px + 高 ~68px = 顶边 76px，108px 间隙充足 */
 @media (max-height: 400px), (max-width: 520px) {
   .page-indicator {
     bottom: 108px;
   }
 }
 
-/* 横屏矮屏适配：避免指示器与桌面图标区域重叠 */
+/* 横屏矮屏适配：横屏 Dock bottom 14px + 高 ~96px = 顶边 ~110px，124px 留出净间隙避免重叠 */
 @media (orientation: landscape) and (max-height: 600px) {
   .page-indicator {
-    bottom: 108px;
+    bottom: 124px;
   }
 }
 
