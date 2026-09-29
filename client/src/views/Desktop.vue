@@ -6,7 +6,6 @@
     @touchmove="onDesktopTouchMove"
     @touchend="onDesktopTouchEnd"
     @mousedown="onDesktopMouseDown"
-    @dblclick="onDesktopDblClick"
   >
     <template v-if="videoWallpaperSrc && !videoWallpaperFailed">
       <video
@@ -90,7 +89,7 @@
         <div class="desktop-grid">
           <!-- 小组件（与 app 图标共用同一网格，grid-auto-flow: dense 实现环绕分布） -->
           <div
-            v-for="w in visibleWidgetsByPage(page.id)"
+            v-for="w in ((pagesView[pageIndex] && pagesView[pageIndex].widgets) || [])"
             :key="w.id"
             class="desktop-widget"
             :class="{ 'widget-editing': isEditMode }"
@@ -140,7 +139,7 @@
             </template>
           </div>
           <div
-            v-for="(slot, index) in visibleSlots(page)"
+            v-for="(slot, index) in ((pagesView[pageIndex] && pagesView[pageIndex].slots) || [])"
             :key="'slot-' + index"
             class="desktop-slot"
             :class="{
@@ -515,6 +514,54 @@ export default {
     isDragging: function() {
       return this.$store.getters['desktop/isDragging'];
     },
+    // 每页「可见 widget + 可用 slot」预计算。
+    // 模板原先在 v-for 里直接调用 visibleWidgetsByPage(page.id) 与 visibleSlots(page)，
+    // 而 visibleSlots 内部又调一遍 visibleWidgetsByPage → 每次渲染、每页都要重跑
+    // filter + getWidget 查表 + canManage 权限 getter（桌面在拖拽/编辑时会高频重渲染）。
+    // 收敛成 computed 后由 Vue 缓存，仅在 pages / 权限变化时重算。
+    pagesView: function() {
+      var self = this;
+      return (this.pages || []).map(function(page) {
+        var widgets = self.visibleWidgetsByPage(page.id);
+        var widgetCells = 0;
+        for (var i = 0; i < widgets.length; i++) {
+          var w = widgets[i];
+          widgetCells += ((w.w || 2) * (w.h || 2));
+        }
+        var maxSlots = 24 - widgetCells;
+        if (maxSlots < 0) maxSlots = 0;
+        return { widgets: widgets, slots: (page.slots || []).slice(0, maxSlots) };
+      });
+    },
+    // 应用可见性查找表：把「注册表元数据 + 角色过滤 + 管控过滤」一次性归并。
+    // 模板里按 slot 逐个调用 isAppEnabled → isVisibleForUser，原先每次都线性扫描
+    // dockApps（O(注册表长度)）再 indexOf(enabledApps)，拖拽/编辑高频重渲染时叠加明显。
+    // 收敛成 computed 后由 Vue 缓存，仅在 dockApps / 角色派生值 / enabledApps 变化时重算一次。
+    visibleAppMap: function() {
+      var map = {};
+      var apps = this.dockApps || [];
+      var enabled = this.enabledApps;
+      for (var i = 0; i < apps.length; i++) {
+        var appMeta = apps[i];
+        var name = appMeta && appMeta.name;
+        if (!name) continue;
+        // 1. 角色过滤：visibleRoles 声明的应用仅对指定角色显示
+        if (appMeta.visibleRoles && appMeta.visibleRoles.length) {
+          var roleOk = false;
+          for (var r = 0; r < appMeta.visibleRoles.length; r++) {
+            var role = appMeta.visibleRoles[r];
+            if (role === 'classAdmin' && this.isClassAdmin) { roleOk = true; break; }
+            if (role === 'admin' && this.isAdminOrOfficer) { roleOk = true; break; }
+            if (role === 'officer' && this.currentUser.role === 'officer') { roleOk = true; break; }
+          }
+          if (!roleOk) continue;
+        }
+        // 2. 管控过滤：enabledApps 未加载(null)时全部可见，加载后过滤禁用的
+        if (enabled !== null && enabled.indexOf(name) === -1) continue;
+        map[name] = true;
+      }
+      return map;
+    },
     // Dock 应用名列表
     dockAppNames: function() {
       var self = this;
@@ -638,15 +685,17 @@ export default {
       if (self.$router && self.$router.registerMarketApps) self.$router.registerMarketApps(apps);
       self.loadEnabledApps();
     });
+    // 首次加载不强制：复用路由守卫在导航阶段已发起的同一次 /system/app-control 请求
     self.loadEnabledApps();
     self.checkBirthday();
     self.checkVersionUpdate();
     // 应用管控实时同步：页面重新可见 / 窗口聚焦时刷新（管理员切换后自动生效）
+    // force=true：绕过 router 缓存强制重取，确保管理员改动后回到前台能拿到最新状态
     self._visibilityHandler = function() {
-      if (!document.hidden) self.loadEnabledApps();
+      if (!document.hidden) self.loadEnabledApps(true);
     };
     document.addEventListener('visibilitychange', self._visibilityHandler);
-    self._focusHandler = function() { self.loadEnabledApps(); };
+    self._focusHandler = function() { self.loadEnabledApps(true); };
     window.addEventListener('focus', self._focusHandler);
   },
   beforeDestroy: function() {
@@ -753,20 +802,8 @@ export default {
       }
       return style;
     },
-    // 计算当前页可见 slot 数量：总格数(24) - widget 占用格数
-    // 保证 widget + slot 总格数不超过网格容量，实现环绕分布而非整行下移
-    visibleSlots: function(page) {
-      if (!page || !page.slots) return [];
-      var widgets = this.visibleWidgetsByPage(page.id);
-      var widgetCells = 0;
-      for (var i = 0; i < widgets.length; i++) {
-        var w = widgets[i];
-        widgetCells += ((w.w || 2) * (w.h || 2));
-      }
-      var maxSlots = 24 - widgetCells;
-      if (maxSlots < 0) maxSlots = 0;
-      return page.slots.slice(0, maxSlots);
-    },
+    // 注：可见 slot 数量已收敛到 computed pagesView 中预计算（见上），
+    // 原运行时方法 visibleSlots 已删除，避免每次渲染重复扫描。
     // 从指定页移除 widget
     removeWidgetFromPage: function(pageId, widgetId) {
       this.$store.dispatch('desktop/removeWidget', { pageId: pageId, widgetId: widgetId });
@@ -1024,15 +1061,6 @@ export default {
         this.onPointerDown(e);
       }
     },
-    // 桌面空白处双击 → 唤出通知记录。
-    // 与「长按超能岛」「快捷操作面板入口」「右键超能岛」并列，作为历史面板的第 4 个入口
-    // （移动端以长按为主，此处主要服务接了鼠标/触控板的平板）。
-    // 只在空白处生效：双击应用图标应走图标自身的打开语义，不劫持。
-    onDesktopDblClick: function(e) {
-      if (this.isEditMode) return;
-      if (typeof this._isClickOnBlank === 'function' && !this._isClickOnBlank(e)) return;
-      this.$store.commit('island/OPEN_HISTORY');
-    },
     // ===== 应用元数据 =====
     appMeta: function(name) {
       return this.$store.getters['desktop/appByName'](name);
@@ -1210,40 +1238,28 @@ export default {
     // 0. 注册表过滤：不在 APP_REGISTRY 中的应用（如 hidden category 的 integration）一律不显示
     // 1. 角色过滤：visibleRoles 声明的应用仅对指定角色显示（如 admin 仅管理员/班干可见）
     // 2. 应用管控：enabledApps 加载后过滤禁用的应用
+    // 实现：直接命中预计算查找表 visibleAppMap（O(1)），语义与原先的三段判定完全一致——
+    // 不在表内（含未注册 / 角色不符 / 被管控禁用）即返回 false。
     isVisibleForUser: function(name) {
-      // 0. 注册表过滤：查找 APP_REGISTRY 中该应用的元数据
-      var appMeta = null;
-      for (var i = 0; i < this.dockApps.length; i++) {
-        if (this.dockApps[i].name === name) { appMeta = this.dockApps[i]; break; }
-      }
-      // 不在注册表中的应用（hidden category / 未知应用）一律隐藏
-      if (!appMeta) return false;
-      // 1. 角色过滤：visibleRoles 声明的应用仅对指定角色显示
-      if (appMeta.visibleRoles && appMeta.visibleRoles.length) {
-        // classAdmin = 仅班管/系统管理员（不含班干）；admin = 管理员或班干；officer = 班干
-        var roleOk = false;
-        for (var r = 0; r < appMeta.visibleRoles.length; r++) {
-          var role = appMeta.visibleRoles[r];
-          if (role === 'classAdmin' && this.isClassAdmin) { roleOk = true; break; }
-          if (role === 'admin' && this.isAdminOrOfficer) { roleOk = true; break; }
-          if (role === 'officer' && this.currentUser.role === 'officer') { roleOk = true; break; }
-        }
-        if (!roleOk) return false;
-      }
-      // 2. 应用管控过滤：enabledApps 未加载时全部可见，加载后过滤禁用的
-      if (this.enabledApps === null) return true;
-      return this.enabledApps.indexOf(name) !== -1;
+      return this.visibleAppMap[name] === true;
     },
     // 判断应用是否启用（兼容旧调用，实际委托给 isVisibleForUser）
     isAppEnabled: function(name) {
       return this.isVisibleForUser(name);
     },
     // 加载后端应用管控状态，过滤桌面禁用的应用
-    loadEnabledApps: function() {
+    // force=true 时强制重新拉取（回到前台/窗口聚焦的兜底刷新）；
+    // 否则复用 router 侧缓存，与路由守卫共享同一次 /system/app-control 请求
+    // （原先守卫 / App.vue / 桌面三方各裸拉一次 → 冷启动同一接口打三遍）。
+    loadEnabledApps: function(force) {
       var self = this;
-      api.get('/system/app-control').then(function(response) {
-        var data = response.data.data || {};
-        var apps = data.enabled_apps || [];
+      var loader = (self.$router && self.$router.getAppControl)
+        ? self.$router.getAppControl({ force: !!force })
+        : api.get('/system/app-control').then(function(response) {
+            return (response.data && response.data.data) || {};
+          });
+      loader.then(function(data) {
+        var apps = (data && data.enabled_apps) || [];
         self.enabledApps = apps;
         // 同步到 store（供 DesktopFolder 等组件通过 getter 读取）
         self.$store.commit('desktop/SET_ENABLED_APPS', apps);
@@ -1484,7 +1500,8 @@ export default {
   box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.08));
 }
 .desktop-widget.widget-editing {
-  animation: widgetWiggle var(--duration-normal) ease-in-out infinite;
+  /* 曲线改用令牌（规范禁 CSS 关键字曲线）；时长沿用循环动画豁免档 */
+  animation: widgetWiggle var(--duration-normal) var(--ease-standard) infinite;
   outline: 2px dashed rgba(var(--primary-rgb), 0.5);
   outline-offset: -2px;
 }

@@ -1330,6 +1330,9 @@ export default {
           var isOwn = data.message.sender_id === (self.currentUser ? self.currentUser.user_id : '');
           // 统一通过 ADD_MESSAGE 添加，ADD_MESSAGE 内部有完善的去重逻辑
           self.$store.commit('chat/ADD_MESSAGE', data.message);
+          // historical：中继 catchup 兜底补回的历史消息（可能是数小时甚至一天前他班发的，
+          // 含 AstrBot 在公共聊天室发的生图）——只入库可见，不弹通知、不计未读、不跳滚动。
+          if (data.historical) return;
           if (self.currentChat !== 'public' && !isOwn) {
             var count = self.$store.state.chat.unread['public'] || 0;
             self.$store.commit('chat/SET_UNREAD', { chatId: 'public', count: count + 1 });

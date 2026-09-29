@@ -40,6 +40,13 @@ var envVars = parseEnv(envFile);
 // ChmlFrp 内网穿透客户端（家庭上传链路：uk.frp.one:14225 网页 / :10721 WebSocket）
 var frpcDir = 'C:\\Users\\iflytek\\Documents\\ChmlFrp-0.51.2_251023_2_windows_amd64';
 
+// Node 解释器：显式钉死系统 Node。
+// 原因：better-sqlite3 是原生模块，按**系统 Node 的 ABI** 编译（Node 24 = NODE_MODULE_VERSION 137）。
+// 如果 PM2 子进程从 PATH 解析到别的 Node（例如被外部工具注入到 PATH 前端的 Node 22 = ABI 127），
+// 服务会在 require('better-sqlite3') 处 ERR_DLOPEN_FAILED 崩溃（表现为 PM2 疯狂重启、9001 不通）。
+var NODE_BIN = 'C:\\Program Files\\nodejs\\node.exe';
+var nodeInterpreter = fs.existsSync(NODE_BIN) ? NODE_BIN : 'node';
+
 module.exports = {
   apps: [
     {
@@ -47,6 +54,7 @@ module.exports = {
       script: 'src/app.js',
       cwd: serverDir,                       // 绝对路径
       exec_mode: 'fork',
+      exec_interpreter: nodeInterpreter,    // 钉死系统 Node（见上方 NODE_BIN 说明）
       autorestart: true,
       max_restarts: 20,                     // 提高重启上限
       restart_delay: 8000,
@@ -98,6 +106,7 @@ module.exports = {
       script: 'src/tunnel-gateway.js',
       cwd: serverDir,
       exec_mode: 'fork',
+      exec_interpreter: nodeInterpreter,    // 同上，避免被 PATH 带到别的 Node 版本
       autorestart: true,
       max_restarts: 10,
       restart_delay: 5000,

@@ -170,14 +170,25 @@ export default {
     loadData: function() {
       var self = this;
       self.loading = true;
-      api.get('/countdown/events').then(function(res) {
-        if (res.data && res.data.code === 200) {
-          self.events = res.data.data || [];
-        } else {
+      self.error = false;
+      // 原生倒数日 + 联动日历事件（/calendar/events/for-countdown）。
+      // 该接口长期没被调用 → 挂件看不到日历里勾了「显示在倒数日」的事件。
+      var nativeReq = api.get('/countdown/events').then(function(res) {
+        return (res.data && res.data.code === 200) ? (res.data.data || []) : null;
+      }).catch(function() { return null; });
+      var linkedReq = api.get('/calendar/events/for-countdown').then(function(res) {
+        return (res.data && res.data.code === 200) ? (res.data.data || []) : [];
+      }).catch(function() { return []; });
+      Promise.all([nativeReq, linkedReq]).then(function(out) {
+        var native = out[0];
+        var linked = out[1] || [];
+        if (native === null) {
+          // 倒数日本体失败才算错误；联动只是增强项
           self.error = true;
+          self.events = linked;
+        } else {
+          self.events = native.concat(linked);
         }
-      }).catch(function() {
-        self.error = true;
       }).finally(function() {
         self.loading = false;
       });

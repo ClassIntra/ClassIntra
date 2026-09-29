@@ -160,15 +160,30 @@ export default {
       return 'other';
     },
     openFullscreen: function() {
-      // 保存父组件 UI 状态，返回时恢复（避免重新挂载后弹窗消失）
+      // 保存父组件 UI 状态，返回时恢复（避免重新挂载后弹窗消失）。
+      // 关键：/cloud-picker 是独立路由，而 App.vue 的 router-view 没有 keep-alive，
+      // 跳转会把当前应用组件整个卸载，局部 data 全丢。所以这里必须把「回到哪一屏」
+      // 全量快照下来——只存弹窗开关会导致返回后掉回默认列表页（帖子详情丢失）。
       var context = {};
       var parent = this.$parent;
       while (parent) {
         if (typeof parent.showPostModal !== 'undefined') context.showPostModal = parent.showPostModal;
         if (typeof parent.commentCloudTarget !== 'undefined') context.commentCloudTarget = parent.commentCloudTarget;
+        // 详情页（帖子/会话等）：靠 showFullDetail + 帖子 id 在返回后重开
+        if (typeof parent.showFullDetail !== 'undefined') context.showFullDetail = parent.showFullDetail;
+        if (typeof parent.currentPostId !== 'undefined') context.currentPostId = parent.currentPostId;
+        // 所在 tab 与草稿，避免返回后被打回默认页 / 丢掉已输入内容
+        if (typeof parent.activeTab !== 'undefined') context.activeTab = parent.activeTab;
+        if (typeof parent.commentText !== 'undefined') context.commentText = parent.commentText;
+        if (typeof parent.replyToUser !== 'undefined') context.replyToUser = parent.replyToUser;
+        if (parent.newPost && typeof parent.newPost === 'object') {
+          try { context.newPost = JSON.parse(JSON.stringify(parent.newPost)); } catch (e) { /* 忽略不可序列化草稿 */ }
+        }
         parent = parent.$parent;
       }
-      sessionStorage.setItem('__cloudPickerContext', JSON.stringify(context));
+      try {
+        sessionStorage.setItem('__cloudPickerContext', JSON.stringify(context));
+      } catch (e) { /* 忽略写入失败 */ }
       this.$emit('close');
       this.$router.push('/cloud-picker');
     },

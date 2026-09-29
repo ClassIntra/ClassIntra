@@ -22,6 +22,12 @@ $ErrorActionPreference = 'Stop'
 # 不同步的顶层条目：node_modules 体积大且 market 侧独立 npm install
 $Exclude = @('node_modules')
 
+# 不同步的顶层「文件」：下划线前缀的一次性探针/临时脚本（如 _relay_info_probe.js、
+# _relay_manage_probe.out.json）。这些文件放 plugins/ 下只为借用其 node_modules，
+# 属本地调试产物，不应进 market 仓。
+# 注意：只排除文件、不排除目录——plugins/_sdk 是正式包，必须继续同步。
+$ExcludeFilePrefix = '_'
+
 $src = Join-Path $PSScriptRoot '..\plugins'
 $marketRepo = 'D:\NetWork\Integration\market'
 $dst = Join-Path $marketRepo 'plugins'
@@ -32,7 +38,10 @@ if (-not (Test-Path $src)) { Write-Host "[错误] 主仓 plugins 目录不存在
 # 逐个顶层条目同步
 # 注意：复制「已存在目录」时必须用 -Path src\* 而不是 -Path src，
 # 否则 Copy-Item 会把 src 嵌套成 dst\src（历史踩坑）。
-Get-ChildItem $src | Where-Object { $Exclude -notcontains $_.Name } | ForEach-Object {
+Get-ChildItem $src | Where-Object {
+  $Exclude -notcontains $_.Name -and
+  ($_.PSIsContainer -or -not $_.Name.StartsWith($ExcludeFilePrefix))
+} | ForEach-Object {
   $name = $_.Name
   $target = Join-Path $dst $name
   if ($_.PSIsContainer) {

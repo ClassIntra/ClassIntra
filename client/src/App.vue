@@ -113,11 +113,12 @@ export default {
       }
     },
     // 加载锁屏功能开关（由管理员在管控中心配置）
+    // 复用 router.getAppControl() 的缓存：与路由守卫 / 桌面共享同一次 /system/app-control 请求，
+    // 避免冷启动时同一接口被重复拉取（原先此处是裸 api.get，与守卫、桌面各拉一次）。
     loadLockScreenState: function() {
       var self = this;
-      api.get('/system/app-control').then(function(res) {
-        var data = res.data.data || {};
-        if (typeof data.lock_screen !== 'undefined') {
+      router.getAppControl().then(function(data) {
+        if (data && typeof data.lock_screen !== 'undefined') {
           self.lockScreenEnabled = !!data.lock_screen;
         }
       }).catch(function() {

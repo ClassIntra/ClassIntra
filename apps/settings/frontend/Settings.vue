@@ -351,10 +351,14 @@
                       :key="vw.filename"
                       class="wp-card"
                       :class="{ active: wallpaper === vw.filename }"
+                      :data-vw="vw.filename"
                       @click="setWallpaper(vw.filename)"
                     >
                       <div class="wp-card-preview wp-card-preview-video">
-                        <video class="wp-video-thumb" :src="vw.url" muted preload="metadata"></video>
+                        <!-- 懒加载：只有进入视口的卡片才挂 src 去取元数据。
+                             此前对 14 个视频一次性 preload="metadata"，单文件最大 ~180MB，
+                             进入动态壁纸页会瞬间卡住（主线程被解码/网络占满）。 -->
+                        <video v-if="videoThumbLoaded[vw.filename]" class="wp-video-thumb" :src="vw.url" muted preload="metadata"></video>
                         <div class="wp-video-badge"><i class="fa-solid fa-play"></i></div>
                       </div>
                       <div class="wp-card-label">
@@ -434,7 +438,7 @@
             <h2 class="section-title"><i class="fa-solid fa-circle-info section-title-icon"></i>关于系统</h2>
             <div class="form-card">
               <div class="about-logo">
-                <img class="about-logo-icon" :src="brandSquare" alt="ClassIntra 标识" />
+                <img class="about-logo-icon" :src="brandMark" alt="ClassIntra 标识" />
                 <div class="about-logo-text">ClassIntra</div>
               </div>
               <div class="about-item">
@@ -529,8 +533,8 @@ import AppNavBar from '@/components/AppNavBar.vue';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import { APP_REGISTRY } from '@/store/modules/desktop.js';
 
-// 品牌方形标（关于系统页）。运行时字符串，避免打包器把绝对路径解析成模块路径。
-var BRAND_SQUARE = '/resources/public/brand/logo-mark-square.svg';
+// 品牌标（关于系统页，浅底用彩色版）。运行时字符串，避免打包器把绝对路径解析成模块路径。
+var BRAND_MARK = '/resources/public/brand/logo-mark.png';
 
 export default {
   name: 'Settings',
@@ -540,13 +544,15 @@ export default {
   },
   data: function() {
     return {
-      brandSquare: BRAND_SQUARE,
+      brandMark: BRAND_MARK,
       activeNav: 'profile',
       saving: false,
       avatarColor: '',
       avatarPresets: helpers.AVATAR_PRESETS,
       staticWallpapers: [],
       videoWallpapers: [],
+      // 动态壁纸缩略图懒加载：filename -> true 表示已进入视口、可挂 src
+      videoThumbLoaded: {},
       wallpaperLoading: false,
       wpTab: 'builtin',
       builtinWallpapers: [
@@ -675,12 +681,53 @@ export default {
       if (color) self.avatarColor = color;
     });
   },
+  watch: {
+    // 切到「动态」页签后才按视口懒加载缩略图（避免一进设置页就拉全部视频元数据）
+    wpTab: function(val) {
+      if (val === 'video') this.observeVideoThumbs();
+    },
+    videoWallpapers: function() {
+      if (this.wpTab === 'video') this.observeVideoThumbs();
+    }
+  },
   beforeDestroy: function() {
     if (this.autoWallpaperTimer) {
       clearInterval(this.autoWallpaperTimer);
     }
+    if (this._wpObserver) {
+      this._wpObserver.disconnect();
+      this._wpObserver = null;
+    }
   },
   methods: {
+    // 动态壁纸缩略图懒加载：只给进入视口的卡片挂 video src
+    observeVideoThumbs: function() {
+      var self = this;
+      self.$nextTick(function() {
+        if (typeof IntersectionObserver === 'undefined') {
+          // 无 IntersectionObserver 的老内核：退化为全部加载
+          var all = {};
+          for (var i = 0; i < self.videoWallpapers.length; i++) all[self.videoWallpapers[i].filename] = true;
+          self.videoThumbLoaded = all;
+          return;
+        }
+        if (self._wpObserver) { self._wpObserver.disconnect(); self._wpObserver = null; }
+        var cards = self.$el.querySelectorAll('.wp-card[data-vw]');
+        if (!cards.length) return;
+        self._wpObserver = new IntersectionObserver(function(entries) {
+          for (var k = 0; k < entries.length; k++) {
+            var en = entries[k];
+            if (!en.isIntersecting) continue;
+            var fn = en.target.getAttribute('data-vw');
+            if (fn && !self.videoThumbLoaded[fn]) {
+              self.$set(self.videoThumbLoaded, fn, true);
+            }
+            self._wpObserver.unobserve(en.target);
+          }
+        }, { root: null, rootMargin: '200px 0px' });
+        for (var c = 0; c < cards.length; c++) self._wpObserver.observe(cards[c]);
+      });
+    },
     saveProfile: function() {
       var self = this;
       if (!self.profileForm.net_name.trim()) {
@@ -1809,14 +1856,15 @@ export default {
   margin-bottom: 8px;
 }
 
-/* 应用图标：直接使用品牌方形标（logo-mark-square.svg），不再用渐变方块占位 */
+/* 关于页品牌标：浅色卡片上用彩色版标识（logo-mark.png，透明底横向构图 ≈1.25:1）。
+   注意：透明底不能再用 border-radius + box-shadow —— 那会沿图片矩形边缘画出阴影；
+   改用 filter: drop-shadow，阴影贴合标识轮廓。 */
 .about-logo-icon {
-  width: 68px;
-  height: 68px;
+  width: 104px;
+  height: 83px;
   object-fit: contain;
   margin-bottom: 12px;
-  border-radius: var(--radius-lg);
-  box-shadow: 0 4px 16px rgba(var(--primary-rgb), 0.2);
+  filter: drop-shadow(0 4px 14px rgba(var(--primary-rgb), 0.25));
 }
 
 .about-logo-text {

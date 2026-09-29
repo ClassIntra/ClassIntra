@@ -157,38 +157,17 @@ export default {
       }
     },
 
-    // 右键 / 长按鼠标 → 历史（桌面端主要入口）
+    // 右键：仅屏蔽浏览器右键菜单。
+    // 原实现是「右键/长按 → 通知历史」，通知历史功能已删除，这里不再有跳转动作。
     onContextMenu: function(e) {
       if (e && typeof e.preventDefault === 'function') e.preventDefault();
-      this.openHistory();
     },
 
-    /**
-     * 统一的「唤出通知历史」入口。
-     * 无论当前处于哪个模式，都能一步进入历史面板 —— 这是本轮扩充的核心。
-     * 无历史记录时给出提示而非静默失败（否则用户以为没反应）。
-     */
-    openHistory: function() {
-      if (!this.notificationHistory || this.notificationHistory.length === 0) {
-        // 无记录时给反馈而非静默返回；空态本身也会在面板里展示入口说明。
-        if (this.$store) {
-          this.$store.commit('toast/SHOW_TOAST', { message: '暂无通知记录', type: 'info' });
-        }
-        return;
-      }
-      // 已是历史模式则不重复切换（避免 FLIP 抖动）
-      if (this.islandMode === 'history') return;
-      this.prevMode = this.islandMode;
-      this.islandMode = 'history';
-    },
-
+    // 长按：通知历史已删除，长按不再有专属动作。
+    // 保留此钩子是因为 touchstart/mousedown 的长按计时器仍会调用它，
+    // 且 longPressFired 要照常抑制随后补发的 click。
     onLongPress: function() {
-      // 任意模式长按 === 唤出通知历史。
-      // 原实现只在 notification 模式生效，导致通知收起后没有任何回看入口（第十三轮修复）。
-      // 例外：浏览器/分享胶囊等有自身输入语义的面板，长按不劫持。
-      var passthrough = ['browser', 'share-capsule'];
-      if (passthrough.indexOf(this.islandMode) !== -1) return;
-      this.openHistory();
+      // 无动作（历史面板入口已移除）
     },
 
     /**

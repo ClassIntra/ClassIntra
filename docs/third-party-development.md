@@ -232,6 +232,59 @@ var TOKENS = {
 
 ---
 
+## 四、内置数据源（静态文件，以课程表为例）
+
+部分系统应用不落库，直接读仓库内的静态数据文件——**改文件即改内容，无需改代码**。
+
+**课程表**：唯一数据源是仓库根 `Resources/public/kb.yml`（服务端经 `config.resourcesDir + '/public/kb.yml'` 解析）。
+`apps/timetable/backend/routes.js` 每次请求都重新读盘解析（不缓存），接口 `GET /api/timetable`（需登录）
+返回 `{ version, subjects, schedules, holidays, adjustments }`。
+
+```yaml
+version: 1
+subjects:
+- name: 语文           # 学科全名（图例 / 下拉显示）
+  simplified_name: 语   # 单字简称（课表格子内显示）
+  teacher: ''         # 任课教师（默认空串）
+  room: ''            # 上课地点（默认空串）
+schedules:
+- name: 标准课表1
+  enable_day: 1       # 1=周一 … 7=周日
+  weeks: all          # all / odd / even（单双周）
+  classes:
+  - subject: 早读      # 必须与某个 subjects[].name 完全一致
+    start_time: '06:50:00'
+    end_time: '07:33:00'
+```
+
+命名约定：`subjects[].name` = 全名；`subjects[].simplified_name` = 单字简称；
+`teacher` / `room` **默认空串、前端暂未渲染**——要展示「谁在哪上课」，先在 `kb.yml` 填上这两列，
+再让前端读对应字段即可（接口已原样返回，后端无需改）。
+`schedules[].classes[].subject` 必须精确匹配某个 `subjects[].name`，否则单元格回落到原始字符串。
+
+> 公开文档站对应章节：`development/third-party#内置数据源静态文件读取`。
+
+---
+
+## 五、AstrBot 接入是「双边插件」
+
+把 AstrBot 机器人接进 ClassIntra **两侧都要装插件**，缺任一边都不通（常见的「装了插件机器人却不说话」多因如此）：
+
+| 侧 | 插件 | 缺失后果 |
+| --- | --- | --- |
+| ClassIntra | `plugins/astrbot-relay` | 无 LLM 管线——没有人设 / 工具 / 记忆 / 表情包 |
+| AstrBot | `astrbot_plugin_classintra` | 连不上 CI WS——消息收不到也发不出 |
+
+就绪判据：
+
+- CI 侧 `GET /api/astrbot/status`（管理员）→ `data.connected === true` **且** `data.onebot.connected === true`；
+- AstrBot 侧 `GET /api/chat/health` 返回 `code: 200`，且 WebUI 里 `aiocqhttp` 适配器为已连接。
+
+两侧共享配置必须一致：`ASTRBOT_WS_URL` ↔ 适配器 `ws_reverse_host/port`、`ASTRBOT_WS_TOKEN` ↔ 适配器 token、
+`ASTRBOT_PUBLISH_KEY` ↔ 插件 `publish_key`。详见 `plugins/astrbot-relay/README.md`。
+
+---
+
 ## 附：常见问题
 
 | 现象 | 原因与解决 |

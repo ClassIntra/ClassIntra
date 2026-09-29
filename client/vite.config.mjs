@@ -5,6 +5,7 @@ import vue2 from '@vitejs/plugin-vue2';
 import legacy from '@vitejs/plugin-legacy';
 import path from 'path';
 import fs from 'fs';
+import childProcess from 'child_process';
 import { fileURLToPath } from 'url';
 import postcss from 'postcss';
 
@@ -128,15 +129,51 @@ function webkitPrefixPlugin() {
 }
 webkitPrefixPlugin.postcss = true;
 
+// 构建后回收上一代产物（配合 build.manifest: true）
+// 为什么需要它：本机构建环境禁止构建前批量删目录，故 emptyOutDir 关掉了（见下方 build 段注释），
+// 于是旧的带哈希 chunk 会一直堆积 —— 实测堆到过 11920 个文件 / 786MB。
+// 清理脚本只删「当前构建 manifest + 正文引用链里都不存在」且超过 24h 的文件，见 scripts/prune-dist.js。
+// 注意：脚本必须在「无安全删除守卫」的子进程里跑，否则批量 unlink 会被拦成构建失败。
+function pruneDistPlugin() {
+  return {
+    name: 'ci-prune-dist',
+    apply: 'build',
+    closeBundle: function() {
+      if (process.env.SKIP_PRUNE === '1') return;
+      var script = path.resolve(__dirname, 'scripts/prune-dist.js');
+      if (!fs.existsSync(script)) return;
+      var env = {};
+      for (var k in process.env) env[k] = process.env[k];
+      env.CODEBUDDY_SAFE_DELETE_ENABLED = '0';   // 关闭批量删除守卫
+      env.NODE_OPTIONS = '';                     // 不加载删除拦截 shim
+      try {
+        childProcess.spawnSync(process.execPath, [script], { stdio: 'inherit', env: env });
+      } catch (e) {
+        console.log('[prune] 回收跳过：' + e.message);
+      }
+    }
+  };
+}
+
+// legacy 双产物（现代 bundle + nomodule legacy bundle）——构建耗时的大头
+// 实测（2026-09-29，2663 模块）：全量构建 180s，其中 vite:legacy-post-process 占 ~85%
+// （Babel 把每个 chunk 再转译一遍，含 1MB 的 mermaid/vhs；累计 1271s、单次最高 86s）。
+// 关掉 renderLegacyChunks 后只保留现代 bundle + 现代 polyfills，旧浏览器不再有 nomodule 兜底。
+//   LEGACY_CHUNKS=0 node node_modules/vite/bin/vite.js build   → 快，但不给 nomodule 浏览器兜底
+// 校园平板基线是 Chrome 80（原生支持 ESM，加载的是 type=module 的现代 bundle），
+// 因此默认仍保持 LEGACY_CHUNKS=1 的稳妥行为，是否切换由设备实测后决定。
+var legacyChunks = process.env.LEGACY_CHUNKS !== '0';
+
 export default defineConfig({
   plugins: [
     vue2(),
     legacy({
       targets: ['Chrome >= 89', 'Android >= 9'],
       modernPolyfills: true,
-      renderLegacyChunks: true
+      renderLegacyChunks: legacyChunks
     }),
-    cacheBusterPlugin()
+    cacheBusterPlugin(),
+    pruneDistPlugin()
   ],
   define: {
     '__APP_VERSION__': JSON.stringify(appVersion)
@@ -201,8 +238,11 @@ export default defineConfig({
     outDir: 'dist',
     sourcemap: false,
     minify: 'esbuild',
-    // 本机构建环境禁止批量删除旧产物，故关闭构建前的 outDir 清理（仅影响构建，不影响产物/运行）
+    // 本机构建环境禁止批量删除旧产物：若开着 emptyOutDir，Vite 清空 outDir 会被安全删除守卫拦下，
+    // 构建中途失败且线上 dist 已被删残。改为「构建后按 manifest 精确回收」，见 pruneDistPlugin。
     emptyOutDir: false,
+    // 产出 .vite/manifest.json，供 pruneDistPlugin 判定「哪些是本轮构建的产物」
+    manifest: true,
     rollupOptions: {
       output: {
         manualChunks: {

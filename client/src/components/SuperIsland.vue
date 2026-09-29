@@ -20,7 +20,7 @@
           <div class="compact-content">
             <span class="compact-icon" :class="{ 'compact-icon-pulse': hasLiveActivities }">
               <!-- 空闲品牌态：用白色品牌标替代无名圆点 -->
-              <img v-if="compactDisplayText === 'ClassIntra'" class="compact-brand-mark" :src="'/resources/public/brand/logo-mark-white.svg'" alt="" />
+              <img v-if="compactDisplayText === 'ClassIntra'" class="compact-brand-mark" :src="'/resources/public/brand/logo-mark-white.png'" alt="" />
               <i v-else :class="compactIcon"></i>
             </span>
             <span class="compact-text">{{ compactDisplayText }}</span>
@@ -60,19 +60,6 @@
           key="actions"
           @navigate="navigateTo"
           @open-browser="openBrowserMode"
-        />
-
-        <!-- History Mode -->
-        <IslandHistoryPanel
-          v-else-if="islandMode === 'history'"
-          key="history"
-          :history="notificationHistory"
-          :filter="historyFilter"
-          :broadcast-unread-count="broadcastUnreadCount"
-          @update-filter="historyFilter = $event"
-          @history-click="handleHistoryClick"
-          @clear-history="clearHistory"
-          @read-all-broadcasts="markAllBroadcastsRead"
         />
 
         <!-- Browser Mode -->
@@ -148,7 +135,6 @@ import audioManager from '@/utils/audio-manager';
 import islandNotificationsMixin from '@/mixins/island-notifications';
 import islandGesturesMixin from '@/mixins/island-gestures';
 import IslandNotificationPanel from './island/IslandNotificationPanel.vue';
-import IslandHistoryPanel from './island/IslandHistoryPanel.vue';
 import IslandActionsPanel from './island/IslandActionsPanel.vue';
 import IslandBrowserPanel from './island/IslandBrowserPanel.vue';
 import IslandMusicPanel from './island/IslandMusicPanel.vue';
@@ -159,7 +145,6 @@ export default {
   name: 'SuperIsland',
   components: {
     IslandNotificationPanel: IslandNotificationPanel,
-    IslandHistoryPanel: IslandHistoryPanel,
     IslandActionsPanel: IslandActionsPanel,
     IslandBrowserPanel: IslandBrowserPanel,
     IslandMusicPanel: IslandMusicPanel,
@@ -305,8 +290,8 @@ export default {
       if (newMode !== oldMode) {
         this.animateIslandHeight();
       }
-       // 展开模式（菜单/音乐/历史/浏览器/分享胶囊）监听 document 点击，点击外部则收起
-      var collapsibleModes = ['actions', 'music-expanded', 'history', 'browser', 'share-capsule'];
+       // 展开模式（菜单/音乐/浏览器/分享胶囊）监听 document 点击，点击外部则收起
+      var collapsibleModes = ['actions', 'music-expanded', 'browser', 'share-capsule'];
       var isNewCollapsible = collapsibleModes.indexOf(newMode) !== -1;
       var wasOldCollapsible = collapsibleModes.indexOf(oldMode) !== -1;
       if (isNewCollapsible && !wasOldCollapsible) {
@@ -336,12 +321,6 @@ export default {
       if (newSong && (!oldSong || newSong.id !== oldSong.id)) {
         this.musicIslandDismissed = false;
       }
-    },
-    // 外部唤出请求（Desktop 双击空白处 → commit island/OPEN_HISTORY）。
-    // 用 $store.watch 而非普通 watcher：historyRequestSeq 是根状态 island/ 下的字段，
-    // 普通 watcher 只在组件自己的 data/props/computed 上生效，会静默失效。
-    '$store.state.island.historyRequestSeq': function() {
-      this.openHistory();
     },
     // 别处（公告中心等）标记已读后重算未读快讯，避免收起态继续显示已看过的那条
     '$store.state.island.readStateSeq': function() {
@@ -388,7 +367,7 @@ export default {
     },
     onDocumentClick: function(e) {
       // 点击 island 外部区域时收起展开的菜单/面板
-      var collapsibleModes = ['actions', 'music-expanded', 'history', 'browser', 'share-capsule'];
+      var collapsibleModes = ['actions', 'music-expanded', 'browser', 'share-capsule'];
       if (collapsibleModes.indexOf(this.islandMode) === -1) return;
       var el = this.$refs.islandEl;
       if (el && !el.contains(e.target)) {
@@ -530,24 +509,6 @@ export default {
       if (d.pic) query.pic = encodeURIComponent(d.pic);
       if (d.owner) query.owner = encodeURIComponent(d.owner);
       this.$router.push({ name: 'Community', query: query }).catch(function() {});
-    },
-
-    handleHistoryClick: function(item) {
-      var self = this;
-      self.islandMode = 'compact';
-      // 从历史点进快讯同样算已读，否则点完回来超能岛还挂着同一条
-      if (item && item.category === 'system' && item.broadcastId !== undefined) {
-        self.markBroadcastRead(item.broadcastId);
-      }
-      if (item.route) {
-        if (item.chatId) {
-          self.$store.commit('chat/SET_CURRENT_CHAT', item.chatId);
-          // 通过 query 传递 chatId，让 Chat.vue mounted 时自动打开对应会话
-          self.$router.push({ path: item.route, query: { chat: item.chatId } }).catch(function() {});
-        } else {
-          self.$router.push(item.route).catch(function() {});
-        }
-      }
     },
 
     // ===== Music Controls =====
@@ -770,7 +731,7 @@ export default {
   box-shadow: 0 6px 32px rgba(var(--danger-rgb, 255, 59, 48), 0.45),
               0 2px 12px rgba(var(--danger-rgb, 255, 59, 48), 0.25),
               0 0 0 1px rgba(var(--danger-rgb, 255, 59, 48), 0.2) inset;
-  animation: island-urgent-glow 1.6s ease-in-out infinite;
+  animation: island-urgent-glow 1.6s var(--ease-standard) infinite;
 }
 
 .island-normal {
@@ -869,15 +830,15 @@ export default {
   transition: opacity var(--duration-normal) var(--ease-standard);
 }
 
-/* 空闲品牌态的白色标识（灵动岛黑底上保持锐利） */
+/* 空闲品牌态的白色标识（灵动岛黑底上保持锐利；品牌标为横向构图，按 1.25:1 给尺寸） */
 .compact-brand-mark {
-  width: 15px;
-  height: 16px;
+  width: 19px;
+  height: 15px;
   object-fit: contain;
 }
 
 .compact-icon-pulse {
-  animation: compact-pulse 2s ease-in-out infinite;
+  animation: compact-pulse 2s var(--ease-standard) infinite;
 }
 
 @keyframes compact-pulse {

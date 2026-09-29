@@ -443,8 +443,20 @@ function applySyncData(syncData) {
         try { extraObj = JSON.parse(m.extra_json || '{}'); } catch (e2) {}
         extraObj.synced = true;
         extraObj.original_id = m.id;
-        s.chatInsert.run(m.room_id, m.sender_id, m.sender_name, m.content, m.type || 'text', JSON.stringify(extraObj), m.created_at);
+        var chatIns = s.chatInsert.run(m.room_id, m.sender_id, m.sender_name, m.content, m.type || 'text', JSON.stringify(extraObj), m.created_at);
         result.chat++;
+        // 记录新插入的公共聊天消息，供调用方补推给在线客户端。
+        // 缺了这一步：跨班同步过来的公共聊天（含 AstrBot 在公共聊天室发的生图）
+        // 只写库不推送 → 另一班必须刷新页面才看得见（甚至以为「看不见生图」）。
+        newlyApplied.chat_messages.push({
+          id: chatIns.lastInsertRowid,
+          room_id: m.room_id || 'public',
+          sender_id: m.sender_id,
+          sender_name: m.sender_name,
+          content: m.content,
+          type: m.type || 'text',
+          created_at: m.created_at
+        });
       } catch (e) {}
     }
   }

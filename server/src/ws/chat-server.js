@@ -640,6 +640,33 @@ function pushNewlyAppliedFromSync(syncResult) {
     }
   }
 
+  // 公共聊天室：room_id=public 为全员广播，推给本端所有在线客户端
+  if (applied.chat_messages && applied.chat_messages.length) {
+    for (var c = 0; c < applied.chat_messages.length; c++) {
+      var cm = applied.chat_messages[c];
+      if (!cm || !cm.id) continue;
+      try {
+        // 第三参 skipRelay=true：数据来自对端，本地只广播给本端客户端，禁止再次中继
+        broadcast({
+          type: 'new_message',
+          // 同私聊/群聊：catchup 补回的历史消息静默入库，不触发通知与未读
+          historical: true,
+          message: {
+            id: cm.id,
+            room_id: cm.room_id || 'public',
+            type: cm.type,
+            content: cm.content,
+            sender_id: cm.sender_id,
+            sender_name: cm.sender_name || '',
+            recalled: 0,
+            created_at: cm.created_at
+          }
+        }, null, true);
+        pushed++;
+      } catch (e) { /* 单个失败不影响其余 */ }
+    }
+  }
+
   if (pushed > 0) {
     // 标注 historical：便于日志判读「这次补推没有触发用户通知」，
     // 与实时推送路径（relay-handlers/正常 sendToClient）区分开。
