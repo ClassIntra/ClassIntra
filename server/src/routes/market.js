@@ -50,7 +50,7 @@ router.get('/installed', auth.requireAuth, function(req, res) {
 });
 
 // 市场目录（支持 ?source=gitee|github|local，默认 gitee）
-router.get('/catalog', function(req, res) {
+router.get('/catalog', auth.requireAuth, function(req, res) {
   var sourceId = req.query.source || 'gitee';
   marketService.getCatalogWithFallback(sourceId).then(function(result) {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
@@ -67,6 +67,10 @@ router.get('/asset', function(req, res) {
   marketService.fetchAsset(String(req.query.source || 'gitee'), String(req.query.path || '')).then(function(result) {
     res.setHeader('Content-Type', result.contentType);
     res.setHeader('Cache-Control', 'no-cache'); // 不做强缓存，靠 ETag 协商
+    // SVG 直接在浏览器打开时其中的 <script> 会执行，CSP 禁止一切内联资源（XSS 缓解）
+    if (String(result.contentType).indexOf('svg') > -1) {
+      res.setHeader('Content-Security-Policy', "default-src 'none'");
+    }
     res.send(result.buffer);
   }).catch(function(e) {
     res.status(404).json({ code: 404, message: e.message || '资源不存在' });

@@ -793,11 +793,21 @@ export default {
       video.removeAttribute('src');
       video.load();
     }
+    var videoB = this.$refs.videoB;
+    if (videoB) {
+      videoB.pause();
+      videoB.removeAttribute('src');
+      videoB.load();
+    }
   },
   watch: {
     videoWallpaperSrc: function() {
       var self = this;
-      // 换壁纸：清掉旧 blob（对应旧视频，继续用会张冠李戴）和实例源覆盖，
+      // 换壁纸：重置降级状态——此前源的视频播放失败不代表新源也会失败，
+      // 不重置会导致一旦降级静态壁纸，之后换任何视频壁纸都永不恢复
+      self.videoWallpaperFailed = false;
+      self.videoRetryCount = 0;
+      // 清掉旧 blob（对应旧视频，继续用会张冠李戴）和实例源覆盖，
       // 让两个 <video> 经模板回退切到新 URL；随后预载新 blob、拉起播放
       if (self.videoBlobUrl) {
         try { URL.revokeObjectURL(self.videoBlobUrl); } catch (e) {}
@@ -978,9 +988,11 @@ export default {
         else score += 1;
 
         if (gl) {
-          var debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
-          if (debugInfo) {
-            var renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL).toLowerCase();
+          try {
+            var debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+            // X5/无 GPU 信息设备上 getParameter 可能返回 null 或抛错——
+            // 此处在 mounted 主链路上，抛错会中断后续桌面初始化，必须整体兜底
+            var renderer = ((debugInfo && gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL)) || '').toLowerCase();
             if (renderer.indexOf('nvidia') !== -1 || renderer.indexOf('radeon') !== -1 || renderer.indexOf('apple') !== -1) {
               score += 3;
             } else if (renderer.indexOf('intel') !== -1 || renderer.indexOf('adreno') !== -1 || renderer.indexOf('mali') !== -1) {
@@ -988,9 +1000,11 @@ export default {
             } else {
               score += 2;
             }
-          } else {
-            score += 2;
+          } catch (glErr) {
+            score += 2; // GPU 信息不可得，按中档处理
           }
+        } else {
+          score += 2;
         }
 
         if (isMobile) score -= 2;
@@ -1013,6 +1027,8 @@ export default {
     },
     checkVideoHealth: function() {
       var self = this;
+      // 编辑态/拖拽中刻意暂停了壁纸（降耗+防掉帧），巡检不得强行拉起
+      if (self.isEditMode || self.isDragging) return;
       var video = self.$refs[self.activeVideo === 'B' ? 'videoB' : 'videoA'];
       if (!video) return;
       if (video.paused && !video.ended && video.readyState >= 3) {
