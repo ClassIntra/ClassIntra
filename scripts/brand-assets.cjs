@@ -1,6 +1,6 @@
 // 品牌资产生成器
 //
-// 用途：把品牌美术导出的原始大图（仓库根 white-logo.png / color-logo.png，3072x3072 调色板 PNG、
+// 用途：把品牌美术导出的原始大图（仓库 logo/ 下的 white-logo.png / color-logo.png，3072x3072 调色板 PNG、
 //       透明底）裁掉留白、压到 Web 尺寸，并生成方块标，落到 Resources/public/brand/。
 //
 // 输出：
@@ -102,8 +102,10 @@ async function makeTile(whiteSrc) {
 
 (async function () {
   console.log('== 生成品牌资产 ==');
-  await makeMark(path.join(ROOT, 'color-logo.png'), path.join(BRAND, 'logo-mark.png'), 'logo-mark.png（浅底）');
-  await makeMark(path.join(ROOT, 'white-logo.png'), path.join(BRAND, 'logo-mark-white.png'), 'logo-mark-white.png（深底）');
-  await makeTile(path.join(ROOT, 'white-logo.png'));
+  // 原始大图统一放在 logo/ 下（2026-09-29 仓库整理时从仓库根移入）
+  var SRC = path.join(ROOT, 'logo');
+  await makeMark(path.join(SRC, 'color-logo.png'), path.join(BRAND, 'logo-mark.png'), 'logo-mark.png（浅底）');
+  await makeMark(path.join(SRC, 'white-logo.png'), path.join(BRAND, 'logo-mark-white.png'), 'logo-mark-white.png（深底）');
+  await makeTile(path.join(SRC, 'white-logo.png'));
   console.log('== 完成 ==');
 })().catch(function (e) { console.error('ERR', e.message); process.exit(1); });
