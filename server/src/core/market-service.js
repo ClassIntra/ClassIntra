@@ -372,18 +372,30 @@ function _validateCatalog(data) {
 // 把目录条目里的相对路径图标（./icon.svg / icon.svg）改写为服务器中转代理地址。
 // 背景：目录来自远程市场源，前端 <img> 直接用相对路径会相对当前页面 URL 解析而 404；
 // 且接入设备未必能直连 gitee/github，统一走服务器中转（与市场下载同一策略）。
+// 注意：index.json 里的 icon 是相对「应用/插件子目录」的路径（apps/<name>/icon.svg），
+// 改写时必须补上 apps/<name>/ 或 plugins/<name>/ 前缀，否则会去仓库根目录找而 404。
 // 绝对 URL（http/https）与以 / 开头的路径原样保留。缓存按 sourceId 分键，改写结果可直接入缓存。
 function _resolveCatalogIcons(catalog, sourceId) {
-  var groups = [catalog.apps, catalog.plugins];
+  var groups = [
+    { list: catalog.apps, dir: 'apps' },
+    { list: catalog.plugins, dir: 'plugins' }
+  ];
   for (var g = 0; g < groups.length; g++) {
-    var list = groups[g];
+    var list = groups[g].list;
+    var dir = groups[g].dir;
     if (!Array.isArray(list)) continue;
     for (var i = 0; i < list.length; i++) {
-      var icon = list[i] && list[i].icon;
+      var item = list[i];
+      var icon = item && item.icon;
       if (!icon || typeof icon !== 'string') continue;
       if (icon.indexOf('http://') === 0 || icon.indexOf('https://') === 0 || icon.charAt(0) === '/') continue;
-      list[i].icon = '/api/market/asset?source=' + encodeURIComponent(sourceId) +
-        '&path=' + encodeURIComponent(icon.replace(/^\.\//, ''));
+      var rel = icon.replace(/^\.\//, '');
+      // 已带 apps/ 或 plugins/ 前缀的按全路径处理（兼容未来目录写全路径），否则相对子目录补前缀
+      if (rel.indexOf('apps/') !== 0 && rel.indexOf('plugins/') !== 0) {
+        rel = dir + '/' + (item.name || '') + '/' + rel;
+      }
+      item.icon = '/api/market/asset?source=' + encodeURIComponent(sourceId) +
+        '&path=' + encodeURIComponent(rel);
     }
   }
   return catalog;
