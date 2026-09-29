@@ -148,4 +148,67 @@ router.post('/uninstall-plugin', auth.requireAuth, auth.requireAdmin, function(r
   });
 });
 
+// ========== 应用/插件配置（manifest.config 声明 → 安装时引导填写，值存数据库 app_config 表） ==========
+
+// 读取配置状态（管理员）：schema + 已存值（secret 不回显明文，只回 configured 布尔）+ required 缺失项
+router.get('/app-config', auth.requireAuth, auth.requireAdmin, function(req, res) {
+  var name = String(req.query.name || '');
+  if (!name) return res.status(400).json({ code: 400, message: '缺少应用名' });
+  var manifest = marketService.getConfigurableManifest(name);
+  if (!manifest) return res.status(404).json({ code: 404, message: '应用或插件未安装: ' + name });
+  try {
+    var appConfig = require('../utils/app-config');
+    var status = appConfig.getConfigStatus(name, Array.isArray(manifest.config) ? manifest.config : []);
+    res.json({ code: 200, data: {
+      name: name,
+      label: manifest.label || name,
+      schema: status.schema,
+      values: status.values,
+      configured: status.configured,
+      missingRequired: status.missingRequired
+    }});
+  } catch (e) {
+    console.error('[market] 读取配置失败:', name, e.message);
+    res.status(500).json({ code: 500, message: e.message || '读取配置失败' });
+  }
+});
+
+// 保存配置（管理员）：secret 传空字符串表示保持原值不变；保存后即时生效（无需重启）
+router.post('/app-config', auth.requireAuth, auth.requireAdmin, function(req, res) {
+  var body = req.body || {};
+  var name = String(body.name || '');
+  var values = body.values;
+  if (!name) return res.status(400).json({ code: 400, message: '缺少应用名' });
+  if (!values || typeof values !== 'object' || Array.isArray(values)) {
+    return res.status(400).json({ code: 400, message: '缺少配置值' });
+  }
+  var manifest = marketService.getConfigurableManifest(name);
+  if (!manifest) return res.status(404).json({ code: 404, message: '应用或插件未安装: ' + name });
+  var schema = Array.isArray(manifest.config) ? manifest.config : [];
+  var knownKeys = {};
+  schema.forEach(function (item) { if (item && item.key) knownKeys[item.key] = item; });
+  try {
+    var appConfig = require('../utils/app-config');
+    var patch = {};
+    Object.keys(values).forEach(function (key) {
+      if (!knownKeys[key]) return; // 只接受 schema 内声明的 key，拒绝写入任意键
+      var item = knownKeys[key];
+      if (values[key] === null || values[key] === undefined) return;
+      var str = String(values[key]);
+      if (item.type === 'secret' && str === '') return; // secret 留空 = 保持原值
+      patch[key] = str;
+    });
+    appConfig.saveValues(name, patch);
+    var status = appConfig.getConfigStatus(name, schema);
+    res.json({ code: 200, data: {
+      name: name,
+      configured: status.configured,
+      missingRequired: status.missingRequired
+    }, message: '配置已保存，即时生效' });
+  } catch (e) {
+    console.error('[market] 保存配置失败:', name, e.message);
+    res.status(400).json({ code: 400, message: e.message || '保存配置失败' });
+  }
+});
+
 module.exports = router;

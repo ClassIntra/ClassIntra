@@ -26,6 +26,7 @@ var CURRENT_SDK_VERSION = require('./manifest-schema').CURRENT_SDK_VERSION;
 var KNOWN_ROLES = require('./manifest-schema').KNOWN_ROLES;
 var LAYOUT_MODES = require('./manifest-schema').LAYOUT_MODES;
 var rateLimitLib = require('../middleware/rate-limit').createRateLimiter;
+var appConfig = require('../utils/app-config');
 
 var rootDir = path.resolve(__dirname, '../../../');
 var marketAppsDir = manifestLoader.marketAppsDir;
@@ -59,6 +60,17 @@ var DEFAULT_SOURCES = [
     base: process.env.MARKET_LOCAL_DIR || path.join(rootDir, '..', 'market')
   }
 ];
+
+// 检测 manifest 声明的 required 配置缺失项（DB → env → default 三级回退后仍为空）
+function _configMissing(manifest) {
+  var schema = manifest && Array.isArray(manifest.config) ? manifest.config : [];
+  if (!schema.length) return [];
+  try {
+    return appConfig.resolveConfig(manifest.name, schema).missingRequired;
+  } catch (e) {
+    return [];
+  }
+}
 
 function getSource(sourceId) {
   for (var i = 0; i < DEFAULT_SOURCES.length; i++) {
@@ -226,6 +238,20 @@ function init() {
     if (m.backend && _setMount(m)) count++;
   });
   if (count > 0) console.log('[market] 启动挂载 ' + count + ' 个第三方应用后端路由');
+  // 启动时扫描 required 配置缺失：管理端有「待配置」角标，这里再日志兜底，杜绝静默失败
+  var plugins = _scanInstalledPlugins();
+  var cfgWarn = [];
+  manifests.forEach(function(m) {
+    var missing = _configMissing(m);
+    if (missing.length) cfgWarn.push(m.name + '(' + missing.map(function(x) { return x.key; }).join(',') + ')');
+  });
+  plugins.forEach(function(p) {
+    var missing = _configMissing(p);
+    if (missing.length) cfgWarn.push(p.name + '(' + missing.map(function(x) { return x.key; }).join(',') + ')');
+  });
+  if (cfgWarn.length) {
+    console.warn('[market] 以下应用/插件缺少必填配置（请在管理端应用市场 → 已安装列表中点击「配置」补全）: ' + cfgWarn.join('; '));
+  }
 }
 
 // ========== 已安装应用扫描 ==========
@@ -283,6 +309,11 @@ function listInstalled() {
       frontendStyle: m.frontend && m.frontend.style ? m.frontend.style : '',
       hasBackend: !!(m.backend && m.backend.mountPath),
       enabled: isAppEnabled(m.name),
+      // 是否声明了配置项（决定管理端是否显示「配置」按钮）
+      hasConfig: Array.isArray(m.config) && m.config.length > 0,
+      // 配置状态：required 声明中三级回退（DB → env → default）后仍缺失的项，
+      // 管理端据此显示「待配置」角标与配置入口
+      configMissing: _configMissing(m),
       source: 'market',
       installedAt: stat ? stat.mtimeMs : 0
     };
@@ -512,6 +543,43 @@ function _validateMarketManifest(m, expectedName) {
     }
   }
 
+  // ---- config：配置项声明（安装时引导管理员填写，值存数据库 app_config 表）----
+  if (m.config !== undefined) {
+    if (!Array.isArray(m.config)) {
+      errors.push('config 应为数组类型');
+    } else {
+      for (var cf = 0; cf < m.config.length; cf++) {
+        var cItem = m.config[cf];
+        if (!cItem || typeof cItem !== 'object' || Array.isArray(cItem)) {
+          errors.push('config[' + cf + '] 应为对象');
+          continue;
+        }
+        if (!cItem.key || typeof cItem.key !== 'string') {
+          errors.push('config[' + cf + '].key 缺失或非字符串');
+          continue;
+        }
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(cItem.key)) {
+          errors.push('config[' + cf + '].key "' + cItem.key + '" 应为环境变量风格（字母/数字/下划线，不以数字开头）');
+          continue;
+        }
+        if (!cItem.label || typeof cItem.label !== 'string') {
+          errors.push('config[' + cf + '].label 缺失（用于管理端配置表单的显示名）');
+          continue;
+        }
+        var cType = cItem.type || 'string';
+        if (['string', 'number', 'boolean', 'secret'].indexOf(cType) === -1) {
+          errors.push('config[' + cf + '].type "' + cType + '" 不在枚举中（string / number / boolean / secret）');
+        }
+      }
+      var seenKeys = {};
+      for (var ck = 0; ck < m.config.length; ck++) {
+        var cKey = m.config[ck] && m.config[ck].key;
+        if (cKey && seenKeys[cKey]) errors.push('config 中存在重复 key: ' + cKey);
+        if (cKey) seenKeys[cKey] = true;
+      }
+    }
+  }
+
   return errors;
 }
 
@@ -653,7 +721,9 @@ function installAppFromSource(appName, sourceId) {
       name: ctx.manifest.name,
       label: ctx.manifest.label,
       version: ctx.manifest.version || '0.0.0',
-      source: ctx.source.id
+      source: ctx.source.id,
+      // required 配置缺失项：前端据此在安装成功后弹「立即配置」引导
+      configRequired: _configMissing(ctx.manifest)
     };
   });
 }
@@ -694,10 +764,12 @@ function uninstallApp(appName) {
     } catch (e) {
       console.warn('[market] app_control 清理失败:', e.message);
     }
-    // 3. 删除目录
+    // 3. 清理该应用在数据库中的配置（避免残留脏数据）
+    try { appConfig.clearValues(appName); } catch (e) {}
+    // 4. 删除目录
     var finalDir = path.join(marketAppsDir, appName);
     fs.rmSync(finalDir, { recursive: true, force: true });
-    // 4. 清缓存
+    // 5. 清缓存
     manifestLoader.clearCache();
     console.log('[market] 应用已卸载:', appName);
     return { name: appName };
@@ -714,6 +786,20 @@ function getInstalledManifest(appName) {
   var list = _scanInstalledRaw();
   for (var i = 0; i < list.length; i++) {
     if (list[i].name === appName) return list[i];
+  }
+  return null;
+}
+
+// 获取应用或插件的完整 manifest（配置 API 用：读取 config 声明）
+function getConfigurableManifest(name) {
+  var app = getInstalledManifest(name);
+  if (app) return app;
+  var manifestPath = path.join(runtimePluginsDir, name, 'manifest.json');
+  if (fs.existsSync(manifestPath)) {
+    try {
+      var m = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+      if (m.type === 'plugin' && m.name === name) return m;
+    } catch (e) {}
   }
   return null;
 }
@@ -739,6 +825,9 @@ function _scanInstalledPlugins() {
         label: m.label || m.name,
         version: m.version || '0.0.0',
         description: m.description || '',
+        // 是否声明了配置项 + required 缺失项（插件无前端页面，管理端插件列表据此显示）
+        hasConfig: Array.isArray(m.config) && m.config.length > 0,
+        configMissing: _configMissing({ name: m.name || dirs[i], config: m.config }),
         installedAt: st.mtimeMs,
         dir: dirs[i]
       });
@@ -767,6 +856,32 @@ function _validateMarketPluginManifest(m, expectedName) {
       errors.push('sdk 字段应为纯数字主版本字符串（如 "1"）');
     } else if (parseInt(m.sdk, 10) > parseInt(CURRENT_SDK_VERSION, 10)) {
       errors.push('此插件要求 SDK v' + m.sdk + '，当前系统为 v' + CURRENT_SDK_VERSION + '——请升级 ClassIntra 后再安装');
+    }
+  }
+  // ---- config：配置项声明（与 _validateMarketManifest 的 config 校验一致）----
+  if (m.config !== undefined) {
+    if (!Array.isArray(m.config)) {
+      errors.push('config 应为数组类型');
+    } else {
+      for (var cf = 0; cf < m.config.length; cf++) {
+        var cItem = m.config[cf];
+        if (!cItem || typeof cItem !== 'object' || Array.isArray(cItem)) {
+          errors.push('config[' + cf + '] 应为对象');
+          continue;
+        }
+        if (!cItem.key || typeof cItem.key !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(cItem.key)) {
+          errors.push('config[' + cf + '].key 缺失或非法（环境变量风格：字母/数字/下划线）');
+          continue;
+        }
+        if (!cItem.label || typeof cItem.label !== 'string') {
+          errors.push('config[' + cf + '].label 缺失（用于管理端配置表单的显示名）');
+          continue;
+        }
+        var cType = cItem.type || 'string';
+        if (['string', 'number', 'boolean', 'secret'].indexOf(cType) === -1) {
+          errors.push('config[' + cf + '].type "' + cType + '" 不在枚举中（string / number / boolean / secret）');
+        }
+      }
     }
   }
   return errors;
@@ -870,7 +985,9 @@ function installPluginFromSource(pluginName, sourceId) {
       label: ctx.manifest.label,
       version: ctx.manifest.version || '0.0.0',
       source: ctx.source.id,
-      requiresRebuild: !!ctx.manifest.frontend
+      requiresRebuild: !!ctx.manifest.frontend,
+      // required 配置缺失项：前端据此在安装成功后弹「立即配置」引导
+      configRequired: _configMissing(ctx.manifest)
     };
   });
 }
@@ -904,6 +1021,8 @@ function uninstallPlugin(pluginName) {
     } catch (e) {
       console.warn('[market] app_control 清理失败:', e.message);
     }
+    // 清理该插件在数据库中的配置（避免残留脏数据）
+    try { appConfig.clearValues(pluginName); } catch (e) {}
     var finalDir = path.join(runtimePluginsDir, pluginName);
     fs.rmSync(finalDir, { recursive: true, force: true });
     manifestLoader.clearCache();
@@ -916,6 +1035,8 @@ module.exports = {
   init: init,
   dispatcher: dispatcher,
   listInstalled: listInstalled,
+  getInstalledManifest: getInstalledManifest,
+  getConfigurableManifest: getConfigurableManifest,
   getCatalog: getCatalog,
   getCatalogWithFallback: getCatalogWithFallback,
   fetchAsset: fetchAsset,
@@ -923,7 +1044,6 @@ module.exports = {
   installApp: installApp,
   uninstallApp: uninstallApp,
   updateApp: updateApp,
-  getInstalledManifest: getInstalledManifest,
   listInstalledPlugins: listInstalledPlugins,
   installPlugin: installPlugin,
   uninstallPlugin: uninstallPlugin,
