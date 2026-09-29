@@ -70,7 +70,9 @@
       <div class="upload-card">
         <div class="entry-grid">
           <input ref="camInput" type="file" accept="image/*" capture="environment" style="display:none" @change="onFileSelect" />
-          <input ref="vidInput" type="file" accept="video/*" capture="environment" style="display:none" @change="onFileSelect" />
+          <!-- 录像不带 capture：部分国产 WebView（X5 等）对 capture+video 弹「拍照/相册」图片弹窗；
+               去掉后系统弹「摄像/选择文件」视频选择器，可直接录像或从相册选 -->
+          <input ref="vidInput" type="file" accept="video/*" style="display:none" @change="onFileSelect" />
           <input ref="galInput" type="file" accept="image/*,video/*" multiple style="display:none" @change="onFileSelect" />
           <input ref="fileInput" type="file" multiple style="display:none" @change="onFileSelect" />
           <button class="entry" @click="pickEntry('cam')">
@@ -228,7 +230,7 @@
         </button>
         <img
           class="viewer-img"
-          :src="viewerImages[viewer.index].url + '?w=1200'"
+          :src="viewerImages[viewer.index].url"
           :alt="viewerImages[viewer.index].name"
           @click.stop
         />
