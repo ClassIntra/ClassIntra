@@ -31,7 +31,7 @@ function mix(hex, other, ratio) {
 }
 
 // 满铺应用图标模板（512 viewBox）：
-// 资产顶格画布、内容铺满 100%，圆角由 AppIcon 容器 CSS 统一裁切（72px + radius 20px + cover）——
+// 资产顶格画布、内容铺满 100%，圆角由 AppIcon 容器 CSS 统一裁切（60px + radius 20px + cover）——
 // 图标资产本身绝不留白（项目硬性规范，详见 docs/third-party-development.md 图标规范一节）
 function iconSvg(label, color) {
   var light = mix(color, '#ffffff', 0.38);
@@ -46,7 +46,7 @@ function iconSvg(label, color) {
     </linearGradient>
   </defs>
 
-  <!-- 直角满铺底（根 rect 严禁 rx/ry：资产内烘焙圆角小于容器裁切比例 20/72 时，四角会露出透明缝隙） -->
+  <!-- 直角满铺底（根 rect 严禁 rx/ry：资产内烘焙圆角小于容器裁切比例 20/60 时，四角会露出透明缝隙） -->
   <rect width="512" height="512" fill="url(#gBg)"/>
   <!-- 顶部柔光提升通透感 -->
   <ellipse cx="256" cy="90" rx="300" ry="170" fill="#FFFFFF" opacity="0.13"/>
