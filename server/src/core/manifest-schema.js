@@ -23,8 +23,12 @@ var FIELD_DEFS = {
   sdk: { type: 'string', required: false, default: '1', description: '所需 SDK 主版本（缺省视为 "1"，向后兼容旧应用）' },
   capabilities: { type: 'array', required: false, default: [], description: '能力披露清单（仅展示，不拦截）' },
   layout: { type: 'object', required: false, description: '布局偏好：mode(fullscreen/sheet/window) / resizable / minWidth / minHeight' },
-  visibleRoles: { type: 'array', required: false, default: [], description: '可见角色白名单（空数组=所有角色可见）：admin / officer / student' }
+  visibleRoles: { type: 'array', required: false, default: [], description: '可见角色白名单（空数组=所有角色可见）：admin / officer / student' },
+  config: { type: 'array', required: false, default: [], description: '配置项声明 [{key,label,type,required,default,description}]：安装时引导管理员填写，值存数据库 app_config 表（读取回退：DB → process.env → default）' }
 };
+
+// 配置项类型枚举（type 字段；secret 在管理端回显时打码）
+var CONFIG_TYPES = ['string', 'number', 'boolean', 'secret'];
 
 // 合法角色枚举（与认证系统的 role 字段对齐）
 var KNOWN_ROLES = ['admin', 'officer', 'student'];
@@ -226,6 +230,50 @@ function validateManifest(m) {
     }
   }
 
+  // ---- config 字段：配置项声明 ----
+  // 声明了 config 但格式非法时阻断（errors）——静默丢弃会让管理员错过必要配置。
+  var config = [];
+  if (m.config !== undefined) {
+    if (!Array.isArray(m.config)) {
+      errors.push('config 应为数组类型');
+    } else {
+      for (var cf = 0; cf < m.config.length; cf++) {
+        var cItem = m.config[cf];
+        if (!cItem || typeof cItem !== 'object' || Array.isArray(cItem)) {
+          errors.push('config[' + cf + '] 应为对象');
+          continue;
+        }
+        if (!cItem.key || typeof cItem.key !== 'string') {
+          errors.push('config[' + cf + '].key 缺失或非字符串');
+          continue;
+        }
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(cItem.key)) {
+          errors.push('config[' + cf + '].key "' + cItem.key + '" 应为环境变量风格（字母/数字/下划线，不以数字开头）');
+          continue;
+        }
+        if (!cItem.label || typeof cItem.label !== 'string') {
+          errors.push('config[' + cf + '].label 缺失（用于管理端配置表单的显示名）');
+          continue;
+        }
+        var cType = cItem.type || 'string';
+        if (CONFIG_TYPES.indexOf(cType) === -1) {
+          errors.push('config[' + cf + '].type "' + cType + '" 不在枚举中（string / number / boolean / secret）');
+          continue;
+        }
+        var cNorm = { key: cItem.key, label: cItem.label, type: cType, required: cItem.required === true };
+        if (cItem.default !== undefined) cNorm.default = cItem.default;
+        if (cItem.description) cNorm.description = String(cItem.description);
+        config.push(cNorm);
+      }
+      // key 重复检测（重复项会让配置覆盖关系变得不可预期）
+      var seenKeys = {};
+      for (var ck = 0; ck < config.length; ck++) {
+        if (seenKeys[config[ck].key]) errors.push('config 中存在重复 key: ' + config[ck].key);
+        seenKeys[config[ck].key] = true;
+      }
+    }
+  }
+
   var normalized = Object.assign({}, m, {
     type: type,
     version: version,
@@ -235,7 +283,8 @@ function validateManifest(m) {
     canDisable: typeof m.canDisable === 'boolean' ? m.canDisable : true,
     sdk: sdk,
     capabilities: capabilities,
-    visibleRoles: visibleRoles
+    visibleRoles: visibleRoles,
+    config: config
   });
   if (layout) {
     normalized.layout = layout;
@@ -260,6 +309,7 @@ module.exports = {
   KNOWN_CAPABILITIES: KNOWN_CAPABILITIES,
   KNOWN_ROLES: KNOWN_ROLES,
   LAYOUT_MODES: LAYOUT_MODES,
+  CONFIG_TYPES: CONFIG_TYPES,
   compareVersions: compareVersions,
   validateManifest: validateManifest
 };

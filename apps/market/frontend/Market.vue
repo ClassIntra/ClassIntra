@@ -102,6 +102,9 @@
               <div class="installed-info">
                 <div class="installed-title-row">
                   <h3>{{ app.label }}</h3>
+                  <span v-if="app.configMissing && app.configMissing.length" class="status-badge pending-config">
+                    <i class="fa-solid fa-triangle-exclamation"></i> 待配置
+                  </span>
                   <span class="status-badge" :class="app.enabled === false ? 'disabled' : 'enabled'">
                     {{ app.enabled === false ? '已暂停' : '已启用' }}
                   </span>
@@ -112,6 +115,9 @@
                 <small v-else class="status-hint">对全班成员生效</small>
               </div>
               <div class="installed-actions">
+                <button v-if="app.hasConfig" type="button" class="secondary-action" @click="openConfig(app)">
+                  <i class="fa-solid fa-sliders"></i> 配置
+                </button>
                 <button type="button" class="control-action" :class="app.enabled === false ? 'enable' : 'disable'" :disabled="actionLoading === app.name" @click="toggleApp(app)">
                   <span v-if="actionLoading === app.name" class="mini-spinner"></span>
                   <span v-else>{{ app.enabled === false ? '启用' : '暂停' }}</span>
@@ -122,6 +128,37 @@
                 </button>
                 <button type="button" class="danger-action" :disabled="actionLoading === app.name" @click="uninstallApp(app)">卸载</button>
               </div>
+            </article>
+            <!-- 应用配置面板（manifest.config 声明 → 安装时引导填写，值存数据库，保存后即时生效） -->
+            <article v-if="configEditing === app.name" :key="'cfg-' + app.name" class="config-editor">
+              <div v-if="configLoading" class="cfg-loading"><span class="mini-spinner"></span> 正在读取配置…</div>
+              <template v-else>
+                <div class="cfg-head">
+                  <h4><i class="fa-solid fa-sliders"></i> 配置「{{ configLabel }}」</h4>
+                  <button type="button" class="cfg-close" @click="closeConfig"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <p v-if="configMissing.length" class="cfg-warning">
+                  <i class="fa-solid fa-triangle-exclamation"></i> 有 {{ configMissing.length }} 项必填配置未完成，应用可能无法正常工作。
+                </p>
+                <div class="cfg-row" v-for="item in configSchema" :key="item.key">
+                  <label :for="'cfg-' + item.key">
+                    {{ item.label }}<span v-if="item.required" class="cfg-required">*</span>
+                    <code class="cfg-key">{{ item.key }}</code>
+                  </label>
+                  <input v-if="item.type === 'boolean'" type="checkbox" class="cfg-checkbox" :id="'cfg-' + item.key" v-model="configValues[item.key]" />
+                  <input v-else class="cfg-input" :id="'cfg-' + item.key"
+                         :type="item.type === 'secret' ? 'password' : (item.type === 'number' ? 'number' : 'text')"
+                         v-model="configValues[item.key]" :placeholder="configPlaceholder(item)" autocomplete="off" />
+                  <small v-if="item.description" class="cfg-desc">{{ item.description }}</small>
+                </div>
+                <div class="cfg-foot">
+                  <small class="cfg-hint">配置保存在服务器数据库中，保存后即时生效，无需重启。</small>
+                  <button type="button" class="primary-action" :disabled="configSaving" @click="saveConfig">
+                    <span v-if="configSaving" class="mini-spinner"></span>
+                    <span v-else>保存配置</span>
+                  </button>
+                </div>
+              </template>
             </article>
           </div>
           <div v-else class="empty-state"><i class="fa-solid fa-box-open"></i><p>暂无已安装的第三方应用</p></div>
@@ -157,13 +194,50 @@
               <div class="installed-info">
                 <div class="installed-title-row">
                   <strong><i class="fa-solid fa-plug"></i> {{ plugin.label }}</strong>
+                  <span v-if="plugin.configMissing && plugin.configMissing.length" class="status-badge pending-config">
+                    <i class="fa-solid fa-triangle-exclamation"></i> 待配置
+                  </span>
                   <small>v{{ plugin.version }}</small>
                 </div>
                 <small class="status-hint">{{ plugin.name }}</small>
               </div>
               <div class="installed-actions">
+                <button v-if="plugin.hasConfig" type="button" class="secondary-action" @click="openConfig(plugin)">
+                  <i class="fa-solid fa-sliders"></i> 配置
+                </button>
                 <button type="button" class="danger-action" :disabled="actionLoading === plugin.name" @click="uninstallPlugin(plugin)">卸载</button>
               </div>
+            </article>
+            <!-- 插件配置面板（与已安装应用共用 config* 状态） -->
+            <article v-if="configEditing && configEditingIn(installedPlugins)" :key="'cfgp-' + configEditing" class="config-editor">
+              <div v-if="configLoading" class="cfg-loading"><span class="mini-spinner"></span> 正在读取配置…</div>
+              <template v-else>
+                <div class="cfg-head">
+                  <h4><i class="fa-solid fa-sliders"></i> 配置「{{ configLabel }}」</h4>
+                  <button type="button" class="cfg-close" @click="closeConfig"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <p v-if="configMissing.length" class="cfg-warning">
+                  <i class="fa-solid fa-triangle-exclamation"></i> 有 {{ configMissing.length }} 项必填配置未完成，插件可能无法正常工作。
+                </p>
+                <div class="cfg-row" v-for="item in configSchema" :key="item.key">
+                  <label :for="'cfg-' + item.key">
+                    {{ item.label }}<span v-if="item.required" class="cfg-required">*</span>
+                    <code class="cfg-key">{{ item.key }}</code>
+                  </label>
+                  <input v-if="item.type === 'boolean'" type="checkbox" class="cfg-checkbox" :id="'cfg-' + item.key" v-model="configValues[item.key]" />
+                  <input v-else class="cfg-input" :id="'cfg-' + item.key"
+                         :type="item.type === 'secret' ? 'password' : (item.type === 'number' ? 'number' : 'text')"
+                         v-model="configValues[item.key]" :placeholder="configPlaceholder(item)" autocomplete="off" />
+                  <small v-if="item.description" class="cfg-desc">{{ item.description }}</small>
+                </div>
+                <div class="cfg-foot">
+                  <small class="cfg-hint">配置保存在服务器数据库中，保存后即时生效，无需重启。</small>
+                  <button type="button" class="primary-action" :disabled="configSaving" @click="saveConfig">
+                    <span v-if="configSaving" class="mini-spinner"></span>
+                    <span v-else>保存配置</span>
+                  </button>
+                </div>
+              </template>
             </article>
           </div>
         </section>
@@ -196,6 +270,15 @@ export default {
       activeSource: '',
       loading: true,
       actionLoading: '',
+      // 应用/插件配置面板状态（manifest.config 声明）
+      configEditing: '',
+      configLabel: '',
+      configLoading: false,
+      configSaving: false,
+      configSchema: [],
+      configValues: {},
+      configConfigured: {},
+      configMissing: [],
       // 图标加载失败记录（key: 应用名）→ 回落为占位图标
       iconErrors: {},
       actionStatus: '',
@@ -395,6 +478,7 @@ export default {
         var note = result && result.requiresRebuild ? '（含前端文件，需重新构建客户端后生效）' : '';
         return Promise.all([self.loadInstalledPlugins(), self.loadCatalog()]).then(function() {
           self.$store.commit('toast/SHOW_TOAST', { message: successMessage + note, type: 'success' });
+          self.promptMissingConfig(result);
         });
       }).catch(function(error) {
         self.error = self.getErrorMessage(error, successMessage.replace('成功', '失败'));
@@ -414,6 +498,7 @@ export default {
         var source = result && result.source ? self.sourceLabel(result.source) : '';
         return self.refreshMarketRuntime().then(function() {
           self.$store.commit('toast/SHOW_TOAST', { message: source ? successMessage + '（使用' + source + '）' : successMessage, type: 'success' });
+          self.promptMissingConfig(result);
         });
       }).catch(function(error) {
         self.error = self.getErrorMessage(error, successMessage.replace('成功', '失败'));
@@ -448,6 +533,106 @@ export default {
     onIconError: function(app) {
       // 加载失败不再静默隐藏（会留下空的色块），改回落为占位图标
       if (app && app.name) this.$set(this.iconErrors, app.name, true);
+    },
+    // ========== 应用/插件配置（manifest.config 声明） ==========
+    // 安装/更新成功后：required 配置缺失时引导管理员立即配置
+    promptMissingConfig: function(result) {
+      var self = this;
+      if (!result || !Array.isArray(result.configRequired) || !result.configRequired.length) return;
+      var labels = result.configRequired.map(function(item) { return item.label; }).join('、');
+      self.$modal.confirm({
+        title: '应用需要配置',
+        message: '「' + (result.label || result.name) + '」有 ' + result.configRequired.length + ' 项必填配置未完成：' + labels + '。现在去配置吗？',
+        confirmText: '立即配置',
+        cancelText: '稍后'
+      }).then(function(confirmed) {
+        if (confirmed) self.openConfig({ name: result.name, label: result.label });
+      }).catch(function() {});
+    },
+    // 打开配置面板（再次点击同一项则收起）
+    openConfig: function(item) {
+      var self = this;
+      if (!item || !item.name) return;
+      if (self.configEditing === item.name) { self.closeConfig(); return; }
+      self.configEditing = item.name;
+      self.configLabel = item.label || item.name;
+      self.configLoading = true;
+      self.configSchema = [];
+      self.configValues = {};
+      self.configConfigured = {};
+      self.configMissing = [];
+      api.get('/market/app-config?name=' + encodeURIComponent(item.name)).then(function(response) {
+        var data = response.data && response.data.data;
+        if (!data) return;
+        self.configSchema = Array.isArray(data.schema) ? data.schema : [];
+        self.configConfigured = data.configured || {};
+        self.configMissing = Array.isArray(data.missingRequired) ? data.missingRequired : [];
+        var vals = {};
+        self.configSchema.forEach(function(def) {
+          var v = data.values && data.values[def.key];
+          if (def.type === 'boolean') {
+            vals[def.key] = v === true || v === 'true' || v === '1';
+          } else {
+            vals[def.key] = v !== undefined && v !== null ? v : '';
+          }
+        });
+        self.configValues = vals;
+      }).catch(function(error) {
+        self.error = self.getErrorMessage(error, '读取配置失败');
+        self.closeConfig();
+      }).finally(function() {
+        self.configLoading = false;
+      });
+    },
+    closeConfig: function() {
+      this.configEditing = '';
+      this.configLabel = '';
+      this.configSchema = [];
+      this.configValues = {};
+      this.configConfigured = {};
+      this.configMissing = [];
+    },
+    // 配置面板当前编辑项是否属于给定列表（应用区/插件区各渲染一块面板，避免重复）
+    configEditingIn: function(list) {
+      if (!this.configEditing || !Array.isArray(list)) return false;
+      return list.some(function(item) { return item.name === this.configEditing; }, this);
+    },
+    configPlaceholder: function(item) {
+      if (item.type === 'secret') {
+        return this.configConfigured[item.key] ? '已配置（留空保持不变）' : '未配置';
+      }
+      var current = this.configValues[item.key];
+      if (current !== '' && current !== undefined && current !== null) return '';
+      if (item.default !== undefined && String(item.default) !== '') return '默认: ' + item.default;
+      return '未配置';
+    },
+    saveConfig: function() {
+      var self = this;
+      if (self.configSaving || !self.configEditing) return;
+      var values = {};
+      self.configSchema.forEach(function(def) {
+        var val = self.configValues[def.key];
+        if (def.type === 'boolean') {
+          values[def.key] = val ? 'true' : 'false';
+          return;
+        }
+        values[def.key] = val === undefined || val === null ? '' : String(val);
+      });
+      self.configSaving = true;
+      api.post('/market/app-config', { name: self.configEditing, values: values }).then(function(response) {
+        var data = response.data && response.data.data;
+        var stillMissing = data && Array.isArray(data.missingRequired) ? data.missingRequired.length : 0;
+        self.$store.commit('toast/SHOW_TOAST', {
+          message: stillMissing > 0 ? '配置已保存，还有 ' + stillMissing + ' 项必填配置未完成' : '配置已保存，即时生效',
+          type: stillMissing > 0 ? 'warning' : 'success'
+        });
+        self.closeConfig();
+        return Promise.all([self.loadInstalled(), self.loadInstalledPlugins()]);
+      }).catch(function(error) {
+        self.error = self.getErrorMessage(error, '保存配置失败');
+      }).finally(function() {
+        self.configSaving = false;
+      });
     }
   }
 };
@@ -572,4 +757,23 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .spinning { animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (max-width: 700px) { .market-content { padding: 20px 16px 32px; } .market-toolbar { align-items: flex-start; flex-direction: column; } .market-toolbar-actions { width: 100%; } .source-select, .refresh-btn { flex: 1; } .installed-card { align-items: flex-start; flex-wrap: wrap; } .installed-actions { width: 100%; justify-content: flex-end; } }
+
+/* 应用/插件配置面板（manifest.config 声明 → 安装时引导填写） */
+.status-badge.pending-config { color: var(--danger-color, #E8463A); background: rgba(232, 70, 58, 0.12); }
+.config-editor { width: 100%; margin-top: 4px; padding: 16px 18px; background: var(--bg-color); border: 1px solid var(--border-color); border-radius: var(--radius-lg); display: flex; flex-direction: column; gap: 12px; }
+.cfg-head { display: flex; align-items: center; justify-content: space-between; }
+.cfg-head h4 { margin: 0; font-size: var(--font-size-md); color: var(--text-color); display: flex; align-items: center; gap: 8px; }
+.cfg-close { border: none; background: transparent; color: var(--text-tertiary); cursor: pointer; padding: 4px 8px; border-radius: var(--radius-md); font-size: var(--font-size-md); }
+.cfg-warning { margin: 0; padding: 8px 12px; border-radius: var(--radius-md); background: rgba(239, 170, 23, 0.12); color: var(--warning-color, #B7791F); font-size: var(--font-size-sm); display: flex; align-items: center; gap: 8px; }
+.cfg-row { display: flex; flex-direction: column; gap: 6px; }
+.cfg-row label { font-size: var(--font-size-sm); color: var(--text-color); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.cfg-required { color: var(--danger-color, #E8463A); }
+.cfg-key { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; color: var(--text-tertiary); background: var(--card-bg); padding: 1px 6px; border-radius: var(--radius-sm); }
+.cfg-input { height: 38px; padding: 0 12px; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--card-bg); color: var(--text-color); font-size: var(--font-size-sm); outline: none; }
+.cfg-input:focus { border-color: var(--primary-color); }
+.cfg-checkbox { width: 18px; height: 18px; accent-color: var(--primary-color); }
+.cfg-desc { color: var(--text-tertiary); font-size: var(--font-size-xs); }
+.cfg-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.cfg-hint { color: var(--text-tertiary); font-size: var(--font-size-xs); }
+.cfg-loading { display: flex; align-items: center; gap: 8px; color: var(--text-tertiary); font-size: var(--font-size-sm); padding: 8px 0; }
 </style>
