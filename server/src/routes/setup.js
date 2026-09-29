@@ -135,6 +135,9 @@ router.post('/save', requireSetupAuth, function(req, res) {
     var records = data.records || {}; // { 'class08': [...], 'class18': [...] }
     var weatherLocation = String(data.weatherLocation || '').trim();
     var defaultAiModel = String(data.defaultAiModel || '').trim();
+    // 社区食堂列表（美食推荐下拉）：数组提交时生效；未提交该字段则保持现有配置不变
+    var canteens = Array.isArray(data.canteens) ? data.canteens : null;
+    var cleanedCanteens = [];
 
     // 验证届数
     if (!cohort || !/^\d{2}$/.test(cohort)) {
@@ -163,6 +166,19 @@ router.post('/save', requireSetupAuth, function(req, res) {
     var configuredModels = String(process.env.AI_AVAILABLE_MODELS || '').split(',').map(function(model) { return model.trim(); }).filter(function(model) { return model; });
     if (defaultAiModel && configuredModels.length > 0 && configuredModels.indexOf(defaultAiModel) === -1) {
       return res.status(400).json({ code: 400, message: '默认 AI 模型必须属于 AI_AVAILABLE_MODELS' });
+    }
+    if (canteens) {
+      for (var ck = 0; ck < canteens.length; ck++) {
+        var canteenName = String(canteens[ck] || '').trim();
+        if (!canteenName) continue;
+        if (canteenName.length > 20) {
+          return res.status(400).json({ code: 400, message: '食堂名称不能超过20字：' + canteenName });
+        }
+        if (cleanedCanteens.indexOf(canteenName) === -1) cleanedCanteens.push(canteenName);
+      }
+      if (cleanedCanteens.length > 20) {
+        return res.status(400).json({ code: 400, message: '食堂数量最多20个' });
+      }
     }
 
     // ========== 同步已注册学生的 user_id（核心：防止重新配置导致 user_id 冲突） ==========
@@ -330,6 +346,8 @@ router.post('/save', requireSetupAuth, function(req, res) {
     envMap['ADMIN_USER_IDS'] = adminIds.join(',');
     if (weatherLocation) envMap['QWEATHER_LOCATION'] = weatherLocation;
     if (defaultAiModel) envMap['AI_MODEL'] = defaultAiModel;
+    // 食堂列表：提交了该字段才写入（清空列表 = 恢复社区内置默认名）
+    if (canteens !== null) envMap['CANTEEN_LIST'] = cleanedCanteens.join(',');
 
     // 重建 .env
     var envOutput = [];

@@ -9,6 +9,28 @@ var constants = require('../../../server/src/utils/constants');
 
 router.use(auth.requireAuth);
 
+// 社区可配置项。
+// 食堂列表由部署方在 setup 初始化页配置（写入 .env 的 CANTEEN_LIST，逗号分隔），
+// 避免在代码里写死特定学校/单位的名称——这是开源项目，不同部署环境的食堂叫法各不相同。
+// 未配置时回落为通用默认名。
+var DEFAULT_CANTEENS = ['第一食堂', '第二食堂'];
+
+function getCanteenList() {
+  var list = String(process.env.CANTEEN_LIST || '')
+    .split(',')
+    .map(function(s) { return s.trim(); })
+    .filter(function(s) { return s; });
+  return list.length ? list : DEFAULT_CANTEENS.slice();
+}
+
+// 可配置项（社区前端表单下拉数据源）
+// 注意：只作为下拉数据源下发，不用于发布时的强校验——
+// pm2 多进程/多实例下 .env 热更新存在时间差，强校验会随机拒绝合法发帖；
+// 食堂仅作为展示文本存入 extra_json，宽松处理无害。
+router.get('/config', function(req, res) {
+  res.json({ code: 200, message: 'ok', data: { canteens: getCanteenList() } });
+});
+
 var VALID_POST_TYPES = ['forum', 'food', 'hot', 'poll', 'survey'];
 var VALID_TARGET_TYPES = ['post', 'comment', 'user'];
 var VALID_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '😡'];

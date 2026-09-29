@@ -1,7 +1,9 @@
 # Changelog
 
 ## [1.2.5] - 2026-09-29
+
 【修复】
+
 - 社区帖子详情页：发评论时若改走云盘全屏选择器选完媒体，会丢失详情页上下文（CloudImagePicker 原先只快照 2 个字段，路由销毁后不回填）。改为全量快照 + 逐一恢复（重开详情、评论草稿、回复对象、新帖草稿、当前页签）
 - 倒数日与日历不联动：前端 linkedCalendarEvents 恒为空——/calendar/events/for-countdown 接口早已就绪却从未被调用（半成品）。倒数日页与桌面小组件改为「原生 + 联动」并行取数合并
 - 跨班生图看不见：A 班机器人发的图在 B 班打不开。新增跨机媒体回源中间件（本机无此文件时按 peer 静态基址回源，并发合并去重）；补齐中继补推链路——relay-sync 的 chat_messages 分支原先声明了 newly_applied 却从不填充、chat-server 补推也缺该分支（静默丢失），Chat.vue 对齐 historical 约定不再为补推弹通知
@@ -9,401 +11,451 @@
 - 社区「我的」页面在平板划不动：.mine-body 显式 overscroll-behavior-y: auto 修复嵌套滚动链（同 1.2.3 管理端同类问题），并补窄屏单列堆叠
 
 【优化】
+
 - 社区加载态统一为骨架屏（帖子流 / 美食榜 / 热搜榜），榜单序号与头像尺寸对齐，消除「加载态与视觉割裂」
 - 桌面渲染性能：pagesView 预计算每页「可见 widget + 可用 slot」（原先模板在 v-for 里直接调方法、每次渲染每页重跑 filter / 查表 / 权限 getter）；应用可见性收敛为 visibleAppMap 查找表（原先逐 slot 线性扫描注册表 + indexOf，现 O(1) 命中）
 - 冷启动网络：/system/app-control 原先被路由守卫 / App.vue / 桌面三方各拉一次，收敛到 router 侧统一缓存（含并发去重），三方共享同一请求；桌面回到前台/聚焦仍强制重取
 - 移除超能岛「通知历史」模式（模板分支、长按/右键手势入口、状态与面板组件一并清理），相关动效 easing 改用 var(--ease-standard) 令牌
 
 【文档】
+
 - 第三方开发指南与文档站新增「内置数据源」章节：课程表数据源 Resources/public/kb.yml 的位置与命名约定（name / simplified_name / teacher / room）
 - 新增「AstrBot 接入是双边插件」章节：CI 侧 astrbot-relay + AstrBot 侧 astrbot_plugin_classintra 缺一不可，含就绪判据与两侧共享配置
 
 ## [1.2.4] - 2026-09-28
+
 【新增】
+
 - AstrBot 机器人接入插件升级至 1.1.0：新增站内信息共享（公告/快讯/资源/天气/社区只读，读的是 CI 自身库/配置/服务）与机器人管理代理（24 个 op 白名单、破坏性操作两段式确认闸门、all 全体令牌批量封禁）
 
 【其他】
+
 - server/.env.example 补齐至 65 键：新增「AstrBot 接入 / HTTPS·隧道网关 / 开发·运维开关 / 媒体落盘与跨机回源」四节，覆盖全部代码在用但模板缺失的配置项；真实密钥一律占位
-- scripts/sync-market.ps1 增加同步排除规则：顶层下划线前缀的临时探针文件不再镜像进 market 仓（目录放行，plugins/_sdk 不受影响）
+- scripts/sync-market.ps1 增加同步排除规则：顶层下划线前缀的临时探针文件不再镜像进 market 仓（目录放行，plugins/\_sdk 不受影响）
 - 同步侧：market 仓索引 index.json 对齐真实清单（补上缺失的 chess 应用、修正 gomoku 与三个插件的版本号与文件清单）；文档站新增《AstrBot 机器人接入》页并补充插件市场安装说明
 
 ## [1.2.3] - 2026-09-28
+
 【修复】
+
 - 管控中心「用户管理」列表在平板上划不动：client/src/styles/global.scss 的全局规则（星号选择器上的 overscroll-behavior-y: contain）会掐断「嵌套滚动容器 → 父级」的链式滚动；叠加 .data-table-wrapper 的 overflow-x: auto（使其成为滚动容器）后，落在表格上的纵向手势完全失效，而落在内容区留白（命中 .admin-content）上仍可滚 —— 即用户反馈的「列表划不动、滑边缘却可以」。修复：给 .data-table-wrapper 显式 overscroll-behavior-y: auto
-- 修正上一轮误判：touch-action 不是根因（补丁已上线仍无效，且会禁用表格区缩放）；验收改为派发真实手势量 scrollTop
-【其他】
+- 修正上一轮误判：touch-action 不是根因（补丁已上线仍无效，且会禁用表格区缩放）；验收改为派发真实手势量 scrollTop  
+  【其他】
 - 新增手势级验收探针 scripts/touch-scroll-probe/：CDP 派发真实触摸 + 自签 token 加载真实管理页 + 反向对照；内置「开屏动画遮挡」「注入 token 的 activeTab 竞态」两个假阴性陷阱的处理
 
 ## [1.2.2] - 2026-09-12
+
 【新增】
+
 - 插件市场：catalog 支持 plugins 段，市场页可拉取、安装、卸载服务端插件并热挂载（安装位置为运行时 plugins/ 目录）
 - 发帖带图修复：publish_classintra_post 工具新增 image_urls 参数，AI 可从对话上下文提取图片链接附加到帖子
 
 【其他】
+
 - 仓库规范化：插件迁出至 market，工作数据清理，功能优化与质量门延续
 
 ## [1.2.1] - 2026-08-26
+
 【安全】
+
 - 修复 33 个 Dependabot 依赖漏洞（11 high）：升级 client 端 postcss/dompurify/sass/mermaid/highlight.js/video.js/axios/vite（5→6）+ 插件链（plugin-legacy 5→6、plugin-vue2→2.3.4），升级 server 端 pm2/morgan/ws/jose/uuid/sharp
 - 通过 pnpm overrides 强制升级传递依赖到安全版本（immutable/js-yaml/ip-address/@babel/core/@babel/preset-env/qs/body-parser/form-data/follow-redirects）
 - 剩余 1 个 low 漏洞（vue@2 EOL parseHTML ReDoS）显式忽略，待跨大版本升级 Vue 3 时解决
 - 测试脚本改为串行执行（--test-concurrency=1），避免集成测试并行竞争 market-apps 目录导致的偶发失败
 
 ## [1.2.0] - 2026-08-25
+
 【新增】
+
 - 联机 Gomoku：支持在线对局与市场应用接入
 - 账号 API：完善账号认证与相关接口能力
 
 【发布】
+
 - 准备 1.2.0 版本发布
 
 ## [1.1.92] - 2026-08-26
-【其他】
+
+【其他】  
 fix(market): use dedicated application market icon
 
-
-
 ## [1.1.91] - 2026-08-25
+
 版本更新
 
 ## [1.1.90] - 2026-08-25
-【其他】
+
+【其他】  
 fix(gomoku): fix room sharing and viewport layout
 
-
-
 ## [1.1.89] - 2026-08-25
+
 版本更新
 
 ## [1.1.88] - 2026-08-25
+
 版本更新
 
 ## [1.1.87] - 2026-08-25
+
 版本更新
 
 ## [1.1.86] - 2026-08-25
+
 版本更新
 
 ## [1.1.85] - 2026-08-25
-【其他】
-chore(release): prepare 1.2.0 release
+
+【其他】  
+chore(release): prepare 1.2.0 release  
 feat(gomoku): add online room and websocket sync
 
-
-
 ## [1.1.84] - 2026-08-25
+
 版本更新
 
 ## [1.1.83] - 2026-08-25
+
 版本更新
 
 ## [1.1.82] - 2026-08-25
+
 版本更新
 
 ## [1.1.81] - 2026-08-25
+
 版本更新
 
 ## [1.1.80] - 2026-08-25
+
 版本更新
 
 ## [1.1.79] - 2026-08-25
+
 版本更新
 
 ## [1.1.78] - 2026-08-25
+
 版本更新
 
 ## [1.1.77] - 2026-08-25
-【其他】
+
+【其他】  
 feat(market): add download source fallback and feedback
 
-
-
 ## [1.1.76] - 2026-08-24
-【新增】
+
+【新增】  
 add third-party market app lifecycle
 
-
-
 【新增】
+
 - 建立第三方市场应用生命周期：安装、动态加载、更新、启用/禁用和卸载
 - 增加五子棋市场应用示例与完整 HTTP 生命周期测试
 - 增加市场应用文档，并记录 iFlyCompass 开源项目致谢与参考来源
 
 ## [1.1.75] - 2026-08-24
+
 版本更新
 
 ## [1.1.74] - 2026-08-24
+
 版本更新
 
 ## [1.1.73] - 2026-08-24
+
 版本更新
 
 ## [1.1.72] - 2026-08-24
+
 版本更新
 
 ## [1.1.71] - 2026-08-24
+
 版本更新
 
 ## [1.1.70] - 2026-08-24
+
 版本更新
 
 ## [1.1.69] - 2026-08-24
+
 版本更新
 
 ## [1.1.68] - 2026-08-24
+
 版本更新
 
 ## [1.1.66] - 2026-08-23
+
 版本更新
 
 ## [1.1.65] - 2026-08-23
-【其他】
-assets: switch to horizontal logo-d and new Banner.png
-assets: add new logo, white-bg logo and banner
-feat(lock-screen): add admin toggle for lock screen feature
-fix(docs): add sealed_token to star-history chart for public display
-revert(ci): remove star-history action, switching to sealed_token approach
-feat(ci): add self-hosted star-history action to replace broken star-history.com embed
-Update README title by removing emoji
-fix(docs): use jsDelivr CDN for logo image to resolve raw.githubusercontent DNS issue
-feat(docs): add project logo banner to README top
-fix(docs): correct repo URL from Nevino2333/ClassIntra to ClassIntra/ClassIntra
-chore(ci): optimize GitHub workflows and prefer prebuilt native binaries
+
+【其他】  
+assets: switch to horizontal logo-d and new Banner.png  
+assets: add new logo, white-bg logo and banner  
+feat(lock-screen): add admin toggle for lock screen feature  
+fix(docs): add sealed_token to star-history chart for public display  
+revert(ci): remove star-history action, switching to sealed_token approach  
+feat(ci): add self-hosted star-history action to replace broken star-history.com embed  
+Update README title by removing emoji  
+fix(docs): use jsDelivr CDN for logo image to resolve raw.githubusercontent DNS issue  
+feat(docs): add project logo banner to README top  
+fix(docs): correct repo URL from Nevino2333/ClassIntra to ClassIntra/ClassIntra  
+chore(ci): optimize GitHub workflows and prefer prebuilt native binaries  
 release: v1.1.64 production hardening
-
-
 
 ## [1.1.64] - 2026-08-19
 
 【安全】
+
 - 分级限流：登录/注册/刷新 token 60/min，状态查询 300/min，解决前端 2 秒轮询触发 429
 
 【修复】
+
 - 重新配置时 user_id 与 users 表同步：已注册学生保留原 ID（防止账号失效与 ID 冲突），新学生自动跳过已占用 ID
 - 班级群成员更新改为 UPSERT，避免删除行破坏群消息外键
 - 配置页对已注册场景增加警告横幅与确认提示
 
 【优化】
+
 - 移除 build.bat 冗余 xcopy 步骤（app.js 直接从 client/dist/ 提供前端产物）
 - 删除陈旧构建产物 server/public/index.html
 - .gitignore 收敛 server/public 仅保留 setup.html/icons/xgplayer
 
 【文档】
+
 - README/CLAUDE/DEPLOY 统一反映 apps/+plugins/+themes 结构
 - 修正班管账号创建流程说明（预注册 + ADMIN_USER_IDS，非 ADMIN_PASSWORD）
 
 ## [1.1.63] - 2026-08-04
+
 版本更新
 
 ## [1.1.28] - 2026-07-21
+
 版本更新
 
 ## [1.1.27] - 2026-07-18
+
 版本更新
 
 ## [1.1.26] - 2026-07-17
+
 版本更新
 
 ## [1.1.25] - 2026-07-17
+
 版本更新
 
 ## [1.1.24] - 2026-07-17
+
 版本更新
 
 ## [1.1.23] - 2026-07-14
-【新增】
-超能岛视频岛模式 + Browser iframe 指令下发 + polling 指数退避
+
+【新增】  
+超能岛视频岛模式 + Browser iframe 指令下发 + polling 指数退避  
 WebSocket HTTP long-polling fallback + Super Island share capsule
 
-【其他】
+【其他】  
 snapshot before websocket fallback + share capsule
 
-
-
 ## [1.1.22] - 2026-07-09
-【新增】
+
+【新增】  
 小组件固定到格子 + campusbili 静音/性能/手势/分享胶囊 + 日历多视图 + 计算器修复
 
-
-
 ## [1.1.21] - 2026-07-09
-【新增】
-添加一键封禁/启用用户桌面小组件
-管理页面用户列表添加复制用户信息至剪贴板功能
-头像颜色服务端持久化，支持跨设备同步
-新增插件开发文档 + CampusBili 桥接插件
-优化管理员工具栏按钮布局，使用分组按钮+自动换行防止溢出
-管理员用户列表添加批量开启/关闭超能岛浏览器权限按钮
-完善超链接权限/搜索框/桌面布局
+
+【新增】  
+添加一键封禁/启用用户桌面小组件  
+管理页面用户列表添加复制用户信息至剪贴板功能  
+头像颜色服务端持久化，支持跨设备同步  
+新增插件开发文档 + CampusBili 桥接插件  
+优化管理员工具栏按钮布局，使用分组按钮+自动换行防止溢出  
+管理员用户列表添加批量开启/关闭超能岛浏览器权限按钮  
+完善超链接权限/搜索框/桌面布局  
 第四轮5需求全部完成
 
-【修复/优化】
-修复跨班中继帖子时间戳格式不一致导致排序错乱
-超能岛浏览器权限管理限制仅班管可操作
-campusbili 桥接修复返回按钮消失和访问密码问题
-修复计算器逻辑并完善功能
+【修复/优化】  
+修复跨班中继帖子时间戳格式不一致导致排序错乱  
+超能岛浏览器权限管理限制仅班管可操作  
+campusbili 桥接修复返回按钮消失和访问密码问题  
+修复计算器逻辑并完善功能  
 管理员编辑用户 browser_enabled 后，前端通过 WebSocket 实时同步更新 auth store
 
-
-
 ## [1.1.20] - 2026-07-08
+
 版本更新
 
 ## [1.1.19] - 2026-07-08
-【新增】
+
+【新增】  
 iPadOS 风格强化 - 毛玻璃材质分级系统 + 圆角梯度修正
 
-【修复/优化】
-第三轮5需求
-社区帖子排序改用 id DESC + CC 徽章覆盖帖子详情和评论
-系统头像完全支持 emoji/Unicode 字符（字体 + grapheme 处理）
+【修复/优化】  
+第三轮5需求  
+社区帖子排序改用 id DESC + CC 徽章覆盖帖子详情和评论  
+系统头像完全支持 emoji/Unicode 字符（字体 + grapheme 处理）  
 修复计算器按钮显示 + 隐藏 integration + 移除设置管理入口 + 管控中心命名
 
-
-
 ## [1.1.18] - 2026-07-07
+
 版本更新
 
 ## [1.1.17] - 2026-07-06
+
 版本更新
 
 ## [1.1.16] - 2026-07-06
+
 版本更新
 
 ## [1.1.15] - 2026-07-06
+
 版本更新
 
 ## [1.1.14] - 2026-07-05
+
 版本更新
 
 ## [1.1.13] - 2026-07-05
+
 版本更新
 
 ## [1.1.12] - 2026-07-05
+
 版本更新
 
 ## [1.1.11] - 2026-07-05
+
 版本更新
 
 ## [1.1.10] - 2026-07-05
+
 版本更新
 
 ## [1.1.9] - 2026-07-05
+
 版本更新
 
 ## [1.1.8] - 2026-07-05
-【修复/优化】
+
+【修复/优化】  
 修复 CI.bat 构建前端失败问题（清理全部构建警告）
 
-
-
 ## [1.1.7] - 2026-07-05
+
 版本更新
 
 ## [1.1.6] - 2026-07-05
-【新增】
-阶段5 全局搜索 + DB migrations 拆分
-阶段3 应用系统升级 - manifest schema + ServiceRegistry
-阶段2 主题系统引擎化 - ThemeEngine + 单档动画开关
-阶段1 基础设施层 - ClassIntraError/PersistenceStore/EventBus/HotkeyManager
-完成阶段6 遗留问题处理（周视图调课 + widget配置弹窗完整化）
-迁移 cloud 应用到 apps/ 模块化架构（category=utility，4 个前端页面）
-迁移 settings 应用到 apps/ 模块化架构（无独立后端，复用 user/system 路由）
-迁移 chat 应用到 apps/ 模块化架构（rateLimit 120/min，ws 保留原位）
-迁移 timetable 应用到 apps/ 模块化架构（含 widget + helpers）
-迁移 ai-chat 应用到 apps/ 模块化架构（rateLimit 30/min）
-迁移 community 应用到 apps/ 模块化架构（rateLimit 120/min）
-迁移 calendar 应用到 apps/ 模块化架构（含 for-countdown 联动路由）
-迁移 music 应用到 apps/ 模块化架构
-迁移 weather 应用到 apps/ 模块化架构（保留 checkWeatherAlert 导出）
-迁移 resource 应用到 apps/ 模块化架构
-迁移 notes 应用到 apps/ 模块化架构
-试点迁移 countdown 应用到 apps/ 模块化架构
-建立应用模块化架构骨架（apps/ + core/ + shared/）
-小组件系统完善（持久化+resize+refresh+manifest 预留）
-倒数日 ↔ 日历双向联动 + DB 迁移
-倒数日应用 + 桌面倒数日小组件
-跨班标识统一改为 CC
-后端日历/倒数日路由 + 数据库表
-主题架构收尾 - settings.setTheme action + AppIcon 接入 icon-resolver
-新增课程表应用（基于 kb.yml 数据源）
-云盘文件服务支持 Syncthing 跨班同步 — 磁盘扫描自动注册
-浏览器支持设置首页 + 地址栏全屏按钮
-重写浏览器页面
-云盘分组可隐藏+文件选择器支持分组浏览
-云盘上传页面支持选择文件分组
-重写天气预警超能岛 — 单行滚动+匹配音乐岛样式
-参考iPadOS完善桌面
-生日每月限改一次 + 确认修改弹窗
-生日庆祝系统 — 桌面全屏动画 + 首次检测
-修复确认框取消bug/设置可拖动/Dock空时隐藏/跨页拖拽/设置页全屏
-图标拖动让位动画+编辑态视觉增强+触觉反馈
-编辑态点击空白区域退出编辑态
-删除桌面设置里的壁纸设置
-图标不可去除 - 移除编辑态×删除按钮
-调大桌面图标尺寸 60px→72px，小屏52→60px
-跨班云盘文件自动预取 + 图片实时缩放
-图片实时缩放 — sharp 动态压缩，零额外磁盘文件
-CloudDrive 重构 — 文件分组、多选批量、分享码导入
-云盘手动迁移脚本 + 恢复自动迁移（已完成迁移则跳过）
-云盘去重 — 前端适配（hash+mime_type+owner确认）
-云盘去重 — 重写 cloud.js 核心路由（哈希去重+owner删除+占位图+旧URL兼容）
+
+【新增】  
+阶段5 全局搜索 + DB migrations 拆分  
+阶段3 应用系统升级 - manifest schema + ServiceRegistry  
+阶段2 主题系统引擎化 - ThemeEngine + 单档动画开关  
+阶段1 基础设施层 - ClassIntraError/PersistenceStore/EventBus/HotkeyManager  
+完成阶段6 遗留问题处理（周视图调课 + widget配置弹窗完整化）  
+迁移 cloud 应用到 apps/ 模块化架构（category=utility，4 个前端页面）  
+迁移 settings 应用到 apps/ 模块化架构（无独立后端，复用 user/system 路由）  
+迁移 chat 应用到 apps/ 模块化架构（rateLimit 120/min，ws 保留原位）  
+迁移 timetable 应用到 apps/ 模块化架构（含 widget + helpers）  
+迁移 ai-chat 应用到 apps/ 模块化架构（rateLimit 30/min）  
+迁移 community 应用到 apps/ 模块化架构（rateLimit 120/min）  
+迁移 calendar 应用到 apps/ 模块化架构（含 for-countdown 联动路由）  
+迁移 music 应用到 apps/ 模块化架构  
+迁移 weather 应用到 apps/ 模块化架构（保留 checkWeatherAlert 导出）  
+迁移 resource 应用到 apps/ 模块化架构  
+迁移 notes 应用到 apps/ 模块化架构  
+试点迁移 countdown 应用到 apps/ 模块化架构  
+建立应用模块化架构骨架（apps/ + core/ + shared/）  
+小组件系统完善（持久化+resize+refresh+manifest 预留）  
+倒数日 ↔ 日历双向联动 + DB 迁移  
+倒数日应用 + 桌面倒数日小组件  
+跨班标识统一改为 CC  
+后端日历/倒数日路由 + 数据库表  
+主题架构收尾 - settings.setTheme action + AppIcon 接入 icon-resolver  
+新增课程表应用（基于 kb.yml 数据源）  
+云盘文件服务支持 Syncthing 跨班同步 — 磁盘扫描自动注册  
+浏览器支持设置首页 + 地址栏全屏按钮  
+重写浏览器页面  
+云盘分组可隐藏+文件选择器支持分组浏览  
+云盘上传页面支持选择文件分组  
+重写天气预警超能岛 — 单行滚动+匹配音乐岛样式  
+参考iPadOS完善桌面  
+生日每月限改一次 + 确认修改弹窗  
+生日庆祝系统 — 桌面全屏动画 + 首次检测  
+修复确认框取消bug/设置可拖动/Dock空时隐藏/跨页拖拽/设置页全屏  
+图标拖动让位动画+编辑态视觉增强+触觉反馈  
+编辑态点击空白区域退出编辑态  
+删除桌面设置里的壁纸设置  
+图标不可去除 - 移除编辑态×删除按钮  
+调大桌面图标尺寸 60px→72px，小屏52→60px  
+跨班云盘文件自动预取 + 图片实时缩放  
+图片实时缩放 — sharp 动态压缩，零额外磁盘文件  
+CloudDrive 重构 — 文件分组、多选批量、分享码导入  
+云盘手动迁移脚本 + 恢复自动迁移（已完成迁移则跳过）  
+云盘去重 — 前端适配（hash+mime_type+owner确认）  
+云盘去重 — 重写 cloud.js 核心路由（哈希去重+owner删除+占位图+旧URL兼容）  
 云盘去重 — 新增数据库表 + 自动迁移脚本
 
-【修复/优化】
-revokeToken 返回布尔值，修复验证脚本误报
-云盘合并到资源仓库（apps/cloud/ → apps/resource/）
-修复 Vite 构建错误 + 后端 require 路径 + shared/ 转换为 ES Module
-核心层切换到聚合器 + 删除 30 个原应用文件（router/store/app.js/init-db.js 改用聚合器）
-P5 系统检查修复 - CloudDrive 原生 prompt 替换 + 联动事件编辑保护
-修复课程表换课索引错乱 + 小组件不显示调课 + 原生弹窗
-修复倒数日置顶无法取消的 bug
-Calendar.vue 代码诊断 - 用 \/toast 替换原生 alert/confirm
-修复桌面小组件布局问题 + Countdown 代码诊断
-修复私聊备注输入时因Vue重渲染导致丢字的问题
-修复音乐超能岛胶囊态大小不一致 + 展开时点击外部空白区域可缩回
-课程表深色模式修复 - CSS变量替换
-修复桌面图标加载失败 — APP_REGISTRY 图标路径 .png → .svg
-修复浏览器返回按钮问题 — 移除 location.replace 保护历史记录
-适配 kb.yml 新位置 Resources/public/kb.yml
-浏览器全屏改为CSS样式全屏 - 隐藏工具栏iframe撑满
-修复文件夹拖入拖出bug+移除完成按钮+设置页优化
-文件选择器切换到隐藏分组时加载对应文件
-修复分组标签显示不全 + 已删除云盘图片缓存残留问题
-彻底修复天气图标 — 后端 QWeather 字段映射 + 前端关键词扩展（强对流等）
-天气图标切回 WeatherIcon SVG（与天气应用一致），无边框
-恢复天气图标 — 下雨显示雨图标，预警显示感叹号
-删除超能岛底部背景遮罩（island-backdrop）
-通知可显示不打断天气预警 — 用 startTime 追踪剩余时长避免重置
-天气预警三个修复 — 统一感叹号/去关闭按钮/通知不打断预警
-统一广播/音乐/天气超能岛尺寸（border-radius:40px, height:40px），天气文字居中
-天气预警传递真实 headline/description — 显示气象台完整预警内容
-天气预警图标改用 WeatherIcon 组件（与天气应用一致，无边框）
-天气预警颜色 — 蓝色/黄色/橙色/红色对应 minor/moderate/severe/extreme
-圆框感叹号改用 FontAwesome fa-circle-exclamation 图标
-天气预警岛增大宽度 + 关闭按钮更明显
-移除生日限制底部警告文字
-生日警告移到底部固定栏 + 保存后刷新限制状态
-修复画板退出后内容丢失 + 增大画板默认尺寸
-全屏选择文件返回后发帖弹窗消失
-桌面系统深度完善（文件夹拖拽/应用管控/Dock重叠/小组件预留）
-班管创建群聊后不可见
-CloudImagePicker 类型筛选传入完整 file 对象
-转存支持 hash.ext 格式 URL
-云盘媒体标签式渲染 — 不再显示裸 URL
-云盘文件 URL 附加扩展名，修复聊天/论坛图片不渲染
-统一笔记存储到DB + 清理文件命名规范
+【修复/优化】  
+revokeToken 返回布尔值，修复验证脚本误报  
+云盘合并到资源仓库（apps/cloud/ → apps/resource/）  
+修复 Vite 构建错误 + 后端 require 路径 + shared/ 转换为 ES Module  
+核心层切换到聚合器 + 删除 30 个原应用文件（router/store/app.js/init-db.js 改用聚合器）  
+P5 系统检查修复 - CloudDrive 原生 prompt 替换 + 联动事件编辑保护  
+修复课程表换课索引错乱 + 小组件不显示调课 + 原生弹窗  
+修复倒数日置顶无法取消的 bug  
+Calendar.vue 代码诊断 - 用 /toast 替换原生 alert/confirm  
+修复桌面小组件布局问题 + Countdown 代码诊断  
+修复私聊备注输入时因Vue重渲染导致丢字的问题  
+修复音乐超能岛胶囊态大小不一致 + 展开时点击外部空白区域可缩回  
+课程表深色模式修复 - CSS变量替换  
+修复桌面图标加载失败 — APP_REGISTRY 图标路径 .png → .svg  
+修复浏览器返回按钮问题 — 移除 location.replace 保护历史记录  
+适配 kb.yml 新位置 Resources/public/kb.yml  
+浏览器全屏改为CSS样式全屏 - 隐藏工具栏iframe撑满  
+修复文件夹拖入拖出bug+移除完成按钮+设置页优化  
+文件选择器切换到隐藏分组时加载对应文件  
+修复分组标签显示不全 + 已删除云盘图片缓存残留问题  
+彻底修复天气图标 — 后端 QWeather 字段映射 + 前端关键词扩展（强对流等）  
+天气图标切回 WeatherIcon SVG（与天气应用一致），无边框  
+恢复天气图标 — 下雨显示雨图标，预警显示感叹号  
+删除超能岛底部背景遮罩（island-backdrop）  
+通知可显示不打断天气预警 — 用 startTime 追踪剩余时长避免重置  
+天气预警三个修复 — 统一感叹号/去关闭按钮/通知不打断预警  
+统一广播/音乐/天气超能岛尺寸（border-radius:40px, height:40px），天气文字居中  
+天气预警传递真实 headline/description — 显示气象台完整预警内容  
+天气预警图标改用 WeatherIcon 组件（与天气应用一致，无边框）  
+天气预警颜色 — 蓝色/黄色/橙色/红色对应 minor/moderate/severe/extreme  
+圆框感叹号改用 FontAwesome fa-circle-exclamation 图标  
+天气预警岛增大宽度 + 关闭按钮更明显  
+移除生日限制底部警告文字  
+生日警告移到底部固定栏 + 保存后刷新限制状态  
+修复画板退出后内容丢失 + 增大画板默认尺寸  
+全屏选择文件返回后发帖弹窗消失  
+桌面系统深度完善（文件夹拖拽/应用管控/Dock重叠/小组件预留）  
+班管创建群聊后不可见  
+CloudImagePicker 类型筛选传入完整 file 对象  
+转存支持 hash.ext 格式 URL  
+云盘媒体标签式渲染 — 不再显示裸 URL  
+云盘文件 URL 附加扩展名，修复聊天/论坛图片不渲染  
+统一笔记存储到DB + 清理文件命名规范  
 统一重命名 ClassNet → ClassIntra
 
-【其他】
-perf: icon optimization - 3061KB to 94KB
-perf: 图标加载优化 - 假SVG转真PNG（3.81MB→67.2KB，减小98.3%）
-fix(desktop): Dock 自动扩展 + 仅 Dock 模式 + dockAppMeta 补全
-fix(desktop): 修复拖入文件夹产生重复图标 — MOVE_APP 加 indexOf 去重
-fix(desktop): 删除文件夹文字标签 — tile 名称与展开态图标文字
-fix(desktop): 移除 AppIcon 彩色边框 — 去除 app.color 背景
-fix(desktop): 修复拖拽图标放大 — ghost 样式迁移到 global.scss
+【其他】  
+perf: icon optimization - 3061KB to 94KB  
+perf: 图标加载优化 - 假SVG转真PNG（3.81MB→67.2KB，减小98.3%）  
+fix(desktop): Dock 自动扩展 + 仅 Dock 模式 + dockAppMeta 补全  
+fix(desktop): 修复拖入文件夹产生重复图标 — MOVE_APP 加 indexOf 去重  
+fix(desktop): 删除文件夹文字标签 — tile 名称与展开态图标文字  
+fix(desktop): 移除 AppIcon 彩色边框 — 去除 app.color 背景  
+fix(desktop): 修复拖拽图标放大 — ghost 样式迁移到 global.scss  
 fix(desktop): 修复桌面系统 7 项问题 + 项目改名 ClassIntra
+
 
 
 

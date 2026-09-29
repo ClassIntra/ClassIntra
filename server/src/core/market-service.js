@@ -338,6 +338,56 @@ function _validateCatalog(data) {
   return { version: data.version || 1, updated_at: data.updated_at || '', apps: apps, plugins: plugins };
 }
 
+// 把目录条目里的相对路径图标（./icon.svg / icon.svg）改写为服务器中转代理地址。
+// 背景：目录来自远程市场源，前端 <img> 直接用相对路径会相对当前页面 URL 解析而 404；
+// 且接入设备未必能直连 gitee/github，统一走服务器中转（与市场下载同一策略）。
+// 绝对 URL（http/https）与以 / 开头的路径原样保留。缓存按 sourceId 分键，改写结果可直接入缓存。
+function _resolveCatalogIcons(catalog, sourceId) {
+  var groups = [catalog.apps, catalog.plugins];
+  for (var g = 0; g < groups.length; g++) {
+    var list = groups[g];
+    if (!Array.isArray(list)) continue;
+    for (var i = 0; i < list.length; i++) {
+      var icon = list[i] && list[i].icon;
+      if (!icon || typeof icon !== 'string') continue;
+      if (icon.indexOf('http://') === 0 || icon.indexOf('https://') === 0 || icon.charAt(0) === '/') continue;
+      list[i].icon = '/api/market/asset?source=' + encodeURIComponent(sourceId) +
+        '&path=' + encodeURIComponent(icon.replace(/^\.\//, ''));
+    }
+  }
+  return catalog;
+}
+
+// 市场目录静态资源的扩展名白名单（仅图片）
+var ASSET_EXT_TYPES = {
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.bmp': 'image/bmp',
+  '.ico': 'image/x-icon'
+};
+
+// 代理拉取市场源中的静态资源（应用图标等）。
+// path 必须是纯相对路径且扩展名在图片白名单内，防止目录穿越与任意文件读取。
+function fetchAsset(sourceId, relPath) {
+  var source = getSource(sourceId);
+  if (!source) return Promise.reject(new Error('未知市场源: ' + sourceId));
+  var clean = String(relPath || '').trim().replace(/\\/g, '/');
+  if (!clean || clean.indexOf('..') !== -1 || clean.charAt(0) === '/') {
+    return Promise.reject(new Error('非法资源路径'));
+  }
+  var dot = clean.lastIndexOf('.');
+  var ext = dot === -1 ? '' : clean.substring(dot).toLowerCase();
+  var contentType = ASSET_EXT_TYPES[ext];
+  if (!contentType) return Promise.reject(new Error('不支持的资源类型'));
+  return _fetchFile(source, clean).then(function(buf) {
+    return { buffer: buf, contentType: contentType };
+  });
+}
+
 function getCatalog(sourceId) {
   var source = getSource(sourceId);
   if (!source) return Promise.reject(new Error('未知市场源: ' + sourceId));
@@ -347,6 +397,7 @@ function getCatalog(sourceId) {
   }
   return _fetchFile(source, 'index.json').then(function(buf) {
     var data = _validateCatalog(JSON.parse(buf.toString('utf8')));
+    _resolveCatalogIcons(data, source.id);
     _catalogCache[sourceId] = { at: Date.now(), data: data };
     return data;
   }).catch(function(e) {
@@ -867,6 +918,7 @@ module.exports = {
   listInstalled: listInstalled,
   getCatalog: getCatalog,
   getCatalogWithFallback: getCatalogWithFallback,
+  fetchAsset: fetchAsset,
   clearCatalogCache: clearCatalogCache,
   installApp: installApp,
   uninstallApp: uninstallApp,

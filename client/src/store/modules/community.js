@@ -39,7 +39,9 @@ var state = {
   userStats: {},
   bookmarks: [],
   bookmarksTotal: 0,
-  tagList: []
+  tagList: [],
+  // 部署方可配置项（setup 页设置，服务端 /community/config 下发）
+  canteens: ['第一食堂', '第二食堂']
 };
 
 var mutations = {
@@ -54,6 +56,9 @@ var mutations = {
   SET_COMMENTS: function(state, comments) { state.comments = comments; },
   ADD_COMMENT: function(state, comment) { state.comments.push(comment); },
   SET_FOOD_RANKING: function(state, ranking) { state.foodRanking = ranking; },
+  SET_CANTEENS: function(state, canteens) {
+    if (Array.isArray(canteens) && canteens.length) state.canteens = canteens;
+  },
   SET_HOT_RANKING: function(state, ranking) { state.hotRanking = ranking; },
   SET_PROFILE: function(state, profile) { state.profile = profile; },
   SET_MY_POSTS: function(state, data) { state.myPosts = data.posts; state.myPostsTotal = data.total; },
@@ -151,6 +156,15 @@ var actions = {
       var items = (res.data.data || []).map(transformFoodItem);
       context.commit('SET_FOOD_RANKING', items);
     });
+  },
+  // 拉取部署方配置（食堂列表等）；失败时保留内置默认值，不打断社区使用
+  fetchConfig: function(context) {
+    return api.get('/community/config').then(function(res) {
+      var data = res.data && res.data.data;
+      if (data && Array.isArray(data.canteens)) {
+        context.commit('SET_CANTEENS', data.canteens);
+      }
+    }).catch(function() {});
   },
   fetchHotRanking: function(context) {
     return api.get('/community/ranking/hot').then(function(res) {

@@ -42,11 +42,12 @@ market-apps/
 # Resources 目录（含音乐、视频、启动器等版权/私有内容）
 # 忽略所有直接子项，再按需保留
 Resources/*
-# 保留 public 目录（仅 level 等级图标 + icons 应用图标）
+# 保留 public 目录（level 等级图标 + icons 应用图标 + brand 品牌标识均为项目原创资产）
 !Resources/public/
 Resources/public/*
 !Resources/public/level/
 !Resources/public/icons/
+!Resources/public/brand/
 # 保留壁纸目录结构（空文件夹，壁纸内容不提交）
 !Resources/public/wallpaper/
 Resources/public/wallpaper/*
@@ -132,3 +133,9 @@ plugins/
 
 # 设计工具导出产物
 classintraops-gui.html
+
+# 本地工具二进制（HTTPS 开发证书工具，体积大不入库）
+mkcert.exe
+
+# Mimosa 工具本地状态
+.mimosa/

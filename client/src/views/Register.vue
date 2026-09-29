@@ -1,19 +1,7 @@
 <template>
-  <div class="register-page" :class="{ 'page-enter': entered, 'has-video-bg': !!videoSrc }">
-    <!-- 壁纸层：与登录页同一套「系统锁屏」语言 -->
-    <div class="auth-wallpaper" :style="wallpaperStyle" aria-hidden="true">
-      <video
-        v-if="videoSrc"
-        class="auth-wallpaper-video"
-        :src="videoSrc"
-        autoplay
-        muted
-        loop
-        playsinline
-        preload="auto"
-        @error="videoFailed = true"
-      ></video>
-    </div>
+  <div class="register-page" :class="{ 'page-enter': entered }">
+    <!-- 壁纸层：与登录页同一套「系统锁屏」语言，固定使用内置壁纸 -->
+    <div class="auth-wallpaper" :style="wallpaperStyle" aria-hidden="true"></div>
     <div class="auth-scrim" aria-hidden="true"></div>
 
     <!-- 横屏：左品牌区 + 右表单区；窄屏自动回落为居中面板 -->
@@ -161,7 +149,7 @@
 
 <script>
 import api from '@/utils/api';
-import { resolveWallpaper, AUTH_BACKDROP } from '@/utils/wallpaper-bg';
+import { AUTH_WALLPAPER } from '@/utils/wallpaper-bg';
 
 // 品牌白色标识（锁屏深色玻璃上恒用白标，不随主题切换）。
 // 运行时字符串，避免打包器把绝对路径解析成模块路径。
@@ -192,8 +180,6 @@ export default {
       entered: false,
       showPassword: false,
       showConfirm: false,
-      // 壁纸
-      videoFailed: false,
       focused: {
         net_name: false,
         real_name: false,
@@ -203,17 +189,9 @@ export default {
     };
   },
   computed: {
-    wallpaperResolved: function() {
-      return resolveWallpaper(this.$store.state.settings.wallpaper);
-    },
-    // 与登录页/桌面同一张壁纸：渐变预设直接用系统壁纸渐变，
-    // 仅视频壁纸未出画时用系统底色兜底
+    // 固定内置壁纸：与登录页同一张，不镜像桌面壁纸
     wallpaperStyle: function() {
-      return this.wallpaperResolved.style || { background: AUTH_BACKDROP };
-    },
-    videoSrc: function() {
-      if (this.videoFailed) return '';
-      return this.wallpaperResolved.type === 'video' ? this.wallpaperResolved.src : '';
+      return { background: AUTH_WALLPAPER };
     }
   },
   mounted: function() {
@@ -371,14 +349,6 @@ export default {
   opacity: 1;
 }
 
-.auth-wallpaper-video {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  pointer-events: none;
-}
-
 .auth-scrim {
   position: fixed;
   top: 0;
@@ -394,12 +364,6 @@ export default {
 
 .register-page.page-enter .auth-scrim {
   opacity: 1;
-}
-
-/* 视频壁纸：模糊开销按帧结算，降一档到系统 --glass-blur-regular 以保低端设备流畅 */
-.register-page.has-video-bg .auth-panel {
-  -webkit-backdrop-filter: var(--glass-blur-regular);
-  backdrop-filter: var(--glass-blur-regular);
 }
 
 /* ---------- 布局骨架（与登录页一致） ---------- */

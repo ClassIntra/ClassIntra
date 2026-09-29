@@ -1,19 +1,7 @@
 <template>
-  <div class="login-page" :class="{ 'page-enter': entered, 'has-video-bg': !!videoSrc }">
-    <!-- 壁纸层：登录页即「系统锁屏」，与启动动画、桌面同语言 -->
-    <div class="auth-wallpaper" :style="wallpaperStyle" aria-hidden="true">
-      <video
-        v-if="videoSrc"
-        class="auth-wallpaper-video"
-        :src="videoSrc"
-        autoplay
-        muted
-        loop
-        playsinline
-        preload="auto"
-        @error="videoFailed = true"
-      ></video>
-    </div>
+  <div class="login-page" :class="{ 'page-enter': entered }">
+    <!-- 壁纸层：登录页即「系统锁屏」，固定使用内置壁纸（不镜像用户自选壁纸） -->
+    <div class="auth-wallpaper" :style="wallpaperStyle" aria-hidden="true"></div>
     <div class="auth-scrim" aria-hidden="true"></div>
 
     <!-- 横屏：左品牌区 + 右表单区；窄屏自动回落为居中面板 -->
@@ -159,7 +147,7 @@
 
 <script>
 import axios from 'axios';
-import { resolveWallpaper, AUTH_BACKDROP } from '@/utils/wallpaper-bg';
+import { AUTH_WALLPAPER } from '@/utils/wallpaper-bg';
 
 // 品牌白色标识（锁屏深色玻璃上恒用白标，不随主题切换）。
 // 运行时字符串，避免打包器把绝对路径解析成模块路径。
@@ -180,8 +168,6 @@ export default {
       passwordFocused: false,
       entered: false,
       showPassword: false,
-      // 壁纸
-      videoFailed: false,
       // 快捷上传相关
       showQuickUpload: false,
       quickCode: '',
@@ -190,17 +176,9 @@ export default {
     };
   },
   computed: {
-    wallpaperResolved: function() {
-      return resolveWallpaper(this.$store.state.settings.wallpaper);
-    },
-    // 与桌面同一张壁纸：渐变预设直接用系统壁纸渐变，
-    // 仅视频壁纸未出画时用系统底色兜底
+    // 固定内置壁纸：不镜像桌面壁纸（部署方自添加的壁纸内容不出现在认证页）
     wallpaperStyle: function() {
-      return this.wallpaperResolved.style || { background: AUTH_BACKDROP };
-    },
-    videoSrc: function() {
-      if (this.videoFailed) return '';
-      return this.wallpaperResolved.type === 'video' ? this.wallpaperResolved.src : '';
+      return { background: AUTH_WALLPAPER };
     },
     isLoggedIn: function() {
       return !!this.$store.state.auth.token;
@@ -369,14 +347,6 @@ export default {
   opacity: 1;
 }
 
-.auth-wallpaper-video {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  pointer-events: none;
-}
-
 /* ---------- 蒙版：影院级压暗 ----------
    锁屏语言下文字直接压在壁纸上，需要比旧版更重的蒙版保证对比度；
    分屏时左（品牌文字）重右轻，靠 linear-gradient 分区。 */
@@ -395,13 +365,6 @@ export default {
 
 .login-page.page-enter .auth-scrim {
   opacity: 1;
-}
-
-/* 视频壁纸：模糊开销按帧结算，降一档到系统 --glass-blur-regular 以保低端设备流畅 */
-.login-page.has-video-bg .auth-panel,
-.login-page.has-video-bg .sheet-card {
-  -webkit-backdrop-filter: var(--glass-blur-regular);
-  backdrop-filter: var(--glass-blur-regular);
 }
 
 /* ---------- 布局骨架 ---------- */
