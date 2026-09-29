@@ -1414,19 +1414,19 @@ export default {
 .review-toolbar { display: flex; align-items: center; gap: 8px; padding: 4px 16px 10px; }
 .review-filter {
   border: none; background: rgba(118, 118, 128, 0.12); color: #3a3a3c;
-  padding: 6px 14px; border-radius: 999px; font-size: 13px; cursor: pointer;
+  padding: 6px 14px; border-radius: var(--radius-pill); font-size: 13px; cursor: pointer;
 }
 .review-filter.active { background: #5856D6; color: #fff; }
 .review-count { margin-left: auto; font-size: 12px; color: #8e8e93; }
 .review-list { padding: 0 16px; display: flex; flex-direction: column; gap: 10px; }
 .review-item {
   display: flex; align-items: center; gap: 12px;
-  background: var(--card-bg); border-radius: 14px; padding: 10px 12px;
+  background: var(--card-bg); border-radius: var(--radius-md); padding: 10px 12px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 .review-item.moderated { opacity: 0.6; }
 .review-thumb {
-  position: relative; width: 56px; height: 56px; border-radius: 10px; overflow: hidden;
+  position: relative; width: 56px; height: 56px; border-radius: var(--radius-sm); overflow: hidden;
   background: #f2f2f7; flex-shrink: 0;
 }
 .review-thumb img { width: 100%; height: 100%; object-fit: cover; }
@@ -1442,7 +1442,7 @@ export default {
 .review-meta { font-size: 12px; color: #8e8e93; }
 .review-actions { flex-shrink: 0; }
 .review-btn {
-  border: none; border-radius: 999px; padding: 6px 14px; font-size: 13px; cursor: pointer;
+  border: none; border-radius: var(--radius-pill); padding: 6px 14px; font-size: 13px; cursor: pointer;
   display: inline-flex; align-items: center; gap: 5px;
 }
 .review-btn.danger { background: rgba(255, 59, 48, 0.12); color: #FF3B30; }

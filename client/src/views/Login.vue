@@ -625,7 +625,7 @@ export default {
   color: var(--auth-text-2);
   background: transparent;
   border: none;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   transition: background-color var(--duration-fast, 0.15s) var(--ease-standard, ease),
               color var(--duration-fast, 0.15s) var(--ease-standard, ease);
 }

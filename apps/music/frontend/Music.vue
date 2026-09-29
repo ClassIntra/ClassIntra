@@ -2871,7 +2871,7 @@ export default {
   gap: 3px;
   margin: 0 6px 10px;
   padding: 3px;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: var(--primary-lighter);
 }
 
@@ -2884,7 +2884,7 @@ export default {
   min-height: 32px;
   padding: 4px 8px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-secondary);
   font-size: var(--font-size-caption);
@@ -2983,7 +2983,7 @@ export default {
   line-height: 1.5;
   color: var(--text-tertiary);
   background: var(--bg-tertiary);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 
 .sidebar-empty {
@@ -3059,7 +3059,7 @@ export default {
   color: var(--text-secondary);
   font-size: var(--font-size-sm);
   padding: 5px 12px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   cursor: pointer;
   max-width: 100%;
   overflow: hidden;
@@ -4278,7 +4278,7 @@ export default {
 /* 播放页可点击歌手名（跳转歌手面板） */
 .song-meta-artist-link {
   cursor: pointer;
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   transition: color var(--duration-normal) var(--ease-standard);
 }
 
@@ -4303,7 +4303,7 @@ export default {
 .song-meta-badge {
   flex-shrink: 0;
   padding: 1px 7px;
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
   font-size: 10px;
   font-weight: var(--font-weight-bold);
   letter-spacing: 0.03em;
@@ -4334,7 +4334,7 @@ export default {
   align-items: center;
   gap: 4px;
   padding: 1px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: 10px;
   font-weight: var(--font-weight-medium);
   color: #c20c0c;
@@ -4462,7 +4462,7 @@ export default {
 
 /* 拖拽时禁用进度过渡，让滑块实时跟手 */
 .progress-track-wrap.dragging .progress-fill {
-  transition: height var(--duration-fast) var(--ease-standard);
+  transition: height var(--duration-fast) var(--ease-standard); /* 规范例外：波形高度即音量语义（§5.5.2 形状形变豁免） */
 }
 
 [data-theme="dark"] .progress-fill {
@@ -4490,7 +4490,7 @@ export default {
 
 /* 拖拽时禁用位置过渡，让滑块实时跟手 */
 .progress-track-wrap.dragging .progress-thumb {
-  transition: width var(--duration-fast) var(--ease-standard), height var(--duration-fast) var(--ease-standard);
+  transition: width var(--duration-fast) var(--ease-standard), height var(--duration-fast) var(--ease-standard); /* 规范例外：滑块尺寸即语义（§5.5.2 形状形变豁免） */
 }
 
 [data-theme="dark"] .progress-thumb {
@@ -4879,7 +4879,7 @@ export default {
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--primary-color);
   color: #fff;
   font-size: 10px;
@@ -5062,7 +5062,7 @@ export default {
 .player-queue-vip {
   flex-shrink: 0;
   padding: 1px 7px;
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
   font-size: 10px;
   font-weight: var(--font-weight-bold);
   color: #b8860b;
@@ -5327,7 +5327,7 @@ export default {
 
 .ncm-artist-stats span {
   padding: 2px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: rgba(0, 0, 0, 0.04);
 }
 
@@ -5455,7 +5455,7 @@ export default {
 .ncm-artist-song-vip {
   flex-shrink: 0;
   padding: 1px 7px;
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
   font-size: 10px;
   font-weight: var(--font-weight-bold);
   color: #b8860b;
@@ -6188,7 +6188,7 @@ export default {
   gap: 3px;
   padding: 3px;
   margin-bottom: 16px;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: var(--primary-lighter);
 }
 
@@ -6201,7 +6201,7 @@ export default {
   min-height: 32px;
   padding: 4px 6px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-secondary);
   font-size: var(--font-size-caption);
@@ -6340,13 +6340,13 @@ export default {
 
 .ncm-search-tab {
   padding: 5px 14px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: 1px solid var(--border-color);
   background: transparent;
   color: var(--text-secondary);
   font-size: var(--font-size-caption);
   cursor: pointer;
-  transition: all var(--duration-fast) var(--ease-standard);
+  transition: color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), background-color var(--duration-fast) var(--ease-standard);
 }
 
 .ncm-search-tab:hover {

@@ -2781,7 +2781,7 @@ export default {
       var gomokuCardHtml = function(code) {
         var c = String(code).toUpperCase();
         return '<div class="gomoku-post-card" data-gomoku-room="' + c + '" style="display:flex;align-items:center;margin:10px 0;padding:12px 14px;border-radius:var(--radius-lg);border:1px solid rgba(176,125,43,0.35);background:linear-gradient(135deg,rgba(232,200,143,0.25),rgba(212,167,106,0.15));cursor:pointer;">' +
-          '<svg width="44" height="44" viewBox="0 0 44 44" style="display:block;border-radius:12px;flex-shrink:0;margin-right:12px;box-shadow:0 1px 3px rgba(0,0,0,0.18);" aria-hidden="true">' +
+          '<svg width="44" height="44" viewBox="0 0 44 44" style="display:block;border-radius:var(--radius-md);flex-shrink:0;margin-right:12px;box-shadow:0 1px 3px rgba(0,0,0,0.18);" aria-hidden="true">' +
             '<defs>' +
               '<linearGradient id="gomokuPostWood" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F5E3B8"/><stop offset="1" stop-color="#DBB273"/></linearGradient>' +
               '<radialGradient id="gomokuPostBlack" cx="0.34" cy="0.28" r="0.95"><stop offset="0" stop-color="#6A6F78"/><stop offset="0.4" stop-color="#272A30"/><stop offset="1" stop-color="#0A0B0E"/></radialGradient>' +
@@ -2809,7 +2809,7 @@ export default {
       var chessCardHtml = function(code) {
         var c = String(code).toUpperCase();
         return '<div class="chess-post-card" data-chess-room="' + c + '" style="display:flex;align-items:center;margin:10px 0;padding:12px 14px;border-radius:var(--radius-lg);border:1px solid rgba(var(--danger-rgb),0.35);background:linear-gradient(135deg,rgba(245,214,196,0.28),rgba(220,164,138,0.16));cursor:pointer;">' +
-          '<svg width="44" height="44" viewBox="0 0 44 44" style="display:block;border-radius:12px;flex-shrink:0;margin-right:12px;box-shadow:0 1px 3px rgba(0,0,0,0.18);" aria-hidden="true">' +
+          '<svg width="44" height="44" viewBox="0 0 44 44" style="display:block;border-radius:var(--radius-md);flex-shrink:0;margin-right:12px;box-shadow:0 1px 3px rgba(0,0,0,0.18);" aria-hidden="true">' +
             '<defs>' +
               '<linearGradient id="chessPostWood" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F5E3B8"/><stop offset="1" stop-color="#DBB273"/></linearGradient>' +
               '<radialGradient id="chessPostPiece" cx="0.34" cy="0.28" r="1"><stop offset="0" stop-color="#FCE8DD"/><stop offset="0.55" stop-color="#D9805E"/><stop offset="1" stop-color="#8E3B24"/></radialGradient>' +
