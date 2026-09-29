@@ -16,7 +16,6 @@
         :class="{ 'video-active': activeVideo === 'A' }"
         :src="videoASrc || videoWallpaperSrc"
         preload="auto"
-        autoplay
         muted
         playsinline
         loop
@@ -26,6 +25,8 @@
         @playing="onVideoPlaying"
         @error="onVideoError"
       ></video>
+      <!-- 不用 autoplay 属性：待命实例换 blob 源重载时会被它拉起「幽灵自播」
+           （不可见却占用解码，还会扰乱播放中的实例）；统一由 playVideoWallpaper 显式拉起 -->
       <video
         ref="videoB"
         class="desktop-video-wallpaper"
@@ -997,9 +998,11 @@ export default {
         document.documentElement.setAttribute('data-perf', perfLevel);
       }
 
+      // 4s 兜底巡检：活跃实例若因任何意外（媒体管线抢占、blob 重载竞态）被暂停，
+      // 快速拉起，避免壁纸长时间冻结在某一帧
       self.performanceCheckTimer = setInterval(function() {
         self.checkVideoHealth();
-      }, 10000);
+      }, 4000);
     },
     checkVideoHealth: function() {
       var self = this;
