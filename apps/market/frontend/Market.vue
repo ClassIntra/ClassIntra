@@ -130,7 +130,8 @@
               </div>
             </article>
             <!-- 应用配置面板（manifest.config 声明 → 安装时引导填写，值存数据库，保存后即时生效） -->
-            <article v-if="configEditing === app.name" :key="'cfg-' + app.name" class="config-editor">
+            <!-- 注意：面板在 v-for 外渲染，configEditing 归属判定用 configEditingIn，禁止引用 v-for 的 app 变量 -->
+            <article v-if="configEditing && configEditingIn(installedApps)" :key="'cfg-' + configEditing" class="config-editor">
               <div v-if="configLoading" class="cfg-loading"><span class="mini-spinner"></span> 正在读取配置…</div>
               <template v-else>
                 <div class="cfg-head">
