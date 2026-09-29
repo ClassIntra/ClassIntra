@@ -88,18 +88,18 @@ function installCrashHandlers() {
     writeCrashLog('UNHANDLED_REJECTION', reason instanceof Error ? reason : new Error(String(reason)));
   });
 
+  // SIGTERM/SIGINT 只记日志不退出——app.js 注册了 gracefulShutdown（广播停机通知→关HTTP→exit），
+  // 这里抢先 process.exit 会跳过优雅停机流程
   process.on('SIGTERM', function() {
     var msg = 'SIGTERM received. Last activity: ' + lastActivity + ' (' + (Date.now() - lastActivityTime) + 'ms ago)';
     console.error('[CRASH] ' + msg);
     writeCrashLog('SIGTERM', new Error(msg));
-    process.exit(143);
   });
 
   process.on('SIGINT', function() {
     var msg = 'SIGINT received. Last activity: ' + lastActivity + ' (' + (Date.now() - lastActivityTime) + 'ms ago)';
     console.error('[CRASH] ' + msg);
     writeCrashLog('SIGINT', new Error(msg));
-    process.exit(130);
   });
 
   var originalExit = process.exit;

@@ -74,9 +74,15 @@ var mutations = {
 
 // 播放入口：网易云歌曲需先向插件换取同源播放地址（带短时票据），本地歌曲直接播放
 function startPlayback(commit, dispatch, state, song) {
+  // 竞态守卫：响应回来时若用户已切到别的歌（currentSong 引用变化），静默丢弃旧响应，
+  // 否则旧歌的 playSong 会晚到覆盖新歌（快速连续切歌时播错歌）
+  function isStillCurrent() {
+    return state.currentSong === song;
+  }
   if (song && song.source === 'netease' && song.ncmId) {
     commit('SET_NCM_LEVEL', ''); // 换流前清掉上一首的音质标记
     api.get('/netease-music/song/url', { params: { id: song.ncmId, quality: state.ncmQuality || undefined } }).then(function (res) {
+      if (!isStillCurrent()) return;
       var body = res.data || {};
       var item = body.data && body.data[0];
       if (body.code === 200 && item && item.url) {
@@ -90,6 +96,7 @@ function startPlayback(commit, dispatch, state, song) {
         commit('SET_PLAY_ERROR', '该歌曲暂无可用播放地址（可能需要 VIP 或无版权）');
       }
     }).catch(function (err) {
+      if (!isStillCurrent()) return;
       // 透传后端文案（风控限制 / 网络失败），无响应体时用通用兜底
       var msg = (err && err.response && err.response.data && err.response.data.message) || '获取播放地址失败，请检查网络后重试';
       commit('SET_PLAY_ERROR', msg);

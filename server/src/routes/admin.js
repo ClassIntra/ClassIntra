@@ -140,7 +140,11 @@ router.get('/users', auth.requirePermission('manage_users'), function(req, res) 
     if (users[i].ban_expires_at) users[i].ban_expires_at = time.toISOString(users[i].ban_expires_at);
     users[i].is_admin = users[i].is_admin ? true : false;
     users[i].is_class_admin = constants.isClassAdmin(String(users[i].user_id));
-    users[i].info = JSON.parse(users[i].info_json || '{}');
+    try {
+      users[i].info = JSON.parse(users[i].info_json || '{}');
+    } catch (infoErr) {
+      users[i].info = {}; // 单条损坏不阻断整个用户列表
+    }
     delete users[i].info_json;
     try {
       var aiSettings = JSON.parse(users[i].ai_settings_json || '{}');
@@ -638,7 +642,7 @@ router.post('/users/:id/reset-password', auth.requirePermission('manage_users'),
 });
 
 // DELETE /api/admin/users/:id - Delete user
-router.delete('/users/:id', function(req, res) {
+router.delete('/users/:id', auth.requirePermission('manage_users'), function(req, res) {
   var userId = req.params.id;
   var adminUserId = req.user ? req.user.user_id : '';
 
@@ -1733,7 +1737,7 @@ router.get('/pm2/describe', function(req, res) {
         script: d.pm2_env ? d.pm2_env.pm_exec_path : null,
         cwd: d.pm2_env ? d.pm2_env.pm_cwd : null,
         node_args: d.pm2_env ? d.pm2_env.node_args : [],
-        env: d.pm2_env ? d.pm2_env.env : {},
+        // 不返回 pm2_env.env：其中含 JWT_SECRET 等敏感环境变量，班管（学生账号）可访问此接口
         error_file: d.pm2_env ? d.pm2_env.pm_err_log_path : null,
         out_file: d.pm2_env ? d.pm2_env.pm_out_log_path : null
       };
@@ -2362,7 +2366,8 @@ try {
         whereClause += ' AND user_id LIKE ?';
         qParams.push(cohortPrefix + classFilter + '%');
       }
-      var users = db.prepare('SELECT user_id, net_name, real_name, gender, status, is_admin FROM users ' + whereClause + ' LIMIT 100').all.apply(db, qParams);
+      var stmt = db.prepare('SELECT user_id, net_name, real_name, gender, status, is_admin FROM users ' + whereClause + ' LIMIT 100');
+      var users = stmt.all.apply(stmt, qParams);
       var relayBusList = require('../utils/relay-bus');
       relayBusList.relayOnly('remote_admin_response', {
         request_id: data.request_id,

@@ -35,9 +35,9 @@ router.get('/events', auth.requireAuth, function(req, res) {
 router.get('/events/today', auth.requireAuth, function(req, res) {
   var userId = req.user.user_id;
   try {
-    // 使用 localtime 获取今天日期
-    var today = db.prepare("date('now', 'localtime')").get();
-    var todayStr = Object.values(today)[0];
+    // 使用 localtime 获取今天日期（prepare 需要完整 SELECT 语句）
+    var todayRow = db.prepare("SELECT date('now', 'localtime') AS today").get();
+    var todayStr = todayRow.today;
     var rows = db.prepare('SELECT * FROM calendar_events WHERE user_id = ? AND event_date = ? ORDER BY start_time ASC').all(userId, todayStr);
     convertTimesArray(rows);
     res.json({ code: 200, message: 'ok', data: rows });
