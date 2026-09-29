@@ -8,21 +8,37 @@
     @mousedown="onDesktopMouseDown"
   >
     <template v-if="videoWallpaperSrc && !videoWallpaperFailed">
+      <!-- 双缓冲视频壁纸：A/B 交替接棒，消除 loop 循环点闪帧；
+           源优先用全量预载 blob，播放期零网络依赖，杜绝缓冲停顿 -->
       <video
         ref="videoA"
         class="desktop-video-wallpaper"
         :class="{ 'video-active': activeVideo === 'A' }"
-        :src="videoWallpaperSrc"
-        preload="none"
+        :src="videoPlaybackSrc"
+        preload="auto"
         autoplay
         muted
         playsinline
         loop
         disablePictureInPicture
         @loadedmetadata="onVideoMeta"
-        @waiting="onVideoWaiting"
+        @timeupdate="onVideoTime"
         @playing="onVideoPlaying"
-        @canplay="onVideoCanPlay"
+        @error="onVideoError"
+      ></video>
+      <video
+        ref="videoB"
+        class="desktop-video-wallpaper"
+        :class="{ 'video-active': activeVideo === 'B' }"
+        :src="videoPlaybackSrc"
+        preload="auto"
+        muted
+        playsinline
+        loop
+        disablePictureInPicture
+        @loadedmetadata="onVideoMeta"
+        @timeupdate="onVideoTime"
+        @playing="onVideoPlaying"
         @error="onVideoError"
       ></video>
     </template>
@@ -388,12 +404,11 @@ export default {
       launchingApp: '',
       touchStartY: 0,
       mouseStartY: 0,
-      videoBuffering: false,
+      videoRetryCount: 0,
       videoWallpaperFailed: false,
       videoPerformanceLevel: 2,
-      videoStallCount: 0,
-      videoLastStallTime: 0,
-      videoRetryCount: 0,
+      // 全量预载的视频 blob 源（播放期零网络依赖，双缓冲实例共享同一份数据）
+      videoBlobUrl: '',
       performanceCheckTimer: null,
       activeVideo: 'A',
       unreadAnnouncements: [],
@@ -431,6 +446,10 @@ export default {
         return '/resources/public/wallpaper/' + wp;
       }
       return '';
+    },
+    // 实际喂给 <video> 的源：blob 预载成功用 blob（零网络依赖），否则回退原 URL 流式播放
+    videoPlaybackSrc: function() {
+      return this.videoBlobUrl || this.videoWallpaperSrc;
     },
     staticWallpaperStyle: function() {
       var wp = this.wallpaper || 'default';
@@ -660,20 +679,27 @@ export default {
         }
       }
     );
-    // 拖拽流畅性：拖拽期间暂停视频壁纸（解码是掉帧主因），结束自动恢复
+    // 拖拽流畅性：拖拽期间暂停视频壁纸（解码是掉帧主因），结束恢复 active 实例
     self._unwatchDragging = self.$store.watch(
       function (state, getters) { return getters['desktop/isDragging']; },
       function (dragging) {
-        var videos = document.querySelectorAll('.desktop-wallpaper-video video, video.desktop-video');
-        if (!videos.length && self.$refs.videoA) videos = [self.$refs.videoA];
-        for (var i = 0; i < videos.length; i++) {
-          try { if (dragging) { videos[i].pause(); } else if (!videos[i].paused && self.videoWallpaper) { videos[i].play(); } } catch (e) {}
+        var videos = [self.$refs.videoA, self.$refs.videoB].filter(function (v) { return !!v; });
+        var i;
+        if (dragging) {
+          for (i = 0; i < videos.length; i++) { try { videos[i].pause(); } catch (e) {} }
+          return;
+        }
+        if (self.videoWallpaperSrc && !self.videoWallpaperFailed) {
+          var active = self.$refs[self.activeVideo === 'B' ? 'videoB' : 'videoA'];
+          if (active && active.paused) active.play().catch(function () {});
         }
       }
     );
     self.detectPerformanceLevel();
     self.$nextTick(function() {
       self.entered = true;
+      // 初始挂载 watcher 不触发（非 immediate），手动预载 + 拉起播放
+      self.preloadVideoBlob(self.videoWallpaperSrc);
       self.playVideoWallpaper();
     });
     self.loadUnreadAnnouncements();
@@ -699,6 +725,24 @@ export default {
     window.addEventListener('focus', self._focusHandler);
   },
   beforeDestroy: function() {
+    // 视频壁纸资源清理：预载请求中止 + blob 释放 + 健康检查定时器停摆
+    if (this._videoBlobController) {
+      try { this._videoBlobController.abort(); } catch (e) {}
+      this._videoBlobController = null;
+    }
+    this._blobToken = (this._blobToken || 0) + 1; // 使在途预载回调失效
+    if (this.videoBlobUrl) {
+      try { URL.revokeObjectURL(this.videoBlobUrl); } catch (e) {}
+      this.videoBlobUrl = '';
+    }
+    if (this.performanceCheckTimer) {
+      clearInterval(this.performanceCheckTimer);
+      this.performanceCheckTimer = null;
+    }
+    if (this._retryTimer) {
+      clearTimeout(this._retryTimer);
+      this._retryTimer = null;
+    }
     if (this._unwatchFolderGone) {
       this._unwatchFolderGone();
       this._unwatchFolderGone = null;
@@ -742,7 +786,9 @@ export default {
   watch: {
     videoWallpaperSrc: function() {
       var self = this;
-      self.videoStallCount = 0;
+      // 换壁纸：预载新视频 blob（成功后 videoPlaybackSrc 切到 blob 源，
+      // 两个 <video> 经 :src 响应式同步重新加载）+ 主动拉起播放
+      self.preloadVideoBlob(self.videoWallpaperSrc);
       self.$nextTick(function() {
         self.playVideoWallpaper();
       });
@@ -750,15 +796,18 @@ export default {
     // 编辑态暂停视频壁纸：编辑态已对壁纸施加 brightness(0.6)+blur(4px)，
     // 视频动态细节几乎不可见，暂停可显著降低 CPU/GPU 占用，提升拖拽流畅度
     isEditMode: function(val) {
-      var video = this.$refs.videoA;
-      if (!video) return;
+      var videoA = this.$refs.videoA;
+      var videoB = this.$refs.videoB;
+      if (!videoA) return;
       if (val) {
-        // 进入编辑态：暂停视频（保留 currentTime，退出时无缝恢复）
-        if (!video.paused) video.pause();
+        // 进入编辑态：全部暂停（保留 currentTime，退出时无缝恢复）
+        if (!videoA.paused) videoA.pause();
+        if (videoB && !videoB.paused) videoB.pause();
       } else {
-        // 退出编辑态：恢复播放（仅当视频壁纸仍生效时）
-        if (this.videoWallpaperSrc && !this.videoWallpaperFailed && video.paused) {
-          video.play().catch(function() {});
+        // 退出编辑态：恢复 active 实例播放（仅当视频壁纸仍生效时）
+        var active = this.$refs[this.activeVideo === 'B' ? 'videoB' : 'videoA'] || videoA;
+        if (this.videoWallpaperSrc && !this.videoWallpaperFailed && active && active.paused) {
+          active.play().catch(function() {});
         }
       }
     },
@@ -935,16 +984,68 @@ export default {
     },
     checkVideoHealth: function() {
       var self = this;
-      var video = self.$refs.videoA;
+      var video = self.$refs[self.activeVideo === 'B' ? 'videoB' : 'videoA'];
       if (!video) return;
       if (video.paused && !video.ended && video.readyState >= 3) {
         video.play().catch(function() {});
       }
     },
-    onVideoMeta: function() {
+    // 全量预载壁纸视频为 blob：播放期零网络依赖，
+    // 局域网抖动不再造成反复 waiting（用户感知的「卡 + 一闪一闪」主因）。
+    // 失败（大文件中断/不支持）静默回退原 URL 流式播放，不影响可用性。
+    preloadVideoBlob: function(src) {
       var self = this;
-      var video = self.$refs.videoA;
-      if (!video) return;
+      if (!src) return;
+      if (self._videoBlobController) self._videoBlobController.abort();
+      var controller = ('AbortController' in window) ? new AbortController() : null;
+      self._videoBlobController = controller;
+      if (self._blobToken === undefined) self._blobToken = 0;
+      var token = ++self._blobToken;
+      fetch(src, controller ? { signal: controller.signal } : undefined).then(function(res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.blob();
+      }).then(function(blob) {
+        if (token !== self._blobToken) return; // 期间壁纸已切换
+        var old = self.videoBlobUrl;
+        self.videoBlobUrl = URL.createObjectURL(blob);
+        if (old) URL.revokeObjectURL(old);
+      }).catch(function() {
+        // 预载失败：保持回退到 URL 直连播放，不打扰用户
+      });
+    },
+    // 双缓冲接棒：active 视频临近结尾时，把另一个已预缓冲的实例切到前台，
+    // 替代浏览器原生 loop（低端解码器在循环重定位点会丢帧/闪黑 = 「一闪一闪」）。
+    // 保留 loop 属性兜底：备用实例未就绪时由原生循环无缝续播。
+    onVideoTime: function(e) {
+      var self = this;
+      var video = e.target;
+      var refName = video === self.$refs.videoA ? 'videoA' : 'videoB';
+      if (self.activeVideo !== (refName === 'videoA' ? 'A' : 'B')) return;
+      var d = video.duration;
+      if (!d || !isFinite(d)) return;
+      if (d - video.currentTime > 0.4) return;
+      var nextRef = refName === 'videoA' ? 'videoB' : 'videoA';
+      var next = self.$refs[nextRef];
+      if (!next || next.readyState < 3 || next === video) return;
+      self.switchVideoBuffer(nextRef === 'videoB' ? 'B' : 'A');
+    },
+    switchVideoBuffer: function(to) {
+      if (this.activeVideo === to) return;
+      var current = this.$refs[this.activeVideo === 'B' ? 'videoB' : 'videoA'];
+      var next = this.$refs[to === 'B' ? 'videoB' : 'videoA'];
+      if (!next) return;
+      try { next.currentTime = 0; } catch (e) {}
+      var playP = next.play();
+      if (playP && playP.catch) playP.catch(function() {});
+      this.activeVideo = to;
+      // 旧实例淡出后暂停待命（CSS opacity 0.8s 过渡期间保持最后一帧）
+      setTimeout(function() {
+        if (current) { try { current.pause(); } catch (e) {} }
+      }, 850);
+    },
+    onVideoMeta: function(e) {
+      var self = this;
+      var video = e.target;
 
       var vw = video.videoWidth || 0;
       var vh = video.videoHeight || 0;
@@ -964,57 +1065,24 @@ export default {
         video.style.maxHeight = '1080px';
       }
     },
-    onVideoCanPlay: function() {
-      // 视频就绪，无需额外处理
-    },
-    onVideoWaiting: function() {
-      var self = this;
-      self.videoBuffering = true;
-      var now = Date.now();
-      if (now - self.videoLastStallTime > 5000) {
-        self.videoStallCount++;
-        self.videoLastStallTime = now;
-      }
-      if (self.videoStallCount >= 3 && self.videoPerformanceLevel > 1) {
-        self.videoPerformanceLevel--;
-        self.videoStallCount = 0;
-        self.applyPerformanceOptimizations();
-      }
-    },
     onVideoPlaying: function() {
-      this.videoBuffering = false;
       this.videoRetryCount = 0;
     },
-    onVideoError: function() {
+    onVideoError: function(e) {
       var self = this;
-      self.videoBuffering = false;
+      var video = e.target;
       if (self.videoRetryCount < 3) {
         self.videoRetryCount++;
         if (self._retryTimer) clearTimeout(self._retryTimer);
         self._retryTimer = setTimeout(function() {
           self._retryTimer = null;
-          self.retryVideoPlayback();
+          try { video.load(); } catch (err) {}
+          var p = video.play();
+          if (p && p.catch) p.catch(function() {});
         }, 2000 * self.videoRetryCount);
       } else {
+        // 反复失败：降级到静态壁纸，避免黑屏死循环
         self.videoWallpaperFailed = true;
-      }
-    },
-    retryVideoPlayback: function() {
-      var self = this;
-      var video = self.$refs.videoA;
-      if (!video) return;
-      video.load();
-      video.play().catch(function() {});
-    },
-    applyPerformanceOptimizations: function() {
-      var video = this.$refs.videoA;
-      if (!video) return;
-      if (this.videoPerformanceLevel <= 1) {
-        video.playbackRate = 0.75;
-      } else if (this.videoPerformanceLevel === 2) {
-        video.playbackRate = 0.9;
-      } else {
-        video.playbackRate = 1.0;
       }
     },
     // ===== 桌面手势入口（转发到 mixin）=====
@@ -1209,7 +1277,6 @@ export default {
       var video = self.$refs.videoA;
       if (!video) return;
       self.activeVideo = 'A';
-      self.applyPerformanceOptimizations();
       video.play().catch(function() {
         video.addEventListener('canplay', function onCanPlay() {
           video.removeEventListener('canplay', onCanPlay);
@@ -1642,7 +1709,7 @@ export default {
 /* 可滚动容器：图标少时 max-content + margin auto 居中；多时 max-width 限制 + overflow-x 滚动 */
 .dock-bar {
   position: fixed;
-  bottom: 24px;
+  bottom: 12px;
   left: 16px;
   right: 16px;
   width: -webkit-max-content;
@@ -1796,7 +1863,7 @@ export default {
 @media (min-width: 900px) and (orientation: landscape) {
   .dock-bar {
     padding: 15px 30px;
-    bottom: 26px;
+    bottom: 14px;
   }
   .dock-icon {
     width: 66px;
