@@ -234,6 +234,18 @@ router.get('/app-control', function(req, res) {
   });
 });
 
+// ============================================================
+// GET /api/system/network-info - 锁屏页脚用的动态网络名（免登录）
+// 浏览器读不到 SSID，故由服务端读本机当前关联的无线网络；实现见 utils/network-info.js。
+// 免登录的原因：锁屏在「未登录 + 已锁屏」时同样会展示，且返回值只有 SSID，无敏感信息。
+// ============================================================
+router.get('/network-info', function(req, res) {
+  res.setHeader('Cache-Control', 'no-store');
+  require('../utils/network-info').getNetworkInfo(function(err, data) {
+    res.json({ code: 200, data: err ? { wifi: '', connected: false, state: 'unknown', source: 'error' } : data });
+  });
+});
+
 // GET /api/system/modules - 模块注册表状态（需登录）
 // 聚合 apps/plugins/market-apps 三类模块的存在/挂载/能力信息，
 // 供管理页与客户端做存在性判断与降级（体现「无插件/无模块也可正常使用」的可观测性）

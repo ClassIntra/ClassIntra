@@ -215,9 +215,15 @@
                 <i class="fa-solid fa-pen-to-square"></i> 发第一条帖子
               </button>
             </div>
-            <div v-if="loading && displayPosts.length > 0" class="loading-state">
-              <i class="fa-solid fa-spinner fa-spin"></i>
-              <span>加载中...</span>
+            <div v-if="loading && displayPosts.length > 0" class="skeleton-list" aria-busy="true" aria-label="加载中">
+              <div v-for="i in 2" :key="'sk-more' + i" class="skeleton-item">
+                <div class="skeleton-avatar"></div>
+                <div class="skeleton-lines">
+                  <div class="skeleton-line" style="width:40%"></div>
+                  <div class="skeleton-line" style="width:80%"></div>
+                  <div class="skeleton-line" style="width:60%"></div>
+                </div>
+              </div>
             </div>
             </div></div>
             <div v-if="postsLoadingMore" class="loading-more-indicator">
@@ -264,7 +270,15 @@
                 </button>
               </div>
             </div>
-            <LoadingSkeleton v-if="foodLoading" type="list" :count="3" />
+            <div v-if="foodLoading" class="skeleton-list" aria-busy="true" aria-label="加载中">
+              <div v-for="i in 4" :key="'sk-food' + i" class="skeleton-item">
+                <div class="skeleton-rank"></div>
+                <div class="skeleton-lines">
+                  <div class="skeleton-line" style="width:55%"></div>
+                  <div class="skeleton-line" style="width:35%"></div>
+                </div>
+              </div>
+            </div>
             <div v-else-if="foodRanking.length === 0" class="empty-state">
               <div class="empty-illustration">
                 <i class="fa-solid fa-bowl-food"></i>
@@ -312,7 +326,15 @@
                 </button>
               </div>
             </div>
-            <LoadingSkeleton v-if="hotLoading" type="list" :count="3" />
+            <div v-if="hotLoading" class="skeleton-list" aria-busy="true" aria-label="加载中">
+              <div v-for="i in 4" :key="'sk-hot' + i" class="skeleton-item">
+                <div class="skeleton-rank"></div>
+                <div class="skeleton-lines">
+                  <div class="skeleton-line" style="width:55%"></div>
+                  <div class="skeleton-line" style="width:35%"></div>
+                </div>
+              </div>
+            </div>
             <div v-else-if="hotRanking.length === 0" class="empty-state">
               <div class="empty-illustration">
                 <i class="fa-solid fa-fire-flame-curved"></i>
@@ -1111,7 +1133,6 @@
 import AppNavBar from '@/components/AppNavBar.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
-import LoadingSkeleton from '@/components/LoadingSkeleton.vue';
 import CloudImagePicker from '@/components/CloudImagePicker.vue';
 import ImagePreview from '@/components/ImagePreview.vue';
 import api from '@/utils/api';
@@ -1228,7 +1249,7 @@ marked.setOptions({
 export default {
   name: 'Community',
   mixins: [cloudPickerReceiver],
-  components: { AppNavBar: AppNavBar, UserAvatar: UserAvatar, ConfirmDialog: ConfirmDialog, LoadingSkeleton: LoadingSkeleton, CloudImagePicker: CloudImagePicker, ImagePreview: ImagePreview },
+  components: { AppNavBar: AppNavBar, UserAvatar: UserAvatar, ConfirmDialog: ConfirmDialog, CloudImagePicker: CloudImagePicker, ImagePreview: ImagePreview },
   data: function() {
     return {
       tabs: [
@@ -3049,7 +3070,9 @@ export default {
 .stat-item { font-size: var(--font-size-caption); color: var(--text-secondary); display: flex; align-items: center; gap: 4px; transition: color var(--duration-fast) var(--ease-standard); }
 .stat-item.liked { color: var(--danger-color); }
 
-.ranking-number { width: 34px; height: 34px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; font-size: var(--font-size-body); font-weight: 700; flex-shrink: 0; background: var(--bg-color); color: var(--text-secondary); }
+/* 榜单行与帖子行统一视觉：序号块对齐 .post-avatar 的 40px 与卡片圆角档位，
+   避免「美食榜/热事榜」看起来像另一个应用 */
+.ranking-number { width: 40px; height: 40px; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; font-size: var(--font-size-callout); font-weight: 700; flex-shrink: 0; background: var(--bg-color); color: var(--text-secondary); }
 .rank-1 { background: linear-gradient(135deg, #FFD700, #FFA500); color: #fff; }
 .rank-2 { background: linear-gradient(135deg, #C0C0C0, #A0A0A0); color: #fff; }
 .rank-3 { background: linear-gradient(135deg, #CD7F32, #A0522D); color: #fff; }
@@ -3121,11 +3144,23 @@ export default {
 .stat-value { font-size: var(--font-size-callout); font-weight: 700; color: var(--text-primary); }
 .stat-label { font-size: var(--font-size-caption2); color: var(--text-secondary); margin-top: 1px; }
 
-.mine-panel { display: flex; flex-direction: column; height: 100%; }
-.mine-body { flex: 1; overflow-y: auto; padding: 0; }
-.mine-columns { display: flex; gap: 0; flex: 1; min-height: 0; }
-.mine-column { flex: 1; min-width: 0; overflow-y: auto; }
+.mine-panel { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+/* 我的页：只用「一个」纵向滚动容器。
+   原来 .mine-body 滚动 + .mine-column 各自 overflow-y:auto 形成嵌套滚动，
+   而 global.scss 的全局 `* { overscroll-behavior-y: contain }` 会掐断
+   「内层列 → 外层页」的链式滚动，表现为整页划不动（滑边缘却能动）。
+   这里取消内层滚动、并显式把本层改回 auto 让手势可向父级传递。 */
+.mine-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior-y: auto; -webkit-overflow-scrolling: touch; }
+.mine-columns { display: flex; gap: 0; align-items: flex-start; }
+.mine-column { flex: 1; min-width: 0; overflow: visible; }
 .mine-column:first-child { border-right: 0.5px solid var(--separator-color); }
+
+/* 窄屏：两列改为上下堆叠，沿用同一个页面滚动容器 */
+@media (max-width: 768px) {
+  .mine-columns { flex-direction: column; }
+  .mine-column { flex: none; width: 100%; }
+  .mine-column:first-child { border-right: none; border-bottom: 0.5px solid var(--separator-color); }
+}
 
 .bookmarks-section { padding: 14px 16px; }
 .empty-state-sm { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px 16px; color: var(--text-secondary); gap: 6px; font-size: var(--font-size-sm); }
@@ -3291,6 +3326,8 @@ export default {
 .skeleton-list { padding: 4px 0; }
 .skeleton-item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; margin-bottom: 6px; border-radius: var(--radius-md); background: var(--card-bg); }
 .skeleton-avatar { width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(90deg, var(--bg-color) 25%, var(--border-color) 50%, var(--bg-color) 75%); background-size: 200% 100%; animation: skeletonShimmer 1.5s infinite; flex-shrink: 0; }
+/* 榜单骨架：用方角占位对齐 .ranking-number（不是圆形头像） */
+.skeleton-rank { width: 40px; height: 40px; border-radius: var(--radius-md); background: linear-gradient(90deg, var(--bg-color) 25%, var(--border-color) 50%, var(--bg-color) 75%); background-size: 200% 100%; animation: skeletonShimmer 1.5s infinite; flex-shrink: 0; }
 .skeleton-lines { flex: 1; display: flex; flex-direction: column; gap: 8px; }
 .skeleton-line { height: 12px; border-radius: var(--radius-sm); background: linear-gradient(90deg, var(--bg-color) 25%, var(--border-color) 50%, var(--bg-color) 75%); background-size: 200% 100%; animation: skeletonShimmer 1.5s infinite; }
 @keyframes skeletonShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }

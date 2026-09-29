@@ -163,7 +163,7 @@ import { resolveWallpaper, AUTH_BACKDROP } from '@/utils/wallpaper-bg';
 
 // 品牌白色标识（锁屏深色玻璃上恒用白标，不随主题切换）。
 // 运行时字符串，避免打包器把绝对路径解析成模块路径。
-var BRAND_MARK_WHITE = '/resources/public/brand/logo-mark-white.svg';
+var BRAND_MARK_WHITE = '/resources/public/brand/logo-mark-white.png';
 
 export default {
   name: 'Login',
@@ -466,7 +466,7 @@ export default {
 }
 
 .panel-brand-mark {
-  width: 46px;
+  width: 62px;
   height: 50px;
   object-fit: contain;
   filter: drop-shadow(0 4px 18px rgba(0, 0, 0, 0.3));
@@ -817,7 +817,8 @@ export default {
   }
 
   .brand-mark {
-    width: 96px;
+    /* 品牌标识为横向构图（约 1.25:1），此处按新宽高比给足宽度，避免 contain 缩水 */
+    width: 130px;
     height: 104px;
     object-fit: contain;
     filter: drop-shadow(0 0 28px rgba(255, 255, 255, 0.16)) drop-shadow(0 10px 32px rgba(0, 0, 0, 0.35));
@@ -1144,7 +1145,7 @@ export default {
     margin-bottom: 10px;
   }
   .panel-brand-mark {
-    width: 38px;
+    width: 52px;
     height: 42px;
   }
   .panel-head {

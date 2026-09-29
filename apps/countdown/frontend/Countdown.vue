@@ -422,6 +422,10 @@ export default {
       var self = this;
       self.loading = true;
       self.error = '';
+      // 日历联动：拉取「可显示到倒数日」的日历事件作为虚拟倒数日。
+      // 后端 /calendar/events/for-countdown 早已就绪，但一直没人调用 →
+      // linkedCalendarEvents 恒为空 → 日历里勾了「显示在倒数日」也联动不起来。
+      self.loadLinkedCalendarEvents();
       api.get('/countdown/events').then(function(res) {
         if (res.data && res.data.code === 200) {
           self.events = (res.data.data || []).map(function(ev) {
@@ -436,6 +440,19 @@ export default {
         self.error = '网络错误，加载失败';
       }).finally(function() {
         self.loading = false;
+      });
+    },
+    // 拉取联动日历事件（失败静默：联动是增强项，不该让倒数日本体报错）
+    loadLinkedCalendarEvents: function() {
+      var self = this;
+      api.get('/calendar/events/for-countdown').then(function(res) {
+        if (res.data && res.data.code === 200) {
+          self.linkedCalendarEvents = res.data.data || [];
+        } else {
+          self.linkedCalendarEvents = [];
+        }
+      }).catch(function() {
+        self.linkedCalendarEvents = [];
       });
     },
     // 获取生效日期（重复事件用 next_date）

@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.2.5] - 2026-09-29
+【修复】
+- 社区帖子详情页：发评论时若改走云盘全屏选择器选完媒体，会丢失详情页上下文（CloudImagePicker 原先只快照 2 个字段，路由销毁后不回填）。改为全量快照 + 逐一恢复（重开详情、评论草稿、回复对象、新帖草稿、当前页签）
+- 倒数日与日历不联动：前端 linkedCalendarEvents 恒为空——/calendar/events/for-countdown 接口早已就绪却从未被调用（半成品）。倒数日页与桌面小组件改为「原生 + 联动」并行取数合并
+- 跨班生图看不见：A 班机器人发的图在 B 班打不开。新增跨机媒体回源中间件（本机无此文件时按 peer 静态基址回源，并发合并去重）；补齐中继补推链路——relay-sync 的 chat_messages 分支原先声明了 newly_applied 却从不填充、chat-server 补推也缺该分支（静默丢失），Chat.vue 对齐 historical 约定不再为补推弹通知
+- 设置页「动态壁纸」进入卡住：一次性创建 14 个视频缩略图（单文件最大 180MB）。改为 IntersectionObserver 懒加载，卸载时断开
+- 社区「我的」页面在平板划不动：.mine-body 显式 overscroll-behavior-y: auto 修复嵌套滚动链（同 1.2.3 管理端同类问题），并补窄屏单列堆叠
+
+【优化】
+- 社区加载态统一为骨架屏（帖子流 / 美食榜 / 热搜榜），榜单序号与头像尺寸对齐，消除「加载态与视觉割裂」
+- 桌面渲染性能：pagesView 预计算每页「可见 widget + 可用 slot」（原先模板在 v-for 里直接调方法、每次渲染每页重跑 filter / 查表 / 权限 getter）；应用可见性收敛为 visibleAppMap 查找表（原先逐 slot 线性扫描注册表 + indexOf，现 O(1) 命中）
+- 冷启动网络：/system/app-control 原先被路由守卫 / App.vue / 桌面三方各拉一次，收敛到 router 侧统一缓存（含并发去重），三方共享同一请求；桌面回到前台/聚焦仍强制重取
+- 移除超能岛「通知历史」模式（模板分支、长按/右键手势入口、状态与面板组件一并清理），相关动效 easing 改用 var(--ease-standard) 令牌
+
+【文档】
+- 第三方开发指南与文档站新增「内置数据源」章节：课程表数据源 Resources/public/kb.yml 的位置与命名约定（name / simplified_name / teacher / room）
+- 新增「AstrBot 接入是双边插件」章节：CI 侧 astrbot-relay + AstrBot 侧 astrbot_plugin_classintra 缺一不可，含就绪判据与两侧共享配置
+
+## [1.2.4] - 2026-09-28
+【新增】
+- AstrBot 机器人接入插件升级至 1.1.0：新增站内信息共享（公告/快讯/资源/天气/社区只读，读的是 CI 自身库/配置/服务）与机器人管理代理（24 个 op 白名单、破坏性操作两段式确认闸门、all 全体令牌批量封禁）
+
+【其他】
+- server/.env.example 补齐至 65 键：新增「AstrBot 接入 / HTTPS·隧道网关 / 开发·运维开关 / 媒体落盘与跨机回源」四节，覆盖全部代码在用但模板缺失的配置项；真实密钥一律占位
+- scripts/sync-market.ps1 增加同步排除规则：顶层下划线前缀的临时探针文件不再镜像进 market 仓（目录放行，plugins/_sdk 不受影响）
+- 同步侧：market 仓索引 index.json 对齐真实清单（补上缺失的 chess 应用、修正 gomoku 与三个插件的版本号与文件清单）；文档站新增《AstrBot 机器人接入》页并补充插件市场安装说明
+
 ## [1.2.3] - 2026-09-28
 【修复】
 - 管控中心「用户管理」列表在平板上划不动：client/src/styles/global.scss 的全局规则（星号选择器上的 overscroll-behavior-y: contain）会掐断「嵌套滚动容器 → 父级」的链式滚动；叠加 .data-table-wrapper 的 overflow-x: auto（使其成为滚动容器）后，落在表格上的纵向手势完全失效，而落在内容区留白（命中 .admin-content）上仍可滚 —— 即用户反馈的「列表划不动、滑边缘却可以」。修复：给 .data-table-wrapper 显式 overscroll-behavior-y: auto

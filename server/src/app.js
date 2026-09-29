@@ -112,9 +112,98 @@ app.use('/resources', express.static(config.resourcesDir, {
   }
 }));
 
+// ===== 跨机媒体回源（AstrBot 生图等站内媒体）=====
+// 背景：AstrBot 生成的图片只落在「生成它的那台 CI」的 Resources/cloud/botmedia 下；
+// 中继只同步消息文本与云盘文件（preFetchCloudFiles 只认 /api/cloud/files/<hash>），
+// 不含 botmedia 二进制 → 另一班的 CI 上该文件不存在，客户端拿到相对 URL 后 404，
+// 表现就是「一个班用 AstrBot 生图，另一个班看不见」。
+// 这里在静态命中失败后向对端 CI 拉取一次并写回本地，后续请求直接命中静态。
+var httpMod = require('http');
+var httpsMod = require('https');
+var _botMediaInflight = {};
+
+function botMediaPeerBases() {
+  var bases = [];
+  var env = String(process.env.PEER_MEDIA_BASES || process.env.AB_PEER_STATIC_BASE || '').trim();
+  if (env) {
+    env.split(',').forEach(function(x) {
+      x = x.trim().replace(/\/+$/, '');
+      if (x) bases.push(x);
+    });
+  }
+  if (!bases.length) {
+    // 未显式配置时，复用中继的 RELAY_SERVERS（ws://host:port/relay）推导对端 HTTP 地址
+    var servers = (config.relay && config.relay.servers) || [];
+    servers.forEach(function(wsUrl) {
+      try {
+        var u = new URL(wsUrl);
+        var b = 'http://' + u.hostname + ':' + (config.port || 9001);
+        if (bases.indexOf(b) === -1) bases.push(b);
+      } catch (e) { /* 忽略非法 URL */ }
+    });
+  }
+  return bases;
+}
+
+function fetchPeerMedia(url, dest, cb) {
+  var mod = url.indexOf('https://') === 0 ? httpsMod : httpMod;
+  var req = mod.get(url, { timeout: 20000 }, function(resp) {
+    if (resp.statusCode !== 200) { resp.resume(); return cb(new Error('HTTP ' + resp.statusCode)); }
+    var chunks = [];
+    resp.on('data', function(c) { chunks.push(c); });
+    resp.on('end', function() {
+      try {
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        fs.writeFileSync(dest, Buffer.concat(chunks));
+        cb(null);
+      } catch (e) { cb(e); }
+    });
+  });
+  req.on('error', cb);
+  req.on('timeout', function() { req.destroy(new Error('timeout')); });
+}
+
+// 挂载在静态之后：只有静态没命中（=本地缺文件）才会走到这里
+function botMediaFallback(prefix, remotePrefix) {
+  return function(req, res, next) {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+    if (req.path.indexOf(prefix) !== 0) return next();
+    var rel = req.path.substring(prefix.length);
+    // 安全：只接受不含穿越的相对路径
+    if (!rel || rel.indexOf('..') !== -1 || rel.indexOf('\\') !== -1 || rel.charAt(0) === '/') return next();
+    var dest = path.join(config.resourcesDir, 'cloud', 'botmedia', rel);
+    if (fs.existsSync(dest)) return next();
+    var bases = botMediaPeerBases();
+    if (!bases.length) return next();
+
+    // 同一文件的并发请求合并成一次回源，完成后统一交给静态处理
+    if (_botMediaInflight[rel]) {
+      _botMediaInflight[rel].push(next);
+      return;
+    }
+    _botMediaInflight[rel] = [next];
+    function settle() {
+      var waiters = _botMediaInflight[rel] || [];
+      delete _botMediaInflight[rel];
+      waiters.forEach(function(fn) { try { fn(); } catch (e) {} });
+    }
+    var idx = 0;
+    (function tryNext() {
+      if (idx >= bases.length) return settle();
+      var base = bases[idx++];
+      fetchPeerMedia(base + remotePrefix + rel, dest, function(err) {
+        if (err) return tryNext();
+        console.log('[BotMedia] 跨机回源成功: ' + rel + ' ← ' + base);
+        settle();
+      });
+    })();
+  };
+}
+app.use('/resources/botmedia', botMediaFallback('/', '/resources/botmedia/'));
+app.use('/resources', botMediaFallback('/cloud/botmedia/', '/resources/cloud/botmedia/'));
+
 // FontAwesome字体文件兼容路由 - 确保旧缓存CSS的字体请求也能正常返回
-var faFontDir = path.join(config.resourcesDir, 'public', 'fontawesome', 'webfonts');
-var faFontFiles = {
+var faFontDir = path.join(config.resourcesDir, 'public', 'fontawesome', 'webfonts');var faFontFiles = {
   'fa-solid-900.woff2': null, 'fa-solid-900.ttf': null,
   'fa-regular-400.woff2': null, 'fa-regular-400.ttf': null,
   'fa-brands-400.woff2': null, 'fa-brands-400.ttf': null,

@@ -13,6 +13,8 @@ var marketAppsDir = path.join(projectDir, 'market-apps');
 var tempDir;
 var child;
 var childError = '';
+var backupMarketAppsDir = '';
+var hasMarketAppsBackup = false;
 var baseUrl = 'http://127.0.0.1:19001';
 var adminToken = '';
 var memberToken = '';
@@ -59,6 +61,14 @@ function memberHeaders() {
 test.before(async function() {
   tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'classintra-market-'));
   fs.cpSync(marketSourceDir, path.join(tempDir, 'market'), { recursive: true });
+  // 本用例会把 market-apps/ 清空再走一遍安装流程。该目录是开发者本地真实安装的运行时应用，
+  // 不能就这么被测试吃掉 —— 先整份备份到临时目录，after 里原样还原（用复制而非改名，
+  // 避免运行中的服务仍持有文件句柄导致 rename EBUSY/EPERM）。
+  backupMarketAppsDir = path.join(tempDir, 'market-apps-backup');
+  hasMarketAppsBackup = fs.existsSync(marketAppsDir);
+  if (hasMarketAppsBackup) {
+    fs.cpSync(marketAppsDir, backupMarketAppsDir, { recursive: true });
+  }
   fs.rmSync(marketAppsDir, { recursive: true, force: true });
 
   child = childProcess.spawn(process.execPath, ['src/app.js'], {
@@ -88,6 +98,14 @@ test.after(async function() {
     await new Promise(function(resolve) { setTimeout(resolve, 500); });
   }
   fs.rmSync(marketAppsDir, { recursive: true, force: true });
+  // 还原开发者本地原有的运行时应用目录（测试过程只应影响临时副本）
+  if (hasMarketAppsBackup) {
+    try {
+      fs.cpSync(backupMarketAppsDir, marketAppsDir, { recursive: true });
+    } catch (e) {
+      console.error('[market-lifecycle] 还原 market-apps 失败，请手动从 market 仓复制回去:', e && e.message);
+    }
+  }
   if (tempDir) {
     try { fs.rmSync(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); } catch (e) {}
   }
@@ -115,7 +133,12 @@ test('市场应用生命周期应在真实 HTTP 服务中完成', async function
 
   var catalog = await request('/api/market/catalog?source=local');
   assert.equal(catalog.response.status, 200);
-  assert.equal(catalog.body.data.catalog.apps[0].name, 'gomoku');
+  // 不假定目录顺序（index.json 会随应用增减变化，chess 已先于 gomoku 列入），只断言包含 gomoku
+  var catalogApps = catalog.body.data.catalog.apps || [];
+  assert.ok(
+    catalogApps.some(function (a) { return a && a.name === 'gomoku'; }),
+    'catalog 应包含 gomoku，实际: ' + JSON.stringify(catalogApps.map(function (a) { return a && a.name; }))
+  );
 
   var install = await request('/api/market/install', {
     method: 'POST',
@@ -145,7 +168,8 @@ test('市场应用生命周期应在真实 HTTP 服务中完成', async function
   });
   assert.equal(createRoom.response.status, 201);
   assert.equal(createRoom.body.data.size, 19);
-  assert.match(createRoom.body.data.roomCode, /^[A-Z0-9]{6}$/);
+  // 房间码格式：4 位数字（makeCode = randomBytes % 10000 补零），不再是大写字母数字 6 位
+  assert.match(createRoom.body.data.roomCode, /^\d{4}$/);
 
   var roomCode = createRoom.body.data.roomCode;
   var room = await request('/api/gomoku/rooms/' + roomCode, { headers: adminHeaders() });

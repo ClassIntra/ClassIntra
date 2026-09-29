@@ -11,43 +11,67 @@ Vue.use(VueRouter);
 // browser 路由不通过 manifest 注册（写死在下方路由表）
 // 注：超能岛浏览器不通过应用管控，改为 per-user browser_enabled 控制
 ROUTE_APP_MAP['/browser'] = 'browser';
-// 启用应用列表缓存（null=未加载，数组=已加载）
-var enabledAppsCache = null;
-var enabledAppsLoading = null;
+// 应用管控数据缓存（null=未加载，对象=已加载的完整 /system/app-control 响应 data）
+// 缓存完整对象而非仅 enabled_apps：路由守卫要 enabled_apps、App 要 lock_screen、
+// Desktop 要 enabled_apps —— 三者共用同一次请求，避免冷启动对同一接口重复往返。
+var appControlCache = null;
+var appControlLoading = null;
 
-// 获取启用应用列表（带缓存，避免每次路由跳转都请求后端）
-function getEnabledApps() {
-  if (enabledAppsCache !== null) {
-    return Promise.resolve(enabledAppsCache);
+// 后端不可达时的降级：按「本地实际打包的 manifest」推导启用名单，
+// 跟随构建内容，避免硬编码过期应用名（已删除的模块自然不在其列）
+function deriveFallbackApps() {
+  var fallback = loadManifests()
+    .map(function(m) { return m.name; })
+    .filter(function(n) { return !!n; });
+  if (fallback.indexOf('browser') === -1) {
+    fallback.push('browser');
   }
-  if (enabledAppsLoading) {
-    return enabledAppsLoading;
+  return fallback;
+}
+
+// 获取应用管控数据（带缓存 + 并发去重）
+// opts.force = true 时先清缓存强制重取（回到前台兜底刷新等场景）
+function getAppControl(opts) {
+  var force = !!(opts && opts.force);
+  if (force) {
+    appControlCache = null;
+    appControlLoading = null;
   }
-  enabledAppsLoading = api.get('/system/app-control').then(function(response) {
-    var data = response.data.data || {};
-    enabledAppsCache = data.enabled_apps || [];
-    enabledAppsLoading = null;
-    return enabledAppsCache;
-  }).catch(function() {
-    // 降级：后端不可达时按「本地实际打包的 manifest」推导启用名单，
-    // 跟随构建内容，避免硬编码过期应用名（已删除的模块自然不在其列）
-    var fallback = loadManifests()
-      .map(function(m) { return m.name; })
-      .filter(function(n) { return !!n; });
-    if (fallback.indexOf('browser') === -1) {
-      fallback.push('browser');
+  if (appControlCache !== null) {
+    return Promise.resolve(appControlCache);
+  }
+  if (appControlLoading) {
+    return appControlLoading;
+  }
+  appControlLoading = api.get('/system/app-control').then(function(response) {
+    var data = (response.data && response.data.data) || {};
+    if (!Array.isArray(data.enabled_apps)) {
+      data.enabled_apps = [];
     }
-    enabledAppsCache = fallback;
-    enabledAppsLoading = null;
-    return enabledAppsCache;
+    appControlCache = data;
+    appControlLoading = null;
+    // 返回本地引用，避免下游 .then 执行期间缓存被清空（如 Desktop 拉完即失效）
+    return data;
+  }).catch(function() {
+    var data = { enabled_apps: deriveFallbackApps() };
+    appControlCache = data;
+    appControlLoading = null;
+    return data;
   });
-  return enabledAppsLoading;
+  return appControlLoading;
+}
+
+// 获取启用应用列表（兼容旧调用方：路由守卫等）
+function getEnabledApps() {
+  return getAppControl().then(function(data) {
+    return data.enabled_apps || [];
+  });
 }
 
 // 清除应用管控缓存（管理员修改后可调用以刷新）
 function clearAppControlCache() {
-  enabledAppsCache = null;
-  enabledAppsLoading = null;
+  appControlCache = null;
+  appControlLoading = null;
 }
 
 var routes = [
@@ -209,6 +233,8 @@ function proceedWithAdminCheck(to, next) {
 
 // 导出缓存清除函数，供管理页面调用
 router.clearAppControlCache = clearAppControlCache;
+// 导出应用管控数据获取（带缓存 + 并发去重），供 App.vue / Desktop.vue 复用同一次请求
+router.getAppControl = getAppControl;
 var marketRoutes = {};
 var unloadedMarketRoutes = {};
 router.registerMarketApps = function(apps) {

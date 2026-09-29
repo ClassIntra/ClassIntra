@@ -366,6 +366,116 @@ router.post('/users/batch-status', auth.requirePermission('manage_users'), funct
   res.json({ code: 200, message: '批量操作成功', data: { affected: affected, status: newStatus } });
 });
 
+// POST /api/admin/users/bulk-status - 按显式名单批量改状态（仅系统管理员）
+// 与 /users/batch-status 的区别：作用范围由调用方给出的 user_ids 决定，不做班级限定，
+// 因此可表达「全体」这类跨班批量动作（林晞代理的 all / all_except_<用户> 走这里）。
+// 硬性护栏（与单用户 PATCH 语义一致，且绝不放开）：
+//   - 只允许 isSystemAdmin 调用（班管/班干即便有 manage_users 也只能用按班版本）；
+//   - 始终跳过 is_admin=1 的账号（含机器人自己）——避免把管理员锁在门外；
+//   - 封禁时始终跳过班管（constants.isClassAdmin）。
+// 单请求内串行 UPDATE + 逐条 WS 广播，避免上百次串行 PATCH 把调用方超时打爆。
+router.post('/users/bulk-status', auth.requirePermission('manage_users'), function(req, res) {
+  var callerId = req.user ? req.user.user_id : '';
+  if (!constants.isSystemAdmin(callerId)) {
+    return res.status(403).json({ code: 403, message: '仅系统管理员可按名单批量操作' });
+  }
+
+  var newStatus = req.body.status;
+  if (!newStatus || (newStatus !== 'active' && newStatus !== 'disabled')) {
+    return res.status(400).json({ code: 400, message: '无效的状态值' });
+  }
+  // 空原因保持空串，与单用户 PATCH /users/:id/status 的语义一致
+  // （relay 的 user_ban 在管理员没给原因时传的就是空串）。别沿用旧按班版本的
+  // '批量操作' 兜底 —— 那会把「无原因」写成一句假原因，覆盖掉用户原本的字段。
+  var reason = req.body.reason || '';
+  var duration = req.body.duration || 0;
+  var rawIds = Array.isArray(req.body.user_ids) ? req.body.user_ids : [];
+  if (!rawIds.length) {
+    return res.status(400).json({ code: 400, message: '缺少 user_ids' });
+  }
+  if (rawIds.length > 500) {
+    return res.status(400).json({ code: 400, message: '一次最多 500 个用户' });
+  }
+
+  var banExpiresAt = null;
+  if (newStatus === 'disabled' && duration > 0) {
+    banExpiresAt = new Date(Date.now() + duration * 60000).toISOString().replace('T', ' ').substring(0, 19);
+  }
+
+  var updateStmt;
+  if (newStatus === 'disabled') {
+    updateStmt = db.prepare('UPDATE users SET status = ?, ban_expires_at = ?, ban_reason = ?, updated_at = datetime(\'now\') WHERE id = ?');
+  } else {
+    updateStmt = db.prepare('UPDATE users SET status = ?, ban_expires_at = NULL, ban_reason = NULL, updated_at = datetime(\'now\') WHERE id = ?');
+  }
+
+  var chatServer = null;
+  try { chatServer = require('../ws/chat-server'); } catch (e) {}
+  var relayBus = null;
+  try { relayBus = require('../utils/relay-bus'); } catch (e) {}
+
+  var selectStmt = db.prepare('SELECT id, user_id, is_admin FROM users WHERE user_id = ?');
+  var affected = 0;
+  var failed = [];
+  var okIds = [];
+
+  for (var i = 0; i < rawIds.length; i++) {
+    var uid = String(rawIds[i] == null ? '' : rawIds[i]).trim();
+    if (!uid) { failed.push({ target: '', message: '空学号' }); continue; }
+
+    var row = selectStmt.get(uid);
+    if (!row) { failed.push({ target: uid, message: '用户不存在' }); continue; }
+    if (row.is_admin === 1) { failed.push({ target: uid, message: '管理员账号不可批量改状态' }); continue; }
+    if (newStatus === 'disabled' && constants.isClassAdmin(String(row.user_id))) {
+      failed.push({ target: uid, message: '无法封禁班管' }); continue;
+    }
+
+    if (newStatus === 'disabled') {
+      updateStmt.run(newStatus, banExpiresAt, reason, row.id);
+    } else {
+      updateStmt.run(newStatus, row.id);
+    }
+    affected++;
+    okIds.push(row.user_id);
+
+    if (chatServer) {
+      try {
+        chatServer.sendToClient(row.user_id, {
+          type: 'account_banned',
+          status: newStatus,
+          reason: newStatus === 'disabled' ? reason : '',
+          ban_expires_at: newStatus === 'disabled' ? banExpiresAt : null
+        });
+      } catch (e) {}
+    }
+    if (relayBus) {
+      try {
+        relayBus.emit('admin_user_status_changed', {
+          user_id: row.user_id,
+          status: newStatus,
+          reason: newStatus === 'disabled' ? reason : '',
+          ban_expires_at: newStatus === 'disabled' ? banExpiresAt : null
+        });
+      } catch (e) {}
+    }
+  }
+
+  logAction(
+    callerId,
+    newStatus === 'disabled' ? 'bulk_disable_users' : 'bulk_enable_users',
+    // 审计目标带上具体学号（超 30 人只记前 30 + 省略计数），否则「批量封了谁」事后无从追溯
+    okIds.slice(0, 30).join(',') + (okIds.length > 30 ? ' 等 ' + okIds.length + ' 人' : ''),
+    '按名单批量' + (newStatus === 'disabled' ? '封禁' : '启用') + ' ' + affected + '/' + rawIds.length +
+      ' 人' + (newStatus === 'disabled' ? '，原因：' + reason + (banExpiresAt ? '，至 ' + banExpiresAt : '（永久）') : '')
+  );
+
+  res.json({
+    code: 200,
+    message: '批量状态更新完成',
+    data: { affected: affected, total: rawIds.length, failed: failed }
+  });
+});
+
 router.get('/users/:id/ban-info', function(req, res) {
   var userId = req.params.id;
   var user = db.prepare('SELECT status, ban_expires_at, ban_reason FROM users WHERE id = ?').get(userId);

@@ -13,6 +13,8 @@ var marketAppsDir = path.join(projectDir, 'market-apps');
 var tempDir;
 var child;
 var childError = '';
+var backupMarketAppsDir = '';
+var hasMarketAppsBackup = false;
 var baseUrl = 'http://127.0.0.1:19101';
 var wsUrl = 'ws://127.0.0.1:19102/ws';
 var token = '';
@@ -87,6 +89,13 @@ function waitForMessage(socket, type) {
 test.before(async function() {
   tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'classintra-gomoku-ws-'));
   fs.cpSync(path.join(projectDir, '..', 'market'), path.join(tempDir, 'market'), { recursive: true });
+  // market-apps/ 是开发者本地真实安装的运行时应用目录，本用例会把它清空重放一份 gomoku。
+  // 先整份备份到临时目录，after 里原样还原（复制而非改名，避开运行中服务的文件句柄锁）。
+  backupMarketAppsDir = path.join(tempDir, 'market-apps-backup');
+  hasMarketAppsBackup = fs.existsSync(marketAppsDir);
+  if (hasMarketAppsBackup) {
+    fs.cpSync(marketAppsDir, backupMarketAppsDir, { recursive: true });
+  }
   fs.rmSync(marketAppsDir, { recursive: true, force: true });
   fs.cpSync(marketSourceDir, path.join(marketAppsDir, 'gomoku'), { recursive: true });
   child = childProcess.spawn(process.execPath, ['src/app.js'], {
@@ -124,6 +133,14 @@ test.after(async function() {
     await new Promise(function(resolve) { setTimeout(resolve, 500); });
   }
   fs.rmSync(marketAppsDir, { recursive: true, force: true });
+  // 还原开发者本地原有的运行时应用目录（测试只应影响临时副本）
+  if (hasMarketAppsBackup) {
+    try {
+      fs.cpSync(backupMarketAppsDir, marketAppsDir, { recursive: true });
+    } catch (e) {
+      console.error('[gomoku-ws] 还原 market-apps 失败，请手动从 market 仓复制回去:', e && e.message);
+    }
+  }
   if (tempDir) {
     try { fs.rmSync(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); } catch (e) {}
   }

@@ -38,9 +38,6 @@ export default {
       wsListeners: {},
       progressWidth: 100,
       progressTimer: null,
-      // 历史记录
-      notificationHistory: [],
-      historyFilter: 'all',
       // 在线用户
       onlineUserCount: 0
     };
@@ -77,13 +74,6 @@ export default {
       if (this.notificationPriority === 'urgent') color = 'var(--danger-color)';
       else if (this.notificationPriority === 'low') color = 'var(--text-tertiary)';
       return { transform: 'scaleX(' + (this.progressWidth / 100) + ')', background: color };
-    },
-    filteredHistory: function() {
-      var self = this;
-      if (self.historyFilter === 'all') return self.notificationHistory;
-      return self.notificationHistory.filter(function(item) {
-        return item.category === self.historyFilter;
-      });
     }
   },
 
@@ -429,12 +419,6 @@ export default {
       self.progressWidth = 100;
       self.showQuickCompose = false;
 
-      var historyItem = Object.assign({}, data, { timestamp: Date.now() });
-      self.notificationHistory.unshift(historyItem);
-      if (self.notificationHistory.length > 50) {
-        self.notificationHistory = self.notificationHistory.slice(0, 50);
-      }
-
       self.isBouncing = true;
       self._bounceTimer = setTimeout(function() { self.isBouncing = false; }, 420);
 
@@ -511,23 +495,6 @@ export default {
         var next = self.notificationQueue.shift();
         if (next) self.showNotification(next);
       }, 300);
-    },
-
-    formatHistoryTime: function(ts) {
-      if (!ts) return '';
-      var diff = Date.now() - ts;
-      if (diff < 60000) return '刚刚';
-      if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前';
-      if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前';
-      return Math.floor(diff / 86400000) + '天前';
-    },
-
-    // 清空通知历史。历史只在内存中（不落库），清空即刻生效且不可恢复，
-    // 因此保持面板打开（让用户看到空态提示），不自动收起。
-    clearHistory: function() {
-      this.notificationHistory = [];
-      this.historyFilter = 'all';
-      this.$store.commit('toast/SHOW_TOAST', { message: '已清空通知记录', type: 'success' });
     },
 
     cleanupNotificationTimers: function() {

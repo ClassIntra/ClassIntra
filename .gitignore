@@ -127,6 +127,8 @@ plugins/
 
 # WorkBuddy 本地工作数据（日志/临时脚本，不进公开仓库）
 .workbuddy/
+# 探针/调试临时目录（可能含 CDP profile 等大体积产物，绝不入库）
+**/.workbuddy-tmp/
 
 # 设计工具导出产物
 classintraops-gui.html
