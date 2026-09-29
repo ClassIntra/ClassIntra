@@ -631,6 +631,7 @@ function up(db) {
     '  color TEXT DEFAULT \'\',',
     '  reminder_minutes INTEGER DEFAULT 0,',
     '  reminded INTEGER DEFAULT 0,',
+    '  show_in_countdown INTEGER DEFAULT 0,',
     '  created_at TEXT DEFAULT (datetime(\'now\')),',
     '  updated_at TEXT DEFAULT (datetime(\'now\'))',
     ')'

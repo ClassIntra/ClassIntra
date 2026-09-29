@@ -59,8 +59,10 @@ router.post('/events', auth.requireAuth, function(req, res) {
   var category = req.body.category || 'general';
   var color = req.body.color || '';
   var reminderMinutes = parseInt(req.body.reminder_minutes, 10) || 0;
+  // 联动字段：是否同步显示到倒数日（前端勾选「同步显示到倒数日」）
+  var showInCountdown = req.body.show_in_countdown ? 1 : 0;
   try {
-    var info = db.prepare('INSERT INTO calendar_events (user_id, title, description, event_date, start_time, end_time, category, color, reminder_minutes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(userId, title, description, eventDate, startTime, endTime, category, color, reminderMinutes);
+    var info = db.prepare('INSERT INTO calendar_events (user_id, title, description, event_date, start_time, end_time, category, color, reminder_minutes, show_in_countdown) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(userId, title, description, eventDate, startTime, endTime, category, color, reminderMinutes, showInCountdown);
     res.json({ code: 200, message: '创建成功', data: { id: info.lastInsertRowid } });
   } catch (e) {
     res.status(500).json({ code: 500, message: '创建失败' });
@@ -83,9 +85,11 @@ router.put('/events/:id', auth.requireAuth, function(req, res) {
     var category = (req.body.category !== undefined) ? req.body.category : existing.category;
     var color = (req.body.color !== undefined) ? req.body.color : existing.color;
     var reminderMinutes = (req.body.reminder_minutes !== undefined) ? (parseInt(req.body.reminder_minutes, 10) || 0) : existing.reminder_minutes;
+    // 联动字段：是否同步显示到倒数日
+    var showInCountdown = (req.body.show_in_countdown !== undefined) ? (req.body.show_in_countdown ? 1 : 0) : existing.show_in_countdown;
     // 修改事件时重置提醒标记
     var reminded = (req.body.reminder_minutes !== undefined && req.body.reminder_minutes != existing.reminder_minutes) ? 0 : existing.reminded;
-    db.prepare('UPDATE calendar_events SET title = ?, description = ?, event_date = ?, start_time = ?, end_time = ?, category = ?, color = ?, reminder_minutes = ?, reminded = ?, updated_at = datetime(\'now\') WHERE id = ?').run(title, description, eventDate, startTime, endTime, category, color, reminderMinutes, reminded, eventId);
+    db.prepare('UPDATE calendar_events SET title = ?, description = ?, event_date = ?, start_time = ?, end_time = ?, category = ?, color = ?, reminder_minutes = ?, reminded = ?, show_in_countdown = ?, updated_at = datetime(\'now\') WHERE id = ?').run(title, description, eventDate, startTime, endTime, category, color, reminderMinutes, reminded, showInCountdown, eventId);
     res.json({ code: 200, message: '更新成功' });
   } catch (e) {
     res.status(500).json({ code: 500, message: '更新失败' });
