@@ -55,7 +55,7 @@
             <article v-for="app in filteredCatalog" :key="app.name" class="app-card">
               <div class="app-card-header">
                 <div class="app-icon" :style="{ background: app.color || '#5856D6' }">
-                  <img v-if="app.icon" :src="app.icon" :alt="app.label" @error="onIconError" />
+                  <img v-if="app.icon && !iconErrors[app.name]" :src="app.icon" :alt="app.label" @error="onIconError(app)" />
                   <i v-else class="fa-solid fa-puzzle-piece"></i>
                 </div>
                 <div class="app-title">
@@ -96,7 +96,7 @@
           <div v-if="installedApps.length" class="installed-list">
             <article v-for="app in installedApps" :key="app.name" class="installed-card">
               <div class="app-icon small" :style="{ background: app.color || '#5856D6' }">
-                <img v-if="app.icon" :src="app.icon" :alt="app.label" @error="onIconError" />
+                <img v-if="app.icon && !iconErrors[app.name]" :src="app.icon" :alt="app.label" @error="onIconError(app)" />
                 <i v-else class="fa-solid fa-puzzle-piece"></i>
               </div>
               <div class="installed-info">
@@ -196,6 +196,8 @@ export default {
       activeSource: '',
       loading: true,
       actionLoading: '',
+      // 图标加载失败记录（key: 应用名）→ 回落为占位图标
+      iconErrors: {},
       actionStatus: '',
       error: ''
     };
@@ -443,8 +445,9 @@ export default {
       if (isNaN(date.getTime())) return value;
       return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
     },
-    onIconError: function(event) {
-      event.target.style.display = 'none';
+    onIconError: function(app) {
+      // 加载失败不再静默隐藏（会留下空的色块），改回落为占位图标
+      if (app && app.name) this.$set(this.iconErrors, app.name, true);
     }
   }
 };
@@ -530,7 +533,9 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .app-card:hover { box-shadow: var(--shadow-md); border-color: rgba(var(--primary-rgb), 0.4); }
 .app-card:active { transform: scale(0.98); }
 .app-card-header { display: flex; align-items: center; gap: 12px; }
-.app-icon { width: 48px; height: 48px; border-radius: var(--radius-pill); display: flex; align-items: center; justify-content: center; color: #fff; overflow: hidden; flex-shrink: 0; }
+.app-icon { width: 48px; height: 48px; border-radius: var(--radius-lg); display: flex; align-items: center; justify-content: center; color: #fff; overflow: hidden; flex-shrink: 0; }
+/* 圆角矩形（与桌面 AppIcon 的 --radius-lg 同语言），不用 --radius-pill：
+   方形图标 + 全圆角在 48px 下会变成正圆，与系统其他位置的图标形状不一致 */
 .app-icon.small { width: 42px; height: 42px; border-radius: var(--radius-md); }
 .app-icon img { width: 100%; height: 100%; object-fit: cover; }
 .app-title { min-width: 0; }

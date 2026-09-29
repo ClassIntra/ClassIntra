@@ -828,14 +828,12 @@
             <label class="form-label">食堂 <span class="required">*</span></label>
             <select class="form-select" v-model="newPost.foodForm.canteen">
               <option value="">请选择食堂</option>
-              <option value="黄山大厦">黄山大厦</option>
-              <option value="优芙德">优芙德</option>
-              <option value="其他">其他</option>
+              <option v-for="canteen in canteens" :key="canteen" :value="canteen">{{ canteen }}</option>
             </select>
           </div>
           <div v-if="newPost.type === 'food'" class="form-group">
             <label class="form-label">窗口</label>
-            <input class="form-input" v-model="newPost.foodForm.window" placeholder="例如：优芙德2楼1/2号窗口" />
+            <input class="form-input" v-model="newPost.foodForm.window" placeholder="例如：2楼1/2号窗口" />
           </div>
           <div v-if="newPost.type === 'hot'" class="form-group">
             <label class="form-label">标题 <span class="required">*</span></label>
@@ -996,14 +994,12 @@
             <label class="form-label">食堂 <span class="required">*</span></label>
             <select class="form-select" v-model="foodForm.canteen">
               <option value="">请选择食堂</option>
-              <option value="黄山大厦">黄山大厦</option>
-              <option value="优芙德">优芙德</option>
-              <option value="其他">其他</option>
+              <option v-for="canteen in canteens" :key="canteen" :value="canteen">{{ canteen }}</option>
             </select>
           </div>
           <div class="form-group">
             <label class="form-label">窗口</label>
-            <input class="form-input" v-model="foodForm.window" placeholder="例如：优芙德2楼1/2号窗口" />
+            <input class="form-input" v-model="foodForm.window" placeholder="例如：2楼1/2号窗口" />
           </div>
           <div class="form-group">
             <label class="form-label">推荐理由</label>
@@ -1340,6 +1336,10 @@ export default {
       var user = this.$store && this.$store.state && this.$store.state.auth && this.$store.state.auth.user;
       return !!(user && user.info && user.info.browser_enabled);
     },
+    // 食堂列表：部署方在 setup 页配置（服务端 /community/config 下发），不在代码里写死
+    canteens: function() {
+      return this.$store.state.community.canteens;
+    },
     // 当前长按菜单的图片是否可转存到云盘（仅本站图片）
     canSaveMenuMedia: function() {
       var url = this.imageMenuUrl || '';
@@ -1494,6 +1494,8 @@ export default {
   created: function() {
     var self = this;
     self.initData();
+    // 拉取部署方可配置项（食堂列表）；失败静默回落内置默认值
+    self.$store.dispatch('community/fetchConfig');
     self.setupWSListeners();
     var postId = self.$route.query.post;
     if (postId) {

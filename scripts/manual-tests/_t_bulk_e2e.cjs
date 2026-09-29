@@ -8,7 +8,7 @@
 //   - 不新建任何用户，不碰其他人的账号状态。
 //
 // 跑法（须在 CI 运行中；DB_PATH 为相对路径，必须以 server 为 cwd）：
-//     cd D:/NetWork/Integration/ClassIntra/server && PYTHONPATH= node ../_t_bulk_e2e.cjs
+//     cd D:/NetWork/Integration/ClassIntra/server && PYTHONPATH= node ../scripts/manual-tests/_t_bulk_e2e.cjs
 
 const fs = require('fs');
 const path = require('path');

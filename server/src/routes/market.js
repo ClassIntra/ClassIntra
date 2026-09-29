@@ -60,6 +60,19 @@ router.get('/catalog', function(req, res) {
   });
 });
 
+// 市场目录静态资源代理（应用图标等）。
+// <img> 标签无法携带 Authorization 头，且接入设备未必能直连市场源，
+// 故与 /market-static 同等公开级别：路径校验 + 扩展名白名单 + 15MB 上限（在 market-service 内）。
+router.get('/asset', function(req, res) {
+  marketService.fetchAsset(String(req.query.source || 'gitee'), String(req.query.path || '')).then(function(result) {
+    res.setHeader('Content-Type', result.contentType);
+    res.setHeader('Cache-Control', 'no-cache'); // 不做强缓存，靠 ETag 协商
+    res.send(result.buffer);
+  }).catch(function(e) {
+    res.status(404).json({ code: 404, message: e.message || '资源不存在' });
+  });
+});
+
 // 安装应用
 router.post('/install', auth.requireAuth, auth.requireAdmin, function(req, res) {
   var name = req.body && req.body.name;
