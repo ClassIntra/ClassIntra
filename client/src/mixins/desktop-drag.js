@@ -261,8 +261,8 @@ export default {
     _createGhost: function(source) {
       var ghost = document.createElement('div');
       ghost.className = 'desktop-drag-ghost';
-      var ghostW = 72;
-      var ghostH = 72;
+      var ghostW = 60;
+      var ghostH = 60;
 
       // widget 拖拽：克隆 widget DOM，保持视觉一致
       if (source.type === 'widget') {
@@ -335,8 +335,8 @@ export default {
     // 更新 ghost 位置（中心对齐指针）
     _updateGhost: function(x, y) {
       if (!this.dragState.ghostEl) return;
-      var w = this.dragState._ghostW || 72;
-      var h = this.dragState._ghostH || 72;
+      var w = this.dragState._ghostW || 60;
+      var h = this.dragState._ghostH || 60; 
       this.dragState.ghostEl.style.transform = 'translate(' + (x - w / 2) + 'px,' + (y - h / 2) + 'px) scale(1.08)';
     },
 
