@@ -29,7 +29,16 @@ function cacheBusterPlugin() {
       if (!buildHash) return html;
       // 缓存破坏：检测版本变更时清除浏览器缓存，但不修改 URL 以保护浏览器历史记录
       var script = '<script>(function(){var k=\'_cv\',s=localStorage.getItem(k),v=\'' + buildHash + '\';if(s&&s!==v){try{if(\'caches\' in window)caches.keys().then(function(n){for(var i=0;i<n.length;i++)caches.delete(n[i]);});}catch(e){}localStorage.setItem(k,v);}else if(!s){localStorage.setItem(k,v);}})();</' + 'script>';
-      return html.replace('<head>', '<head>' + script);
+      var out = html.replace('<head>', '<head>' + script);
+      // favicon 例外：浏览器对 <link rel="icon"> 有**独立于 HTTP 缓存**的图标库，上面的
+      // caches.delete 清不到它 —— 品牌换标后用户会长期看到旧图标（实测 09-28 换新后
+      // 标签页仍是 09-25 那一版）。对 icon 只能靠**换 URL**：这里挂上构建 hash，
+      // 每次发版自动变化，无需人工改名。
+      out = out.replace(
+        /(<link\s+rel="icon"[^>]*href="\/resources\/public\/brand\/favicon\.svg)(")/,
+        '$1?v=' + buildHash + '$2'
+      );
+      return out;
     }
   };
 }
