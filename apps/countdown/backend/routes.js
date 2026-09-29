@@ -121,6 +121,8 @@ router.post('/events', auth.requireAuth, function(req, res) {
   var repeatType = req.body.repeat_type || 'none';
   var reminderMinutes = parseInt(req.body.reminder_minutes, 10) || 0;
   var note = req.body.note || '';
+  // 联动字段：是否同步显示到日历（前端勾选「显示在日历」）
+  var showInCalendar = req.body.show_in_calendar ? 1 : 0;
   try {
     // 检查置顶数量上限（最多 3 个）
     if (pinned) {
@@ -129,7 +131,7 @@ router.post('/events', auth.requireAuth, function(req, res) {
         return res.status(400).json({ code: 400, message: '置顶事件最多 3 个' });
       }
     }
-    var info = db.prepare('INSERT INTO countdown_events (user_id, title, target_date, category, color, icon, pinned, repeat_type, reminder_minutes, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(userId, title, targetDate, category, color, icon, pinned, repeatType, reminderMinutes, note);
+    var info = db.prepare('INSERT INTO countdown_events (user_id, title, target_date, category, color, icon, pinned, repeat_type, reminder_minutes, note, show_in_calendar) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(userId, title, targetDate, category, color, icon, pinned, repeatType, reminderMinutes, note, showInCalendar);
     res.json({ code: 200, message: '创建成功', data: { id: info.lastInsertRowid } });
   } catch (e) {
     res.status(500).json({ code: 500, message: '创建失败' });
