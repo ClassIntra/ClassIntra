@@ -27,7 +27,9 @@
       ></video>
       <!-- 不用 autoplay 属性：待命实例换 blob 源重载时会被它拉起「幽灵自播」
            （不可见却占用解码，还会扰乱播放中的实例）；统一由 playVideoWallpaper 显式拉起 -->
+      <!-- 低配设备只渲染单 video：URL 流式 + 原生 loop，零额外开销 -->
       <video
+        v-if="dualBuffer"
         ref="videoB"
         class="desktop-video-wallpaper"
         :class="{ 'video-active': activeVideo === 'B' }"
@@ -452,6 +454,11 @@ export default {
         return '/resources/public/wallpaper/' + wp;
       }
       return '';
+    },
+    // 双缓冲仅中高配设备启用：低配（level 1）双解码器 + blob 全量内存
+    // 反而拖垮播放（用户实测「卡顿比较严重」），回退单 video 轻量播放
+    dualBuffer: function() {
+      return this.videoPerformanceLevel >= 2;
     },
     // 实际喂给 <video> 的源由 data 的 videoASrc/videoBSrc 驱动（模板里空值回退 URL），
     // blob 就绪后只换待命实例的源，绝不打断正在播放的实例（换 src = 重载 = 黑屏）
@@ -1018,6 +1025,8 @@ export default {
     preloadVideoBlob: function(src) {
       var self = this;
       if (!src) return;
+      // 低配设备跳过全量预载：几十 MB blob 常驻内存 + 预载抢带宽，得不偿失
+      if (!self.dualBuffer) return;
       if (self._videoBlobController) self._videoBlobController.abort();
       var controller = ('AbortController' in window) ? new AbortController() : null;
       self._videoBlobController = controller;
