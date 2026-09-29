@@ -336,9 +336,14 @@ function _fetchFile(source, relPath, binary) {
   return new Promise(function(resolve, reject) {
     var full = _safeJoin(source.base, relPath);
     if (!full) return reject(new Error('非法路径: ' + relPath));
-    fs.readFile(full, function(err, data) {
-      if (err) reject(new Error('读取文件失败: ' + relPath));
-      else resolve(data);
+    // 与 HTTP 源的 maxContentLength 对齐：本地源文件同样受 15MB 上限约束
+    fs.stat(full, function(statErr, stat) {
+      if (statErr) return reject(new Error('读取文件失败: ' + relPath));
+      if (stat.size > MAX_FILE_BYTES) return reject(new Error('文件过大（超过15MB）: ' + relPath));
+      fs.readFile(full, function(err, data) {
+        if (err) reject(new Error('读取文件失败: ' + relPath));
+        else resolve(data);
+      });
     });
   });
 }

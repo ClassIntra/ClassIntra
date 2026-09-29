@@ -167,12 +167,21 @@ router.post('/save', requireSetupAuth, function(req, res) {
     if (defaultAiModel && configuredModels.length > 0 && configuredModels.indexOf(defaultAiModel) === -1) {
       return res.status(400).json({ code: 400, message: '默认 AI 模型必须属于 AI_AVAILABLE_MODELS' });
     }
+    // 模型名会写入 .env（AI_MODEL=xxx），白名单字符防止换行/特殊符号注入环境变量
+    if (defaultAiModel && !/^[\w.\-:\/]+$/.test(defaultAiModel)) {
+      return res.status(400).json({ code: 400, message: '默认 AI 模型名称只能包含字母、数字、点、横线、冒号、斜杠' });
+    }
     if (canteens) {
       for (var ck = 0; ck < canteens.length; ck++) {
         var canteenName = String(canteens[ck] || '').trim();
         if (!canteenName) continue;
         if (canteenName.length > 20) {
           return res.status(400).json({ code: 400, message: '食堂名称不能超过20字：' + canteenName });
+        }
+        // 安全校验：CANTEEN_LIST 以逗号分隔写入 .env，换行/逗号/引号/# 会破坏
+        // .env 结构（换行可注入任意环境变量，首装阶段此接口匿名可调）
+        if (/[\r\n,'"#]/.test(canteenName)) {
+          return res.status(400).json({ code: 400, message: '食堂名称不能包含换行、逗号、引号、#等特殊字符：' + canteenName });
         }
         if (cleanedCanteens.indexOf(canteenName) === -1) cleanedCanteens.push(canteenName);
       }
