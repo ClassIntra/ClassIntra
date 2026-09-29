@@ -535,7 +535,9 @@ router.get('/posts', function(req, res) {
   convertTimesArray(filteredPosts);
   stripAdminFields(filteredPosts, req.user);
 
-  res.json({ code: 200, message: 'ok', data: { posts: filteredPosts, total: filteredPosts.length, page: page } });
+  // total 必须用 SQL count 的未过滤总数：filteredPosts 是当页可见性过滤后的条数，
+  // 拿它当 total 会让前端总页数随翻页漂移（每页过滤掉的数量不同）
+  res.json({ code: 200, message: 'ok', data: { posts: filteredPosts, total: totalResult.total, page: page } });
 });
 
 router.get('/posts/:id', function(req, res) {

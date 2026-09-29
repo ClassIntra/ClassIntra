@@ -1021,7 +1021,8 @@ var NOTES_STORAGE_KEY = 'notes_data';
 mermaid.initialize({
   startOnLoad: false,
   theme: 'default',
-  securityLevel: 'loose',
+  // antiscript：允许 HTML 标签（<br> 等）但移除脚本事件——loose 完全不设防（存储型 XSS），strict 会把 <br> 转义成文本
+  securityLevel: 'antiscript',
   fontFamily: 'inherit',
   suppressErrorRendering: true,
   flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' },

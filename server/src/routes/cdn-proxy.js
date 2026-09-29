@@ -4,6 +4,7 @@ var axios = require('axios');
 var path = require('path');
 var fs = require('fs');
 var config = require('../config');
+var auth = require('../middleware/auth');
 
 var CDN_CACHE_DIR = path.join(config.resourcesDir, '.cdn-cache');
 var CDN_CACHE_TTL = 3600000;
@@ -135,7 +136,8 @@ router.get('/proxy', function(req, res) {
   });
 });
 
-router.post('/clear-cache', function(req, res) {
+// 清空 CDN 缓存（仅管理员/班管）
+router.post('/clear-cache', auth.requireAuth, auth.requireAdmin, function(req, res) {
   try {
     var files = fs.readdirSync(CDN_CACHE_DIR);
     var cleared = 0;

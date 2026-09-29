@@ -159,6 +159,13 @@ router.post('/save', requireSetupAuth, function(req, res) {
     if (adminIds.length === 0) {
       return res.status(400).json({ code: 400, message: '至少需要一个管理员ID' });
     }
+    // 管理员ID会以逗号拼接写入 .env（ADMIN_USER_IDS），必须严格 6 位数字——
+    // 换行等特殊字符可注入任意环境变量（首装窗口期此接口匿名可调）
+    for (var ai = 0; ai < adminIds.length; ai++) {
+      if (!/^\d{6}$/.test(String(adminIds[ai] || '').trim())) {
+        return res.status(400).json({ code: 400, message: '管理员ID必须为6位数字：' + adminIds[ai] });
+      }
+    }
 
     if (weatherLocation && !/^-?\d+(\.\d+)?,-?\d+(\.\d+)?$/.test(weatherLocation)) {
       return res.status(400).json({ code: 400, message: '天气地点格式应为经度,纬度，例如117.26,31.22' });
