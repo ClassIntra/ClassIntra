@@ -1644,12 +1644,15 @@ router.get('/pm2/status', function(req, res) {
 
 router.post('/pm2/restart', function(req, res) {
   if (!isClassAdminUser(req)) return res.status(403).json({ code: 403, message: '仅班管可操作' });
+  // Audit BEFORE the action, never in the pm2 callback: restarting this app
+  // kills the very process serving the request, so a callback-based write
+  // races the SIGINT and can be lost -> the restart becomes untraceable.
+  logAction(req.user.user_id, 'pm2_restart', 'classintra-server', 'Restart requested via admin panel');
   pm2Connect(function(err, pm2) {
     if (err) return res.status(500).json({ code: 500, message: err.message });
     pm2.restart('classintra-server', function(err2, proc) {
       pm2.disconnect();
       if (err2) return res.status(500).json({ code: 500, message: err2.message });
-      logAction(req.user.user_id, 'pm2_restart', 'classintra-server', 'Restarted via admin panel');
       res.json({ code: 200, message: 'Restarted', data: { name: 'classintra-server' } });
     });
   });
@@ -1657,12 +1660,16 @@ router.post('/pm2/restart', function(req, res) {
 
 router.post('/pm2/stop', function(req, res) {
   if (!isClassAdminUser(req)) return res.status(403).json({ code: 403, message: '仅班管可操作' });
+  // Audit BEFORE the action, never in the pm2 callback: stopping this app
+  // kills the very process serving the request (SIGINT arrives first), so a
+  // callback-based write is usually lost -> "who stopped the site" becomes
+  // untraceable. Happened on 2026-09-30 16:28: stop executed, admin_logs empty.
+  logAction(req.user.user_id, 'pm2_stop', 'classintra-server', 'Stop requested via admin panel');
   pm2Connect(function(err, pm2) {
     if (err) return res.status(500).json({ code: 500, message: err.message });
     pm2.stop('classintra-server', function(err2, proc) {
       pm2.disconnect();
       if (err2) return res.status(500).json({ code: 500, message: err2.message });
-      logAction(req.user.user_id, 'pm2_stop', 'classintra-server', 'Stopped via admin panel');
       res.json({ code: 200, message: 'Stopped', data: { name: 'classintra-server' } });
     });
   });
