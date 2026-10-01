@@ -80,6 +80,9 @@ git -C $marketRepo status --short
 if ($Commit) {
   git -C $marketRepo add plugins/
   if (Test-Path (Join-Path $marketRepo 'apps')) { git -C $marketRepo add apps/ }
+  # index.json 的 version 字段是「三处版本一致」红线的一处，漏 add 会让提交缺版本号
+  # （1.10.1 实测：只 add apps/ 时 index.json 留在工作区，提交不完整）
+  if (Test-Path (Join-Path $marketRepo 'index.json')) { git -C $marketRepo add index.json }
   git -C $marketRepo commit -m $Commit
   Write-Host ''
   Write-Host '== 已提交 =='
