@@ -1,4 +1,4 @@
-# ClassIntra 插件双仓同步脚本
+﻿# ClassIntra 插件双仓同步脚本
 # 背景：主仓（ClassIntra）.gitignore 忽略 plugins/ 与 market-apps/，插件与市场应用文件只进 market 仓。
 # 本脚本把主仓 plugins/ 单向同步到 market 仓，并可附带同步 market-apps/ 指定应用到 market 仓 apps/。
 #
@@ -58,6 +58,8 @@ Get-ChildItem $src | Where-Object {
 
 # 可选：同步市场应用 market-apps/<App> → market 仓 apps/<App>
 # 用 robocopy /MIR 镜像（含删除多余文件，防双仓漂移），排除 node_modules/.git。
+# /XF 排除引擎二进制（*.exe / *.nnue，约 57MB 的第三方 GPL 产物）：它们既不进公开仓、
+# 也不该被 /MIR 的 purge 删掉——robocopy 的 /XF /XD 排除项同样受保护，不会被清理。
 # robocopy 退出码 0-7 均为成功（1=有复制，0=无差异），>=8 才是失败。
 if ($App) {
   $appSrc = Join-Path $PSScriptRoot ("..\market-apps\" + $App)
@@ -65,7 +67,7 @@ if ($App) {
   if (-not (Test-Path $appSrc)) { Write-Host "[错误] 市场应用不存在：$appSrc"; exit 1 }
   Write-Host ''
   Write-Host "== 同步市场应用 $App =="
-  robocopy $appSrc $appDst /MIR /XD node_modules .git /NJH /NJS /NDL | Out-Host
+  robocopy $appSrc $appDst /MIR /XD node_modules .git /XF *.exe *.nnue /NJH /NJS /NDL | Out-Host
   if ($LASTEXITCODE -ge 8) { Write-Host "[错误] robocopy 同步失败（退出码 $LASTEXITCODE）"; exit 1 }
   $global:LASTEXITCODE = 0
   Write-Host "[同步] apps/$App"
