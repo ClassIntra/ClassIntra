@@ -282,6 +282,9 @@ app.use('/api/system', require('./routes/system'));
 app.use('/api/realtime', require('./routes/realtime'));
 app.use('/api/integrations', require('./routes/integrations'));
 app.use('/api/market', require('./routes/market'));
+// Cluss 联动桥（只读）：供 Cluss 校验 ClassIntra 账号，实现跨系统账号互通
+// 未配置 RELAY_SECRET 时该路由自身返回 503，不影响任何现有功能
+app.use('/api/cluss-bridge', require('./routes/cluss-bridge'));
 
 // 应用路由（从 apps/*/manifest.json 聚合挂载，rateLimit 由 manifest 声明）
 var routeAggregator = require('./core/route-aggregator');
