@@ -3,6 +3,7 @@ var router = express.Router();
 var path = require('path');
 var fs = require('fs');
 var jwt = require('jsonwebtoken');
+var jwtUtil = require('../../../server/src/utils/jwt');
 var auth = require('../../../server/src/middleware/auth');
 var config = require('../../../server/src/config');
 var constants = require('../../../server/src/utils/constants');
@@ -39,8 +40,13 @@ function optionalAuth(req, res, next) {
   var token = constants.extractToken(req);
   req.user = null;
   if (token) {
-    try {
-      var decoded = jwt.verify(token, config.jwt.secret);
+    // 必须走 utils/jwt 的统一入口：签发已切 RS256，而 config.jwt.secret 只认HS256
+    // —— 直接 jwt.verify 会把新 token 判成 invalid algorithm，然后**静默**落到游客分支，
+    // 后果是「收藏标记永久失效」且「封禁检查被完全绕过」（禁用账号照样能读全部歌曲），
+    // 而日志里一条错误都没有。这种无声降级比直接报错危险得多。
+    var result = jwtUtil.verifyToken(token);
+    if (result.valid) {
+      var decoded = result.data;
       try {
         var dbRow = db.prepare('SELECT status, ban_expires_at, ban_reason FROM users WHERE user_id = ?').get(decoded.user_id);
         if (dbRow && dbRow.status === 'disabled') {
@@ -56,8 +62,6 @@ function optionalAuth(req, res, next) {
         console.error('Music optionalAuth DB error:', e2.message);
       }
       req.user = decoded;
-    } catch (e) {
-      req.user = null;
     }
   }
   next();

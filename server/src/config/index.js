@@ -7,8 +7,15 @@ module.exports = {
   jwt: {
     // HS256 共享密钥。**仅在过渡期与兜底模式需要**：
     // 私钥配好后签发走 RS256，这个值只剩「验签尚未刷新的旧 token」这一个用途。
-    // 过渡期结束（确认无人再持旧 token）后可清空，届时验签只认公钥。
-    secret: process.env.JWT_SECRET || (function() { console.error('FATAL: JWT_SECRET environment variable must be set'); process.exit(1); })(),
+    //
+    // ⚠️ 收尾时可以清空，但**清空前必须先确认没人再持旧 token**
+    //   （判据见 utils/jwt.js 里 HS256 兜底分支的日志：连续 7×24h 无输出）。
+    //   清空后旧 HS256 token 会立即全部失效，且无法再通过 refresh-token 抢救。
+    //
+    //   这里**不再 process.exit(1)**：RS256 路线并不依赖这个值，
+    //   而「文档让运维清空它、代码却不许清空」是个执行不了的指令 ——
+    //   早期版本用 `|| process.exit(1)`，结果清空就等于服务起不来。
+    secret: String(process.env.JWT_SECRET || '').trim(),
     expiresIn: process.env.JWT_EXPIRES_IN || '7d',
 
     // RS256 私钥：**只留在 ClassIntra，绝不外发**。
