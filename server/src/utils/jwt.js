@@ -117,6 +117,27 @@ function getKeys() {
     }
   }
 
+  // ⚠️ 读到了私钥不代表它**可用**。
+  //   文件被截断/损坏但仍存在时，上面各分支都会认为「找到了」，
+  //   于是 privateKey 非空、跳过重新生成 —— 服务启动一切正常、日志无异常，
+  //   直到第一个用户登录时 jwt.sign 才抛错（表现为 500，且原因极难定位）。
+  //   「私钥丢失」是安全的（会走到重新生成），「存在但损坏」才是无声崩溃的那条路。
+  //   所以这里做一次预解析：解析不了就当作没有，重新生成。
+  if (privateKey) {
+    var usable = true;
+    try {
+      crypto.createPrivateKey(privateKey);
+    } catch (e) {
+      usable = false;
+      console.error('[jwt] 私钥无法解析（%s），将重新生成 —— 注意：这会让所有人手上的 token 立即失效', e.message);
+    }
+    if (!usable) {
+      var regenerated = generateKeyPair(keysDir);
+      privateKey = regenerated ? regenerated.privateKey : '';
+      if (privateKey) console.log('[jwt] 已重新生成密钥对。');
+    }
+  }
+
   // 公钥：配置优先，否则从私钥导出。
   //
   // ⚠️ 必须保证「公钥与私钥同源」。若 .env 里配了公钥、而私钥是自动生成的新
@@ -163,6 +184,14 @@ function generateToken(userInfo) {
   }
   // 兜底：连自动生成都失败（只读文件系统等极端情况）才退回 HS256。
   // 正常路径下永远走不到这里 —— 走到就说明环境有问题，必须让人看见。
+  if (!config.jwt.secret) {
+    // ⚠️ 收尾后（JWT_SECRET 已清空）又恰好私钥不可用，**绝不能拿空串当密钥**：
+    //   jwt.sign 用空字符串签名的话，任何人都能伪造出同样的签名 ——
+    //   那等于把整个系统的认证敞开，而且完全静默。
+    //   这种状态下唯一正确的做法是不发 token，让登录失败并留下明确日志。
+    console.error('[jwt] 私钥不可用且 JWT_SECRET 已清空，无法安全签发 token —— 拒绝签发（登录将失败）');
+    throw new Error('JWT signing key unavailable');
+  }
   console.warn('[jwt] 无法使用 RS256（私钥不可用），退回 HS256；此时跨系统验签只能用共享密钥');
   return jwt.sign(userInfo, config.jwt.secret, { expiresIn: config.jwt.expiresIn });
 }
@@ -182,8 +211,24 @@ function verifyToken(token) {
     }
   }
 
+  // HS256 兜底：过渡期唯一还在走的路径。
+  //
+  // ⚠️ 必须留日志，否则「过渡期什么时候能结束」完全没有判据：
+  //   共享密钥兜底成功 = 这个人还拿着切换前签的旧 token。
+  //   它应该随时间**收敛到 0** —— 连续 7×24h（= token 有效期）没有输出，
+  //   就说明旧 token 全部过期，届时可以安全地清空 JWT_SECRET。
+  //   没有这条日志就只能靠猜，而猜错的后果是两种之一：
+  //   清早了把还没刷新的人一次性登出，清晚了共享密钥一直留着。
+  //
+  // 节流输出：按 user_id 聚合，避免刷屏，但每次都记。
+  if (!config.jwt.secret) {
+    // 收尾后（JWT_SECRET 已清空）只剩公钥一条路径，走到这里说明验签失败
+    return { valid: false, data: null };
+  }
+
   try {
     var decoded2 = jwt.verify(token, config.jwt.secret);
+    console.warn('[jwt] 命中 HS256 共享密钥兜底（过渡期路径）user_id=%s', decoded2 && decoded2.user_id);
     return { valid: true, data: decoded2 };
   } catch (err) {
     return { valid: false, data: null };
