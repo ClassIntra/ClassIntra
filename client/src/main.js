@@ -1,5 +1,63 @@
 // Polyfills for Chrome 78+ compatibility (Mermaid v11 requires ES2022 APIs)
 (function() {
+  // ---------- 存储兼容层（软破 WebView / 隐私模式） ----------
+  // 目标：体验为先。原生存储正常可用时完全不动它，保持原有持久化能力；
+  // 仅当 window.localStorage / sessionStorage 缺失（为 null）或写入不可用时，
+  // 才安装内存降级实现，避免 "Cannot read property 'getItem' of null" 导致白屏。
+  function _createMemoryStorage() {
+    var data = {};
+    var api = {
+      getItem: function(k) {
+        k = String(k);
+        return Object.prototype.hasOwnProperty.call(data, k) ? data[k] : null;
+      },
+      setItem: function(k, v) { data[String(k)] = String(v); },
+      removeItem: function(k) { delete data[String(k)]; },
+      clear: function() { data = {}; },
+      key: function(i) {
+        var keys = Object.keys(data);
+        return (i >= 0 && i < keys.length) ? keys[i] : null;
+      }
+    };
+    try {
+      Object.defineProperty(api, 'length', {
+        get: function() { return Object.keys(data).length; }
+      });
+    } catch (e) { api.length = 0; }
+    return api;
+  }
+
+  function _ensureStorage(name) {
+    var native = null;
+    try { native = window[name]; } catch (e) { native = null; }
+
+    // 原生存储存在且可读写 → 保持不动（正常使用，体验优先）
+    if (native) {
+      try {
+        var probeKey = '__ci_storage_probe__';
+        native.setItem(probeKey, '1');
+        native.removeItem(probeKey);
+        return;
+      } catch (e) {
+        // 存在但不可写（隐私模式 / 配额受限）→ 继续安装内存降级
+      }
+    }
+
+    var fallback = _createMemoryStorage();
+    try {
+      Object.defineProperty(window, name, {
+        configurable: true,
+        writable: true,
+        value: fallback
+      });
+    } catch (e) {
+      try { window[name] = fallback; } catch (e2) {}
+    }
+  }
+
+  _ensureStorage('localStorage');
+  _ensureStorage('sessionStorage');
+
   // Object.hasOwn (ES2022, Chrome 93+)
   if (!Object.hasOwn) {
     Object.hasOwn = function(obj, prop) {
