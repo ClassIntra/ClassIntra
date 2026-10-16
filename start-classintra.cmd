@@ -20,6 +20,8 @@ rem    [2] otherwise `pm2 resurrect` (spawns the one daemon; restores the
 rem        apps recorded in dump.pm2 plus the pm2-logrotate module)
 rem    [3] then poll up to ~130s (60 x ~2.2s) for the HTTP port
 rem    [4] if still down -> `pm2 start ecosystem.config.js`, poll ~65s more
+rem                            (and also `pm2 start <Cluss>\ecosystem.config.js`,
+rem                             since cluss-server lives in another repo)
 rem
 rem  Why 60 and not 20:
 rem    Real cold boot on 2026-10-01 02:03 took 96s from power-on to 9001
@@ -83,6 +85,13 @@ if defined UP (
 ) else (
     >>"%LOG%" echo [!date! !time!] 9001 still down after !TRIES! polls / ~130s - fallback: pm2 start ecosystem.config.js
     call "%PM2_BIN%" start ecosystem.config.js >>"%LOG%" 2>&1
+    rem  Cluss lives in a different repo, so it is NOT part of the ecosystem above.
+    rem  The primary path `pm2 resurrect` does restore it, but this last-resort
+    rem  fallback must carry it too -- otherwise a failed resurrect leaves Cluss
+    rem  silently down while the four ClassIntra apps come back up.
+    rem  NB3: this section is inside a parenthesised block, so no ")" may appear
+    rem       inside an echoed string here.
+    call "%PM2_BIN%" start "D:\NetWork\Integration\Cluss\ecosystem.config.js" >>"%LOG%" 2>&1
     set "TRIES=0"
     for /l %%w in (1,1,%POLL_FALLBACK%) do (
         if not defined UP (

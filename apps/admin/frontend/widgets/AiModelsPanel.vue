@@ -29,6 +29,7 @@
             <span class="cim-id">{{ m.id }}</span>
             <span v-if="m.supports_thinking"><i class="fa-solid fa-lightbulb"></i> 思考</span>
             <span v-if="m.supports_search"><i class="fa-solid fa-magnifying-glass"></i> 搜索</span>
+            <span v-if="m.supports_vision"><i class="fa-regular fa-image"></i> 视觉</span>
             <span v-if="m.has_key"><i class="fa-solid fa-key"></i> {{ m.key_from_env ? 'Key: env' : m.api_key_masked }}</span>
             <span v-if="m.api_url" class="cim-url">{{ m.api_url }}</span>
           </div>
@@ -48,6 +49,39 @@
             <i :class="confirmingDelete === m.id ? 'fa-solid fa-triangle-exclamation' : 'fa-solid fa-trash-can'"></i>
             <span v-if="confirmingDelete === m.id" class="cim-confirm-text">确认删除?</span>
           </button>
+        </div>
+      </div>
+
+      <!-- 看图（视觉） -->
+      <div class="cim-vision-section">
+        <div class="cim-policy-header">
+          <h4 class="cim-section-title"><i class="fa-regular fa-image"></i> 看图（视觉）</h4>
+        </div>
+        <p class="cim-policy-desc">
+          用户在 AI 对话里可以从云盘选图发送。勾了「支持视觉」的模型会直接收到图片；
+          没勾的模型则需要一个「统一转述模型」先把图片说成文字，再交给它回答。
+          留空 = 只有视觉模型能用图。
+        </p>
+        <div class="cim-form-row">
+          <div class="cim-field">
+            <label class="cim-field-label">统一转述模型</label>
+            <select class="cim-select" v-model="visionRelayModel" @change="saveVision">
+              <option value="">（不启用 —— 非视觉模型收不到图片）</option>
+              <option v-for="m in visionCapableModels" :key="m.id" :value="m.id">{{ m.label }} · {{ m.id }}</option>
+            </select>
+          </div>
+          <div class="cim-field">
+            <label class="cim-field-label">总开关</label>
+            <label class="cim-checkbox">
+              <input type="checkbox" v-model="visionEnabled" @change="saveVision" />
+              <span class="cim-checkbox-box"><i class="fa-solid fa-check"></i></span>
+              <span>允许用户在 AI 对话里发送云盘图片</span>
+            </label>
+          </div>
+        </div>
+        <div class="cim-field-hint">
+          指定了转述模型后，每次看图会多一次调用（单独记在用量报表里，source=vision）。
+          单图上限 4MB、单次最多 4 张。
         </div>
       </div>
 
@@ -239,6 +273,11 @@
           <span>免费标记</span>
         </label>
         <label class="cim-checkbox">
+          <input type="checkbox" v-model="form.supports_vision" />
+          <span class="cim-checkbox-box"><i class="fa-solid fa-check"></i></span>
+          <span>支持视觉（可直接接收图片）</span>
+        </label>
+        <label class="cim-checkbox">
           <input type="checkbox" v-model="form.enabled" />
           <span class="cim-checkbox-box"><i class="fa-solid fa-check"></i></span>
           <span>启用（用户可见）</span>
@@ -264,6 +303,29 @@
           <input class="cim-input" type="number" v-model.number="form.sort_order" min="0" max="9999" />
         </div>
       </div>
+
+      <div class="cim-form-row">
+        <div class="cim-field">
+          <label class="cim-field-label">输入价（元/百万 token）</label>
+          <input class="cim-input" type="number" step="0.01" min="0" max="100000" v-model.number="form.price_in" placeholder="0 = 不计成本" />
+        </div>
+        <div class="cim-field">
+          <label class="cim-field-label">输出价（元/百万 token）</label>
+          <input class="cim-input" type="number" step="0.01" min="0" max="100000" v-model.number="form.price_out" placeholder="0 = 不计成本" />
+        </div>
+        <div class="cim-field">
+          <label class="cim-field-label">缓存命中价（元/百万 token）</label>
+          <input class="cim-input" type="number" step="0.01" min="0" max="100000" v-model.number="form.price_cache_hit" placeholder="0 = 按输入价计" />
+        </div>
+      </div>
+      <div class="cim-check-row">
+        <label class="cim-checkbox">
+          <input type="checkbox" v-model="form.supports_stream_options" />
+          <span class="cim-checkbox-box"><i class="fa-solid fa-check"></i></span>
+          <span>流式请求也带用量（OpenAI stream_options）</span>
+        </label>
+      </div>
+      <div class="cim-field-hint">单价口径与各家官网一致（元/百万 token），用于用量记账，不做扣费。留 0 = 该模型不计成本（token 仍照记）；勾了「免费标记」的模型恒记 0。个别中转不支持 stream_options 会返回 400，此时取消勾选。</div>
 
       <div v-if="form.supports_thinking" class="cim-preset-row">
         <label class="cim-field-label">高级参数（可选，留空用默认值）</label>
@@ -332,6 +394,10 @@ export default {
       testResult: null,
       confirmingDelete: null,
       confirmingTimer: null,
+      // 看图（视觉）：统一转述模型 + 总开关
+      visionEnabled: true,
+      visionRelayModel: '',
+      visionLoaded: false,
       colorChoices: ['var(--warning-color)', 'var(--success-color)', 'var(--accent-resource)', 'var(--accent-ai)', 'var(--accent-music)', 'var(--danger-color)', 'var(--info-color)', 'var(--success-color)'],
       presets: [
         { name: '智谱 GLM（bigmodel.cn）', api_url: 'https://open.bigmodel.cn/api/paas/v4/chat/completions', model: 'glm-4-flash', color: 'var(--accent-resource)', supports_thinking: true, api_style: 'deepseek', is_free: true, label: '智谱 GLM-4-Flash' },
@@ -364,6 +430,10 @@ export default {
       if (/\/v\d+[a-z]*$/i.test(u)) return u + '/chat/completions';
       return u + '/v1/chat/completions';
     },
+    // 能当「转述模型」的候选：自身支持视觉且已启用
+    visionCapableModels: function() {
+      return this.models.filter(function(m) { return m.supports_vision && m.enabled; });
+    },
     sameSourceModel: function() {
       var self = this;
       if (self.editing !== 'new') return null;
@@ -379,6 +449,7 @@ export default {
   mounted: function() {
     this.reload();
     this.loadPolicies();
+    this.loadVision();
   },
   beforeDestroy: function() {
     if (this.confirmingTimer) clearTimeout(this.confirmingTimer);
@@ -396,6 +467,27 @@ export default {
       }).catch(function(err) {
         self.loading = false;
         self.toast((err.response && err.response.data && err.response.data.message) || '模型列表加载失败（需系统管理员/班管）', 'error');
+      });
+    },
+    loadVision: function() {
+      var self = this;
+      api.get('/ai-chat/admin/vision').then(function(response) {
+        var d = (response.data && response.data.data) || {};
+        self.visionEnabled = d.enabled !== false;
+        self.visionRelayModel = d.relay_model || '';
+        self.visionLoaded = true;
+      }).catch(function() { self.visionLoaded = false; });
+    },
+    saveVision: function() {
+      var self = this;
+      api.put('/ai-chat/admin/vision', {
+        enabled: self.visionEnabled,
+        relay_model: self.visionRelayModel
+      }).then(function() {
+        self.toast('看图配置已保存', 'success');
+      }).catch(function(err) {
+        self.toast((err.response && err.response.data && err.response.data.message) || '保存失败', 'error');
+        self.loadVision();
       });
     },
     loadPolicies: function() {
@@ -502,12 +594,17 @@ export default {
         api_style: m.api_style === 'deepseek' ? 'deepseek' : 'openai',
         supports_thinking: !!m.supports_thinking,
         supports_search: !!m.supports_search,
+        supports_vision: !!m.supports_vision,
         is_free: !!m.is_free,
         enabled: m.enabled !== false,
         sort_order: m.sort_order || 100,
         max_context_tokens: m.max_context_tokens || 0,
         max_output_tokens: m.max_output_tokens || 0,
         reasoning_effort: m.reasoning_effort || '',
+        price_in: m.price_in || 0,
+        price_out: m.price_out || 0,
+        price_cache_hit: m.price_cache_hit || 0,
+        supports_stream_options: m.supports_stream_options === undefined ? true : !!m.supports_stream_options,
         builtin: false,
         has_key: false,
         key_from_env: false,
@@ -532,12 +629,17 @@ export default {
         api_style: 'openai',
         supports_thinking: false,
         supports_search: false,
+        supports_vision: false,
         is_free: false,
         enabled: true,
         sort_order: 100,
         max_context_tokens: 0,
         max_output_tokens: 0,
         reasoning_effort: '',
+        price_in: 0,
+        price_out: 0,
+        price_cache_hit: 0,
+        supports_stream_options: true,
         builtin: false,
         has_key: false,
         key_from_env: false
@@ -605,12 +707,17 @@ export default {
         api_style: m.api_style === 'deepseek' ? 'deepseek' : 'openai',
         supports_thinking: !!m.supports_thinking,
         supports_search: !!m.supports_search,
+        supports_vision: !!m.supports_vision,
         is_free: !!m.is_free,
         enabled: !!m.enabled,
         sort_order: m.sort_order || 0,
         max_context_tokens: m.max_context_tokens || 0,
         max_output_tokens: m.max_output_tokens || 0,
         reasoning_effort: m.reasoning_effort || '',
+        price_in: m.price_in || 0,
+        price_out: m.price_out || 0,
+        price_cache_hit: m.price_cache_hit || 0,
+        supports_stream_options: m.supports_stream_options === undefined ? true : !!m.supports_stream_options,
         builtin: !!m.builtin,
         has_key: !!m.has_key,
         key_from_env: !!m.key_from_env
@@ -670,6 +777,7 @@ export default {
           api_style: f.supports_thinking ? f.api_style : 'openai',
           supports_thinking: f.supports_thinking,
           supports_search: f.supports_search,
+          supports_vision: f.supports_vision,
           is_free: f.is_free,
           enabled: f.enabled,
           sort_order: f.sort_order,
@@ -704,12 +812,17 @@ export default {
         api_style: f.supports_thinking ? f.api_style : 'openai',
         supports_thinking: f.supports_thinking,
         supports_search: f.supports_search,
+        supports_vision: f.supports_vision,
         is_free: f.is_free,
         enabled: f.enabled,
         sort_order: f.sort_order,
         max_context_tokens: f.max_context_tokens || 0,
         max_output_tokens: f.max_output_tokens || 0,
-        reasoning_effort: f.supports_thinking ? (f.reasoning_effort || '') : ''
+        reasoning_effort: f.supports_thinking ? (f.reasoning_effort || '') : '',
+        price_in: f.price_in || 0,
+        price_out: f.price_out || 0,
+        price_cache_hit: f.price_cache_hit || 0,
+        supports_stream_options: f.supports_stream_options !== false
       };
       if (f.api_key && f.api_key.trim()) payload.api_key = f.api_key.trim();
       if (self.editing === 'new' && self.sameSourceModel && self.reuseKey) payload.reuse_key_from = self.sameSourceModel.id;
@@ -850,6 +963,13 @@ export default {
 
 .cim-preset-head .cim-field-label {
   margin-bottom: 0;
+}
+
+/* 看图（视觉）配置 */
+.cim-vision-section {
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
 }
 
 /* 使用策略 */

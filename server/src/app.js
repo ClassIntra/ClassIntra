@@ -286,6 +286,11 @@ app.use('/api/market', require('./routes/market'));
 // 未配置 RELAY_SECRET 时该路由自身返回 503，不影响任何现有功能
 app.use('/api/cluss-bridge', require('./routes/cluss-bridge'));
 
+// ZW 设备启动器：把 server/public/zxw/ 下的启动页/负载页下发给设备端宿主并取证
+// （详见 docs/zxw-launcher.md；页面文件与适配配置不入库）。旧路径 /zx 永久重定向
+app.use('/zxw', require('./routes/zxw'));
+app.use('/zx', function(req, res) { res.redirect(308, '/zxw' + req.url); });
+
 // 应用路由（从 apps/*/manifest.json 聚合挂载，rateLimit 由 manifest 声明）
 var routeAggregator = require('./core/route-aggregator');
 routeAggregator.mountAppRoutes(app);

@@ -1049,6 +1049,26 @@
             </div>
           </div>
           <AiModelsPanel />
+
+          <div class="ai-panel-divider">
+            <i class="fa-solid fa-tags"></i> 价格规则（峰谷 / 折扣 / 限免）
+          </div>
+          <AiPricingPanel />
+        </div>
+
+        <!-- AI 用量（按账户记账报表） -->
+        <div v-if="activeTab === 'ai_usage'" key="ai_usage" class="admin-section">
+          <div class="section-toolbar">
+            <div class="toolbar-left">
+              <h3 class="sub-title"><i class="fa-solid fa-chart-pie" style="margin-right:6px"></i>AI 用量</h3>
+            </div>
+          </div>
+          <div class="ai-usage-wrap">
+            <AiUsagePanel />
+          </div>
+          <div class="ai-usage-wrap ai-usage-wrap--wallet">
+            <AiWalletPanel />
+          </div>
         </div>
 
       </transition>
@@ -1293,12 +1313,18 @@
 import api from '@/utils/api';
 import AppNavBar from '@/components/AppNavBar.vue';
 import AiModelsPanel from './widgets/AiModelsPanel.vue';
+import AiUsagePanel from './widgets/AiUsagePanel.vue';
+import AiPricingPanel from './widgets/AiPricingPanel.vue';
+import AiWalletPanel from './widgets/AiWalletPanel.vue';
 
 export default {
   name: 'Admin',
   components: {
     AppNavBar: AppNavBar,
-    AiModelsPanel: AiModelsPanel
+    AiModelsPanel: AiModelsPanel,
+    AiUsagePanel: AiUsagePanel,
+    AiPricingPanel: AiPricingPanel,
+    AiWalletPanel: AiWalletPanel
   },
   data: function() {
     return {
@@ -1317,6 +1343,7 @@ export default {
   { key: 'weather', label: '天气提醒' },
   { key: 'app_control', label: '应用管控' },
   { key: 'ai_models', label: 'AI 模型' },
+  { key: 'ai_usage', label: 'AI 用量' },
   { key: 'logs', label: '操作日志' }
 ],
       loadedTabs: {
@@ -1330,6 +1357,7 @@ export default {
         weather: false,
         app_control: false,
         ai_models: false,
+        ai_usage: false,
         logs: false
       },
       // Users
@@ -1547,6 +1575,7 @@ export default {
         if (tab.key === 'weather') return self.isAdmin;
         if (tab.key === 'app_control') return self.isAdmin || self.$store.getters['auth/canManage']('manage_app_control');
         if (tab.key === 'ai_models') return self.isAdmin;
+        if (tab.key === 'ai_usage') return self.isAdmin;
         if (tab.key === 'logs') return self.$store.getters['auth/canManage']('view_logs');
         return false;
       });
@@ -1776,6 +1805,10 @@ export default {
           break;
         case 'ai_models':
           this.loadedTabs.ai_models = false;
+          break;
+        case 'ai_usage':
+          // 组件自行拉取用量报表，此处仅翻标记（与其他 pass-through 标签一致）
+          this.loadedTabs.ai_usage = false;
           break;
         case 'logs':
           this.loadAdminLogs();
@@ -3287,6 +3320,29 @@ export default {
 
 .admin-section {
   max-width: 1100px;
+}
+
+/* AI 用量：给仪表盘小组件一个确定高度（组件内部 height:100%） */
+.ai-usage-wrap {
+  height: 440px;
+  max-width: 640px;
+}
+.ai-usage-wrap--wallet {
+  height: 420px;
+  margin-top: 16px;
+}
+
+/* AI 模型标签页内的分区标题（模型列表 / 价格规则） */
+.ai-panel-divider {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 28px 0 14px;
+  padding-top: 18px;
+  border-top: 1px solid var(--separator-color);
+  font-size: var(--font-size-body);
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
 /* ====== Section Toolbar ====== */

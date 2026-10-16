@@ -329,6 +329,16 @@ pnpm build         # 生产构建
 
 ---
 
+## ⚖️ Logo 使用声明
+
+> The logo used in this project is sourced from a public domain asset library and is used for non-commercial, educational purposes. All rights belong to their respective owners. Any resemblance to other projects' logos is purely coincidental.
+
+本项目使用的 LOGO 来源于公共素材库，仅用于非商业教育目的。所有权利归其各自所有者。与其他项目 LOGO 的相似纯属巧合。
+
+---
+
 ## 📄 License
 
 MIT © Nevino
+
+Logo 等品牌素材不在 MIT 协议授权范围内，其权利归原始素材所有者所有。完整声明见 [NOTICE.md](NOTICE.md)。

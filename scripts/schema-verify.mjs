@@ -32,8 +32,13 @@ ok(JSON.stringify(shared.KNOWN_CAPABILITIES) === JSON.stringify(server.KNOWN_CAP
   'KNOWN_CAPABILITIES 一致（' + shared.KNOWN_CAPABILITIES.length + ' 项）');
 ok(JSON.stringify(shared.LAYOUT_MODES) === JSON.stringify(server.LAYOUT_MODES),
   'LAYOUT_MODES 一致');
-ok(Object.keys(shared.FIELD_DEFS).length === Object.keys(server.FIELD_DEFS).length,
-  'FIELD_DEFS 字段数一致 (' + Object.keys(shared.FIELD_DEFS).length + ')');
+// KNOWN_ROLES 曾经漏检 → 两份 schema 真的分叉过：shared 有 classAdmin，server 没有，
+// 导致 apps/market 每次启动刷 warning，且声明 classAdmin 的市场应用会被 market-service
+// 按 errors 判不合格、装不上。5 个导出常量必须一个不落地比对。
+ok(JSON.stringify(shared.KNOWN_ROLES) === JSON.stringify(server.KNOWN_ROLES),
+  'KNOWN_ROLES 一致（' + (shared.KNOWN_ROLES || []).join(' / ') + '）');
+ok(JSON.stringify(Object.keys(shared.FIELD_DEFS)) === JSON.stringify(Object.keys(server.FIELD_DEFS)),
+  'FIELD_DEFS 字段名集合一致 (' + Object.keys(shared.FIELD_DEFS).length + ')');
 
 console.log('\n=== 2. 向后兼容：旧 manifest（无 sdk/capabilities/layout）===');
 const legacy = { name: 'legacy-app', label: '旧应用', frontend: { route: '/legacy', component: 'Legacy' } };
@@ -151,6 +156,27 @@ const sorted = catalog.describeCapabilities(['ui.toast', 'system.notification'])
 ok(sorted[0].level === 'notice', 'notice 级能力排在普通能力之前');
 ok(catalog.countNotices(['ui.toast', 'system.notification', 'device.camera']) === 2, 'countNotices 统计正确');
 ok(catalog.describeCapabilities(null).length === 0, 'describeCapabilities 对非数组返回空数组');
+
+console.log('\n=== 10. visibleRoles 受众令牌（前后端必须同口径）===');
+// 令牌不是 users.role 的枚举：消费方 Desktop.vue 的 isVisibleForUser() 对 'classAdmin'
+// 有独立判定（is_class_admin || is_admin，明确不含 officer 班干）。
+// 校验器若不承认它，就会出现「前端认、后端拒」——同一份 manifest 两套结论。
+const VR_TOKENS = ['classAdmin', 'admin', 'officer', 'student'];
+const hasRoleWarn = (r) => r.warnings.some((w) => w.indexOf('不是已知角色') !== -1);
+VR_TOKENS.forEach((t) => {
+  ok(shared.KNOWN_ROLES.indexOf(t) !== -1, 'shared 承认受众令牌 ' + t);
+  ok(server.KNOWN_ROLES.indexOf(t) !== -1, 'server 承认受众令牌 ' + t);
+});
+const vrShared = shared.validateManifest({ name: 'vr', label: 'VR', visibleRoles: ['classAdmin'] });
+const vrServer = server.validateManifest({ name: 'vr', label: 'VR', visibleRoles: ['classAdmin'] });
+ok(!hasRoleWarn(vrShared), 'shared 校验 classAdmin 不再报「不是已知角色」');
+ok(!hasRoleWarn(vrServer), 'server 校验 classAdmin 不再报「不是已知角色」');
+ok(JSON.stringify(vrShared.manifest.visibleRoles) === JSON.stringify(['classAdmin'])
+  && JSON.stringify(vrServer.manifest.visibleRoles) === JSON.stringify(['classAdmin']),
+  'visibleRoles 被原样保留（未被过滤或改写）');
+// 反向对照：真正未知的令牌必须继续报警，否则说明这道校验已被改废
+ok(hasRoleWarn(server.validateManifest({ name: 'vrb', label: 'VRB', visibleRoles: ['nonsense'] })),
+  '未知令牌仍然报警（校验未被改废）');
 
 console.log('\n================================');
 console.log('通过 ' + pass + ' 项，失败 ' + fail + ' 项');

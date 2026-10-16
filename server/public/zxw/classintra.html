@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="format-detection" content="telephone=no">
+<meta name="msapplication-tap-highlight" content="no">
+<meta name="theme-color" content="#000000">
+<title>ClassNet</title>
+<style>
+:root{
+  --bg:#000;--fg:#fff;--fg2:rgba(255,255,255,.5);--fg3:rgba(255,255,255,.22);
+  --s1:rgba(255,255,255,.05);--s2:rgba(255,255,255,.08);--s3:rgba(255,255,255,.12);
+  --accent:#8ab4f8;--danger:#f28b82;--ok:#81c995;--warn:#f5a623;
+  --card:rgba(18,18,24,.97);--border:rgba(255,255,255,.06);
+}
+.L{
+  --bg:#f6f6f8;--fg:#1d1d1f;--fg2:rgba(0,0,0,.45);--fg3:rgba(0,0,0,.2);
+  --s1:rgba(0,0,0,.04);--s2:rgba(0,0,0,.06);--s3:rgba(0,0,0,.1);
+  --accent:#007aff;--danger:#ff3b30;--ok:#34c759;--warn:#ff9500;
+  --card:rgba(255,255,255,.97);--border:rgba(0,0,0,.06);
+}
+*{-webkit-box-sizing:border-box;box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;text-size-adjust:100%}
+html,body{width:100%;height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'SF Pro','Segoe UI','PingFang SC',sans-serif;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;-moz-user-select:none;-ms-user-select:none;user-select:none;-webkit-touch-callout:none}
+body{background:#000;background:var(--bg);color:#fff;color:var(--fg);-webkit-transition:background .35s;transition:background .35s}
+
+.page{position:fixed;top:0;left:0;right:0;bottom:0;display:-webkit-flex;display:flex;-webkit-flex-direction:column;flex-direction:column;-webkit-align-items:center;align-items:center;-webkit-justify-content:center;justify-content:center;-webkit-transition:-webkit-transform .45s cubic-bezier(.4,0,.2,1),opacity .45s;transition:transform .45s cubic-bezier(.4,0,.2,1),opacity .45s;will-change:transform,opacity}
+.page.go{-webkit-transform:translateY(-100%);transform:translateY(-100%);opacity:0;pointer-events:none}
+
+.sbar{position:absolute;top:0;left:0;right:0;display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;-webkit-justify-content:space-between;justify-content:space-between;padding:16px 24px 0;font-size:12px;font-weight:500;color:var(--fg3);z-index:5}
+.sbar-r{display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center}
+.sbar-r>*+*{margin-left:8px}
+
+.lock-center{text-align:center}
+.clock{font-size:80px;font-weight:200;letter-spacing:1px;line-height:1;margin-bottom:4px}
+.date{font-size:14px;color:var(--fg2)}
+
+.status{font-size:13px;color:var(--fg2);margin:12px 0 0;min-height:18px;text-align:center;transition:color .2s}
+.status.err{color:var(--danger)}
+.status.ok{color:var(--ok)}
+
+.swipe{position:absolute;bottom:0;left:0;right:0;display:-webkit-flex;display:flex;-webkit-flex-direction:column;flex-direction:column;-webkit-align-items:center;align-items:center;padding-bottom:40px;z-index:3}
+.swipe-pill{width:36px;height:4px;border-radius:2px;background:var(--fg3);margin-bottom:16px}
+.swipe-ring{width:50px;height:50px;border-radius:50%;border:2px solid var(--fg3);display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;-webkit-justify-content:center;justify-content:center;-webkit-transition:-webkit-transform .3s cubic-bezier(.34,1.56,.64,1),border-color .2s;transition:transform .3s cubic-bezier(.34,1.56,.64,1),border-color .2s}
+.swipe-ring svg{width:20px;height:20px;fill:none;stroke:var(--fg2);stroke-width:2;stroke-linecap:round}
+.swipe-hint{font-size:10px;color:var(--fg3);margin-top:10px;letter-spacing:1.5px;font-weight:500;text-transform:uppercase}
+@-webkit-keyframes pulse{0%,100%{opacity:.2}50%{opacity:.45}}
+@keyframes pulse{0%,100%{opacity:.2}50%{opacity:.45}}
+.swipe-ring{-webkit-animation:pulse 2.5s ease-in-out infinite;animation:pulse 2.5s ease-in-out infinite}
+
+.pv{display:-webkit-flex;display:flex;-webkit-flex-direction:column;flex-direction:column;-webkit-align-items:center;align-items:center;width:100%;padding:0 16px}
+.pv-title{font-size:15px;font-weight:600;margin-bottom:4px}
+.pv-sub{font-size:13px;color:var(--fg2);margin-bottom:28px;text-align:center;min-height:18px}
+.pv-dots{display:-webkit-flex;display:flex;margin-bottom:12px}
+.pv-dots>*+*{margin-left:16px}
+.pv-dot{width:12px;height:12px;border-radius:50%;border:2px solid var(--fg3);background:transparent;-webkit-transition:all .15s;transition:all .15s}
+.pv-dot.on{background:var(--accent);border-color:var(--accent);-webkit-transform:scale(1.15);transform:scale(1.15)}
+.pv-dot.err{background:var(--danger);border-color:var(--danger);-webkit-transform:scale(1.15);transform:scale(1.15)}
+.pv-pad{display:-webkit-flex;display:flex;-webkit-flex-wrap:wrap;flex-wrap:wrap;width:260px;-webkit-justify-content:center;justify-content:center;margin-top:20px}
+.pv-k{width:72px;height:72px;margin:4px;border-radius:50%;border:none;background:var(--s1);color:var(--fg);font-size:28px;font-weight:300;cursor:pointer;display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;-webkit-justify-content:center;justify-content:center;-webkit-appearance:none;appearance:none;outline:none;-webkit-transition:background .15s,-webkit-transform .1s;transition:background .15s,transform .1s}
+.pv-k:hover{background:var(--s2)}
+.pv-k:active{background:var(--s3);-webkit-transform:scale(.92);transform:scale(.92)}
+.pv-k.fn{font-size:12px;color:var(--fg2);background:transparent}
+.pv-k.fn:hover{background:var(--s1)}
+.pv-k.fn:active{background:var(--s2)}
+.pv-k.blank{visibility:hidden;pointer-events:none}
+
+.ptv{display:-webkit-flex;display:flex;-webkit-flex-direction:column;flex-direction:column;-webkit-align-items:center;align-items:center;padding:0 16px}
+.ptv-title{font-size:15px;font-weight:600;margin-bottom:4px}
+.ptv-sub{font-size:13px;color:var(--fg2);margin-bottom:20px;text-align:center;min-height:18px}
+.ptv-wrap{position:relative;width:250px;height:250px;touch-action:none;border-radius:20px;background:var(--s1)}
+.ptv-wrap canvas{position:absolute;top:0;left:0;right:0;bottom:0;width:100%;height:100%;pointer-events:none}
+.ptv-grid{position:absolute;top:0;left:0;right:0;bottom:0;display:-webkit-flex;display:flex;-webkit-flex-wrap:wrap;flex-wrap:wrap;-webkit-align-content:space-around;align-content:space-around;-webkit-justify-content:space-around;justify-content:space-around}
+.ptv-row{width:100%;display:-webkit-flex;display:flex;-webkit-justify-content:space-around;justify-content:space-around}
+.ptv-cell{width:70px;height:70px;display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;-webkit-justify-content:center;justify-content:center}
+.ptv-dot{width:12px;height:12px;border-radius:50%;border:2px solid var(--fg3);background:transparent;-webkit-transition:all .12s;transition:all .12s}
+.ptv-dot.on{background:var(--accent);border-color:var(--accent);-webkit-transform:scale(1.4);transform:scale(1.4);box-shadow:0 0 14px rgba(138,180,248,.4)}
+.L .ptv-dot.on{box-shadow:0 0 14px rgba(0,122,255,.3)}
+.ptv-dot.err{background:var(--danger);border-color:var(--danger);box-shadow:0 0 14px rgba(242,139,130,.4)}
+
+.dock{position:absolute;bottom:20px;left:0;right:0;display:-webkit-flex;display:flex;-webkit-justify-content:center;justify-content:center;padding:0 24px;z-index:4}
+.dock-btn{width:42px;height:42px;border-radius:50%;border:none;background:var(--s1);color:var(--fg3);font-size:16px;cursor:pointer;display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;-webkit-justify-content:center;justify-content:center;-webkit-appearance:none;appearance:none;outline:none;-webkit-transition:all .2s;transition:all .2s}
+.dock-btn:hover{background:var(--s2);color:var(--fg2)}
+.dock-btn:active{background:var(--s3);-webkit-transform:scale(.95);transform:scale(.95)}
+
+.ov{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.45);z-index:100;display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;-webkit-justify-content:center;justify-content:center;opacity:0;pointer-events:none;-webkit-transition:opacity .25s;transition:opacity .25s;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+.ov.show{opacity:1;pointer-events:auto}
+.ov.show .pnl{-webkit-transform:translateY(0) scale(1);transform:translateY(0) scale(1)}
+.pnl{width:380px;max-width:88vw;max-height:80vh;overflow-y:auto;-webkit-overflow-scrolling:touch;background:var(--card);border-radius:20px;padding:24px 20px 20px;box-shadow:0 24px 80px rgba(0,0,0,.5);-webkit-transform:translateY(16px) scale(.97);transform:translateY(16px) scale(.97);-webkit-transition:-webkit-transform .3s cubic-bezier(.2,.9,.3,1);transition:transform .3s cubic-bezier(.2,.9,.3,1)}
+.pnl-head{display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;-webkit-justify-content:space-between;justify-content:space-between;margin-bottom:24px}
+.pnl-title{font-size:17px;font-weight:600}
+.pnl-x{width:28px;height:28px;border-radius:50%;border:none;background:var(--s2);color:var(--fg2);font-size:14px;cursor:pointer;display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;-webkit-justify-content:center;justify-content:center;-webkit-appearance:none;appearance:none;outline:none;-webkit-transition:all .15s;transition:all .15s}
+.pnl-x:hover{background:var(--s3);color:var(--fg)}
+.pnl-x:active{background:var(--s3)}
+.sec{margin-bottom:16px}
+.sec-t{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--fg3);margin-bottom:10px}
+.rw{display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;-webkit-justify-content:space-between;justify-content:space-between;padding:10px 0}
+.rw+.rw{border-top:1px solid var(--border)}
+.rw-l{font-size:14px}
+.rw-d{font-size:11px;color:var(--fg3);margin-top:1px}
+.rw-in{width:160px;padding:8px 12px;border-radius:10px;border:1px solid var(--border);background:var(--s1);color:var(--fg);font-size:13px;outline:none;-webkit-transition:border-color .15s;transition:border-color .15s}
+.rw-in:focus{border-color:var(--accent)}
+.opts{display:-webkit-flex;display:flex;-webkit-flex-wrap:wrap;flex-wrap:wrap}
+.opts>*+*{margin-left:6px}
+.opt{padding:7px 14px;border-radius:16px;border:1px solid var(--border);background:var(--s1);color:var(--fg2);font-size:12px;font-weight:500;cursor:pointer;-webkit-appearance:none;appearance:none;outline:none;-webkit-transition:all .15s;transition:all .15s}
+.opt:hover{background:var(--s2);color:var(--fg)}
+.opt.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.brow{display:-webkit-flex;display:flex;margin-top:16px}
+.brow>*+*{margin-left:8px}
+.bp{-webkit-flex:1;flex:1;padding:12px;border-radius:12px;border:none;background:var(--accent);color:#fff;font-size:14px;font-weight:600;cursor:pointer;-webkit-appearance:none;appearance:none;outline:none;-webkit-transition:opacity .15s,-webkit-transform .1s;transition:opacity .15s,transform .1s}
+.bp:hover{opacity:.9}
+.bp:active{opacity:.8;-webkit-transform:scale(.98);transform:scale(.98)}
+.bg{padding:12px 16px;border-radius:12px;border:1px solid var(--border);background:transparent;color:var(--fg2);font-size:13px;font-weight:500;cursor:pointer;-webkit-appearance:none;appearance:none;outline:none;-webkit-transition:all .15s;transition:all .15s}
+.bg:hover{background:var(--s1);color:var(--fg)}
+.bg:active{background:var(--s2)}
+.bs{padding:6px 14px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--fg2);font-size:12px;font-weight:500;cursor:pointer;-webkit-appearance:none;appearance:none;outline:none;-webkit-transition:all .15s;transition:all .15s}
+.bs:hover{background:var(--s1);color:var(--fg)}
+.bs:active{background:var(--s2)}
+.tgl{width:44px;height:24px;border-radius:12px;background:var(--s3);position:relative;cursor:pointer;-webkit-transition:background .2s;transition:background .2s}
+.tgl::after{content:'';position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#fff;-webkit-transition:left .2s;transition:left .2s;box-shadow:0 1px 3px rgba(0,0,0,.15)}
+.tgl.on{background:var(--accent)}
+.tgl.on::after{left:22px}
+
+.toast{position:fixed;bottom:56px;left:50%;-webkit-transform:translateX(-50%) translateY(8px);transform:translateX(-50%) translateY(8px);background:var(--card);color:var(--fg);padding:10px 22px;border-radius:14px;font-size:13px;font-weight:500;z-index:200;opacity:0;pointer-events:none;-webkit-transition:opacity .2s,-webkit-transform .2s;transition:opacity .2s,transform .2s;box-shadow:0 8px 32px rgba(0,0,0,.25)}
+.toast.show{opacity:1;-webkit-transform:translateX(-50%) translateY(0);transform:translateX(-50%) translateY(0)}
+
+.hidden{display:none!important}
+@-webkit-keyframes shake{0%,100%{-webkit-transform:translateX(0);transform:translateX(0)}20%{-webkit-transform:translateX(-5px);transform:translateX(-5px)}40%{-webkit-transform:translateX(5px);transform:translateX(5px)}60%{-webkit-transform:translateX(-3px);transform:translateX(-3px)}80%{-webkit-transform:translateX(3px);transform:translateX(3px)}}
+@keyframes shake{0%,100%{-webkit-transform:translateX(0);transform:translateX(0)}20%{-webkit-transform:translateX(-5px);transform:translateX(-5px)}40%{-webkit-transform:translateX(5px);transform:translateX(5px)}60%{-webkit-transform:translateX(-3px);transform:translateX(-3px)}80%{-webkit-transform:translateX(3px);transform:translateX(3px)}}
+.shake{-webkit-animation:shake .35s ease;animation:shake .35s ease}
+.brand{position:absolute;bottom:10px;font-size:9px;color:var(--fg3);letter-spacing:1.5px;font-weight:600;opacity:.4;text-transform:uppercase}
+
+.str-bar{display:-webkit-flex;display:flex;-webkit-justify-content:center;justify-content:center;margin-top:10px}
+.str-bar>*+*{margin-left:4px}
+.str-dot{width:24px;height:3px;border-radius:1px;background:var(--s3);-webkit-transition:background .2s;transition:background .2s}
+.str-dot.weak{background:var(--danger)}
+.str-dot.mid{background:var(--warn)}
+.str-dot.strong{background:var(--ok)}
+.sec-msg{font-size:11px;margin-top:8px;text-align:center;min-height:16px;font-weight:500}
+.sec-msg.warn{color:var(--danger)}
+.sec-msg.ok{color:var(--ok)}
+</style>
+</head>
+<body>
+<div class="page" id="main">
+  <div class="sbar">
+    <span id="sbarTime"></span>
+    <div class="sbar-r">
+      <span style="font-size:9px">&#9679;</span>
+      <span style="font-size:10px">&#9889;</span>
+    </div>
+  </div>
+  <div class="lock-center" id="lockInfo">
+    <div class="clock" id="clk">12:00</div>
+    <div class="date" id="dte">1月1日 周一</div>
+  </div>
+  <div class="status" id="sts"></div>
+  <div class="swipe" id="slideView">
+    <div class="swipe-pill"></div>
+    <div class="swipe-ring" id="swRing"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12l7 7 7-7"/></svg></div>
+    <div class="swipe-hint">上滑解锁</div>
+  </div>
+  <div class="pv hidden" id="pinView">
+    <div class="pv-title hidden" id="pinT">设置密码</div>
+    <div class="pv-sub" id="pinS">输入6位数字密码</div>
+    <div class="pv-dots" id="pinD"></div>
+    <div class="str-bar hidden" id="pinStr"><div class="str-dot"></div><div class="str-dot"></div><div class="str-dot"></div></div>
+    <div class="sec-msg" id="pinWarn"></div>
+    <div class="pv-pad" id="pinP"></div>
+  </div>
+  <div class="ptv hidden" id="patView">
+    <div class="ptv-title hidden" id="patT">设置图案</div>
+    <div class="ptv-sub" id="patS">绘制图案（至少4点）</div>
+    <div class="ptv-wrap" id="patW">
+      <canvas id="patC"></canvas>
+      <div class="ptv-grid" id="patG"></div>
+    </div>
+    <div class="str-bar hidden" id="patStr"><div class="str-dot"></div><div class="str-dot"></div><div class="str-dot"></div></div>
+    <div class="sec-msg" id="patWarn"></div>
+  </div>
+  <div class="dock">
+    <button class="dock-btn" onclick="openSettings()" aria-label="设置">&#9881;</button>
+  </div>
+  <div class="brand">ClassNet</div>
+</div>
+
+<div class="ov" id="ov">
+  <div class="pnl">
+    <div class="pnl-head">
+      <span class="pnl-title">设置</span>
+      <button class="pnl-x" onclick="closeSettings()">&times;</button>
+    </div>
+    <div class="sec">
+      <div class="sec-t">解锁方式</div>
+      <div class="opts" id="optU"></div>
+    </div>
+    <div class="sec">
+      <div class="sec-t">安全</div>
+      <div class="rw">
+        <div><div class="rw-l">重置密码</div><div class="rw-d">验证后清除</div></div>
+        <button class="bs" onclick="resetPin()">重置</button>
+      </div>
+      <div class="rw">
+        <div><div class="rw-l">重置图案</div><div class="rw-d">验证后清除</div></div>
+        <button class="bs" onclick="resetPattern()">重置</button>
+      </div>
+    </div>
+    <div class="sec">
+      <div class="sec-t">服务器</div>
+      <div class="rw">
+        <div class="rw-l">地址</div>
+        <input class="rw-in" id="cfgU" placeholder="http://192.168.40.22:9001">
+      </div>
+      <div class="rw">
+        <div class="rw-l">路径</div>
+        <input class="rw-in" id="cfgP" placeholder="/">
+      </div>
+    </div>
+    <div class="sec">
+      <div class="sec-t">外观</div>
+      <div class="rw">
+        <div class="rw-l">浅色模式</div>
+        <div class="tgl" id="cfgTh" onclick="toggleTheme()"></div>
+      </div>
+    </div>
+    <div class="brow">
+      <button class="bp" onclick="saveSettings()">保存</button>
+      <button class="bg" onclick="resetAll()">恢复默认</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+'use strict';
+var SK='cn_launch',PK='cn_pin',TK='cn_pattern',EK='cn_err';
+var D={mode:'slide',url:'http://192.168.40.22:9001',path:'/',theme:'dark'};
+var S=load();
+
+var pin='',pin2='',pinSt=0,pinEr=0,pinLk=0,pinLastIn=0;
+var pts=[],pts2=[],patSt=0,patDr=false,patEr=0,patLk=0,patLastIn=0;
+var swY0=0,swOn=false;
+var idleTimer=null,idleTimeout=60000;
+var verifyCallback=null;
+var raf=window.requestAnimationFrame||window.webkitRequestAnimationFrame||function(f){setTimeout(f,16)};
+
+var WEAK_PINS=['000000','111111','222222','333333','444444','555555','666666','777777','888888','999999',
+'123456','654321','123321','321123','111222','222111','121212','212121','131313','313131',
+'000111','111000','123123','321321','112233','332211','001122','221100','010101','101010',
+'012345','543210','135790','097531','147258','852741','159753','357159','246802','208642'];
+
+var SIMPLE_PATTERNS=[
+[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6],
+[0,1,2,5,8],[2,5,8,7,6],[6,7,8,5,2],[0,3,6,7,8],[0,1,2,4,6,8],[2,1,0,3,6,7,8],
+[0,4,2],[2,4,6],[6,4,2],[8,4,0],[0,2,6,8],[8,6,2,0]
+];
+
+function load(){try{var r=localStorage.getItem(SK);if(r){var s=JSON.parse(r),m={};for(var k in D)m[k]=s[k]!==undefined?s[k]:D[k];return m}}catch(e){}return Object.assign({},D)}
+function save(){try{localStorage.setItem(SK,JSON.stringify(S))}catch(e){}}
+function gPin(){try{return localStorage.getItem(PK)||''}catch(e){return''}}
+function sPin(v){try{localStorage.setItem(PK,v)}catch(e){}}
+function gPat(){try{var r=localStorage.getItem(TK);return r?JSON.parse(r):[]}catch(e){return[]}}
+function sPat(v){try{localStorage.setItem(TK,JSON.stringify(v))}catch(e){}}
+function gErr(){try{var r=localStorage.getItem(EK);return r?JSON.parse(r):{pin:0,pat:0,lockUntil:0}}catch(e){return{pin:0,pat:0,lockUntil:0}}}
+function sErr(v){try{localStorage.setItem(EK,JSON.stringify(v))}catch(e){}}
+function eq(a,b){if(!a||!b||a.length!==b.length)return false;for(var i=0;i<a.length;i++)if(a[i]!==b[i])return false;return true}
+function $(i){return typeof i==='string'?document.getElementById(i):null}
+function msg(t,e){var el=$('sts');if(el){el.textContent=t||'';el.className='status'+(e?' err':'')}}
+function toast(t){var el=$('toast');if(!el)return;el.textContent=t;el.classList.add('show');clearTimeout(el._t);el._t=setTimeout(function(){el.classList.remove('show')},1600)}
+function unlock(){var m=$('main');if(m){m.classList.add('go');clearIdle();setTimeout(function(){var url=S.url||'',path=S.path||'';location.href=url.replace(/\/+$/,'')+'/'+path.replace(/^\/+/,'')},400)}}
+
+function checkPinStrength(p){
+  if(WEAK_PINS.indexOf(p)>=0)return{level:0,msg:'密码过于简单'};
+  var same=true,seq=true,seqRev=true;
+  for(var i=1;i<p.length;i++){
+    if(p[i]!==p[0])same=false;
+    if(parseInt(p[i])!==parseInt(p[i-1])+1)seq=false;
+    if(parseInt(p[i])!==parseInt(p[i-1])-1)seqRev=false;
+  }
+  if(same)return{level:0,msg:'数字全部相同'};
+  if(seq||seqRev)return{level:1,msg:'连续数字'};
+  var uniq={};for(i=0;i<p.length;i++)uniq[p[i]]=true;
+  var uniqCnt=Object.keys(uniq).length;
+  if(uniqCnt<=2)return{level:1,msg:'数字种类少'};
+  if(uniqCnt>=4)return{level:3,msg:'强度良好'};
+  return{level:2,msg:'强度中等'};
+}
+
+function updatePinStrength(p){
+  var bar=$('pinStr'),warn=$('pinWarn');
+  if(!p||p.length<6){bar.classList.add('hidden');warn.textContent='';warn.className='sec-msg';return}
+  bar.classList.remove('hidden');
+  var r=checkPinStrength(p);
+  var dots=bar.querySelectorAll('.str-dot');
+  for(var i=0;i<dots.length;i++){
+    dots[i].className='str-dot';
+    if(i<r.level){
+      if(r.level===1)dots[i].classList.add('weak');
+      else if(r.level===2)dots[i].classList.add('mid');
+      else dots[i].classList.add('strong');
+    }
+  }
+  warn.textContent=r.msg;
+  warn.className='sec-msg '+(r.level>=2?'ok':'warn');
+}
+
+function checkPatStrength(p){
+  if(p.length<4)return{level:0,msg:'至少4个点'};
+  if(p.length<5)return{level:1,msg:'建议更多点'};
+  for(var i=0;i<SIMPLE_PATTERNS.length;i++){
+    var sp=SIMPLE_PATTERNS[i];
+    if(p.length===sp.length&&eq(p,sp))return{level:1,msg:'图案太简单'};
+  }
+  var corners=0;
+  for(i=0;i<p.length;i++)if(p[i]===0||p[i]===2||p[i]===6||p[i]===8)corners++;
+  if(corners>=3&&p.length>=6)return{level:3,msg:'强度良好'};
+  if(p.length>=5)return{level:2,msg:'强度中等'};
+  return{level:1,msg:'图案较简单'};
+}
+
+function updatePatStrength(p){
+  var bar=$('patStr'),warn=$('patWarn');
+  if(!p||p.length<4){bar.classList.add('hidden');warn.textContent='';warn.className='sec-msg';return}
+  bar.classList.remove('hidden');
+  var r=checkPatStrength(p);
+  var dots=bar.querySelectorAll('.str-dot');
+  for(var i=0;i<dots.length;i++){
+    dots[i].className='str-dot';
+    if(i<r.level){
+      if(r.level===1)dots[i].classList.add('weak');
+      else if(r.level===2)dots[i].classList.add('mid');
+      else dots[i].classList.add('strong');
+    }
+  }
+  warn.textContent=r.msg;
+  warn.className='sec-msg '+(r.level>=2?'ok':'warn');
+}
+
+function getLockTime(errs){
+  if(errs<=2)return 0;
+  if(errs===3)return 30000;
+  if(errs===4)return 60000;
+  if(errs===5)return 120000;
+  return Math.min(300000,60000*Math.pow(2,errs-5));
+}
+
+function resetIdle(){
+  clearTimeout(idleTimer);
+  idleTimer=setTimeout(function(){
+    var m=S.mode;
+    if(m==='pin'){pin='';pin2='';pinSt=0;updD();$('pinS').textContent='输入密码';msg('')}
+    else if(m==='pattern'){pts=[];cDots();dPat([],0);$('patS').textContent='绘制解锁图案';msg('')}
+  },idleTimeout);
+}
+
+function clearIdle(){clearTimeout(idleTimer)}
+
+function applyTheme(){
+  if(S.theme==='light')document.body.classList.add('L');else document.body.classList.remove('L');
+  var t=$('cfgTh');if(t)t.classList.toggle('on',S.theme==='light');
+  var meta=document.querySelector('meta[name="theme-color"]');
+  if(meta)meta.setAttribute('content',S.theme==='light'?'#f6f6f8':'#000000');
+}
+
+function tick(){
+  var n=new Date(),h=n.getHours(),m=n.getMinutes();
+  var ts=(h<10?'0':'')+h+':'+(m<10?'0':'')+m;
+  $('clk').textContent=ts;$('sbarTime').textContent=ts;
+  var w=['日','一','二','三','四','五','六'];
+  $('dte').textContent=(n.getMonth()+1)+'月'+n.getDate()+'日 周'+w[n.getDay()];
+}
+
+function initSwipe(){
+  var ring=$('swRing'),area=$('slideView'),maxD=100;
+  function getY(e){return e.touches?e.touches[0].clientY:e.clientY}
+  function move(d){
+    var c=Math.max(0,Math.min(d,maxD));
+    var p=c/maxD;
+    ring.style.transform='translateY(-'+c+'px) scale('+(1-p*.12)+')';
+    ring.style.borderColor='var(--fg2)';
+    ring.style.animation='none';
+    if(c>=maxD-5){ring.style.transform='translateY(-'+maxD+'px) scale(.88)';ring.style.borderColor='var(--accent)';setTimeout(unlock,100)}
+  }
+  function reset(){
+    var t=ring.style.transform||'',m=t.match(/translateY\(-(\d+)/);
+    if(!m||parseInt(m[1])<maxD*.55){ring.style.transform='';ring.style.borderColor='';ring.style.animation=''}
+  }
+  area.addEventListener('touchstart',function(e){swOn=true;swY0=getY(e);e.preventDefault()},{passive:false});
+  area.addEventListener('touchmove',function(e){if(!swOn)return;var d=swY0-getY(e);if(d>0)move(d);e.preventDefault()},{passive:false});
+  area.addEventListener('touchend',function(){if(!swOn)return;swOn=false;reset()});
+  area.addEventListener('mousedown',function(e){swOn=true;swY0=e.clientY});
+  document.addEventListener('mousemove',function(e){if(!swOn)return;var d=swY0-e.clientY;if(d>0)move(d)});
+  document.addEventListener('mouseup',function(){if(!swOn)return;swOn=false;reset()});
+}
+
+function buildPin(){
+  var pad=$('pinP'),keys=['1','2','3','4','5','6','7','8','9','','0','del'];
+  pad.innerHTML='';
+  for(var i=0;i<keys.length;i++){
+    var b=document.createElement('button');b.className='pv-k';
+    if(keys[i]==='del'){b.className+=' fn';b.innerHTML='&#9003;';b.dataset.a='del'}
+    else if(keys[i]===''){b.className+=' blank'}
+    else{b.textContent=keys[i];b.dataset.k=keys[i]}
+    b.addEventListener('click',onPin);pad.appendChild(b)
+  }
+  var d=$('pinD');d.innerHTML='';
+  for(var j=0;j<6;j++){var dot=document.createElement('div');dot.className='pv-dot';d.appendChild(dot)}
+}
+
+function onPin(e){
+  var b=e.currentTarget,now=Date.now();
+  var errState=gErr();
+  if(errState.lockUntil&&now<errState.lockUntil){msg('锁定中 '+Math.ceil((errState.lockUntil-now)/1000)+'秒',1);return}
+  if(now<pinLk){msg('请等待 '+Math.ceil((pinLk-now)/1000)+' 秒',1);return}
+  if(pinLastIn&&now-pinLastIn<120)return;
+  pinLastIn=now;
+  resetIdle();
+  if(b.dataset.a==='del'){
+    if(pinSt===0){pin=pin.slice(0,-1);updatePinStrength(pin)}
+    else{pin2=pin2.slice(0,-1);updatePinStrength(pin2)}
+    updD();msg('');return;
+  }
+  var k=b.dataset.k;if(!k)return;
+  var stored=gPin(),setup=!stored||stored.length!==6;
+  
+  if(verifyCallback){
+    if(pin.length>=6)return;
+    pin+=k;updD();
+    if(pin.length===6){
+      if(pin===stored){
+        var cb=verifyCallback;
+        verifyCallback=null;
+        pin='';updD();
+        cb();
+      }else{
+        pErr();
+      }
+    }
+    return;
+  }
+  
+  if(setup){
+    if(pinSt===0){
+      if(pin.length>=6)return;
+      pin+=k;updD();updatePinStrength(pin);
+      if(pin.length===6){
+        var str=checkPinStrength(pin);
+        if(str.level<2){
+          msg(str.msg,1);
+          setTimeout(function(){pin='';updD();updatePinStrength('');msg('请设置更安全的密码')},1000);
+          return;
+        }
+        pinSt=1;$('pinS').textContent='再次输入确认';updD();updatePinStrength('');
+      }
+    }else{
+      if(pin2.length>=6)return;
+      pin2+=k;updD();updatePinStrength(pin2);
+      if(pin2.length===6){
+        if(pin2===pin){
+          sPin(pin);
+          errState.pin=0;sErr(errState);
+          toast('密码已设置');setTimeout(unlock,250);
+        }else pErr();
+      }
+    }
+  }else{
+    if(pin.length>=6)return;
+    pin+=k;updD();
+    if(pin.length===6){
+      if(pin===stored){
+        errState.pin=0;sErr(errState);
+        pinEr=0;pin='';updD();setTimeout(unlock,180);
+      }else pErr();
+    }
+  }
+}
+
+function updD(){
+  var ds=$('pinD').children,cur=pinSt===0?pin:pin2;
+  for(var i=0;i<ds.length;i++){ds[i].classList.remove('on','err');if(i<cur.length)ds[i].classList.add('on')}
+}
+
+function pErr(){
+  pinEr++;
+  var errState=gErr();
+  errState.pin++;
+  var lockTime=getLockTime(errState.pin);
+  if(lockTime>0){errState.lockUntil=Date.now()+lockTime;sErr(errState)}
+  $('pinView').classList.add('shake');setTimeout(function(){$('pinView').classList.remove('shake')},350);
+  var ds=$('pinD').children;for(var i=0;i<ds.length;i++)ds[i].classList.add('err');
+  var remain=Math.max(0,5-errState.pin);
+  if(errState.pin>=5)msg('错误过多，锁定'+Math.ceil(lockTime/1000)+'秒',1);
+  else if(remain<=2)msg('密码错误，剩余 '+remain+' 次',1);
+  else msg('密码错误',1);
+  pin='';pin2='';pinSt=0;$('pinS').textContent='输入6位数字密码';updatePinStrength('');
+  setTimeout(function(){for(var i=0;i<ds.length;i++)ds[i].classList.remove('err');updD();msg('')},800)
+}
+
+function showPin(){
+  pin='';pin2='';pinSt=0;pinEr=0;pinLk=0;pinLastIn=0;
+  updD();
+  var setup=!gPin()||gPin().length!==6;
+  $('pinT').classList.toggle('hidden',!setup);
+  $('pinS').textContent=setup?'输入6位数字密码':'输入密码';
+  $('pinStr').classList.add('hidden');
+  $('pinWarn').textContent='';
+  msg(setup?'请设置安全的6位数字密码':'');
+  resetIdle();
+}
+
+function buildPat(){
+  var g=$('patG');g.innerHTML='';
+  for(var r=0;r<3;r++){var row=document.createElement('div');row.className='ptv-row';
+    for(var c=0;c<3;c++){var cell=document.createElement('div');cell.className='ptv-cell';
+      var dot=document.createElement('div');dot.className='ptv-dot';dot.dataset.i=r*3+c;cell.appendChild(dot);row.appendChild(cell)}
+    g.appendChild(row)}
+}
+
+function dPos(i){var w=$('patW').offsetWidth,mg=42,st=(w-mg*2)/2;return{x:mg+(i%3)*st,y:mg+Math.floor(i/3)*st}}
+
+function dPat(p,err){
+  var cv=$('patC'),wr=$('patW');
+  if(!cv||!wr)return;
+  var dpr=window.devicePixelRatio||1;
+  var w=wr.offsetWidth,h=wr.offsetHeight;
+  if(!w||!h)return;
+  cv.width=w*dpr;cv.height=h*dpr;
+  cv.style.width=w+'px';cv.style.height=h+'px';
+  var ctx=cv.getContext('2d');
+  if(!ctx)return;
+  ctx.setTransform(1,0,0,1,0,0);ctx.scale(dpr,dpr);
+  ctx.clearRect(0,0,w,h);
+  if(!p||p.length<2)return;
+  ctx.strokeStyle=err?'#f28b82':'#8ab4f8';ctx.lineWidth=3;ctx.lineCap='round';ctx.lineJoin='round';
+  ctx.globalAlpha=.65;ctx.beginPath();var f=dPos(p[0]);ctx.moveTo(f.x,f.y);
+  for(var i=1;i<p.length;i++){var pt=dPos(p[i]);ctx.lineTo(pt.x,pt.y)}ctx.stroke();ctx.globalAlpha=1
+}
+
+function hitP(e){
+  var wr=$('patW');
+  if(!wr)return-1;
+  var rc=wr.getBoundingClientRect(),x,y;
+  if(e.touches&&e.touches.length){x=e.touches[0].clientX-rc.left;y=e.touches[0].clientY-rc.top}
+  else if(typeof e.clientX==='number'){x=e.clientX-rc.left;y=e.clientY-rc.top}
+  else return-1;
+  var w=rc.width;
+  if(!w)return-1;
+  var mg=42,st=(w-mg*2)/2;
+  var col=Math.round((x-mg)/st),row=Math.round((y-mg)/st);
+  if(row<0||row>2||col<0||col>2)return-1;
+  var dx=Math.abs(x-(mg+col*st)),dy=Math.abs(y-(mg+row*st));
+  if(dx*dx+dy*dy>800)return-1;
+  return row*3+col;
+}
+
+function sDot(i,on){var ds=$('patG').querySelectorAll('.ptv-dot');if(i>=0&&i<ds.length){if(on)ds[i].classList.add('on');else ds[i].classList.remove('on')}}
+function cDots(){var ds=$('patG').querySelectorAll('.ptv-dot');for(var i=0;i<ds.length;i++)ds[i].classList.remove('on','err')}
+
+function initPat(){
+  var wr=$('patW');
+  function start(e){
+    var now=Date.now();
+    var errState=gErr();
+    if(errState.lockUntil&&now<errState.lockUntil){msg('锁定中 '+Math.ceil((errState.lockUntil-now)/1000)+'秒',1);return}
+    if(now<patLk){msg('请等待 '+Math.ceil((patLk-now)/1000)+' 秒',1);return}
+    if(patLastIn&&now-patLastIn<120)return;
+    patLastIn=now;
+    resetIdle();
+    patDr=true;pts=[];cDots();dPat([],0);msg('');
+    var i=hitP(e);if(i>=0)aPt(i);e.preventDefault()
+  }
+  function move(e){if(!patDr)return;var i=hitP(e);if(i>=0)aPt(i);e.preventDefault()}
+  function end(e){
+    if(!patDr)return;patDr=false;
+    var stored=gPat(),setup=!stored||stored.length<4;
+    
+    if(verifyCallback){
+      if(pts.length<4){if(pts.length>0){msg('至少4个点',1);setTimeout(function(){cDots();dPat([],0);pts=[];msg('')},400)}return}
+      if(eq(pts,stored)){
+        var cb=verifyCallback;
+        verifyCallback=null;
+        cDots();dPat([],0);pts=[];
+        cb();
+      }else{
+        pErV();
+      }
+      e.preventDefault();
+      return;
+    }
+    
+    if(pts.length<4){if(pts.length>0){msg('至少4个点',1);setTimeout(function(){cDots();dPat([],0);pts=[];updatePatStrength('');msg('')},400)}return}
+    if(setup){
+      if(patSt===0){
+        var str=checkPatStrength(pts);
+        if(str.level<2){
+          msg(str.msg,1);
+          setTimeout(function(){cDots();dPat([],0);pts=[];updatePatStrength('');msg('请绘制更复杂的图案')},600);
+          return;
+        }
+        pts2=pts.slice();patSt=1;$('patS').textContent='再次绘制确认';cDots();dPat([],0);updatePatStrength('');pts=[];msg('')
+      }
+      else{
+        if(eq(pts,pts2)){
+          sPat(pts2);
+          var errState=gErr();
+          errState.pat=0;sErr(errState);
+          toast('图案已设置');setTimeout(unlock,250);
+        }else pErS();
+      }
+    }else{
+      if(eq(pts,stored)){
+        var errState=gErr();
+        errState.pat=0;sErr(errState);
+        patEr=0;setTimeout(unlock,180);
+      }else pErV();
+    }
+    e.preventDefault()
+  }
+  wr.addEventListener('touchstart',start,{passive:false});
+  wr.addEventListener('touchmove',move,{passive:false});
+  wr.addEventListener('touchend',end);
+  wr.addEventListener('mousedown',start);
+  wr.addEventListener('mousemove',function(e){if(patDr)move(e)});
+  document.addEventListener('mouseup',function(e){if(patDr)end(e)})
+}
+
+function aPt(i){if(pts.indexOf(i)>=0)return;pts.push(i);sDot(i,1);dPat(pts,0);updatePatStrength(pts)}
+
+function pErS(){
+  $('patView').classList.add('shake');setTimeout(function(){$('patView').classList.remove('shake')},350);
+  var ds=$('patG').querySelectorAll('.ptv-dot');for(var i=0;i<ds.length;i++)ds[i].classList.add('err');
+  dPat(pts,1);msg('两次不一致',1);pts=[];pts2=[];patSt=0;$('patS').textContent='绘制图案（至少4点）';updatePatStrength('');
+  setTimeout(function(){cDots();dPat([],0);msg('')},800)
+}
+
+function pErV(){
+  patEr++;
+  var errState=gErr();
+  errState.pat++;
+  var lockTime=getLockTime(errState.pat);
+  if(lockTime>0){errState.lockUntil=Date.now()+lockTime;sErr(errState)}
+  $('patView').classList.add('shake');setTimeout(function(){$('patView').classList.remove('shake')},350);
+  var ds=$('patG').querySelectorAll('.ptv-dot');for(var i=0;i<ds.length;i++)ds[i].classList.add('err');
+  dPat(pts,1);
+  var remain=Math.max(0,5-errState.pat);
+  if(errState.pat>=5)msg('错误过多，锁定'+Math.ceil(lockTime/1000)+'秒',1);
+  else if(remain<=2)msg('图案错误，剩余 '+remain+' 次',1);
+  else msg('图案错误',1);
+  setTimeout(function(){cDots();dPat([],0);pts=[];updatePatStrength('');if(Date.now()>=patLk)msg('')},700)
+}
+
+function showPat(){
+  pts=[];pts2=[];patSt=0;patEr=0;patLk=0;patDr=false;patLastIn=0;
+  cDots();dPat([],0);
+  var setup=!gPat()||gPat().length<4;
+  $('patT').classList.toggle('hidden',!setup);
+  $('patS').textContent=setup?'绘制图案（至少4点）':'绘制解锁图案';
+  $('patStr').classList.add('hidden');
+  $('patWarn').textContent='';
+  msg(setup?'请绘制安全的解锁图案':'');
+  resetIdle();
+}
+
+function applyMode(){
+  var m=S.mode;
+  $('slideView').classList.toggle('hidden',m!=='slide');
+  $('pinView').classList.toggle('hidden',m!=='pin');
+  $('patView').classList.toggle('hidden',m!=='pattern');
+  $('lockInfo').classList.toggle('hidden',m!=='slide');
+  if(m==='pin'){showPin()}
+  else if(m==='pattern'){showPat()}
+  else{msg('');clearIdle()}
+}
+
+function checkLockStatus(){
+  var errState=gErr();
+  if(errState.lockUntil&&Date.now()<errState.lockUntil)return true;
+  return false;
+}
+
+function showLockStatus(){
+  var errState=gErr();
+  if(errState.lockUntil&&Date.now()<errState.lockUntil){
+    msg('锁定中 '+Math.ceil((errState.lockUntil-Date.now())/1000)+'秒',1);
+    setTimeout(showLockStatus,1000);
+  }
+}
+
+function openSettings(){$('ov').classList.add('show');fillForm()}
+function closeSettings(){$('ov').classList.remove('show')}
+
+function fillForm(){
+  $('cfgU').value=S.url||'';$('cfgP').value=S.path||'';
+  var c=$('optU'),ms=[{k:'slide',l:'上滑解锁'},{k:'pin',l:'密码解锁'},{k:'pattern',l:'图案解锁'}];
+  c.innerHTML='';
+  for(var i=0;i<ms.length;i++){var b=document.createElement('button');b.className='opt';
+    if(S.mode===ms[i].k)b.classList.add('on');b.textContent=ms[i].l;b.dataset.m=ms[i].k;
+    b.addEventListener('click',function(){
+      var a=c.querySelectorAll('.opt');
+      for(var j=0;j<a.length;j++)a[j].classList.remove('on');
+      this.classList.add('on')
+    });
+    c.appendChild(b)}
+}
+
+function saveSettings(){
+  var u=$('cfgU').value.trim(),p=$('cfgP').value.trim();
+  var newMode=S.mode;
+  var ms=document.querySelectorAll('#optU .opt.on');
+  if(ms.length>0)newMode=ms[0].dataset.m;
+  if(u){
+    if(!/^https?:\/\/[\w.-]+(:\d+)?(\/.*)?$/i.test(u)){
+      toast('地址格式无效');return;
+    }
+    var portMatch=u.match(/:(\d+)(?:\/|$)/);
+    if(portMatch&&portMatch[1]==='9002'){
+      toast('端口9002不可用');return;
+    }
+  }
+  if(newMode==='pin'){
+    var storedPin=gPin();
+    if(!storedPin||storedPin.length!==6){
+      S.mode='pin';save();closeSettings();applyMode();toast('请先设置密码');return;
+    }
+    if(S.mode==='pattern'){
+      var curPat=gPat();
+      if(curPat&&curPat.length>=4){
+        closeSettings();
+        verifyCallback=function(){S.mode='pin';save();applyMode();toast('已切换为密码解锁')};
+        S.mode='pattern';applyMode();
+        $('patS').textContent='验证当前图案以切换';
+        msg('请绘制图案验证后切换');
+        return;
+      }
+    }
+  }
+  if(newMode==='pattern'){
+    var storedPat=gPat();
+    if(!storedPat||storedPat.length<4){
+      S.mode='pattern';save();closeSettings();applyMode();toast('请先绘制图案');return;
+    }
+    if(S.mode==='pin'){
+      var curPin=gPin();
+      if(curPin&&curPin.length===6){
+        closeSettings();
+        verifyCallback=function(){S.mode='pattern';save();applyMode();toast('已切换为图案解锁')};
+        S.mode='pin';applyMode();
+        $('pinS').textContent='验证当前密码以切换';
+        msg('请输入密码验证后切换');
+        return;
+      }
+    }
+  }
+  if(newMode==='slide'){
+    var curMode=S.mode;
+    if(curMode==='pin'){
+      var curPin=gPin();
+      if(curPin&&curPin.length===6){
+        closeSettings();
+        verifyCallback=function(){S.mode='slide';save();applyMode();toast('已切换为划屏解锁')};
+        S.mode='pin';applyMode();
+        $('pinS').textContent='验证当前密码以切换';
+        msg('请输入密码验证后切换');
+        return;
+      }
+    }else if(curMode==='pattern'){
+      var curPat=gPat();
+      if(curPat&&curPat.length>=4){
+        closeSettings();
+        verifyCallback=function(){S.mode='slide';save();applyMode();toast('已切换为划屏解锁')};
+        S.mode='pattern';applyMode();
+        $('patS').textContent='验证当前图案以切换';
+        msg('请绘制图案验证后切换');
+        return;
+      }
+    }
+  }
+  if(u)S.url=u.replace(/\/+$/,'');if(p)S.path='/'+p.replace(/^\/+/,'');
+  S.mode=newMode;
+  save();closeSettings();applyMode();toast('已保存')
+}
+
+function requestResetPin(){
+  var stored=gPin();
+  if(!stored||stored.length!==6){toast('未设置密码');return}
+  closeSettings();
+  verifyCallback=doResetPin;
+  S.mode='pin';save();applyMode();
+  $('pinS').textContent='验证当前密码';
+  msg('请输入当前密码验证');
+}
+
+function doResetPin(){
+  sPin('');
+  pin='';pin2='';pinSt=0;pinEr=0;pinLk=0;pinLastIn=0;
+  var errState=gErr();errState.pin=0;errState.lockUntil=0;sErr(errState);
+  S.mode='slide';save();applyMode();
+  toast('密码已重置');
+}
+
+function requestResetPattern(){
+  var stored=gPat();
+  if(!stored||stored.length<4){toast('未设置图案');return}
+  closeSettings();
+  verifyCallback=doResetPattern;
+  S.mode='pattern';save();applyMode();
+  $('patS').textContent='验证当前图案';
+  msg('请绘制当前图案验证');
+}
+
+function doResetPattern(){
+  sPat([]);
+  pts=[];pts2=[];patSt=0;patEr=0;patLk=0;patDr=false;patLastIn=0;
+  var errState=gErr();errState.pat=0;errState.lockUntil=0;sErr(errState);
+  S.mode='slide';save();applyMode();
+  toast('图案已重置');
+}
+
+function requestResetAll(){
+  var pinSet=gPin(),patSet=gPat();
+  if(!pinSet&&patSet.length<4){
+    doResetAll();return;
+  }
+  closeSettings();
+  if(pinSet&&pinSet.length===6){
+    verifyCallback=doResetAll;
+    S.mode='pin';save();applyMode();
+    $('pinS').textContent='验证密码以恢复默认';
+    msg('请输入密码验证');
+  }else if(patSet&&patSet.length>=4){
+    verifyCallback=doResetAll;
+    S.mode='pattern';save();applyMode();
+    $('patS').textContent='验证图案以恢复默认';
+    msg('请绘制图案验证');
+  }
+}
+
+function doResetAll(){
+  S=Object.assign({},D);save();
+  sPin('');sPat([]);
+  sErr({pin:0,pat:0,lockUntil:0});
+  pin='';pin2='';pinSt=0;pinEr=0;pinLk=0;pinLastIn=0;
+  pts=[];pts2=[];patSt=0;patEr=0;patLk=0;patDr=false;patLastIn=0;
+  applyTheme();applyMode();
+  toast('已恢复默认');
+}
+
+function toggleTheme(){S.theme=S.theme==='dark'?'light':'dark';save();applyTheme()}
+
+$('ov').addEventListener('click',function(e){if(e.target===this)closeSettings()});
+
+function init(){
+  try{
+    applyTheme();tick();setInterval(tick,10000);
+    initSwipe();buildPin();buildPat();initPat();applyMode();
+    if(checkLockStatus())showLockStatus();
+    document.addEventListener('click',resetIdle);
+    document.addEventListener('touchstart',resetIdle,{passive:true});
+    document.addEventListener('keydown',function(e){
+      resetIdle();
+      if(S.mode==='pin'){
+        var pv=$('pinView');
+        if(pv&&!pv.classList.contains('hidden')){
+          if(e.key>='0'&&e.key<='9'){
+            var fakeEvt={currentTarget:{dataset:{k:e.key}}};
+            onPin(fakeEvt);
+          }else if(e.key==='Backspace'){
+            var delEvt={currentTarget:{dataset:{a:'del'}}};
+            onPin(delEvt);
+          }
+        }
+      }
+    });
+  }catch(e){console.error('Init error:',e)}
+}
+window.openSettings=openSettings;window.closeSettings=closeSettings;
+window.saveSettings=saveSettings;window.resetPin=requestResetPin;
+window.resetPattern=requestResetPattern;window.resetAll=requestResetAll;window.toggleTheme=toggleTheme;
+
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init()
+})();
+</script>
+</body>
+</html>

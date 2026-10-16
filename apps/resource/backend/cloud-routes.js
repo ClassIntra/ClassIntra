@@ -493,6 +493,11 @@ var storage = multer.diskStorage({
 var upload = multer({
   storage: storage,
   limits: { fileSize: 200 * 1024 * 1024 },
+  // multer 2.x 默认按 latin1 解析 multipart 的 filename 参数 → 中文文件名会变成
+  // "é¿å¾…" 这种乱码落库，用户在云盘里看到的就是一堆乱码名。
+  // defParamCharset: 'utf8' 让 busboy 按 UTF-8 解码，从根上修掉（长图导出、
+  // 相册导出等所有非 ASCII 文件名都受益）。
+  defParamCharset: 'utf8',
   // 不在 filter 里拒收：扩展名/MIME 全缺失的文件也要落盘后靠魔数嗅探判定（见 finalizeUploadExt）
   fileFilter: function(req, file, cb) {
     cb(null, true);
@@ -523,6 +528,7 @@ var guestStorage = multer.diskStorage({
 var guestUpload = multer({
   storage: guestStorage,
   limits: { fileSize: 200 * 1024 * 1024 },
+  defParamCharset: 'utf8',   // 同上：中文文件名按 UTF-8 解码
   fileFilter: function(req, file, cb) {
     cb(null, true);
   }

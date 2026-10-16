@@ -68,11 +68,15 @@ apps/my-app/
 | `frontend.component` | 是 | 主页面组件路径 `./frontend/MyApp.vue` |
 | `frontend.widgets[]` | 否 | 桌面小组件声明（见下节） |
 | `backend.mountPath` / `backend.entry` | 否 | 后端挂载 `/api/my-app` + `./backend/routes.js`（支持 `rateLimit`） |
-| `visibleRoles` | 否 | 可见角色白名单：`admin` / `officer` / `student`（空 = 全员可见） |
+| `visibleRoles` | 否 | 可见角色白名单：`classAdmin` / `admin` / `officer` / `student`（空 = 全员可见） |
 | `layout` | 否 | 挂载形态：`mode: fullscreen/sheet/window` + `resizable/minWidth/minHeight` |
 | `capabilities` | 否 | 能力披露清单（安装前告知用户，非拦截），如 `data.storage` / `system.clipboard` |
 
 完整 schema 见 `shared/src/manifest-schema.js`（前端）与 `server/src/core/manifest-schema.js`（后端，两者同步维护）。
+
+> **`visibleRoles` 的令牌不是用户 `role` 字段的枚举**，判定逻辑见 `client/src/views/Desktop.vue` 的 `isVisibleForUser()`：
+> `classAdmin` = 班管（`is_class_admin`）或系统管理员，**不含**班干 `officer`；`admin` = 管理员 / 班干 / 班管（名字叫 admin 但范围更宽）；
+> `officer` = 班干；`student` = 学生。想「仅班管可见的管理入口」请用 `classAdmin`。
 
 ### 前端约定
 

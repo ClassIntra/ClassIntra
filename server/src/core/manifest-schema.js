@@ -23,15 +23,25 @@ var FIELD_DEFS = {
   sdk: { type: 'string', required: false, default: '1', description: '所需 SDK 主版本（缺省视为 "1"，向后兼容旧应用）' },
   capabilities: { type: 'array', required: false, default: [], description: '能力披露清单（仅展示，不拦截）' },
   layout: { type: 'object', required: false, description: '布局偏好：mode(fullscreen/sheet/window) / resizable / minWidth / minHeight' },
-  visibleRoles: { type: 'array', required: false, default: [], description: '可见角色白名单（空数组=所有角色可见）：admin / officer / student' },
+  visibleRoles: { type: 'array', required: false, default: [], description: '可见角色白名单（空数组=所有角色可见）：classAdmin / admin / officer / student' },
   config: { type: 'array', required: false, default: [], description: '配置项声明 [{key,label,type,required,default,description}]：安装时引导管理员填写，值存数据库 app_config 表（读取回退：DB → process.env → default）' }
 };
 
 // 配置项类型枚举（type 字段；secret 在管理端回显时打码）
 var CONFIG_TYPES = ['string', 'number', 'boolean', 'secret'];
 
-// 合法角色枚举（与认证系统的 role 字段对齐）
-var KNOWN_ROLES = ['admin', 'officer', 'student'];
+// visibleRoles 的合法「受众令牌」枚举。
+// ⚠️ 这不是 users.role 字段的枚举 —— 消费方 client/src/views/Desktop.vue
+//    的 isVisibleForUser() 对每个令牌各有独立判定，令牌名与角色名并不一一对应：
+//      classAdmin → isClassAdmin      （班管 is_class_admin 或系统管理员，**不含** officer 班干）
+//      admin      → isAdminOrOfficer （令牌名为 admin，实际放行 管理员 / 班干 / 班管）
+//      officer    → users.role === 'officer'
+//      student    → 学生
+// 曾经按「与认证系统 role 字段对齐」写成 ['admin','officer','student'] 而漏掉 classAdmin，后果：
+//   ① 每次启动刷 warning（apps/market 声明的正是 visibleRoles: ["classAdmin"]）；
+//   ② 更严重 —— market-service.js 对同一字段按 errors 处理，任何声明 classAdmin 的
+//      市场应用会被判不合格、装不上（前后端两份 schema 分叉，见下方「必须同步」说明）。
+var KNOWN_ROLES = ['classAdmin', 'admin', 'officer', 'student'];
 
 // 当前 SDK 主版本（与 client/src/core/market-sdk.js 的 context.version 对齐）
 var CURRENT_SDK_VERSION = '1';

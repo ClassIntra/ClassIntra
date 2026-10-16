@@ -74,6 +74,9 @@ function resolveModel(modelId) {
       apiStyle: row.api_style === 'deepseek' ? 'deepseek' : 'openai',
       supportsThinking: !!row.supports_thinking,
       supportsSearch: !!row.supports_search,
+      // 视觉能力（migration 015）：能否直接接收图片内容块；单次上限 0 = 跟随全局默认
+      supportsVision: !!row.supports_vision,
+      visionMaxImages: row.vision_max_images || 0,
       isFree: !!row.is_free,
       enabled: !!row.enabled,
       isDefault: !!row.is_default,
@@ -81,6 +84,12 @@ function resolveModel(modelId) {
       maxContextTokens: row.max_context_tokens || 0,
       maxOutputTokens: row.max_output_tokens || 0,
       reasoningEffort: row.reasoning_effort || '',
+      // 用量记账（migration 013）：单价单位「微元/千token」，旧库无此列时兜底 0
+      priceIn: row.price_in || 0,
+      priceOut: row.price_out || 0,
+      priceCacheHit: row.price_cache_hit || 0,
+      // 流式注入 stream_options:{include_usage:true} 的开关，缺列视为开启
+      supportsStreamOptions: row.supports_stream_options === undefined ? 1 : (row.supports_stream_options ? 1 : 0),
       apiUrl: row.api_url || '',
       apiKey: row.api_key || '',
       model: row.model || ''
@@ -103,15 +112,19 @@ function resolveModel(modelId) {
   if (modelId === 'deepseek' && config.deepseek.apiKey) {
     return {
       id: 'deepseek', label: 'DeepSeek', color: '#10b981', apiStyle: 'deepseek',
-      supportsThinking: true, supportsSearch: true, isFree: false, enabled: true,
+      supportsThinking: true, supportsSearch: true, supportsVision: false, visionMaxImages: 0,
+      isFree: false, enabled: true,
       isDefault: false, builtin: true, maxContextTokens: 0, maxOutputTokens: 0, reasoningEffort: '',
+      priceIn: 0, priceOut: 0, priceCacheHit: 0, supportsStreamOptions: 0,
       apiUrl: normalizeEndpoint(config.deepseek.apiUrl), apiKey: config.deepseek.apiKey, model: config.deepseek.model
     };
   }
   return {
     id: 'default', label: 'GPT', color: '#f59e0b', apiStyle: 'openai',
-    supportsThinking: false, supportsSearch: false, isFree: true, enabled: true,
+    supportsThinking: false, supportsSearch: false, supportsVision: false, visionMaxImages: 0,
+    isFree: true, enabled: true,
     isDefault: true, builtin: true, maxContextTokens: 0, maxOutputTokens: 0, reasoningEffort: '',
+    priceIn: 0, priceOut: 0, priceCacheHit: 0, supportsStreamOptions: 0,
     apiUrl: normalizeEndpoint(config.ai.apiUrl), apiKey: config.ai.apiKey, model: config.ai.model
   };
 }
@@ -160,6 +173,14 @@ function buildRequestBody(messages, options, mc) {
       body.tools = options.tools;
       body.tool_choice = options.toolChoice || 'auto';
     }
+  }
+
+  // 用量记账（migration 013）：OpenAI 兼容端点的流式响应默认不带 usage，
+  // 必须显式声明 stream_options.include_usage 才能在末帧拿到 token 计数。
+  // DeepSeek 默认已带，不重复注入；个别中转会因未知字段返回 400，
+  // 可在模型配置里关掉 supports_stream_options。
+  if (options.stream && mc.supportsStreamOptions !== 0 && mc.apiStyle !== 'deepseek') {
+    body.stream_options = { include_usage: true };
   }
 
   return { url: mc.apiUrl, headers: { 'Authorization': 'Bearer ' + mc.apiKey, 'Content-Type': 'application/json' }, body: body };
@@ -241,6 +262,9 @@ function chatWithAIStream(messages, res, options) {
   var opts = options || {};
   var onContent = opts.onContent || null;
   var onReasoning = opts.onReasoning || null;
+  // 用量记账（migration 013）：流式末帧的 usage 需要回传给调用方落库，
+  // 此前只做了 SSE 转发与日志，服务端不留存。
+  var onUsage = opts.onUsage || null;
   var enableThinking = !!opts.thinking;
   var mc = resolveModelForOptions(opts);
   var req = buildRequestBody(messages, Object.assign({}, opts, { stream: true }), mc);
@@ -330,6 +354,9 @@ function chatWithAIStream(messages, res, options) {
             }
             if (parsed.usage) {
               sendSSE({ usage: parsed.usage });
+              if (onUsage) {
+                try { onUsage(parsed.usage); } catch (e) {}
+              }
               var hitTokens = parsed.usage.prompt_cache_hit_tokens || 0;
               var missTokens = parsed.usage.prompt_cache_miss_tokens || 0;
               var totalTokens = parsed.usage.prompt_tokens || 0;
