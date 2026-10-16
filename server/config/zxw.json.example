@@ -1,0 +1,5 @@
+{
+  "_note": "ZXW 配置示例（复制为 zxw.json 后按部署环境填写；zxw.json 不入库）。payloadFile：server/public/zxw/ 下作为负载页下发的文件名（只允许这一个文件被下发）。urlToken：下发时把负载页内该默认地址替换为请求 origin（用于把页面默认跳转指向本服务器）；留空则不做替换。",
+  "payloadFile": "classintra.html",
+  "urlToken": ""
+}

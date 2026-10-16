@@ -39,17 +39,22 @@
           <span>暂无对话</span>
         </div>
         <template v-else>
-          <!-- Conversation Search -->
+          <!-- Conversation Search（服务端全文检索：标题 + 消息正文） -->
           <div class="sidebar-search">
             <i class="fa-solid fa-magnifying-glass sidebar-search-icon"></i>
             <input
               v-model="convSearchQuery"
               class="sidebar-search-input"
-              placeholder="搜索对话..."
+              placeholder="搜索标题和对话内容..."
+              @input="onConvSearchInput"
             />
-            <button v-if="convSearchQuery" class="sidebar-search-clear" @click="convSearchQuery = ''">
+            <span v-if="searchingConvs" class="sidebar-search-spin"></span>
+            <button v-else-if="convSearchQuery" class="sidebar-search-clear" @click="clearConvSearch">
               <i class="fa-solid fa-xmark"></i>
             </button>
+          </div>
+          <div v-if="serverSearchActive" class="conv-search-meta">
+            正文中找到 {{ searchResults.length }} 个对话
           </div>
           <!-- No search results -->
           <div v-if="groupedConversations.length === 0" class="sidebar-empty sidebar-search-empty">
@@ -70,7 +75,7 @@
                 >
                   <div class="conv-icon"><i :class="isPinned(conv.id) ? 'fa-solid fa-thumbtack' : 'fa-solid fa-comment-dots'"></i></div>
                   <div class="conv-info">
-                    <div class="conv-title" v-if="editingId !== conv.id">{{ conv.title }}</div>
+                    <div class="conv-title" v-if="editingId !== conv.id">{{ conv.title }}<span v-if="streamStates[conv.id]" class="conv-streaming" title="正在生成回复"><i class="fa-solid fa-circle-notch fa-spin"></i></span></div>
                     <input
                       v-else
                       v-model="editTitle"
@@ -80,6 +85,7 @@
                       v-focus
                     />
                     <div class="conv-time">{{ formatConvTime(conv.updated_at) }}</div>
+                    <div v-if="conv.snippet" class="conv-snippet">{{ conv.snippet }}</div>
                   </div>
                   <div class="conv-actions">
                     <button class="conv-action-btn" :class="{ 'pin-active': isPinned(conv.id) }" @click.stop="togglePin(conv.id)" title="置顶"><i class="fa-solid fa-thumbtack"></i></button>
@@ -123,13 +129,30 @@
             <button v-if="currentConvId" class="header-icon-btn" @click="openConvSettings" title="对话设置">
               <i class="fa-solid fa-gear"></i>
             </button>
+            <button
+              v-if="currentConvId"
+              class="ctx-pill"
+              :class="ctxClass"
+              @click="openMemoryPanel"
+              :title="'上下文占用 ' + ctxPercent + '%，点击查看记忆'"
+            >
+              <span class="ctx-pill-track"><i :style="{ width: ctxPercent + '%' }"></i></span>
+              <span class="ctx-pill-text">{{ ctxPercent }}%</span>
+            </button>
+            <button v-if="currentConvId && currentMessages.length > 0" class="header-icon-btn" @click="exportLongImage" :disabled="exportingImage" title="导出长图到云盘">
+              <i v-if="!exportingImage" class="fa-regular fa-image"></i>
+              <i v-else class="fa-solid fa-spinner fa-spin"></i>
+            </button>
             <button v-if="currentConvId && currentMessages.length > 0" class="header-btn" @click="confirmClearHistory" title="清空对话">清空</button>
+            <span v-if="backgroundStreamCount" class="bg-stream-chip" title="其他会话正在后台生成，切换过去可查看进度">
+              <i class="fa-solid fa-circle-notch fa-spin"></i> {{ backgroundStreamCount }} 个后台生成
+            </span>
             <button v-if="isStreaming" class="stop-btn" @click="stopGeneration">停止生成</button>
           </div>
         </div>
 
         <!-- Messages Area -->
-        <div class="aichat-messages scrollbar-thin" ref="msgContainer">
+        <div class="aichat-messages scrollbar-thin" ref="msgContainer" @scroll.passive="onMessagesScroll">
           <!-- Loading Messages -->
           <div v-if="loadingMessages" class="loading-container">
             <div class="spinner"></div>
@@ -156,8 +179,13 @@
 
           <!-- Messages List -->
           <div v-else class="messages-container">
+            <div v-if="hiddenMessageCount > 0" class="load-earlier-row">
+              <button class="load-earlier-btn" @click="loadEarlierMessages">
+                显示更早的 {{ Math.min(hiddenMessageCount, 40) }} 条（还有 {{ hiddenMessageCount }} 条未渲染）
+              </button>
+            </div>
             <div
-              v-for="(msg, idx) in currentMessages"
+              v-for="(msg, idx) in renderedMessages"
               :key="msg._key"
               class="aichat-msg"
               :class="{
@@ -174,12 +202,12 @@
               <div class="msg-avatar"><i :class="msg.role === 'user' ? 'fa-solid fa-user' : 'fa-solid fa-robot'"></i></div>
               <div class="msg-body">
                 <!-- AI searching indicator -->
-                <div v-if="msg.role === 'assistant' && !msg.content && !msg.error && isSearching && idx === currentMessages.length - 1" class="msg-content msg-searching">
+                <div v-if="msg.role === 'assistant' && !msg.content && !msg.error && isSearching && idx === renderedMessages.length - 1" class="msg-content msg-searching">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="search-spin"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                   <span>正在搜索{{ searchQuery ? '：' + searchQuery : '...' }}</span>
                 </div>
                 <!-- AI streaming: show typing indicator instead of empty bubble -->
-                <div v-if="msg.role === 'assistant' && !msg.content && !msg.reasoning && !msg.error && isStreaming && !isSearching && idx === currentMessages.length - 1" class="msg-content msg-typing">
+                <div v-if="msg.role === 'assistant' && !msg.content && !msg.reasoning && !msg.error && isStreaming && !isSearching && idx === renderedMessages.length - 1" class="msg-content msg-typing">
                   <div class="typing-dots-inline">
                     <span class="dot"></span><span class="dot"></span><span class="dot"></span>
                   </div>
@@ -195,6 +223,20 @@
                 <div v-if="msg.role === 'assistant' && msg.content" class="msg-content markdown-body" v-html="renderMarkdown(msg.content)"></div>
                 <!-- User message -->
                 <div v-else-if="msg.role === 'user'" class="msg-content user-markdown" v-html="renderUserMarkdown(msg.content)"></div>
+                <!-- 用户消息附带的云盘图片 -->
+                <div v-if="msg.role === 'user' && msg.images && msg.images.length" class="msg-images">
+                  <a
+                    v-for="(im, imIdx) in msg.images"
+                    :key="imIdx"
+                    class="msg-image"
+                    :href="im.url"
+                    target="_blank"
+                    rel="noopener"
+                    :title="im.name"
+                  >
+                    <img :src="im.url + '?w=200'" :alt="im.name || '图片'" loading="lazy" />
+                  </a>
+                </div>
                 <!-- AI empty message (not streaming) - shouldn't normally show -->
                 <div v-else-if="msg.role === 'assistant' && msg.error" class="msg-content msg-error-only">
                   <i class="fa-solid fa-circle-exclamation"></i> 消息获取失败
@@ -211,14 +253,17 @@
                   <button class="msg-action-btn" @click="showForwardMenu(msg)" title="转发">
                     <i class="fa-solid fa-share"></i>
                   </button>
-                  <button v-if="idx === currentMessages.length - 1" class="msg-action-btn" @click="regenerateMessage(msg)" title="重新生成">
+                  <button v-if="idx === renderedMessages.length - 1" class="msg-action-btn" @click="regenerateMessage(msg)" title="重新生成">
                     <i class="fa-solid fa-rotate"></i>
                   </button>
                 </div>
-                <!-- User message actions (edit + forward) -->
+                <!-- User message actions (edit + copy + forward) -->
                 <div v-if="!selectMode && msg.role === 'user' && !isStreaming" class="msg-actions msg-actions-user">
                   <button class="msg-action-btn" @click="editMessage(msg)" title="编辑消息">
                     <i class="fa-solid fa-pen"></i>
+                  </button>
+                  <button class="msg-action-btn" @click="copyRawMarkdown(msg.content)" title="复制这条消息">
+                    <i class="fa-regular fa-copy"></i>
                   </button>
                   <button class="msg-action-btn" @click="showForwardMenu(msg)" title="转发">
                     <i class="fa-solid fa-share"></i>
@@ -231,12 +276,31 @@
 
         <!-- Input Area -->
         <div v-if="!selectMode" class="aichat-input-area">
+          <!-- 待发送的图片 -->
+          <div v-if="pendingImages.length > 0" class="attach-row">
+            <div v-for="(im, imIdx) in pendingImages" :key="imIdx" class="attach-chip">
+              <img :src="im.url + '?w=120'" :alt="im.name" />
+              <span class="attach-name">{{ im.name }}</span>
+              <button class="attach-remove" @click="removePendingImage(imIdx)" title="移除">
+                <i class="fa-solid fa-xmark"></i>
+              </button>
+            </div>
+          </div>
           <div class="input-wrapper">
             <div class="input-row">
+              <button
+                class="attach-btn"
+                :class="{ 'attach-btn--active': pendingImages.length > 0 }"
+                @click="openImagePicker"
+                :disabled="isStreaming"
+                :title="visionMode === 'none' ? visionHint : '从云盘选图发送（' + visionHint + '）'"
+              >
+                <i class="fa-regular fa-image"></i>
+              </button>
               <textarea
                 v-model="inputText"
                 class="aichat-input"
-                :placeholder="isStreaming ? 'AI 正在回复中...' : '输入消息，Enter 发送，Shift+Enter 换行'"
+                :placeholder="isStreaming ? 'AI 正在回复中...' : (visionMode === 'none' ? '输入消息，Enter 发送，Shift+Enter 换行' : '输入消息或从云盘选图，Enter 发送')"
                 @keydown.enter.exact.prevent="sendMessage"
                 @keydown.enter.shift.exact="allowNewline"
                 @input="autoResize"
@@ -244,12 +308,13 @@
                 ref="inputEl"
                 :disabled="isStreaming"
               ></textarea>
-              <button class="send-btn" @click="sendMessage" :disabled="!inputText.trim() || isStreaming || inputText.length > 2000" :title="isStreaming ? '发送中...' : '发送'">
+              <button class="send-btn" @click="sendMessage" :disabled="isStreaming || inputText.length > 2000 || (!inputText.trim() && pendingImages.length === 0)" :title="isStreaming ? '发送中...' : '发送'">
                 <svg v-if="!isStreaming" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
                 <div v-else class="send-spinner"></div>
               </button>
             </div>
             <div class="input-meta">
+              <span v-if="streamStatText" class="stream-stat">{{ streamStatText }}</span>
               <span class="char-counter" :class="{ 'char-warning': inputText.length > 1800 }">{{ inputText.length }}/2000</span>
             </div>
           </div>
@@ -311,6 +376,16 @@
             <i v-if="m.id === currentModel" class="fa-solid fa-check model-item-check"></i>
           </div>
         </div>
+        <div v-if="wallet && !wallet.unlimited" class="wallet-line" :class="{ 'wallet-line--warn': wallet.percent >= 80, 'wallet-line--full': wallet.percent >= 100 }">
+          <div class="wallet-line-top">
+            <i class="fa-solid fa-wallet"></i>
+            <span>近 {{ wallet.window_days }} 天已用 ¥{{ (wallet.used_micro / 1000000).toFixed(2) }} / ¥{{ (wallet.quota_micro / 1000000).toFixed(2) }}</span>
+            <b>{{ wallet.percent }}%</b>
+          </div>
+          <div class="wallet-bar"><i :style="{ width: Math.min(100, wallet.percent) + '%' }"></i></div>
+          <div v-if="wallet.percent >= 100" class="wallet-tip">额度已用完，发消息会被拒绝，请联系管理员</div>
+          <div v-else-if="wallet.percent >= 80" class="wallet-tip">额度快用完了，剩余 ¥{{ (wallet.remaining_micro / 1000000).toFixed(2) }}</div>
+        </div>
         <div v-if="isAdmin" class="model-panel-footer">
           <button class="model-admin-entry" @click="goAdminPage">
             <i class="fa-solid fa-cubes"></i>
@@ -360,6 +435,92 @@
     </div>
 
     <!-- Conversation Settings Panel -->
+    <!-- 上下文与记忆面板 -->
+    <div v-if="showMemoryPanel" class="model-selector-overlay" @click.self="showMemoryPanel = false">
+      <div class="conv-settings-panel">
+        <div class="conv-settings-header">
+          <h3 class="panel-title">上下文与记忆</h3>
+          <button class="conv-settings-close" @click="showMemoryPanel = false">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+        <div class="conv-settings-body">
+          <div v-if="ctxLoading" class="ctx-loading"><div class="spinner"></div></div>
+          <div v-else-if="!ctxInfo" class="ctx-error">{{ ctxError || '无法读取上下文信息' }}</div>
+          <template v-else>
+            <div class="settings-section">
+              <div class="settings-label">
+                <i class="fa-solid fa-gauge-high"></i>
+                <span>上下文占用</span>
+              </div>
+              <div class="ctx-bar"><div class="ctx-bar-fill" :class="ctxClass" :style="{ width: ctxInfo.percent + '%' }"></div></div>
+              <div class="ctx-legend">
+                <span>{{ ctxInfo.used.toLocaleString() }} / {{ ctxInfo.budget.toLocaleString() }} tokens</span>
+                <span>{{ ctxInfo.message_count }} 条消息 · {{ ctxInfo.model_label }}</span>
+              </div>
+              <div class="ctx-breakdown">
+                <div class="ctx-item"><i class="ctx-dot ctx-dot--sys"></i>系统提示 <b>{{ ctxInfo.breakdown.system }}</b></div>
+                <div class="ctx-item"><i class="ctx-dot ctx-dot--mem"></i>对话记忆 <b>{{ ctxInfo.breakdown.summary }}</b></div>
+                <div class="ctx-item"><i class="ctx-dot ctx-dot--his"></i>历史消息 <b>{{ ctxInfo.breakdown.history }}</b></div>
+              </div>
+              <p class="settings-hint">
+                <template v-if="ctxInfo.will_summarize">已达自动记忆阈值（{{ ctxInfo.trigger_count }} 条），下一轮会自动把旧内容压缩成记忆。</template>
+                <template v-else-if="ctxInfo.can_summarize">可手动「重新生成记忆」来压缩旧内容（自动保留最近 {{ ctxInfo.keep_recent }} 条）。</template>
+                <template v-else>消息还不多，继续聊会自动积累记忆。</template>
+              </p>
+            </div>
+
+            <div class="settings-section">
+              <div class="settings-label">
+                <i class="fa-solid fa-brain"></i>
+                <span>对话记忆</span>
+              </div>
+              <p class="settings-hint">记忆会作为长期上下文注入每次请求，可手动修正。它与「对话人设」互补：人设定角色，记忆记事实。</p>
+              <textarea
+                class="settings-textarea"
+                v-model="memoryDraft"
+                rows="5"
+                maxlength="2000"
+                placeholder="（暂无记忆。对话变长后会自动生成，也可点下方「重新生成」）"
+              ></textarea>
+              <div class="settings-textarea-meta">
+                <span class="char-counter" :class="{ 'char-warning': memoryDraft.length > 1800 }">{{ memoryDraft.length }}/2000</span>
+                <span v-if="ctxInfo.summary_at" class="ctx-updated">更新于 {{ ctxInfo.summary_at }}</span>
+              </div>
+              <div class="ctx-actions">
+                <button class="ctx-btn ctx-btn--ghost" :disabled="memoryBusy || !memoryDraft.length" @click="clearMemory">清空记忆</button>
+                <button class="ctx-btn ctx-btn--ghost" :disabled="memoryBusy || !ctxInfo.can_summarize" @click="rebuildMemory">
+                  <i class="fa-solid fa-rotate" :class="{ 'fa-spin': memoryBusy }"></i> 重新生成
+                </button>
+                <button class="ctx-btn ctx-btn--primary" :disabled="memorySaving || memoryDraft === (ctxInfo.summary || '')" @click="saveMemory">保存记忆</button>
+              </div>
+            </div>
+
+            <div class="settings-section">
+              <div class="settings-label">
+                <i class="fa-solid fa-share-nodes"></i>
+                <span>导出与分享</span>
+              </div>
+              <p class="settings-hint">不再往设备里落文件：要么复制成文字带走，要么直接生成长图存进云盘。</p>
+              <div class="ctx-actions">
+                <button class="ctx-btn ctx-btn--ghost" @click="copyConversation('md')">
+                  <i class="fa-regular fa-copy"></i> 复制 Markdown
+                </button>
+                <button class="ctx-btn ctx-btn--ghost" @click="copyConversation('txt')">
+                  <i class="fa-regular fa-copy"></i> 复制纯文本
+                </button>
+                <button class="ctx-btn ctx-btn--primary" :disabled="exportingImage" @click="exportLongImage">
+                  <i class="fa-regular fa-image" :class="{ 'fa-spin': false }"></i>
+                  {{ exportingImage ? '生成中…' : '导出长图到云盘' }}
+                </button>
+              </div>
+              <p class="settings-hint">长图会存到云盘的「AI 对话导出」分组，生成完可在云盘里查看或分享。</p>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+
     <div v-if="showConvSettings" class="model-selector-overlay" @click.self="showConvSettings = false">
       <div class="conv-settings-panel">
         <div class="conv-settings-header">
@@ -452,6 +613,14 @@
         <div class="viewer-body scrollbar-thin markdown-body" v-html="renderMarkdown(viewerContent)"></div>
       </div>
     </div>
+
+    <!-- 云盘选图（看图对话） -->
+    <CloudImagePicker
+      :visible="showImagePicker"
+      :max="visionInfo.max_images || 4"
+      @close="showImagePicker = false"
+      @confirm="onImagesPicked"
+    />
   </div>
 </template>
 
@@ -465,6 +634,8 @@ import 'katex/dist/katex.min.css';
 import 'highlight.js/styles/github-dark.min.css';
 import LatexRenderer from '@/utils/latex-renderer';
 import RichTextRenderer from '@/utils/rich-text-renderer';
+import CloudImagePicker from './CloudImagePicker.vue';
+import { renderConversationLongImage } from './longImage.js';
 
 var customRenderer = new marked.Renderer();
 customRenderer.code = function(code, lang) {
@@ -515,8 +686,29 @@ function nextMsgKey() {
   return 'mk_' + Date.now() + '_' + msgKeyCounter;
 }
 
+// Markdown 渲染缓存：长会话里任何一次状态变更都会让整个列表重算 v-html，
+// marked + KaTeX + DOMPurify 跑一遍很贵。内容不变就直接复用上次的 HTML。
+var MD_CACHE_MAX = 160;
+var mdCache = new Map();
+function markdownCached(content, render) {
+  var key = content;
+  if (mdCache.has(key)) {
+    // 命中后挪到队尾（简单 LRU）
+    var hit = mdCache.get(key);
+    mdCache.delete(key);
+    mdCache.set(key, hit);
+    return hit;
+  }
+  var html = render(content);
+  mdCache.set(key, html);
+  if (mdCache.size > MD_CACHE_MAX) {
+    mdCache.delete(mdCache.keys().next().value);
+  }
+  return html;
+}
+
 export default {
-  components: { AppNavBar: AppNavBar },
+  components: { AppNavBar: AppNavBar, CloudImagePicker: CloudImagePicker },
   name: 'AIChat',
   directives: {
     focus: { inserted: function(el) { el.focus(); } }
@@ -546,6 +738,18 @@ export default {
       showSystemPrompt: false,
       customSystemPrompt: '',
       convSearchQuery: '',
+      serverSearchActive: false,
+      searchResults: [],
+      searchingConvs: false,
+      convSearchTimer: null,
+      // 上下文与记忆
+      showMemoryPanel: false,
+      ctxInfo: null,
+      ctxLoading: false,
+      ctxError: '',
+      memoryDraft: '',
+      memorySaving: false,
+      memoryBusy: false,
       pinnedConvIds: [],
       aiSettingsLoaded: false,
       currentModel: 'default',
@@ -563,6 +767,27 @@ export default {
       viewerContent: null,
       selectMode: false,
       selectedMessages: [],
+      // ---- 看图（云盘选图）----
+      showImagePicker: false,
+      pendingImages: [],          // 待发送的图片 [{hash,name,url}]
+      visionInfo: { enabled: false, relay_model: '', max_images: 4 },
+      // ---- 额度（null = 不限额，不显示）----
+      wallet: null,
+      // ---- 长图导出 ----
+      exportingImage: false,
+      lastExportHash: '',
+      // ---- 长会话渲染优化 ----
+      renderLimit: 40,            // 首屏只渲染最近 N 条，向上滚动再加载
+      loadEarlierBusy: false,
+      // ---- 流式体验：首字延迟 / 耗时 / 字数 ----
+      // streamStates 才是真正的运行期状态（按会话隔离）；下面这些是「当前会话」的镜像
+      streamStates: {},
+      streamStartedAt: 0,
+      streamFirstTokenAt: 0,
+      streamChars: 0,
+      streamRafId: 0,
+      streamPending: '',
+      streamReplace: false,
       promptTemplates: [
         { icon: 'fa-solid fa-graduation-cap', title: '学术问题', prompt: '请详细解释量子纠缠的原理，并举一个通俗的类比' },
         { icon: 'fa-solid fa-laptop-code', title: '编程开发', prompt: '用 Python 实现一个 LRU 缓存，要求 O(1) 读写' },
@@ -615,9 +840,50 @@ export default {
       var conv = this.conversations.find(function(c) { return c.id === self.currentConvId; });
       return conv ? conv.title : 'AI 对话';
     },
+    // 只渲染最近 N 条：长会话一次渲染几百条 Markdown 是卡顿的主因
+    renderedMessages: function() {
+      var all = this.currentMessages;
+      if (all.length <= this.renderLimit) return all;
+      return all.slice(all.length - this.renderLimit);
+    },
+    hiddenMessageCount: function() {
+      return Math.max(0, this.currentMessages.length - this.renderLimit);
+    },
+    // 当前模型能不能看图：自身支持 → 原生；否则看管理员是否配了统一转述模型
+    visionMode: function() {
+      if (!this.visionInfo.enabled) return 'none';
+      if (this.currentModelInfo.supports_vision) return 'native';
+      if (this.visionInfo.relay_model) return 'relay';
+      return 'none';
+    },
+    visionHint: function() {
+      if (this.visionMode === 'native') return '当前模型支持看图，图片会直接发给它';
+      if (this.visionMode === 'relay') return '当前模型不支持看图，将由管理员配置的转述模型先把图片说成文字';
+      return '当前模型不支持看图，且管理员未配置统一转述模型';
+    },
+    streamElapsed: function() {
+      if (!this.streamStartedAt) return 0;
+      var end = this.isStreaming ? Date.now() : (this.streamFirstTokenAt ? Date.now() : this.streamStartedAt);
+      return Math.max(0, end - this.streamStartedAt);
+    },
+    streamStatText: function() {
+      if (!this.isStreaming && !this.streamChars) return '';
+      var parts = [];
+      if (this.streamFirstTokenAt && this.streamStartedAt) {
+        parts.push('首字 ' + ((this.streamFirstTokenAt - this.streamStartedAt) / 1000).toFixed(1) + 's');
+      }
+      parts.push(this.streamChars + ' 字');
+      if (!this.isStreaming && this.streamStartedAt) {
+        parts.push('共 ' + ((Date.now() - this.streamStartedAt) / 1000).toFixed(1) + 's');
+      }
+      return parts.join(' · ');
+    },
     groupedConversations: function() {
       var self = this;
-      var filtered = this.conversations.filter(function(c) {
+      // 服务端检索结果已按关键词过滤过，这里不再按标题二次过滤
+      var source = self.serverSearchActive ? self.searchResults : self.conversations;
+      var filtered = source.filter(function(c) {
+        if (self.serverSearchActive) return true;
         if (!self.convSearchQuery) return true;
         var query = self.convSearchQuery.toLowerCase();
         return c.title.toLowerCase().indexOf(query) > -1;
@@ -663,6 +929,23 @@ export default {
       }
 
       return groups.filter(function(g) { return g.convs.length > 0; });
+    },
+    // 上下文占用百分比（未取到时为 0）
+    ctxPercent: function() {
+      if (!this.ctxInfo) return 0;
+      return this.ctxInfo.percent || 0;
+    },
+    // 分级配色：>=85% 危险，>=60% 提醒
+    ctxClass: function() {
+      var p = this.ctxPercent;
+      if (p >= 85) return 'ctx-danger';
+      if (p >= 60) return 'ctx-warn';
+      return 'ctx-ok';
+    },
+    // 除当前会话外还有几个在后台生成
+    backgroundStreamCount: function() {
+      var self = this;
+      return Object.keys(self.streamStates).filter(function(id) { return id !== self.currentConvId; }).length;
     }
   },
   mounted: function() {
@@ -692,9 +975,8 @@ export default {
   },
   beforeDestroy: function() {
     window.removeEventListener('resize', this.handleResize);
-    if (this.abortController) {
-      this.abortController.abort();
-    }
+    // 离开页面前把所有还在跑的会话全部停掉，避免内存里的 SSE 悬着
+    if (this.stopAllStreams) this.stopAllStreams();
   },
   methods: {
     loadAiSettings: function() {
@@ -738,11 +1020,20 @@ export default {
     },
     loadModels: function() {
       var self = this;
+      self.loadWallet();
       api.get('/ai-chat/models').then(function(response) {
         var data = response.data.data || {};
         self.availableModels = data.models || [];
         self.defaultModelId = data.default_model || 'default';
         self.currentPolicyLabel = data.policy_label || '';
+        // 视觉能力总览：决定「选图」入口与走原生还是转述
+        if (data.vision) {
+          self.visionInfo = {
+            enabled: !!data.vision.enabled,
+            relay_model: data.vision.relay_model || '',
+            max_images: data.vision.max_images || 4
+          };
+        }
         // 当前模型不可用（被禁用/删除/未加载）→ 回落全局默认
         var found = false;
         for (var i = 0; i < self.availableModels.length; i++) {
@@ -762,7 +1053,80 @@ export default {
         if (self.thinkingMode && !self.currentModelInfo.supports_thinking) {
           self.thinkingMode = false;
         }
+        // 切到不能看图的模型时，清掉待发图片（发上去只会被后端拒）
+        if (self.pendingImages.length > 0) {
+          var canSee = self.currentModelInfo.supports_vision || !!self.visionInfo.relay_model;
+          if (!canSee) {
+            self.pendingImages = [];
+            self.$store.commit('toast/SHOW_TOAST', { message: '当前模型不支持看图，已移除待发送的图片', type: 'info' });
+          }
+        }
       }).catch(function() {});
+    },
+
+    // ======== 额度（不设额度的人后端直接返回 unlimited，前端就不显示进度条）========
+    loadWallet: function() {
+      var self = this;
+      api.get('/ai-chat/wallet', { timeout: 10000 }).then(function(res) {
+        var d = (res.data && res.data.data) || null;
+        self.wallet = d && d.unlimited ? null : d;
+      }).catch(function() { self.wallet = null; });
+    },
+
+    // ======== 看图：云盘选图 ========
+    openImagePicker: function() {
+      var self = this;
+      if (self.visionMode === 'none') {
+        self.$store.commit('toast/SHOW_TOAST', {
+          message: self.visionHint + '（可在模型上开启视觉能力，或让管理员配置统一转述模型）',
+          type: 'warning'
+        });
+        return;
+      }
+      self.showImagePicker = true;
+    },
+    onImagesPicked: function(items) {
+      var self = this;
+      self.showImagePicker = false;
+      var max = self.visionInfo.max_images || 4;
+      for (var i = 0; i < items.length && self.pendingImages.length < max; i++) {
+        var it = items[i];
+        var dup = false;
+        for (var j = 0; j < self.pendingImages.length; j++) {
+          if (self.pendingImages[j].hash === it.hash) { dup = true; break; }
+        }
+        if (!dup) self.pendingImages.push({ hash: it.hash, name: it.name, url: it.url });
+      }
+      if (items.length > max) {
+        self.$store.commit('toast/SHOW_TOAST', { message: '一次最多发送 ' + max + ' 张图片', type: 'warning' });
+      }
+    },
+    removePendingImage: function(idx) {
+      this.pendingImages.splice(idx, 1);
+    },
+
+    // ======== 长会话：分段渲染 ========
+    loadEarlierMessages: function() {
+      var self = this;
+      if (self.loadEarlierBusy) return;
+      var container = self.$refs.msgContainer;
+      var prevHeight = container ? container.scrollHeight : 0;
+      self.loadEarlierBusy = true;
+      self.renderLimit += 40;
+      self.$nextTick(function() {
+        if (container) {
+          // 保持视口不跳：把新增内容撑开的高度补回 scrollTop
+          container.scrollTop = container.scrollHeight - prevHeight + container.scrollTop;
+        }
+        self.loadEarlierBusy = false;
+      });
+    },
+    onMessagesScroll: function() {
+      var self = this;
+      if (self.hiddenMessageCount === 0 || self.loadEarlierBusy) return;
+      var container = self.$refs.msgContainer;
+      if (!container) return;
+      if (container.scrollTop < 120) self.loadEarlierMessages();
     },
     handleResize: function() {
       this.isMobile = window.innerWidth <= 768;
@@ -817,14 +1181,232 @@ export default {
         self.loadingConvs = false;
       });
     },
+    // ======== 服务端全文检索（标题 + 消息正文）========
+    onConvSearchInput: function() {
+      var self = this;
+      clearTimeout(self.convSearchTimer);
+      var q = String(self.convSearchQuery || '').trim();
+      if (!q) {
+        self.serverSearchActive = false;
+        self.searchResults = [];
+        self.loadConversations();
+        return;
+      }
+      self.convSearchTimer = setTimeout(function() { self.runConvSearch(q); }, 320);
+    },
+    runConvSearch: function(q) {
+      var self = this;
+      self.searchingConvs = true;
+      api.get('/ai-chat/conversations', { params: { q: q, limit: 60 } }).then(function(response) {
+        var list = (response.data && response.data.data) || [];
+        self.searchResults = list.map(function(c) {
+          return {
+            id: c.id,
+            title: c.title,
+            persona: c.persona || '',
+            created_at: c.created_at,
+            updated_at: c.updated_at,
+            snippet: c.snippet || '',
+            match_count: c.match_count || 0,
+            matched_in: c.matched_in || ''
+          };
+        });
+        self.serverSearchActive = true;
+      }).catch(function() {
+        self.$store.commit('toast/SHOW_TOAST', { message: '搜索失败，请重试', type: 'error' });
+      }).finally(function() {
+        self.searchingConvs = false;
+      });
+    },
+    clearConvSearch: function() {
+      this.convSearchQuery = '';
+      this.serverSearchActive = false;
+      this.searchResults = [];
+      this.loadConversations();
+    },
+
+    // ======== 上下文 / 记忆 ========
+    loadContext: function() {
+      var self = this;
+      if (!self.currentConvId) {
+        self.ctxInfo = null;
+        return;
+      }
+      self.ctxLoading = true;
+      self.ctxError = '';
+      var convId = self.currentConvId;
+      api.get('/ai-chat/conversations/' + convId + '/context', { params: { model: self.currentModel } }).then(function(response) {
+        if (self.currentConvId !== convId) return; // 切走了就丢弃
+        self.ctxInfo = (response.data && response.data.data) || null;
+        self.memoryDraft = self.ctxInfo ? (self.ctxInfo.summary || '') : '';
+      }).catch(function(err) {
+        self.ctxInfo = null;
+        self.ctxError = (err && err.response && err.response.data && err.response.data.message) || '无法读取上下文信息';
+      }).finally(function() {
+        self.ctxLoading = false;
+      });
+    },
+    openMemoryPanel: function() {
+      this.showMemoryPanel = true;
+      this.loadContext();
+    },
+    saveMemory: function() {
+      var self = this;
+      self.memorySaving = true;
+      api.put('/ai-chat/conversations/' + self.currentConvId + '/summary', { summary: self.memoryDraft }).then(function() {
+        self.$store.commit('toast/SHOW_TOAST', { message: '记忆已保存', type: 'success' });
+        self.loadContext();
+      }).catch(function(err) {
+        var msg = (err && err.response && err.response.data && err.response.data.message) || '保存失败';
+        self.$store.commit('toast/SHOW_TOAST', { message: msg, type: 'error' });
+      }).finally(function() {
+        self.memorySaving = false;
+      });
+    },
+    clearMemory: function() {
+      var self = this;
+      self.memoryDraft = '';
+      self.saveMemory();
+    },
+    rebuildMemory: function() {
+      var self = this;
+      self.memoryBusy = true;
+      api.post('/ai-chat/conversations/' + self.currentConvId + '/summary/rebuild', {}).then(function(response) {
+        var d = (response.data && response.data.data) || {};
+        self.memoryDraft = d.summary || '';
+        self.$store.commit('toast/SHOW_TOAST', { message: '记忆已重新生成', type: 'success' });
+        self.loadContext();
+      }).catch(function(err) {
+        var msg = (err && err.response && err.response.data && err.response.data.message) || '生成失败';
+        self.$store.commit('toast/SHOW_TOAST', { message: msg, type: 'error' });
+      }).finally(function() {
+        self.memoryBusy = false;
+      });
+    },
+
+    // ======== 导出：复制文本 / 长图存云盘 ========
+    // 文件下载式导出已下线：不再往设备落文件，改为「复制带走」或「生成长图存云盘」
+    buildConversationText: function(format) {
+      var self = this;
+      var title = self.currentTitle || 'AI 对话';
+      var msgs = self.currentMessages || [];
+      var memory = (self.ctxInfo && self.ctxInfo.summary) || '';
+      if (format === 'txt') {
+        var lines = [title, ''];
+        if (memory) lines.push('【对话记忆】' + memory, '');
+        for (var i = 0; i < msgs.length; i++) {
+          lines.push((msgs[i].role === 'user' ? '我：' : 'AI：') + (msgs[i].content || ''));
+          lines.push('');
+        }
+        return lines.join('\n');
+      }
+      var md = ['# ' + title, ''];
+      md.push('> 导出时间：' + new Date().toLocaleString('zh-CN') + ' · 消息数：' + msgs.length);
+      if (memory) md.push('', '## 对话记忆', '', memory);
+      md.push('');
+      for (var k = 0; k < msgs.length; k++) {
+        md.push('## ' + (msgs[k].role === 'user' ? '我' : 'AI'), '', msgs[k].content || '', '');
+      }
+      return md.join('\n');
+    },
+    // 导出前确保上下文信息（含对话记忆）已加载，否则长图里会少一块
+    ensureContext: function() {
+      var self = this;
+      if (self.ctxInfo || !self.currentConvId) return Promise.resolve();
+      return api.get('/ai-chat/conversations/' + self.currentConvId + '/context').then(function(response) {
+        self.ctxInfo = (response.data && response.data.data) || null;
+      }).catch(function() {});
+    },
+    copyConversation: function(format) {
+      var self = this;
+      if (!self.currentConvId || self.currentMessages.length === 0) {
+        self.$store.commit('toast/SHOW_TOAST', { message: '当前对话还没有内容', type: 'warning' });
+        return;
+      }
+      self.ensureContext().then(function() {
+        var text = self.buildConversationText(format || 'md');
+        self.copyPlainText(text, (format === 'txt' ? '纯文本' : 'Markdown') + ' 已复制（' + text.length + ' 字）');
+      });
+    },
+    copyPlainText: function(text, okMsg) {
+      var self = this;
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(function() {
+          self.$store.commit('toast/SHOW_TOAST', { message: okMsg || '已复制', type: 'success' });
+        }).catch(function() {
+          self.fallbackCopy(text);
+        });
+      } else {
+        self.fallbackCopy(text);
+      }
+    },
+    exportLongImage: function() {
+      var self = this;
+      if (!self.currentConvId || self.currentMessages.length === 0) {
+        self.$store.commit('toast/SHOW_TOAST', { message: '当前对话还没有内容', type: 'warning' });
+        return;
+      }
+      if (self.exportingImage) return;
+      self.exportingImage = true;
+      self.$store.commit('toast/SHOW_TOAST', { message: '正在生成长图…', type: 'info' });
+
+      self.ensureContext().then(function() {
+        var payload = {
+          title: self.currentTitle || 'AI 对话',
+          modelLabel: self.currentModelInfo.label || '',
+          memory: (self.ctxInfo && self.ctxInfo.summary) || '',
+          messages: self.currentMessages.map(function(m) {
+            return { role: m.role, content: m.content || '', images: m.images || [] };
+          }),
+          footer: 'ClassIntra · AI 对话导出 · ' + new Date().toLocaleString('zh-CN', { hour12: false })
+        };
+        return renderConversationLongImage(payload);
+      }).then(function(result) {
+        var safeName = (self.currentTitle || 'AI 对话').replace(/[\\/:*?"<>|]/g, '_').substring(0, 40);
+        var d = new Date();
+        var stamp = d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0') +
+          '_' + String(d.getHours()).padStart(2, '0') + String(d.getMinutes()).padStart(2, '0');
+        var fd = new FormData();
+        fd.append('file', result.blob, safeName + '_' + stamp + '.png');
+        fd.append('folder', 'AI 对话导出');
+        fd.append('source', 'app');
+        return api.post('/cloud/upload', fd, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+          timeout: 120000
+        }).then(function(resp) {
+          var data = (resp.data && resp.data.data) || {};
+          self.$store.commit('toast/SHOW_TOAST', {
+            message: '长图已存入云盘「AI 对话导出」' + (result.omitted ? '（最旧 ' + result.omitted + ' 条已省略）' : ''),
+            type: 'success'
+          });
+          self.lastExportHash = data.hash || '';
+        });
+      }).catch(function(err) {
+        console.error('[AI] 长图导出失败:', err);
+        self.$store.commit('toast/SHOW_TOAST', {
+          message: '长图生成失败：' + ((err && err.message) || '请稍后重试'),
+          type: 'error'
+        });
+      }).finally(function() {
+        self.exportingImage = false;
+      });
+    },
+
     selectConversation: function(id) {
       var self = this;
       if (self.currentConvId === id) return;
-      if (self.isStreaming) {
-        self.stopGeneration();
-      }
+      // ⚠️ 不再打断正在生成的会话 —— 那是「多任务」的核心：
+      // 后台的流继续写它自己的消息对象，切回来就能看到进度
       self.currentConvId = id;
+      // 换会话：重置分段渲染，镜像字段对齐到新会话的流状态
+      self.renderLimit = 40;
+      self.streamChars = 0;
+      self.streamStartedAt = 0;
+      self.streamFirstTokenAt = 0;
+      self.pendingImages = [];
+      self.applyStreamMirror(id);
       localStorage.setItem('ai_last_conv_id', id);
+      self.loadContext();
       var conv = self.conversations.find(function(c) { return c.id === id; });
       if (conv) {
         self.convPersona = conv.persona || '';
@@ -833,7 +1415,7 @@ export default {
         self.loadingMessages = true;
         api.get('/ai-chat/conversations/' + id).then(function(response) {
           var rawMessages = response.data.data.messages || [];
-          conv.messages = rawMessages.map(function(m) {
+          var serverList = rawMessages.map(function(m) {
             var msg = {
               _key: nextMsgKey(),
               id: m.id || nextMsgKey(),
@@ -841,12 +1423,25 @@ export default {
               content: m.content,
               error: null
             };
+            if (m.images && m.images.length) {
+              msg.images = m.images;
+            }
             if (m.reasoning) {
               msg.reasoning = m.reasoning;
               msg._showReasoning = false;
             }
             return msg;
           });
+          // ⚠️ 竞态保护：这个请求在飞的时候，用户可能已经发消息了（本地 push 进 conv.messages）。
+          // 一刀切覆盖会把那条消息和正在生成的回复从界面上抹掉（服务端其实已收到）。
+          // 所以：服务端列表 + 本地新增的、服务端还没有的消息（按 角色+内容前缀 去重）。
+          var sig = function(m) { return m.role + '|' + String(m.content || '').substring(0, 80); };
+          var seen = {};
+          serverList.forEach(function(m) { seen[sig(m)] = true; });
+          var localPending = (conv.messages || []).filter(function(m) {
+            return m._local && !seen[sig(m)];
+          });
+          conv.messages = serverList.concat(localPending);
           conv.loaded = true;
           self.$nextTick(function() {
             self.scrollToBottom();
@@ -997,13 +1592,17 @@ export default {
     },
     sendMessage: function() {
       var self = this;
-      if (!self.inputText.trim() || self.isStreaming) return;
-      if (self.inputText.length > self.maxChars) {
+      if (self.isStreaming) return;
+      var question = self.inputText.trim();
+      var images = self.pendingImages.slice();
+      if (!question && images.length === 0) return;
+      if (question.length > self.maxChars) {
         self.$store.commit('toast/SHOW_TOAST', { message: '消息长度超过限制（最大' + self.maxChars + '字符）', type: 'warning' });
         return;
       }
+      // 只发图不打字：给一句中性的引导语，避免模型在没有指令时瞎发挥
+      if (!question) question = '请看看这张图片，说说你看到了什么。';
 
-      var question = self.inputText.trim();
       self.inputText = '';
 
       if (!self.currentConvId) {
@@ -1012,7 +1611,7 @@ export default {
           self.conversations.unshift(conv);
           self.currentConvId = conv.id;
           self.$nextTick(function() {
-            self.doSendMessage(question);
+            self.doSendMessage(question, images);
           });
         }).catch(function() {
           self.inputText = question;
@@ -1021,32 +1620,38 @@ export default {
         return;
       }
 
-      self.doSendMessage(question);
+      self.doSendMessage(question, images);
     },
-    doSendMessage: function(question) {
+    doSendMessage: function(question, images) {
       var self = this;
-      var conv = self.conversations.find(function(c) { return c.id === self.currentConvId; });
+      var convId = self.currentConvId;
+      var conv = self.conversations.find(function(c) { return c.id === convId; });
       if (!conv) return;
+      if (self.streamStates[convId]) {
+        self.$store.commit('toast/SHOW_TOAST', { message: '这个对话正在生成，等它说完或先停止', type: 'info' });
+        return;
+      }
+      images = images || [];
+      self.pendingImages = [];
 
       var userMsg = {
         _key: nextMsgKey(),
         id: Date.now().toString(),
         role: 'user',
         content: question,
-        error: null
+        error: null,
+        _local: true          // 标记：本地先行的消息，等历史加载回来时别把它覆盖掉
       };
+      if (images.length) userMsg.images = images;
       conv.messages.push(userMsg);
-
-      self.isStreaming = true;
-      self.streamingContent = '';
-      self.sseBuffer = '';
 
       var aiMsg = {
         _key: nextMsgKey(),
         id: (Date.now() + 1).toString(),
         role: 'assistant',
         content: '',
-        error: null
+        error: null,
+        _local: true
       };
       var isThinking = self.thinkingMode && self.currentModelInfo.supports_thinking;
       if (isThinking) {
@@ -1055,23 +1660,50 @@ export default {
       }
       conv.messages.push(aiMsg);
 
+      // ======== 按会话隔离的流式状态 ========
+      // 一切运行期状态都挂在这个对象上，切到别的会话不打断本次生成；
+      // data 里的 isStreaming / sseBuffer / isSearching 等只是「当前正看着的会话」的镜像。
+      var st = {
+        convId: convId,
+        conv: conv,
+        question: question,
+        aiMsg: aiMsg,
+        thinking: isThinking,
+        startedAt: Date.now(),
+        firstTokenAt: 0,
+        chars: 0,
+        pending: '',
+        replace: false,
+        rafId: 0,
+        sseBuffer: '',
+        searching: false,
+        searchQuery: '',
+        abortController: null,
+        timeoutId: null,
+        finished: false
+      };
+      self.$set(self.streamStates, convId, st);
+      self.applyStreamMirror(convId);
+
+      // 渲染窗口跟着新消息一起放大，保证刚发出的消息一定在渲染范围内
+      if (conv.messages.length > self.renderLimit) {
+        self.renderLimit = conv.messages.length + 10;
+      }
+
       self.$nextTick(function() {
         self.scrollToBottom();
         self.autoResize();
       });
 
       var token = self.$store.state.auth.token;
-      self.abortController = new AbortController();
+      st.abortController = new AbortController();
 
-      var timeoutId = setTimeout(function() {
-        if (self.isStreaming) {
-          self.abortController.abort();
-          aiMsg.error = '请求超时，AI 服务响应时间过长';
-          self.isStreaming = false;
-          self.streamingContent = '';
-          self.sseBuffer = '';
-          self.abortController = null;
-        }
+      st.timeoutId = setTimeout(function() {
+        if (!self.streamStates[convId] || self.streamStates[convId] !== st) return;
+        st.abortController.abort();
+        self.flushStream(st);
+        aiMsg.error = '请求超时，AI 服务响应时间过长';
+        self.finishConvStream(st);
       }, 180000);
 
       fetch('/api/ai-chat/chat/stream', {
@@ -1081,13 +1713,14 @@ export default {
           'Authorization': 'Bearer ' + token
         },
         body: JSON.stringify({
-          conversation_id: self.currentConvId,
+          conversation_id: convId,
           message: question,
           system_prompt: self.customSystemPrompt || undefined,
           model: self.currentModel,
-          thinking: self.thinkingMode && self.currentModelInfo.supports_thinking ? true : undefined
+          thinking: st.thinking ? true : undefined,
+          images: images.length ? images.map(function(im) { return { hash: im.hash }; }) : undefined
         }),
-        signal: self.abortController.signal
+        signal: st.abortController.signal
       }).then(function(response) {
         if (!response.ok) {
           return response.json().catch(function() {
@@ -1100,13 +1733,9 @@ export default {
         var decoder = new TextDecoder();
 
         function finishStream() {
-          clearTimeout(timeoutId);
-          self.isStreaming = false;
-          self.streamingContent = '';
-          self.isSearching = false;
-          self.searchQuery = '';
-          self.sseBuffer = '';
-          self.abortController = null;
+          clearTimeout(st.timeoutId);
+          self.flushStream(st);
+          self.finishConvStream(st);
           self.$nextTick(function() {
             self.initCodeBlocks();
           });
@@ -1116,13 +1745,13 @@ export default {
           reader.read().then(function(result) {
             if (result.done) {
               finishStream();
-              self.updateConvTitle(question);
+              self.updateConvTitle(st);
               return;
             }
             var text = decoder.decode(result.value, { stream: true });
-            self.sseBuffer += text;
-            var lines = self.sseBuffer.split('\n');
-            self.sseBuffer = lines.pop();
+            st.sseBuffer += text;
+            var lines = st.sseBuffer.split('\n');
+            st.sseBuffer = lines.pop();
 
             for (var i = 0; i < lines.length; i++) {
               var line = lines[i].trim();
@@ -1139,7 +1768,7 @@ export default {
                 }
                 if (parsed.done) {
                   finishStream();
-                  self.updateConvTitle(question);
+                  self.updateConvTitle(st);
                   return;
                 }
                 if (parsed.fallback) {
@@ -1148,34 +1777,31 @@ export default {
                   setTimeout(function() { self.showFallbackNotice = false; }, 8000);
                 }
                 if (parsed.searching !== undefined) {
-                  self.isSearching = parsed.searching;
-                  if (parsed.searching && parsed.query) {
-                    self.searchQuery = parsed.query;
-                  } else {
-                    self.searchQuery = '';
-                  }
+                  st.searching = parsed.searching;
+                  st.searchQuery = parsed.searching && parsed.query ? parsed.query : '';
+                  self.applyStreamMirror(convId);
                 }
                 if (parsed.content) {
                   if (parsed.action === 'replace') {
-                    aiMsg.content = parsed.content;
+                    st.pending = parsed.content;
+                    st.replace = true;
                   } else {
-                    aiMsg.content += parsed.content;
+                    st.pending += parsed.content;
                   }
-                  self.streamingContent = aiMsg.content;
-                  self.$nextTick(function() {
-                    self.scrollToBottom();
-                  });
+                  if (!st.firstTokenAt) st.firstTokenAt = Date.now();
+                  // 一个 chunk 一次 DOM 更新太贵：合并到每帧一次
+                  self.scheduleStreamFlush(st);
                 }
-                if (parsed.reasoning && isThinking) {
+                if (parsed.reasoning && st.thinking) {
                   if (!aiMsg.reasoning) aiMsg.reasoning = '';
                   aiMsg.reasoning += parsed.reasoning;
-                  self.$nextTick(function() {
-                    self.scrollToBottom();
-                  });
+                  if (convId === self.currentConvId) {
+                    self.$nextTick(function() { self.scrollToBottom(); });
+                  }
                 }
               } catch (e) {}
             }
-            if (self.isStreaming) {
+            if (self.streamStates[convId] === st) {
               read();
             }
           }).catch(function(err) {
@@ -1187,41 +1813,110 @@ export default {
         }
         read();
       }).catch(function(err) {
-        clearTimeout(timeoutId);
-        if (err.name === 'AbortError') {
-          // aborted by user
-        } else {
+        clearTimeout(st.timeoutId);
+        if (err.name !== 'AbortError') {
           if (err.message.indexOf('Failed to fetch') > -1 || err.message.indexOf('NetworkError') > -1) {
             aiMsg.error = '网络连接失败，请检查网络后重试';
           } else {
             aiMsg.error = err.message || '请求发送失败';
           }
         }
-        self.isStreaming = false;
-        self.streamingContent = '';
-        self.sseBuffer = '';
-        self.abortController = null;
+        self.flushStream(st);
+        self.finishConvStream(st);
       });
     },
-    updateConvTitle: function(question) {
+    // 结束某个会话的流：清状态、若它正被看着就同步镜像
+    finishConvStream: function(st) {
       var self = this;
-      var conv = self.conversations.find(function(c) { return c.id === self.currentConvId; });
+      if (!st || self.streamStates[st.convId] !== st) return;
+      self.$delete(self.streamStates, st.convId);
+      self.applyStreamMirror(st.convId);
+      // 后台跑完的那次回复，标题也要跟着长出来
+      self.touchConvOrder(st.convId);
+      if (self.ctxInfo && st.convId === self.currentConvId) {
+        self.loadContext();
+      }
+    },
+    // 把 data 里的镜像字段对齐到「当前正看着的会话」
+    applyStreamMirror: function(convId) {
+      var self = this;
+      var st = self.streamStates[convId];
+      var isCurrent = convId === self.currentConvId;
+      self.isStreaming = isCurrent && !!st;
+      self.isSearching = isCurrent && !!st && !!st.searching;
+      self.searchQuery = isCurrent && st ? st.searchQuery : '';
+      self.sseBuffer = '';
+      self.streamingContent = st ? st.aiMsg.content : '';
+      self.streamStartedAt = st ? st.startedAt : 0;
+      self.streamFirstTokenAt = st ? st.firstTokenAt : 0;
+      self.streamChars = st ? st.chars : 0;
+    },
+    // 把攒下的流式增量真正写进消息（每帧最多一次，且只影响自己那条消息）
+    scheduleStreamFlush: function(st) {
+      var self = this;
+      if (!st || st.rafId) return;
+      var raf = window.requestAnimationFrame || function(cb) { return setTimeout(cb, 60); };
+      st.rafId = raf(function() {
+        st.rafId = 0;
+        self.flushStream(st);
+        if (st.convId === self.currentConvId) {
+          self.$nextTick(function() { self.scrollToBottom(); });
+        }
+      });
+    },
+    flushStream: function(st) {
+      var self = this;
+      if (!st) return;
+      var aiMsg = st.aiMsg;
+      if (st.replace) {
+        aiMsg.content = st.pending;
+        st.replace = false;
+      } else if (st.pending) {
+        aiMsg.content += st.pending;
+      }
+      if (st.pending) {
+        st.chars = aiMsg.content.length;
+        if (st.convId === self.currentConvId) {
+          self.streamingContent = aiMsg.content;
+          self.streamChars = st.chars;
+        }
+      }
+      st.pending = '';
+    },
+    // 用流结束的「那个会话」更新标题与排序（并行生成时它可能不是当前会话）
+    updateConvTitle: function(st) {
+      var self = this;
+      var question = st && st.question;
+      var conv = st && st.conv ? st.conv : self.conversations.find(function(c) { return c.id === self.currentConvId; });
       if (conv) {
         if (conv.title === '新对话') {
-          conv.title = question.substring(0, 30);
+          conv.title = String(question || '新对话').substring(0, 30);
         }
         conv.updated_at = new Date().toISOString();
-        var idx = self.conversations.indexOf(conv);
-        if (idx > 0) {
-          self.conversations.splice(idx, 1);
-          self.conversations.unshift(conv);
-        }
+      }
+      self.touchConvOrder(st && st.convId);
+    },
+    // 会话有新动静 → 挪到列表最前（仅当不在置顶集合里）
+    touchConvOrder: function(convId) {
+      var self = this;
+      if (!convId) return;
+      var conv = self.conversations.find(function(c) { return c.id === convId; });
+      if (!conv) return;
+      var idx = self.conversations.indexOf(conv);
+      if (idx > 0) {
+        self.conversations.splice(idx, 1);
+        self.conversations.unshift(conv);
       }
     },
     retryMessage: function(msg) {
       var self = this;
       var conv = self.conversations.find(function(c) { return c.id === self.currentConvId; });
       if (!conv) return;
+      // 正在生成时不允许重试：先删后发会把半截对话弄丢
+      if (self.streamStates[self.currentConvId]) {
+        self.$store.commit('toast/SHOW_TOAST', { message: '正在生成中，先停止再重试', type: 'info' });
+        return;
+      }
 
       var aiIdx = -1;
       for (var i = conv.messages.length - 1; i >= 0; i--) {
@@ -1271,14 +1966,40 @@ export default {
         self.autoResize();
       });
     },
+    // 停止「当前正在看的会话」的生成；当前没有在生成的就全停
     stopGeneration: function() {
-      if (this.abortController) {
-        this.abortController.abort();
+      var self = this;
+      var targetId = self.currentConvId;
+      var st = self.streamStates[targetId];
+      if (!st) {
+        Object.keys(self.streamStates).forEach(function(id) {
+          self.abortConvStream(self.streamStates[id]);
+        });
+        self.$store.commit('toast/SHOW_TOAST', { message: '已停止所有生成', type: 'info' });
+        return;
       }
-      this.isStreaming = false;
-      this.streamingContent = '';
-      this.sseBuffer = '';
-      this.$store.commit('toast/SHOW_TOAST', { message: '已停止生成', type: 'info' });
+      self.abortConvStream(st);
+      self.$store.commit('toast/SHOW_TOAST', { message: '已停止生成', type: 'info' });
+    },
+    abortConvStream: function(st) {
+      var self = this;
+      if (!st) return;
+      if (st.abortController) {
+        try { st.abortController.abort(); } catch (e) {}
+      }
+      if (st.rafId && window.cancelAnimationFrame) {
+        try { window.cancelAnimationFrame(st.rafId); } catch (e) {}
+      }
+      // 半截内容也要落地，否则界面上凭空少一段
+      self.flushStream(st);
+      if (st.timeoutId) clearTimeout(st.timeoutId);
+      self.finishConvStream(st);
+    },
+    stopAllStreams: function() {
+      var self = this;
+      Object.keys(self.streamStates).forEach(function(id) {
+        self.abortConvStream(self.streamStates[id]);
+      });
     },
     sendExamplePrompt: function(prompt) {
       this.inputText = prompt;
@@ -1307,9 +2028,12 @@ export default {
     },
     renderMarkdown: function(content) {
       if (!content) return '';
-      var result = LatexRenderer.processContent(content, marked);
-      result.html = DOMPurify.sanitize(result.html);
-      var html = LatexRenderer.renderFinalHtml(result.html, result.placeholders);
+      // 长会话里列表每次重渲染都要重算所有 v-html，缓存能省掉绝大部分 marked/KaTeX 开销
+      var html = markdownCached(content, function(raw) {
+        var result = LatexRenderer.processContent(raw, marked);
+        result.html = DOMPurify.sanitize(result.html);
+        return LatexRenderer.renderFinalHtml(result.html, result.placeholders);
+      });
       this.$nextTick(function() {
         this.initCodeBlocks();
       }.bind(this));
@@ -3914,5 +4638,256 @@ export default {
 
 .skeleton-line-60 { height: 14px; width: 60%; border-radius: var(--radius-sm); margin-bottom: 8px; }
 .skeleton-line-80 { height: 12px; width: 80%; border-radius: var(--radius-sm); }
+
+/* ====== 对话检索（服务端全文）====== */
+.sidebar-search-spin {
+  width: 13px; height: 13px; flex-shrink: 0;
+  border-radius: 50%;
+  border: 2px solid var(--separator-color);
+  border-top-color: var(--accent-ai, #AF52DE);
+  animation: conv-search-spin 0.8s linear infinite;
+}
+@keyframes conv-search-spin { to { transform: rotate(360deg); } }
+.conv-search-meta {
+  padding: 4px 14px 6px;
+  font-size: var(--font-size-caption);
+  color: var(--text-tertiary);
+}
+.conv-snippet {
+  margin-top: 3px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-tertiary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ====== 上下文占用 pill ====== */
+.ctx-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border: 1px solid var(--separator-color);
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ctx-pill:active { transform: scale(0.96); }
+.ctx-pill-track {
+  display: block;
+  width: 34px; height: 4px;
+  border-radius: 2px;
+  background: var(--fill-quaternary, rgba(120, 120, 128, 0.2));
+  overflow: hidden;
+}
+.ctx-pill-track i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--text-tertiary);
+  transition: width var(--duration-normal) var(--ease-standard, ease);
+}
+.ctx-pill-text { font-size: 11px; color: var(--text-secondary); }
+.ctx-pill.ctx-ok .ctx-pill-track i { background: var(--success-color, #34C759); }
+.ctx-pill.ctx-warn .ctx-pill-track i { background: var(--warning-color, #FF9500); }
+.ctx-pill.ctx-warn .ctx-pill-text { color: var(--warning-color, #FF9500); }
+.ctx-pill.ctx-danger .ctx-pill-track i { background: var(--danger-color, #FF3B30); }
+.ctx-pill.ctx-danger .ctx-pill-text { color: var(--danger-color, #FF3B30); }
+
+/* ====== 上下文与记忆面板 ====== */
+.ctx-loading { padding: 30px 0; display: flex; justify-content: center; }
+.ctx-error { padding: 14px 0; font-size: var(--font-size-caption); color: var(--danger-color, #FF3B30); text-align: center; }
+.ctx-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--fill-quaternary, rgba(120, 120, 128, 0.16));
+  overflow: hidden;
+  margin: 6px 0 8px;
+}
+.ctx-bar-fill { height: 100%; border-radius: 4px; background: var(--text-tertiary); transition: width var(--duration-normal) var(--ease-standard, ease); }
+.ctx-bar-fill.ctx-ok { background: var(--success-color, #34C759); }
+.ctx-bar-fill.ctx-warn { background: var(--warning-color, #FF9500); }
+.ctx-bar-fill.ctx-danger { background: var(--danger-color, #FF3B30); }
+.ctx-legend {
+  display: flex; justify-content: space-between; gap: 8px;
+  font-size: var(--font-size-caption);
+  color: var(--text-tertiary);
+  flex-wrap: wrap;
+}
+.ctx-breakdown { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; }
+.ctx-item { display: flex; align-items: center; gap: 5px; font-size: var(--font-size-caption); color: var(--text-secondary); }
+.ctx-item b { color: var(--text-primary); font-weight: 600; }
+.ctx-dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; }
+.ctx-dot--sys { background: var(--text-tertiary); }
+.ctx-dot--mem { background: var(--accent-ai, #AF52DE); }
+.ctx-dot--his { background: var(--info-color, #007AFF); }
+.ctx-updated { font-size: var(--font-size-caption); color: var(--text-tertiary); }
+.ctx-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; flex-wrap: wrap; }
+.ctx-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--separator-color);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--font-size-caption);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ctx-btn:active { transform: scale(0.97); }
+.ctx-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.ctx-btn--primary { background: var(--accent-ai, #AF52DE); border-color: var(--accent-ai, #AF52DE); color: #fff; }
+
+/* ======== 云盘选图（看图对话） ======== */
+.attach-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 0 2px 8px;
+}
+.attach-chip {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 22px 4px 4px;
+  border-radius: 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--separator-color);
+  max-width: 190px;
+}
+.attach-chip img {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: #000;
+}
+.attach-name {
+  font-size: var(--font-size-caption2);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.attach-remove {
+  position: absolute;
+  right: 3px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-size: 9px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.attach-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--separator-color);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 17px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.attach-btn--active {
+  color: var(--accent-ai, #AF52DE);
+  border-color: var(--accent-ai, #AF52DE);
+}
+.attach-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* 用户消息里的图片附件 */
+.msg-images { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.msg-image img {
+  width: 88px;
+  height: 88px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--separator-color);
+  display: block;
+}
+
+/* 流式状态（首字 / 字数 / 耗时） */
+.stream-stat {
+  margin-right: auto;
+  font-size: var(--font-size-caption2);
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 长会话：加载更早消息 */
+.load-earlier-row { display: flex; justify-content: center; padding: 10px 0 14px; }
+.load-earlier-btn {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--separator-color);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-caption);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.load-earlier-btn:active { transform: scale(0.97); }
+
+/* ======== 多任务并发：后台生成标记 ======== */
+.conv-streaming {
+  display: inline-block;
+  margin-left: 5px;
+  font-size: 10px;
+  color: var(--accent-ai, #AF52DE);
+  vertical-align: middle;
+}
+.bg-stream-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--accent-ai, #AF52DE);
+  color: var(--accent-ai, #AF52DE);
+  font-size: var(--font-size-caption);
+  white-space: nowrap;
+}
+
+/* ======== 额度（模型面板内）======== */
+.wallet-line {
+  border: 1px solid var(--separator-color);
+  border-radius: var(--radius-sm);
+  padding: 7px 9px;
+  margin-bottom: 8px;
+}
+.wallet-line--warn { border-color: rgba(255, 149, 0, 0.6); }
+.wallet-line--full { border-color: rgba(255, 59, 48, 0.65); }
+.wallet-line-top {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; color: var(--text-secondary);
+}
+.wallet-line-top b { margin-left: auto; font-variant-numeric: tabular-nums; }
+.wallet-bar {
+  height: 4px; border-radius: 2px; overflow: hidden;
+  background: var(--fill-quaternary, rgba(120, 120, 128, 0.12));
+  margin: 5px 0 3px;
+}
+.wallet-bar i { display: block; height: 100%; background: var(--accent-ai, #AF52DE); border-radius: 2px; }
+.wallet-line--warn .wallet-bar i { background: #FF9500; }
+.wallet-line--full .wallet-bar i { background: var(--danger-color, #FF3B30); }
+.wallet-tip { font-size: 10px; color: var(--text-tertiary); }
 
 </style>

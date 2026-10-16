@@ -14,6 +14,9 @@ server/config/pre-records*.json
 **/*.db-journal
 **/*.db-shm
 **/*.db-wal
+# 数据库备份：*.db.bak-xxx 这类命名不匹配上面的 **/*.db，
+# 而库里是真实学生数据（94MB），绝不能进版本库
+**/*.db.bak-*
 **/*.sqlite
 **/*.sqlite3
 
@@ -34,6 +37,16 @@ server/public/*
 !server/public/setup.html
 !server/public/icons/
 !server/public/xgplayer/
+# ZXW 启动器：入库反阅读产物 launcher.html 与负载页 classintra.html（无敏感数据）；
+# 源文件 launcher.src.html 不入库
+!server/public/zxw/
+server/public/zxw/*
+!server/public/zxw/launcher.html
+!server/public/zxw/classintra.html
+
+# ZXW 部署配置（含内部环境地址与启动页一次性填充流，不入库；结构见 zxw.json.example）
+server/config/zxw.json
+server/config/zxw-boot.json
 
 # 第三方市场应用（运行时安装的热插拔目录，同 node_modules 性质，不提交）
 # 安装源：官方市场 gitee/github + 本地 ../market；应用内容以市场仓库为准

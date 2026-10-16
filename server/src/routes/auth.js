@@ -55,17 +55,10 @@ function buildTokenPayload(row) {
   };
 }
 
-// Helper: set auth cookie
-function setAuthCookie(res, token) {
-  var isProduction = process.env.NODE_ENV === 'production';
-  var isSecure = isProduction && process.env.HTTPS === 'true';
-  res.cookie('token', token, {
-    httpOnly: true,
-    secure: isSecure,
-    sameSite: 'lax',
-    maxAge: 7 * 24 * 60 * 60 * 1000
-  });
-}
+// 认证 cookie 的名字与属性统一在 middleware/auth.js 维护
+// （设置 / 清除必须同一份属性，否则浏览器删不掉，留下幽灵 cookie）。
+// 这里做个别名，避免多处调用点各写一遍。
+var setAuthCookie = auth.setAuthCookie;
 
 // POST /api/auth/register
 router.post('/register', function(req, res) {
@@ -267,8 +260,8 @@ router.post('/login', function(req, res) {
 // POST /api/auth/refresh-token
 router.post('/refresh-token', function(req, res) {
   try {
-    // 1. Verify current token
-    var token = req.cookies.token || (req.headers.authorization && req.headers.authorization.replace('Bearer ', ''));
+    // 1. Verify current token（走统一入口：Authorization 头优先，避免陈旧 cookie 覆盖）
+    var token = constants.extractToken(req);
     if (!token) {
       return res.json({ code: 401, message: '未登录', data: null });
     }
@@ -318,8 +311,8 @@ router.get('/check-status', auth.requireAuth, function(req, res) {
       return res.json({ code: 403, message: '该账号已被禁用', data: null, ban_expires_at: user.ban_expires_at || null, ban_reason: user.ban_reason || null });
     }
 
-    // 3. Return user_info and current token
-    var token = req.cookies.token || (req.headers.authorization && req.headers.authorization.replace('Bearer ', ''));
+    // 3. Return user_info and current token（同样走统一入口：头优先）
+    var token = constants.extractToken(req);
     var user_info = buildUserInfo(user);
     if (user.is_admin !== req.user.is_admin || user.net_name !== req.user.net_name) {
       var tokenPayload = buildTokenPayload(user);
@@ -335,10 +328,8 @@ router.get('/check-status', auth.requireAuth, function(req, res) {
 
 // POST /api/auth/logout
 router.post('/logout', function(req, res) {
-  res.clearCookie('token', {
-    httpOnly: true,
-    sameSite: 'lax'
-  });
+  // 用与设置时完全相同的属性清除（少一个 Path 就会删不掉 → 幽灵 cookie）
+  auth.clearAuthCookie(res);
   return res.json({ code: 200, message: '已退出登录', data: null });
 });
 

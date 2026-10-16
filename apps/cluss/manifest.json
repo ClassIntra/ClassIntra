@@ -1,0 +1,17 @@
+{
+  "name": "cluss",
+  "type": "app",
+  "version": "1.0.0",
+  "label": "Cluss",
+  "icon": "/resources/public/icons/Cluss.svg",
+  "color": "#2F6BDD",
+  "category": "desktop",
+  "order": 11,
+  "defaultEnabled": true,
+  "canDisable": true,
+  "frontend": {
+    "route": "/cluss",
+    "routeName": "Cluss",
+    "component": "./frontend/Cluss.vue"
+  }
+}

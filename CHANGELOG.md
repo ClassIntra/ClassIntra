@@ -1,5 +1,32 @@
 # Changelog
 
+## [未发布]
+
+【变更】
+
+- 联动桥 /api/cluss-bridge/verify：**禁用账号不再返回 403，改回 200 + `data.disabled` 标记**
+  （口令校验通过即放行）。起因是这个 403 与 `requireBridgeSecret` 的「密钥校验失败」
+  **撞码且都不带 data**，Cluss 侧收到 403 无法区分二者，只能一律拒绝 —— 于是 Cluss
+  想采纳「本系统 CI 的禁用状态不影响 Cluss 的账号状态」也采纳不了（它名册同步那边
+  已经删干净了，登录这边卡住）。拆分后协议无歧义，Cluss 侧才能安全地「认口令、不认禁用」：
+  `200 + data.user` = 口令正确（`data.disabled` 仅为提示，不表示要拒绝）、
+  `401` = 口令不对、`404` = 账号不存在、`403`（无 data.user）= 桥密钥不对（配置问题）。
+  本系统自身的登录闸门不受影响 —— 本文件只服务 Cluss 的委托校验。
+
+【新增】
+
+- ZW 设备启动器（/zxw）：把启动页从服务器下发到设备端宿主本地并打开，同名文件已存在时设备端
+  原生短路、不重复传输；启动页带按版本记账的就绪标记（首装后每次访问秒开、无感），服务端提供
+  事件取证（/zxw/log）与渲染信标确认（lock_beacon）。启动页源码不入库，入库产物为「密文 + 无密钥」
+  的反阅读构建（scripts/build-zxw-launcher.mjs：一次性填充流 XOR，填充流经不入库的
+  zxw-boot.json 服务端注入，仓库静态不可解）；负载页 classintra.html 无敏感数据随仓库提供；
+  旧路径 /zx 308 重定向。详见 docs/zxw-launcher.md
+- Cluss 联动应用：桌面新增「Cluss」应用（apps/cluss），全屏内嵌同机 9003 端口的 Cluss（引导式 AI 解题）。
+  已登录时把本系统 JWT 经 ?token= 传给 Cluss，凭共享的 CI_JWT_SECRET 验签免登；Cluss 嵌入态顶栏的
+  「返回 ClassIntra」按钮 postMessage 回应用壳退出应用
+- 联动桥 /api/cluss-bridge/verify 响应新增 is_class_admin / is_admin 字段：Cluss 侧据此授管理权
+  （联动部署下班管才是实际管理者）
+
 ## [1.2.5] - 2026-09-29
 
 【修复】

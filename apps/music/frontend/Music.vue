@@ -89,7 +89,7 @@
                 <i class="fa-solid fa-qrcode"></i>
                 <span>扫码登录网易云</span>
               </div>
-              <div v-if="!ncmLoggedIn" class="ncm-guest-tip">未登录也可搜索、播放、看热歌榜和推荐歌单；登录后解锁每日推荐与云端收藏</div>
+              <div v-if="!ncmLoggedIn" class="ncm-guest-tip">未登录也可搜索、播放、看热歌榜与推荐歌单；收藏先存在本机，登录后自动同步云端</div>
               <div v-if="ncmLoggedIn" class="sidebar-item" @click="ncmLogout" title="点击退出网易云登录">
                 <i class="fa-solid fa-circle-user"></i>
                 <span class="sidebar-item-name">{{ ncmProfile && ncmProfile.nickname ? ncmProfile.nickname : '已登录' }}</span>
@@ -525,7 +525,15 @@
                   <button class="lyrics-mode-btn" :class="{ active: lyricsMode === 'drop' }" @click="setLyricsMode('drop')">逐字</button>
                 </div>
               </div>
-              <div class="lyrics-scroll scrollbar-thin" ref="lyricsBody" @wheel="onLyricsUserScroll" @touchstart="onLyricsUserScroll">
+              <div v-show="isLyricScrubbing" class="lyrics-scrub-tip">{{ fmt(lyricScrubTime) }} / {{ formattedDuration }}</div>
+              <div
+                class="lyrics-scroll scrollbar-thin"
+                :class="{ 'lyrics-scrubbing': isLyricScrubbing }"
+                ref="lyricsBody"
+                @mousedown="onLyricDragStart"
+                @touchstart="onLyricDragStart"
+                @wheel="onLyricsUserScroll"
+              >
                 <div class="lyrics-pad-top"></div>
                 <div
                   v-for="(line, index) in (lyrics && lyrics.lines) || []"
@@ -782,11 +790,13 @@
                 <span v-for="(cell, ci) in row" :key="ci" class="ncm-qr-cell" :class="{ 'ncm-qr-cell-dark': cell === 1 }"></span>
               </div>
             </div>
-            <div class="ncm-qr-tip">使用网易云音乐 App 扫一扫登录</div>
+            <div class="ncm-qr-tip">使用网易云音乐 App 内的「扫一扫」登录（微信 / 系统相机扫会打开网页，无法完成登录）</div>
             <div class="ncm-qr-status" :class="{ 'ncm-qr-status-ok': ncmQrScanned || ncmLoggedIn }">{{ ncmQrStatusText }}</div>
+            <div v-if="ncmLoginError" class="ncm-qr-error">{{ ncmLoginError }}</div>
           </template>
           <template v-else>
             <div class="ncm-qr-tip">二维码已过期，请重新生成</div>
+            <div v-if="ncmLoginError" class="ncm-qr-error">{{ ncmLoginError }}</div>
             <button class="modal-btn modal-btn-primary" @click="startQrLogin">刷新二维码</button>
           </template>
         </div>
@@ -816,9 +826,11 @@
               {{ ncmCaptchaCountdown > 0 ? ncmCaptchaCountdown + 's 后重发' : '发送验证码' }}
             </button>
           </div>
+          <p v-if="ncmLoginMode === 'captcha'" class="ncm-login-hint ncm-login-hint-warn">校园网环境下发短信常失败（网易云要求人机验证）。推荐用「扫码」登录；或在自己手机的网易云 App / music.163.com 网页上获取验证码，再把短信里的验证码填到这里登录。</p>
           <button class="modal-btn modal-btn-primary ncm-login-submit" :disabled="ncmLoginLoading" @click="submitNcmLogin">
             {{ ncmLoginLoading ? '登录中...' : '登录' }}
           </button>
+          <p v-if="ncmLoginMode === 'password'" class="ncm-login-hint ncm-login-hint-warn">网易云已对密码登录增加人机校验，可能被拒绝；建议改用「扫码」登录</p>
           <p class="ncm-login-hint">账号信息仅保存在本服务器，访问设备无需直连网易云</p>
         </div>
 
@@ -857,6 +869,8 @@ export default {
       searchQuery: '',
       effectMode: 'full',
       lyricsMode: 'scroll',
+      isLyricScrubbing: false, // 正在拖动歌词调进度
+      lyricScrubTime: 0, // 拖动时映射出的目标时间（时间气泡显示）
       prevVolume: 0.8,
       isDragging: false,
       // 当前歌词行索引：改为数据属性，由引擎仅在「真正跨行」时赋值。
@@ -901,6 +915,7 @@ export default {
       ncmLoginMode: 'qr', // 登录方式：qr=扫码 / password=手机密码 / captcha=手机验证码
       ncmLoginForm: { phone: '', countrycode: '86', password: '', captcha: '' },
       ncmLoginLoading: false,
+      ncmLoginError: '', // 登录弹窗内的错误文案（轮询失败 / 验证码失败等），替代「静默转圈」
       ncmCaptchaCountdown: 0,
       _ncmCaptchaTimer: null,
       ncmSuggest: [], // 搜索联想下拉
@@ -1279,6 +1294,7 @@ export default {
     if (this._keyHandler) document.removeEventListener('keydown', this._keyHandler);
     if (this._sleepTick) { clearInterval(this._sleepTick); this._sleepTick = null; }
     this.stopLyricEngine();
+    if (this._lyricDragCleanup) this._lyricDragCleanup();
     if (this._bgCrossfadeTimer) { clearTimeout(this._bgCrossfadeTimer); this._bgCrossfadeTimer = null; }
     if (this._ncmSuggestTimer) { clearTimeout(this._ncmSuggestTimer); this._ncmSuggestTimer = null; }
     if (this._ncmCaptchaTimer) { clearInterval(this._ncmCaptchaTimer); this._ncmCaptchaTimer = null; }
@@ -1608,6 +1624,128 @@ export default {
     // 用户手动滚动歌词后 4s 内不自动回拉，避免「抢滚动条」
     onLyricsUserScroll: function() {
       this._lyricUserScrollAt = Date.now();
+    },
+
+    /* ========== 拖动歌词调进度 ========== */
+    // 交互约定：在歌词区按住并纵向拖动 = 拖动播放进度。
+    // 手势期间歌词列表跟着手指走（视觉上就是「拖歌词」），同时把视口中心那一行的
+    // 时间戳（按行间像素插值）映射成播放位置；位移不足阈值的轻点仍走「点行跳转」。
+    // 关键实现点：容器设 touch-action: pan-x 屏蔽浏览器纵向平移，由脚本接管 scrollTop
+    // —— 否则「浏览器滚动」与「手动写 scrollTop」叠加，列表会跳两下且进度对不上。
+    onLyricDragStart: function(e) {
+      var vm = this;
+      if (!vm.hasLyrics || !vm.duration) return;
+      var body = vm.$refs.lyricsBody;
+      if (!body) return;
+      var y = vm._lyricPointerY(e);
+      if (y === null) return;
+      // 桌面上按住拖动会选中文字，阻止默认行为（触摸端不能阻止，否则点行跳转失效）
+      if (e.type === 'mousedown' && e.cancelable) e.preventDefault();
+      vm._lyricUserScrollAt = Date.now(); // 手势期间禁止自动回拉
+      vm._lyricDrag = { startY: y, startTop: body.scrollTop, scrubbing: false, topsBase: null, baseScrollTop: 0 };
+      var move = function(ev) { vm._onLyricDragMove(ev); };
+      var end = function() { vm._onLyricDragEnd(); };
+      if (vm._lyricDragCleanup) vm._lyricDragCleanup();
+      vm._lyricDragCleanup = function() {
+        document.removeEventListener('mousemove', move);
+        document.removeEventListener('mouseup', end);
+        document.removeEventListener('touchmove', move, { passive: false });
+        document.removeEventListener('touchend', end);
+        document.removeEventListener('touchcancel', end);
+        vm._lyricDragCleanup = null;
+      };
+      document.addEventListener('mousemove', move);
+      document.addEventListener('mouseup', end);
+      document.addEventListener('touchmove', move, { passive: false });
+      document.addEventListener('touchend', end);
+      document.addEventListener('touchcancel', end);
+    },
+    _lyricPointerY: function(e) {
+      if (!e) return null;
+      if (e.touches && e.touches.length) return e.touches[0].clientY;
+      if (e.changedTouches && e.changedTouches.length) return e.changedTouches[0].clientY;
+      if (e.clientY !== undefined && e.clientY !== null) return e.clientY;
+      return null;
+    },
+    _onLyricDragMove: function(e) {
+      var vm = this;
+      var d = vm._lyricDrag;
+      if (!d) return;
+      var y = vm._lyricPointerY(e);
+      if (y === null) return;
+      var dy = y - d.startY;
+      if (!d.scrubbing) {
+        // 未超过阈值：视作轻点 / 抖动，交给 click 的「点行跳转」
+        if (Math.abs(dy) < 10) return;
+        d.scrubbing = true;
+        vm.isLyricScrubbing = true;
+        vm._lyricScrubSeekAt = 0;
+      }
+      if (e.cancelable) e.preventDefault();
+      var body = vm.$refs.lyricsBody;
+      if (!body) return;
+      // 拖动期间必须关掉平滑滚动，否则 scroll-behavior: smooth 会让列表追不上手指
+      body.style.scrollBehavior = 'auto';
+      body.scrollTop = Math.max(0, d.startTop + dy);
+      vm._lyricUserScrollAt = Date.now();
+      vm._seekByLyricCenter();
+    },
+    _onLyricDragEnd: function() {
+      var vm = this;
+      var d = vm._lyricDrag;
+      vm._lyricDrag = null;
+      if (vm._lyricDragCleanup) vm._lyricDragCleanup();
+      var body = vm.$refs.lyricsBody;
+      if (body) body.style.scrollBehavior = '';
+      if (d && d.scrubbing) {
+        vm.isLyricScrubbing = false;
+        // 松手后立刻允许自动居中到新位置，视觉上「跟到拖到的地方」
+        vm._lyricUserScrollAt = 0;
+        if (vm.lyricScrubTime) audioManager.seek(vm.lyricScrubTime);
+      }
+    },
+    // 按视口中心所在的歌词行换算目标时间并 seek
+    _seekByLyricCenter: function() {
+      var vm = this;
+      var d = vm._lyricDrag;
+      var body = vm.$refs.lyricsBody;
+      var lines = vm.lyrics && vm.lyrics.lines;
+      if (!d || !body || !lines || !lines.length) return;
+      var br = body.getBoundingClientRect();
+      var centerY = br.top + br.height / 2;
+
+      // 行位置只在进入拖动时测量一次：拖动期间布局不变，之后用 scrollTop 增量换算，
+      // 避免每次 move 都做几十上百次 getBoundingClientRect（低端平板会明显卡）
+      if (!d.topsBase) {
+        d.baseScrollTop = body.scrollTop;
+        d.topsBase = [];
+        for (var i = 0; i < lines.length; i++) {
+          var el = body.children[i + 1]; // +1 跳过顶部占位
+          d.topsBase.push(el ? el.getBoundingClientRect().top : (i ? d.topsBase[i - 1] : 0));
+        }
+      }
+      var y = centerY + (body.scrollTop - d.baseScrollTop);
+      var tops = d.topsBase;
+      var idx = -1;
+      for (var k = 0; k < tops.length; k++) {
+        if (tops[k] <= y) idx = k; else break;
+      }
+      var t = 0;
+      if (idx >= 0) {
+        var t0 = lines[idx].time;
+        var t1 = (idx + 1 < lines.length) ? lines[idx + 1].time : t0 + 3;
+        var y0 = tops[idx];
+        var y1 = (idx + 1 < tops.length) ? tops[idx + 1] : y0 + 1;
+        var ratio = y1 > y0 ? Math.max(0, Math.min(1, (y - y0) / (y1 - y0))) : 0;
+        t = t0 + (t1 - t0) * ratio;
+      }
+      if (vm.duration > 0) t = Math.max(0, Math.min(vm.duration - 0.05, t));
+      vm.lyricScrubTime = t;
+      // 节流：seek 会触发 timeupdate / 重新缓冲，高频调用在低端平板上会卡顿
+      var now = Date.now();
+      if (now - (vm._lyricScrubSeekAt || 0) < 90) return;
+      vm._lyricScrubSeekAt = now;
+      audioManager.seek(t);
     },
     /* ========== 播放时钟 + 歌词逐字引擎（直接 DOM 写入，脱离 Vue 响应式） ========== */
     startLyricEngine: function() {
@@ -2415,15 +2553,9 @@ export default {
         vm.showNcmMsg('热歌榜加载失败，请检查网络后重试', { type: 'error' });
       });
     },
+    // 网易云收藏：接口在后端已支持未登录（返回本机收藏镜像），前端不再拦截
     loadNcmFavorites: function() {
       var vm = this;
-      // 网易云收藏列表来自网易云账号，未登录时直接提示
-      if (!vm.ncmLoggedIn) {
-        vm.ncmSongs = [];
-        vm.ncmLoading = false;
-        vm.showNcmMsg('网易云收藏需要登录后查看', { type: 'info' });
-        return;
-      }
       vm.ncmLoading = true;
       api.get('/netease-music/like/list').then(function(res) {
         var body = res.data || {};
@@ -2431,12 +2563,19 @@ export default {
         if (!ids.length) {
           vm.ncmSongs = [];
           vm.ncmLoading = false;
+          // 未登录且本机也没收藏过：给出可操作的提示（而不是一片空白）
+          if (!vm.ncmLoggedIn) {
+            vm.showNcmMsg('本机还没有收藏。未登录时点击歌曲的 ♡ 会保存在本机，登录后自动同步云端', { type: 'info' });
+          }
           return;
         }
         return api.get('/netease-music/song/detail', { params: { ids: ids.join(',') } }).then(function(res2) {
           var d = res2.data || {};
           vm.setNcmSongs(d.songs || []);
           vm.ncmLoading = false;
+          if (body.offline) {
+            vm.showNcmMsg('当前显示的是本机收藏（登录网易云后可同步云端收藏）', { type: 'info' });
+          }
         });
       }).catch(function() {
         vm.ncmSongs = [];
@@ -2668,6 +2807,7 @@ export default {
     // 登录弹窗内切换登录方式；切回扫码时若二维码缺失/过期则重新生成
     switchNcmLoginMode: function(m) {
       this.ncmLoginMode = m;
+      this.ncmLoginError = '';
       if (m === 'qr' && (!this.ncmQr || this.ncmQrExpired)) this.startQrLogin();
     },
     // 发送短信验证码（60s 倒计时）
@@ -2679,9 +2819,12 @@ export default {
         return;
       }
       if (vm.ncmCaptchaCountdown > 0) return;
+      vm.ncmLoginError = '';
       api.post('/netease-music/login/captcha/send', { phone: phone, countrycode: vm.ncmLoginForm.countrycode }).then(function() {
-        vm.showNcmMsg('验证码已发送，请查收短信', { type: 'success' });
+        vm.ncmLoginError = '';
+        vm.showNcmMsg('验证码请求已提交，若 1 分钟未收到请改用扫码登录', { type: 'success' });
         vm.ncmCaptchaCountdown = 60;
+        if (vm._ncmCaptchaTimer) { clearInterval(vm._ncmCaptchaTimer); vm._ncmCaptchaTimer = null; }
         vm._ncmCaptchaTimer = setInterval(function() {
           vm.ncmCaptchaCountdown--;
           if (vm.ncmCaptchaCountdown <= 0 && vm._ncmCaptchaTimer) {
@@ -2689,8 +2832,11 @@ export default {
             vm._ncmCaptchaTimer = null;
           }
         }, 1000);
-      }).catch(function() {
-        vm.showNcmMsg('验证码发送失败，请稍后重试', { type: 'error' });
+      }).catch(function(err) {
+        // 服务端已给出中文原因（如「发送验证码间隔过短」），优先透传
+        var msg = (err && err.response && err.response.data && err.response.data.message) || '验证码发送失败，请稍后重试';
+        vm.ncmLoginError = msg;
+        vm.showNcmMsg(msg, { type: 'error' });
       });
     },
     // 手机号登录（密码 / 验证码由当前 tab 决定）
@@ -2717,10 +2863,12 @@ export default {
         payload.password = f.password;
       }
       vm.ncmLoginLoading = true;
+      vm.ncmLoginError = '';
       api.post('/netease-music/login/cellphone', payload).then(function(res) {
         vm.ncmLoginLoading = false;
         var d = res.data || {};
         if (d.code === 200) {
+          vm.ncmLoginError = '';
           vm.ncmLoggedIn = true;
           vm.ncmProfile = d.profile || vm.ncmProfile;
           vm.closeNcmLogin();
@@ -2732,11 +2880,13 @@ export default {
           else vm.switchLibrary('ncm');
           vm.showNcmMsg('网易云音乐登录成功', { type: 'success' });
         } else {
+          vm.ncmLoginError = d.message || '登录失败，请检查账号信息';
           vm.showNcmMsg(d.message || '登录失败，请检查账号信息', { type: 'error' });
         }
       }).catch(function(err) {
         vm.ncmLoginLoading = false;
         var msg = (err && err.response && err.response.data && err.response.data.message) || '登录失败，请检查账号信息';
+        vm.ncmLoginError = msg;
         vm.showNcmMsg(msg, { type: 'error' });
       });
     },
@@ -2747,6 +2897,7 @@ export default {
       vm.ncmQrScanned = false;
       vm.ncmQr = null;
       vm.ncmQrLoading = true;
+      vm.ncmLoginError = '';
       vm.stopQrPolling();
       api.post('/netease-music/login/qr/create').then(function(res) {
         var d = res.data || {};
@@ -2757,17 +2908,25 @@ export default {
         } else {
           vm.ncmQrLoading = false;
           vm.ncmQrExpired = true;
+          vm.ncmLoginError = (d && d.message) || '二维码生成失败，请重试';
         }
-      }).catch(function() {
+      }).catch(function(err) {
         vm.ncmQrLoading = false;
         vm.ncmQrExpired = true;
+        var msg = (err && err.response && err.response.data && err.response.data.message) || '二维码生成失败，请检查网络后重试';
+        vm.ncmLoginError = msg;
       });
     },
+    // 轮询扫码状态：连续失败 3 次即停止并告知原因。
+    // 此前 catch 里空实现，登录接口挂了的情况下前端会每 2.5s 静默重试、一直转圈，
+    // 用户完全不知道发生了什么（「什么方法都登不上去」的观感来源之一）。
     startQrPolling: function(key) {
       var vm = this;
       vm.stopQrPolling();
-      vm._ncmQrTimer = setInterval(function() {
+      vm._ncmQrFails = 0;
+      var tick = function() {
         api.get('/netease-music/login/qr/check', { params: { key: key } }).then(function(res) {
+          vm._ncmQrFails = 0;
           var code = res.data && res.data.code;
           if (code === 803) {
             vm.stopQrPolling();
@@ -2784,8 +2943,19 @@ export default {
             vm.ncmQrScanned = true; // 已扫码待确认，绿色提示
           }
           // 801 等待扫码：继续轮询
-        }).catch(function() {});
-      }, 2500);
+        }).catch(function(err) {
+          vm._ncmQrFails = (vm._ncmQrFails || 0) + 1;
+          if (vm._ncmQrFails >= 3) {
+            vm.stopQrPolling();
+            var msg = (err && err.response && err.response.data && err.response.data.message) || '登录服务暂时不可用，请稍后重试';
+            vm.ncmLoginError = msg;
+            vm.ncmQrExpired = true;
+            vm.showNcmMsg(msg, { type: 'error' });
+          }
+        });
+      };
+      tick(); // 立即查一次，避免首屏 2.5s 空窗
+      vm._ncmQrTimer = setInterval(tick, 2500);
     },
     stopQrPolling: function() {
       if (this._ncmQrTimer) { clearInterval(this._ncmQrTimer); this._ncmQrTimer = null; }
@@ -4503,6 +4673,20 @@ export default {
   height: 14px;
 }
 
+/* 触屏设备没有 hover：滑块默认 0×0 会完全看不见，用户找不到「可拖的位置」。
+   粗指针设备常显滑块，保证进度条的可发现性。 */
+@media (hover: none) and (pointer: coarse) {
+  .progress-thumb {
+    width: 12px;
+    height: 12px;
+  }
+
+  .vol-thumb {
+    width: 10px;
+    height: 10px;
+  }
+}
+
 .time-row {
   display: flex;
   justify-content: space-between;
@@ -4740,6 +4924,7 @@ export default {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  position: relative; /* 拖动进度时的时间气泡定位基准 */
 }
 
 .lyrics-mode-bar {
@@ -5479,6 +5664,35 @@ export default {
   mask-image: linear-gradient(to bottom, transparent 0%, black 10%, black 92%, transparent 100%);
   scroll-behavior: smooth;
   -webkit-overflow-scrolling: touch;
+  /* 纵向手势由我们自己接管（拖动歌词 = 调进度）：只放行横向平移，
+     否则「浏览器纵向滚动」与「脚本写 scrollTop」叠加，列表会跳两下 */
+  touch-action: pan-x;
+  cursor: grab;
+}
+
+.lyrics-scroll:active,
+.lyrics-scroll.lyrics-scrubbing {
+  cursor: grabbing;
+}
+
+/* 拖动调进度时的目标时间气泡 */
+.lyrics-scrub-tip {
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: var(--font-size-caption);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  z-index: 3;
+}
+
+[data-theme="dark"] .lyrics-scrub-tip {
+  background: rgba(255, 255, 255, 0.16);
 }
 
 .lyrics-scroll::-webkit-scrollbar { display: none; }
@@ -6180,6 +6394,18 @@ export default {
 
 .ncm-qr-status-ok { color: var(--success-color); font-weight: var(--font-weight-medium); }
 
+/* 登录失败原因（轮询失败 / 验证码被拒等）：必须可见，否则用户只能对着二维码干等 */
+.ncm-qr-error {
+  margin-top: 6px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm, 6px);
+  font-size: var(--font-size-caption);
+  line-height: 1.5;
+  text-align: center;
+  color: var(--danger-color, #ff3b30);
+  background: rgba(255, 59, 48, 0.1);
+}
+
 /* ========== 网易云登录弹窗（多方式） ========== */
 .ncm-login-box { width: 380px; max-width: calc(100vw - 48px); }
 
@@ -6278,6 +6504,11 @@ export default {
   text-align: center;
   font-size: var(--font-size-caption);
   color: var(--text-tertiary);
+}
+
+.ncm-login-hint-warn {
+  margin-bottom: 6px;
+  color: var(--warning-color, #ff9500);
 }
 
 /* ========== 网易云搜索联想下拉 ========== */

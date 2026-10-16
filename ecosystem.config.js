@@ -138,6 +138,37 @@ module.exports = {
       error_file: path.join(__dirname, 'logs', 'frpc-error.log'),
       out_file: path.join(__dirname, 'logs', 'frpc-out.log'),
       merge_logs: true
+    },
+    {
+      // pcagent（noVNC 设备端代理，Python）
+      //
+      // 为什么必须写进 ecosystem：此前它一直靠手动 `pm2 start ...` 拉起，
+      // 而 resurrect / start ecosystem / 开机自启脚本都只认这个文件 ——
+      // 结果就是**每次系统重启（Windows 更新强制重启）pcagent 都会消失**，
+      // 远程链路静默断掉，没人知道为什么。2026-10-01 02:03 的自动重启再次踩中。
+      name: 'pcagent',
+      script: 'D:\\NetWork\\noVNC\\pcagent\\agent.py',
+      cwd: 'D:\\NetWork\\noVNC\\pcagent',
+      exec_mode: 'fork',
+      // 钉死 Python 解释器：PATH 在不同会话里差别很大（WorkBuddy 会把它自己的
+      // 目录插到最前面），解析到别的 Python 会缺依赖或行为不一致
+      exec_interpreter: 'C:\\Users\\iflytek\\AppData\\Local\\Programs\\Python\\Python313\\python.exe',
+      autorestart: true,
+      max_restarts: 10,
+      restart_delay: 5000,
+      min_uptime: '30s',
+      watch: false,
+      log_date_format: 'YYYY-MM-DD HH:mm:ss',
+      error_file: path.join(__dirname, 'logs', 'pcagent-error.log'),
+      out_file: path.join(__dirname, 'logs', 'pcagent-out.log'),
+      merge_logs: true,
+      // WorkBuddy 等外部工具会往 PYTHONPATH 塞自己的 shim 目录，一旦被继承，
+      // Python 进程会先 import 到 shim 里的同名模块（与 Node 侧的 ABI 崩溃同族，
+      // 见 ~/.workbuddy/MEMORY.md 第 10 条）。这里显式清空。
+      env: {
+        PYTHONPATH: '',
+        PCAGENT_CWD: 'D:\\NetWork\\noVNC\\pcagent'
+      }
     }
   ]
 };
