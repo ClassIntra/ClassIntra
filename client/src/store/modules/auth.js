@@ -1,5 +1,6 @@
 import axios from 'axios';
 import realtime from '@/utils/realtime';
+import wsManager from '@/utils/websocket';
 
 var state = {
   token: localStorage.getItem('token') || '',
@@ -82,6 +83,9 @@ var actions = {
   },
   logout: function(context) {
     realtime.disconnect();
+    // 一并断开共享的 WS 连接：否则登出后套接字仍以旧用户身份在线，
+    // 切换账号时会残留旧身份（见 websocket.js ensureConnected 的 token 比对）。
+    try { wsManager.disconnect(); } catch (e) {}
     context.commit('LOGOUT');
     // 必须通知服务端清除 httpOnly cookie：仅清 localStorage 会残留登录凭据，
     // 跨班登录后切回自己账号时可能被旧 cookie 干扰

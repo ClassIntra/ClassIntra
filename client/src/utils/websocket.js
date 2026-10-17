@@ -312,14 +312,18 @@ WebSocketManager.prototype.isReady = function() {
 };
 
 WebSocketManager.prototype.ensureConnected = function() {
-  if (this.connected) return;
   var token = localStorage.getItem('token');
-  if (token) {
-    var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    var host = window.location.hostname;
-    var wsPort = window.__WS_PORT__ || (window.location.protocol === 'https:' ? '443' : '10001');
-    this.connect(protocol + '//' + host + ':' + wsPort + '/ws');
+  if (!token) return;
+  // 已连接但凭据已变（登录 / 切换账号，SPA 内不重载页面）：先断开旧连接，
+  // 否则 WS 会继续以旧用户身份收发（跨班登录后尤其明显 —— 新账号的消息会被算到旧账号头上）。
+  if (this.connected && this.token && this.token !== token) {
+    try { this.disconnect(); } catch (e) {}
   }
+  if (this.connected) return;
+  var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  var host = window.location.hostname;
+  var wsPort = window.__WS_PORT__ || (window.location.protocol === 'https:' ? '443' : '10001');
+  this.connect(protocol + '//' + host + ':' + wsPort + '/ws');
 };
 
 // ===== HTTP 长轮询回退 =====
@@ -350,6 +354,7 @@ WebSocketManager.prototype._startPolling = function() {
   var self = this;
   if (self._pollTimer || self._pollInFlight) return;
   self._pollStopped = false;
+  self.token = localStorage.getItem('token') || ''; // 记录当前凭据，供 ensureConnected 做 token 变更比对
   self._pollRetryDelay = 1000; // 重置指数退避延迟
   self._connectionState = 'connecting';
   self.emit('_connectionStateChange', { state: 'connecting', transport: 'poll' });
