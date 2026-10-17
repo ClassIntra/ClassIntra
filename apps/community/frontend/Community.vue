@@ -3444,11 +3444,30 @@ export default {
   .comments-section { margin-top: 16px; }
   .comment-item { padding: 10px 0; }
 }
-@media (max-width: 768px) {
-  .community-sidebar { width: 56px; }
-  .sidebar-menu-item span { display: none; }
-  .sidebar-menu-item { justify-content: center; padding: 12px 6px; }
-  .sidebar-menu-item i { margin: 0; }
+/* 竖屏 / 窄屏：侧栏菜单由固定竖排改为顶部横向标签栏，
+   避免 56px 纯图标窄栏过于紧凑（保留图标 + 文字），同时让内容区获得整宽。
+   宽屏（横屏平板 / 桌面）行为不变。 */
+@media (max-width: 768px), (orientation: portrait) and (max-width: 1024px) {
+  .community-body { flex-direction: column; }
+  .community-sidebar {
+    width: 100%;
+    flex-direction: row;
+    align-items: center;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: none;
+    border-bottom: 0.5px solid var(--separator-color);
+    padding: 6px 10px;
+    gap: 4px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .community-sidebar::-webkit-scrollbar { display: none; }
+  .sidebar-divider { display: none; }
+  .sidebar-menu { flex-direction: row; padding: 0; gap: 4px; }
+  .sidebar-menu-item { width: auto; flex-shrink: 0; justify-content: center; padding: 10px 14px; white-space: nowrap; }
+  .sidebar-menu-item span { display: inline; }
+  .sidebar-menu-item i { margin: 0; width: auto; }
   .modal-box { width: 85%; min-width: 280px; }
   .search-box { display: none; }
   .tag-filter-bar { padding: 8px 12px; }
