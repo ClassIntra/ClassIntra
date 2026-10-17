@@ -142,9 +142,13 @@ if (ghAvailable) console.log('[release] gh CLI: 可用');
 else console.log('[release] gh CLI: 未安装（跳过 GitHub Release 创建，仅本地提交+tag）');
 
 if (ghAvailable) {
-  // 获取远程仓库 owner/name，用于权限探测
-  var ghRepo = exec('git config --get remote.origin.url', { ignoreFail: true })
-    .replace(/^.*github\.com[:/](.+?)(\.git)?$/, '$1').replace(/\.git$/, '');
+  // 获取远程仓库 owner/name，用于权限探测。
+  // 远程地址可能是 ssh://git@ssh.github.com:443/Owner/Repo.git（带端口）、
+  // git@github.com:Owner/Repo.git 或 https://github.com/Owner/Repo.git。
+  // 统一取最后两段路径，避免端口号 ":443" 被误当成 owner。
+  var remoteUrl = exec('git config --get remote.origin.url', { ignoreFail: true }).trim();
+  var repoMatch = remoteUrl.match(/[:/]([^/:]+\/[^/]+?)(?:\.git)?$/);
+  var ghRepo = repoMatch ? repoMatch[1] : '';
   if (!ghRepo) {
     console.warn('[release] 无法解析远程仓库 → 跳过 GitHub Release');
     ghAvailable = false;
