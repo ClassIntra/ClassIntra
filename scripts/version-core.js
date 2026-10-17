@@ -94,11 +94,12 @@ function buildChangelog() {
     if (!line || seen[line]) continue;
     seen[line] = true;
     if (line.indexOf('savepoint') !== -1 || line.indexOf('💾') !== -1) continue;
-    if (/^(chore|docs|release):/.test(line)) continue;
-    if (/^feat:/.test(line)) features.push(line.replace(/^feat:\s*/, ''));
-    else if (/^fix:/.test(line)) fixes.push(line.replace(/^fix:\s*/, ''));
-    else if (/^refactor:/.test(line)) fixes.push(line.replace(/^refactor:\s*/, ''));
-    else if (/^perf:/.test(line)) fixes.push(line.replace(/^perf:\s*/, ''));
+    // 支持带作用域的前缀（feat(x)/fix(x)/chore(x) 等），否则会漏分类、错进「其他」
+    if (/^(chore|docs|release)(\([^)]*\))?:/.test(line)) continue;
+    if (/^feat(\([^)]*\))?:/.test(line)) features.push(line.replace(/^feat(\([^)]*\))?:\s*/, ''));
+    else if (/^fix(\([^)]*\))?:/.test(line)) fixes.push(line.replace(/^fix(\([^)]*\))?:\s*/, ''));
+    else if (/^refactor(\([^)]*\))?:/.test(line)) fixes.push(line.replace(/^refactor(\([^)]*\))?:\s*/, ''));
+    else if (/^perf(\([^)]*\))?:/.test(line)) fixes.push(line.replace(/^perf(\([^)]*\))?:\s*/, ''));
     else others.push(line);
   }
 
