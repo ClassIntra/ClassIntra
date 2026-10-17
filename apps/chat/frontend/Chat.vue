@@ -8,8 +8,10 @@
       </template>
     </AppNavBar>
     <div class="chat-body">
+      <!-- 竖屏/窄屏：会话列表抽屉的遮罩，点击关闭 -->
+      <div v-if="sidebarOpen" class="sidebar-overlay" @click="sidebarOpen = false"></div>
       <!-- Sidebar -->
-      <div class="chat-sidebar">
+      <div class="chat-sidebar" :class="{ 'sidebar-open': sidebarOpen }">
         <div class="sidebar-tabs" role="tablist">
           <button
             v-for="tab in tabs"
@@ -128,6 +130,14 @@
       <!-- Main Chat Area -->
       <div class="chat-main">
         <div class="chat-header">
+          <!-- 竖屏/窄屏：展开或收起会话列表抽屉（宽屏下隐藏） -->
+          <button
+            class="header-action-btn sidebar-toggle"
+            :title="sidebarOpen ? '收起会话列表' : '展开会话列表'"
+            @click.stop="sidebarOpen = !sidebarOpen"
+          >
+            <i class="fa-solid fa-bars"></i>
+          </button>
           <div class="chat-title">
             <span>{{ chatTitle }}</span>
             <span v-if="typingUsers.length > 0" class="typing-indicator">{{ typingDisplayText }}</span>
@@ -693,6 +703,8 @@ export default {
     return {
       activeTab: 'public',
       currentChat: 'public',
+      // 竖屏/窄屏下会话列表以抽屉形式浮于主区之上，默认收起
+      sidebarOpen: false,
       inputText: '',
       showEmoji: false,
       showCloudPicker: false,
@@ -1932,6 +1944,8 @@ export default {
     selectChat: function(chatId) {
       var self = this;
       self.showSearch = false;
+      // 竖屏/窄屏：选中会话后自动收起抽屉，把空间让给消息区
+      self.sidebarOpen = false;
       self.searchText = '';
       self.showUnreadDivider = false;
       self.cancelReply();
@@ -3444,6 +3458,8 @@ export default {
   flex: 1;
   display: flex;
   min-height: 0;
+  /* 竖屏/窄屏下会话抽屉与遮罩以本容器为定位参照 */
+  position: relative;
 }
 
 .nav-action-btn {
@@ -5208,5 +5224,68 @@ export default {
   .settings-panel-sm { width: 260px; }
   .settings-header { padding: 14px 18px; }
   .settings-body { padding: 12px 18px; }
+}
+
+/* ===== 竖屏 / 窄屏适配 =====
+   竖屏下横向空间受限、纵向充裕：会话列表由固定侧栏改为覆盖式抽屉，
+   主区占满整宽，避免 300px 侧栏挤压消息区。宽屏（横屏平板 / 桌面）行为不变。 */
+.sidebar-overlay {
+  display: none;
+}
+
+/* 抽屉开关按钮仅在竖屏 / 窄屏出现 */
+.sidebar-toggle {
+  display: none;
+  margin-right: 4px;
+}
+
+@media (max-width: 768px), (orientation: portrait) and (max-width: 1024px) {
+  .chat-sidebar {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 100;
+    width: min(300px, 84vw);
+    transform: translateX(-100%);
+    transition: transform var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
+  }
+
+  .chat-sidebar.sidebar-open {
+    transform: translateX(0);
+    box-shadow: var(--shadow-lg);
+  }
+
+  .sidebar-toggle {
+    display: flex;
+  }
+
+  .sidebar-overlay {
+    display: block;
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 99;
+    background: rgba(0, 0, 0, 0.28);
+  }
+
+  .chat-main {
+    width: 100%;
+  }
+
+  .chat-header {
+    padding: 12px 16px;
+    gap: 8px;
+  }
+
+  .chat-messages {
+    padding: 14px 16px;
+  }
+
+  .chat-input-area {
+    padding: 12px 16px;
+  }
 }
 </style>

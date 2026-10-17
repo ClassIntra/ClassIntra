@@ -707,6 +707,14 @@ function markdownCached(content, render) {
   return html;
 }
 
+// 竖屏 / 窄屏判定：竖屏下横向空间受限，会话列表改用覆盖式抽屉，
+// 避免固定侧栏挤压消息区（与 Chat 应用口径一致）。
+function isNarrowViewport() {
+  var w = window.innerWidth;
+  var h = window.innerHeight;
+  return w <= 768 || (h > w && w <= 1024);
+}
+
 export default {
   components: { AppNavBar: AppNavBar, CloudImagePicker: CloudImagePicker },
   name: 'AIChat',
@@ -728,7 +736,7 @@ export default {
       loadingConvs: false,
       loadingMessages: false,
       showSidebar: false,
-      isMobile: window.innerWidth <= 768,
+      isMobile: isNarrowViewport(),
       showConfirmDialog: false,
       confirmDialogTitle: '',
       confirmDialogMessage: '',
@@ -1129,7 +1137,7 @@ export default {
       if (container.scrollTop < 120) self.loadEarlierMessages();
     },
     handleResize: function() {
-      this.isMobile = window.innerWidth <= 768;
+      this.isMobile = isNarrowViewport();
     },
     formatConvTime: function(timeStr) {
       if (!timeStr) return '';
@@ -4031,7 +4039,7 @@ export default {
   background: var(--danger-color);
 }
 
-@media (max-width: 768px) {
+@media (max-width: 768px), (orientation: portrait) and (max-width: 1024px) {
   .aichat-sidebar {
     position: absolute;
     left: 0;
@@ -4365,7 +4373,7 @@ export default {
   color: rgba(var(--primary-rgb), 0.4);
 }
 
-@media (max-width: 768px) {
+@media (max-width: 768px), (orientation: portrait) and (max-width: 1024px) {
   .model-picker-label {
     max-width: 72px;
   }
@@ -4600,7 +4608,7 @@ export default {
   color: var(--text-secondary, #999);
 }
 
-@media (max-width: 768px) {
+@media (max-width: 768px), (orientation: portrait) and (max-width: 1024px) {
   .batch-action-bar {
     padding: 10px 12px;
     gap: 6px;

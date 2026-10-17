@@ -816,6 +816,19 @@ a:focus-visible {
   }
 }
 
+/* ===== 竖屏基线 =====
+   竖屏下横向空间受限、纵向充裕：保留原宽松留白（不压缩内容呼吸感），
+   仅在存在刘海 / 圆角屏安全区时按安全区扩展内边距（viewport-fit=cover）。
+   不支持 env() 的环境自动回落到上面的默认内边距。 */
+@media (orientation: portrait) {
+  .page-content {
+    padding-top: max(var(--spacing-lg), env(safe-area-inset-top, 0px));
+    padding-right: max(var(--spacing-lg), env(safe-area-inset-right, 0px));
+    padding-bottom: max(var(--spacing-lg), env(safe-area-inset-bottom, 0px));
+    padding-left: max(var(--spacing-lg), env(safe-area-inset-left, 0px));
+  }
+}
+
 @supports not ((gap: 1px)) {
   .global-toast > * + * {
     margin-left: 8px;
