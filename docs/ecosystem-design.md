@@ -46,7 +46,7 @@
 | 市场应用运行时装载 | `client/src/core/market-registry.js` + `MarketRuntime.vue` + `server/src/core/market-service.js` | 可用 |
 | 市场 SDK 上下文 | `client/src/main.js` 的 `window.ClassIntraMarket.createContext` | 最小可用 |
 | Azure 兼容基线 | `client/vite.config.mjs`：`target: 'chrome80'`、flex-gap polyfill、`-webkit-` 前缀、`@vitejs/plugin-legacy`（targets: Chrome ≥ 89 / Android ≥ 9） | 完善 |
-| 实时通道（不依赖 WS） | `client/src/utils/realtime.js`（HTTP 长轮询，适配 X5/TBS） | 完善 |
+| 实时通道（WebSocket 优先） | `client/src/utils/realtime.js`（复用核心 WS 连接；X5/TBS/不支持时自动降级为 HTTP 长轮询） | 完善 |
 | 集成系统 | PostMessage Bridge + Webhook（HMAC 签名） | 完善 |
 
 ### 1.1b 本次新增的资产（2026-09-10）
@@ -447,7 +447,7 @@ context.data.api.post('/my-app/items', { title: 'x' })
 context.data.get('/my-app/items')
 context.data.post('/my-app/items', { title: 'x' })
 
-// 实时事件：HTTP 长轮询（适配 X5/TBS）
+// 实时事件：复用核心 WS 连接（X5/TBS/不支持时自动降级为 HTTP 长轮询）
 context.data.realtime.subscribe('my-app.updated', function(payload) {})
 
 // 存储：自动加 ci:app:<name>: 前缀（已在实现中强制）
@@ -461,7 +461,7 @@ context.data.storage.clear();
 > **实现说明**：`storage.get` 会尝试 `JSON.parse`，失败则返回原始字符串；写入时非字符串值自动 `JSON.stringify`。因此数字、对象、数组均可直接存取。
 
 
-**兼容注意**：`context.data.realtime` 是**必须使用**的实时通道。直接使用 `WebSocket` 在腾讯 X5 / TBS / 旧 Android WebView 上不可靠，这是已由 `docs/development/sdk.md` 记录的项目约束。
+**兼容注意**：`context.data.realtime` 是**必须使用**的实时通道——它内部复用核心 WS 连接（WebSocket 优先，X5/TBS/不支持时自动降级为 HTTP 长轮询）。请勿自己 `new WebSocket`：在腾讯 X5 / TBS / 旧 Android WebView 上长连接不可靠，这是已由 `docs/development/sdk.md` 记录的项目约束。
 
 ### 4.4 `context.system` — 系统能力
 
@@ -938,7 +938,7 @@ iOS HIG 的核心节奏原则。用户点击展开时期待看到内容（愿意
 | `inset` 简写 | ❌（87+） | ✅ | 用 `top/right/bottom/left` |
 | `:is()` / `:where()` | ❌（88+） | ✅ | 不用 |
 | `?.` / `??` | ❌ | ✅ | 不用（项目约定已禁用） |
-| `WebSocket` | 可用但不稳定 | **不可靠** | 统一走 `context.data.realtime`（HTTP 长轮询） |
+| `WebSocket` | 可用但不稳定 | **不可靠** | 统一走 `context.data.realtime`（内部复用核心 WS，X5/不支持时降级长轮询；勿自行 `new WebSocket`） |
 | `navigator.clipboard` | ❌ | 部分 | 用 `context.util.copy()`（内部回退 `execCommand`） |
 | `import` 动态导入 | ✅ | ✅ | 不使用（第三方是 `<script>` 注入，非 ESM） |
 
@@ -1625,7 +1625,7 @@ Ditto 的 `AppManifest` 含 `minDittoVersion` 字段，用于表达「本应用�
 |---|---|
 | `DittoKernel` / `ServiceRegistry` / `LifecycleOrchestrator` 代码 | TypeScript + DI 容器，与 ClassIntra 的 `var`/`function` 风格和既有 `service-registry.js` 不兼容；仅借鉴**思路**（借鉴 1） |
 | 三档沙盒（`IFrameSandbox` / `ShadowSandbox`） | 与「真·同页面自由」决策直接冲突 |
-| `CellBridge`（WS + HTTP 双向通信） | ClassIntra 已选定 `realtime.js` HTTP 长轮询（X5/TBS 下 WS 不可靠），传输层不同 |
+| `CellBridge`（WS + HTTP 双向通信） | ClassIntra 的 `realtime.js` 现复用核心 WS 连接、并保留 HTTP 长轮询兜底（X5/TBS 下 WS 不可靠），且归入统一的五大命名空间，分层不同 |
 | `ElasticScaler` / `ResourceQuotaManager` / `TrafficShaper` / `FairScheduler` | 面向多用户 SaaS 的服务端资源治理，ClassIntra 是内网单实例部署，场景不匹配 |
 | `.dit` 加密体系 | 内网离线场景无此需求（见借鉴 4） |
 | 多窗口（`DWindow` / `DTaskbar`） | ClassIntra 是横屏平板全屏应用范式 |

@@ -1,18 +1,19 @@
-// 第三方应用的全局 HTTP 实时事件客户端，不依赖 Chat 应用。
+// 第三方应用的全局实时事件客户端，不依赖 Chat 应用。
+//
+// 传输策略（体验优先）：
+//   1. 优先复用核心 wsManager 的单一 WebSocket 连接。wsManager 在 load 时自动连接，
+//      自带重连、心跳，并在 X5 / 旧 Android WebView 或 WS 不可用时自动降级为 HTTP 长轮询；
+//   2. 事件下行统一走 WS（降级时经 chat poll 队列投递），发布上行优先走 WS，
+//      WS 未就绪时退回 HTTP（wsManager.publish）。
+// 这样第三方应用无需再单独维护一条 HTTP 长轮询连接。
+import wsManager from '@/utils/websocket';
+
 function RealtimeClient() {
   this.listeners = {};
   this.connected = false;
   this.stopped = true;
-  this.lastTs = 0;
-  this.pollTimer = null;
-  this.inFlight = false;
-  this._retryDelay = 100;
+  this._bound = null;
 }
-
-RealtimeClient.prototype._headers = function() {
-  var token = localStorage.getItem('token') || '';
-  return { 'Content-Type': 'application/json', 'Authorization': token ? 'Bearer ' + token : '' };
-};
 
 RealtimeClient.prototype.on = function(event, handler) {
   if (typeof handler !== 'function') return function() {};
@@ -34,87 +35,84 @@ RealtimeClient.prototype._emit = function(event, payload, message) {
   }
 };
 
+// 挂载 wsManager 事件监听（只挂一次）
+RealtimeClient.prototype._attach = function() {
+  var self = this;
+  if (self._bound) return;
+  self._bound = {
+    // 下行：wsManager 收到 type 为 extension_event 的消息时触发
+    onEvent: function(data) {
+      if (!data || !data.type) return;
+      self._emit(data.type, data, data);
+    },
+    onConnected: function(data) {
+      self.connected = true;
+      self._emit('connected', data || {});
+    },
+    onStateChange: function(state) {
+      if (!state) return;
+      if (state.state === 'connected') {
+        self.connected = true;
+      } else if (state.state === 'disconnected' || state.state === 'reconnecting') {
+        self.connected = false;
+      }
+    }
+  };
+  wsManager.on('extension_event', self._bound.onEvent);
+  wsManager.on('connected', self._bound.onConnected);
+  wsManager.on('_connectionStateChange', self._bound.onStateChange);
+};
+
+RealtimeClient.prototype._detach = function() {
+  if (!this._bound) return;
+  wsManager.off('extension_event', this._bound.onEvent);
+  wsManager.off('connected', this._bound.onConnected);
+  wsManager.off('_connectionStateChange', this._bound.onStateChange);
+  this._bound = null;
+};
+
 RealtimeClient.prototype.connect = function() {
   var self = this;
   if (!localStorage.getItem('token')) return;
   if (!self.stopped) return;
-  // 清理可能残留的重连定时器，避免叠加
-  if (self.pollTimer) { clearTimeout(self.pollTimer); self.pollTimer = null; }
   self.stopped = false;
-  self.inFlight = false;
-  fetch('/api/realtime/poll/register', { method: 'POST', headers: self._headers(), credentials: 'same-origin', body: '{}' })
-    .then(function(response) { if (!response.ok) throw new Error('realtime register failed: ' + response.status); return response.json(); })
-    .then(function(result) {
-      if (!result || result.code !== 200) throw new Error('realtime register invalid response');
-      self.connected = true;
-      self.lastTs = result.data && result.data.server_time || Date.now();
-      self._emit('connected', result.data || {});
-      self._poll();
-    })
-    .catch(function(error) {
-      self.connected = false;
-      self._emit('error', error);
-      // 保持 stopped=false 并按退避重试，不能置为 true（否则 connect() 会直接 return，永不重连）
-      if (!self.stopped) {
-        self.pollTimer = setTimeout(function() { self.connect(); }, 5000);
-      }
-    });
-};
-
-RealtimeClient.prototype._poll = function() {
-  var self = this;
-  if (self.stopped || self.inFlight) return;
-  self.inFlight = true;
-  fetch('/api/realtime/poll?since=' + encodeURIComponent(self.lastTs), { method: 'GET', headers: self._headers(), credentials: 'same-origin' })
-    .then(function(response) {
-      if (response.status === 401) {
-        // 认证失效：停止轮询，交由登录流程重新 connect，避免高频空转刷服务端
-        var err = new Error('realtime poll unauthorized');
-        err._authFailed = true;
-        throw err;
-      }
-      if (!response.ok) throw new Error('realtime poll failed: ' + response.status);
-      return response.json();
-    })
-    .then(function(result) {
-      var events = result.data && result.data.events || [];
-      for (var i = 0; i < events.length; i++) {
-        var item = events[i];
-        if (item.ts > self.lastTs) self.lastTs = item.ts;
-        if (item.event && item.event.type) self._emit(item.event.type, item.event, item.event);
-      }
-      if (result.data && result.data.server_time > self.lastTs) self.lastTs = result.data.server_time;
-      self._retryDelay = 100;
-    })
-    .catch(function(error) {
-      self._emit('error', error);
-      if (error && error._authFailed) {
-        self.stopped = true;
-        self.connected = false;
-        self.inFlight = false;
-        return;
-      }
-      // 连接类错误：指数退避（100ms → 最大 10s），避免网络异常时高速重试
-      self._retryDelay = Math.min((self._retryDelay || 100) * 2, 10000);
-    })
-    .then(function() {
-      self.inFlight = false;
-      if (self.stopped) return;
-      var delay = self._retryDelay || 100;
-      self.pollTimer = setTimeout(function() { self._poll(); }, delay);
-    });
+  self._attach();
+  // 复用已有连接；启动阶段可能早于 wsManager 的 load 自动连接，这里主动触发一次
+  try {
+    if (typeof wsManager.ensureConnected === 'function') wsManager.ensureConnected();
+  } catch (e) {}
+  self.connected = (typeof wsManager.isReady === 'function') ? !!wsManager.isReady() : false;
+  if (self.connected) self._emit('connected', {});
 };
 
 RealtimeClient.prototype.publish = function(event, payload, appName) {
-  return fetch('/api/realtime/publish', { method: 'POST', headers: this._headers(), credentials: 'same-origin', body: JSON.stringify({ event: event, payload: payload, app_name: appName || '' }) })
-    .then(function(response) { if (!response.ok) throw new Error('realtime publish failed: ' + response.status); return response.json(); });
+  var appNameStr = appName || '';
+  var body = {
+    type: 'realtime_publish',
+    event: event,
+    payload: (payload === undefined ? null : payload),
+    app_name: appNameStr
+  };
+  // 上行优先走 WS；未就绪时 wsManager 会自动入队，重连后补发
+  if (typeof wsManager.send === 'function' && typeof wsManager.isReady === 'function' && wsManager.isReady()) {
+    var result = wsManager.send(body);
+    return Promise.resolve({ code: 200, message: 'ok', data: { transport: 'ws', result: result } });
+  }
+  // 退回 HTTP（与旧行为一致）
+  if (typeof wsManager.publish === 'function') {
+    return wsManager.publish(event, payload, appNameStr);
+  }
+  return Promise.reject(new Error('realtime 通道不可用'));
 };
 
 RealtimeClient.prototype.isReady = function() {
-  return this.connected;
+  return (typeof wsManager.isReady === 'function') ? !!wsManager.isReady() : this.connected;
 };
 
 RealtimeClient.prototype.getConnectionState = function() {
+  if (typeof wsManager.getConnectionState === 'function') {
+    try { return wsManager.getConnectionState(); } catch (e) {}
+  }
   return this.connected ? 'connected' : (this.stopped ? 'disconnected' : 'connecting');
 };
 
@@ -125,14 +123,10 @@ RealtimeClient.prototype.subscribe = function(event, handler) {
 };
 
 RealtimeClient.prototype.disconnect = function() {
-  var self = this;
-  self.stopped = true;
-  self.connected = false;
-  self.inFlight = false;
-  if (self.pollTimer) clearTimeout(self.pollTimer);
-  self.pollTimer = null;
-  self._retryDelay = 100;
-  fetch('/api/realtime/poll/unregister', { method: 'POST', headers: self._headers(), credentials: 'same-origin', body: '{}' }).catch(function() {});
+  this.stopped = true;
+  this.connected = false;
+  this._detach();
+  // 不主动断开 wsManager：它是全局聊天/通知共用连接，仅解除本客户端的订阅
 };
 
 var realtime = new RealtimeClient();
