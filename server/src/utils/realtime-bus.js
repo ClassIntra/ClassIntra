@@ -15,6 +15,19 @@ function unregister(userId) {
   delete lastSeen[userId];
 }
 
+// 投递钩子：由 WebSocket 服务器注册，发布事件时同步推送到实时通道（如 WS / 长轮询），
+// 使第三方应用无需轮询即可经 WebSocket 收到事件。未注册时为 null，行为与旧版一致。
+var deliveryHook = null;
+
+function setDeliveryHook(fn) {
+  deliveryHook = (typeof fn === 'function') ? fn : null;
+}
+
+function deliver(targetIds, event) {
+  if (typeof deliveryHook !== 'function') return;
+  try { deliveryHook(targetIds, event); } catch (e) {}
+}
+
 function publish(event) {
   publishToUsers(Object.keys(queues), event);
 }
@@ -27,6 +40,8 @@ function publishToUsers(userIds, event) {
     queues[ids[i]].push({ ts: now, event: event });
     if (queues[ids[i]].length > QUEUE_MAX) queues[ids[i]].splice(0, queues[ids[i]].length - QUEUE_MAX);
   }
+  // 定向投递：让 WS / 长轮询客户端即时收到，无需轮询（不走队列，避免与队列重复投递）。
+  if (ids.length > 0) deliver(ids, event);
 }
 
 function consume(userId, since) {
@@ -45,4 +60,4 @@ setInterval(function() {
   });
 }, 60000).unref();
 
-module.exports = { register: register, unregister: unregister, publish: publish, publishToUsers: publishToUsers, consume: consume, isRegistered: function(userId) { return !!queues[userId]; } };
+module.exports = { register: register, unregister: unregister, publish: publish, publishToUsers: publishToUsers, consume: consume, setDeliveryHook: setDeliveryHook, isRegistered: function(userId) { return !!queues[userId]; } };

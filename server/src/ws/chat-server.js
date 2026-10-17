@@ -9,6 +9,7 @@ var relaySync = require('../utils/relay-sync');
 var crashLogger = require('../utils/crash-logger');
 var constants = require('../utils/constants');
 var relayBus = require('../utils/relay-bus');
+var realtimeBus = require('../utils/realtime-bus');
 // 加载事件处理器注册
 require('../utils/relay-handlers');
 
@@ -411,6 +412,32 @@ function broadcastToClients(message) {
   broadcast(message, null, true);
 }
 
+// ===== 第三方实时事件通道（realtime bus → WebSocket） =====
+// 把 realtimeBus 发布的事件定向投递给目标用户：有 WS 连接直接走 WS，
+// 否则回落到该用户的 HTTP 长轮询队列（sendToClient 内部已处理这两种情况）。
+// 第三方应用即可用 WebSocket 直接订阅，无需再自行 HTTP 轮询。
+realtimeBus.setDeliveryHook(function(userIds, event) {
+  var ids = Array.isArray(userIds) ? userIds : [];
+  for (var i = 0; i < ids.length; i++) {
+    try { sendToClient(ids[i], event); } catch (e) {}
+  }
+});
+
+// 上行：客户端经 WS / 长轮询发布第三方实时事件（与 HTTP POST /api/realtime/publish 等价）
+function handleRealtimePublish(ws, data) {
+  if (!ws || !ws.userId) return;
+  var eventName = data && data.event;
+  if (typeof eventName !== 'string' || !/^[a-zA-Z0-9_.:-]{1,80}$/.test(eventName)) return;
+  realtimeBus.publish({
+    type: 'extension_event',
+    app_name: (data && data.app_name) || '',
+    event: eventName,
+    payload: (data && data.payload === undefined) ? null : (data ? data.payload : null),
+    sender_id: ws.userId,
+    created_at: new Date().toISOString()
+  });
+}
+
 function handleDisconnect(userId) {
   for (var roomCode in gomokuSubscriptions) {
     delete gomokuSubscriptions[roomCode][userId];
@@ -423,6 +450,8 @@ function handleDisconnect(userId) {
     relayBus.emit('user_offline', { user_id: userId });
   }
   delete messageRateLimit[userId];
+  // 仅当无长轮询注册时才从实时总线注销，避免误伤仍在长轮询的同一用户
+  if (!pollQueues[userId]) realtimeBus.unregister(userId);
 }
 
 function sendToClient(userId, message) {
@@ -1430,6 +1459,8 @@ function handleConnect(ws, data) {
   // Register client
   clients[userId] = ws;
   ws.userId = userId;
+  // 让本用户出现在实时总线上（isRegistered 为真），第三方应用的 publishToUsers 才能定位到在线 WS 用户
+  realtimeBus.register(userId);
 
   // Load user info from database
   var userRow = stmtGetUserInfo.get(userId);
@@ -2939,6 +2970,9 @@ wss.on('connection', function connection(ws, req) {
         case 'mark_read':
           handleMarkRead(ws, data);
           break;
+        case 'realtime_publish':
+          handleRealtimePublish(ws, data);
+          break;
         case 'gomoku_subscribe':
           handleGomokuSubscribe(ws, data);
           break;
@@ -2992,6 +3026,8 @@ var heartbeatInterval = setInterval(function() {
         disconnected.push(userId);
       } else {
         ws.isAlive = false;
+        // 刷新实时总线注册时间：WS 用户不消费队列，若不同步刷新会被 TTL 清理误判为离线
+        realtimeBus.register(userId);
         try {
           ws.ping();
         } catch (e) {
@@ -3085,6 +3121,8 @@ function registerPoller(userId, userInfo) {
   if (!userId) return null;
   pollQueues[userId] = pollQueues[userId] || [];
   pollLastSeen[userId] = Date.now();
+  // 让长轮询客户端也出现在实时总线上，第三方 publishToUsers 的 isRegistered 过滤才不会漏掉它们
+  realtimeBus.register(userId);
   // 若该用户没有活动的 WS 连接，将其加入 onlineUsers
   if (!clients[userId] && userInfo) {
     onlineUsers[userId] = userInfo;
@@ -3103,10 +3141,14 @@ function unregisterPoller(userId) {
     delete onlineUsers[userId];
     relayBus.emit('user_offline', { user_id: userId });
   }
+  // 仅当无 WS 连接时才从实时总线注销，避免误伤仍以 WS 在线的同一用户
+  if (!clients[userId]) realtimeBus.unregister(userId);
 }
 
 function touchPoller(userId) {
   pollLastSeen[userId] = Date.now();
+  // 同步刷新实时总线的活跃时间，避免长轮询用户被总线 TTL 误判为离线
+  realtimeBus.register(userId);
 }
 
 function consumePollEvents(userId, sinceTs, sinceSeq) {
@@ -3180,6 +3222,7 @@ function handleHttpMessage(userId, data) {
       case 'rename_group': handleRenameGroup(fakeWs, data); break;
       case 'recall_message': handleRecallMessage(fakeWs, data); break;
       case 'mark_read': handleMarkRead(fakeWs, data); break;
+      case 'realtime_publish': handleRealtimePublish(fakeWs, data); break;
       case 'typing': handleTyping(fakeWs, data); break;
       case 'status_update': handleStatusUpdate(fakeWs, data); break;
       case 'get_private_history': handleGetPrivateHistory(fakeWs, data); break;
