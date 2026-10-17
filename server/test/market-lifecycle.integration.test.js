@@ -131,7 +131,7 @@ test('市场应用生命周期应在真实 HTTP 服务中完成', async function
     'integration-test-secret'
   );
 
-  var catalog = await request('/api/market/catalog?source=local');
+  var catalog = await request('/api/market/catalog?source=local', { headers: adminHeaders() });
   assert.equal(catalog.response.status, 200);
   // 不假定目录顺序（index.json 会随应用增减变化，chess 已先于 gomoku 列入），只断言包含 gomoku
   var catalogApps = catalog.body.data.catalog.apps || [];
