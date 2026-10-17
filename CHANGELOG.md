@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.4.0] - 2026-10-17
+【新增】
+- 新增 Cluss 联动桥（只读），供跨系统账号校验
+
+【其他】
+- fix(ws): 登录/登出按 token 重连与断连——修跨班登录后 WS 仍绑定旧用户
+- feat(realtime): 第三方实时事件通道改走 WebSocket（WS 优先，长轮询兜底）
+- fix(test): 市场目录用例补上鉴权头——修既有失败用例（catalog 自 v1.3.0 起已需登录）
+- fix(auth): 补上 RS256 改造遗漏的验签入口——修「登录后立刻被登出」
+- feat(auth): JWT 改用 RS256，私钥不出本机，联登不再依赖共享密钥
+- sync-market.ps1: -Commit 模式补 add index.json（三处版本一致红线，1.10.1 实测漏提交）
+- sync-market.ps1: UTF-8 BOM 修复 PS5.1 GBK 误读 + robocopy /XF 排除引擎二进制
+- fix(ops): 自启轮询窗口加宽 + pm2 stop/restart 审计前置
+- feat(chess): 新增 Pikafish 引擎安装脚本（各机装一次，二进制不入仓）
+- fix(autostart): 修复开机 PM2 双 daemon 竞速导致全站不启动
+
 ## [未发布]
 
 【变更】
