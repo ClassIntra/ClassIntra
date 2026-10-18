@@ -7,6 +7,7 @@ var multer = require('multer');
 var auth = require('../../../server/src/middleware/auth');
 var db = require('../../../server/src/utils/db');
 var transcoder = require('../../../server/src/services/stream-transcoder');
+var botTransfer = require('./bot-transfer');
 
 // 图片实时缩放（可选依赖，未安装时回退到原图）
 var sharp = null;
@@ -965,6 +966,59 @@ router.delete('/files/:param', auth.requireAuth, function(req, res) {
 
 // ============ 转存路由 ============
 
+// 资源文件复制进 shared/ 并登记 cloud_files。
+// 用途：① 非 botmedia 的系统资源/照片；② bot 转运不可用时的回退路径。
+// 返回 { fileHash, displayName }，失败抛错由调用方转 500。
+function copyResourceIntoCloud(sourcePath) {
+  var fileHash = crypto.createHash('sha256').update(fs.readFileSync(sourcePath)).digest('hex');
+  var ext = path.extname(sourcePath).toLowerCase();
+  var existing = db.prepare('SELECT hash, original_name FROM cloud_files WHERE hash = ?').get(fileHash);
+  var displayName;
+  if (!existing) {
+    var prefix = fileHash.substring(0, 2);
+    ensureDir(path.join(sharedDir, prefix));
+    var storagePath = prefix + '/' + fileHash + ext;
+    fs.copyFileSync(sourcePath, path.join(sharedDir, storagePath));
+    var stat = fs.statSync(sourcePath);
+    var mimeType = guessMimeType(ext, path.basename(sourcePath));
+    db.prepare('INSERT INTO cloud_files (hash, owner_user_id, original_name, size, mime_type, storage_path) VALUES (?, ?, ?, ?, ?, ?)').run(fileHash, '__system__', path.basename(sourcePath), stat.size, mimeType, storagePath);
+    displayName = path.basename(sourcePath);
+  } else {
+    displayName = existing.original_name || path.basename(sourcePath);
+  }
+  return { fileHash: fileHash, displayName: displayName };
+}
+
+// bot 转运成功后补登 cloud_files：物理文件已由 bot 硬链接进 shared/，
+// 这里只补数据库行（source='bot' 标明来源，便于甄别）。行已存在（含软删）时不动。
+function ensureCloudFileFromTransfer(r, fileName) {
+  var existing = db.prepare('SELECT hash FROM cloud_files WHERE hash = ?').get(r.hash);
+  if (existing) return;
+  var ext = path.extname(fileName).toLowerCase();
+  var mimeType = guessMimeType(ext, fileName);
+  db.prepare('INSERT INTO cloud_files (hash, owner_user_id, original_name, size, mime_type, storage_path, source) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(r.hash, '__system__', fileName, r.size, mimeType, r.storage_path, 'bot');
+}
+
+// 转存收尾：源文件状态检查 + 建立当前用户引用 + 响应
+function finishSaveFromUrl(res, userId, fileHash, displayName) {
+  var cloudFile = db.prepare('SELECT hash, size, deleted FROM cloud_files WHERE hash = ?').get(fileHash);
+  if (!cloudFile || cloudFile.deleted === 1) {
+    return res.status(404).json({ code: 404, message: '源文件已被删除' });
+  }
+  var refResult = db.prepare('INSERT OR IGNORE INTO cloud_user_files (user_id, file_hash, display_name) VALUES (?, ?, ?)').run(userId, fileHash, displayName || '转存文件');
+  res.json({
+    code: 200,
+    data: {
+      hash: fileHash,
+      name: displayName || '转存文件',
+      size: cloudFile.size,
+      url: '/api/cloud/files/' + fileHash,
+      existed: refResult.changes === 0
+    }
+  });
+}
+
 // 从 URL 保存文件到云盘（仅建立引用，不复制文件）
 router.post('/save-from-url', auth.requireAuth, function(req, res) {
   var userId = req.user.user_id;
@@ -1066,7 +1120,9 @@ router.post('/save-from-url', auth.requireAuth, function(req, res) {
       }
     }
   } else if (imageUrl.indexOf('/resources/') === 0) {
-    // 系统资源文件：复制到 shared/ 并创建记录
+    // 系统资源文件：默认复制到 shared/ 并创建记录；
+    // botmedia 文件（bot 用 yt-dlp 下载的视频等）改走「bot 转运」——不复制字节，
+    // 由 AstrBot 插件把原文件硬链接进 shared/，见 bot-transfer.js。
     var resourcesDir = path.resolve(process.env.RESOURCES_DIR || path.join(__dirname, '../../../Resources'));
     var sourcePath = path.resolve(resourcesDir, imageUrl.replace('/resources/', ''));
     if (sourcePath.indexOf(resourcesDir + path.sep) !== 0 && sourcePath !== resourcesDir) {
@@ -1076,23 +1132,39 @@ router.post('/save-from-url', auth.requireAuth, function(req, res) {
       return res.status(404).json({ code: 404, message: '文件不存在' });
     }
 
-    try {
-      fileHash = crypto.createHash('sha256').update(fs.readFileSync(sourcePath)).digest('hex');
-      var ext = path.extname(sourcePath).toLowerCase();
-      var existing = db.prepare('SELECT hash FROM cloud_files WHERE hash = ?').get(fileHash);
+    var botFile = botTransfer.resolveBotmediaFile(imageUrl, resourcesDir);
+    if (botFile) {
+      // 异步：bot 完成物理硬链接后回到这里入库并响应
+      botTransfer.transfer(botFile.fileName).then(function(r) {
+        if (r.ok) {
+          try {
+            ensureCloudFileFromTransfer(r, botFile.fileName);
+          } catch (e) {
+            console.error('[Cloud] bot 转运后入库失败:', e);
+            return res.status(500).json({ code: 500, message: '文件处理失败' });
+          }
+          finishSaveFromUrl(res, userId, r.hash, botFile.fileName);
+        } else if (r.reason === 'not_found') {
+          return res.status(404).json({ code: 404, message: '该视频已被机器人清理，请重新下载' });
+        } else {
+          // bot 不可达/未配置/响应异常：回退本地复制，保证转存链路可用
+          console.warn('[Cloud] bot 转运不可用（' + r.reason + ': ' + r.message + '），回退本地复制');
+          try {
+            var copiedFallback = copyResourceIntoCloud(sourcePath);
+            finishSaveFromUrl(res, userId, copiedFallback.fileHash, copiedFallback.displayName);
+          } catch (e) {
+            console.error('[Cloud] 转存资源文件失败:', e);
+            return res.status(500).json({ code: 500, message: '文件处理失败' });
+          }
+        }
+      });
+      return; // 响应权已移交 .then
+    }
 
-      if (!existing) {
-        var prefix = fileHash.substring(0, 2);
-        ensureDir(path.join(sharedDir, prefix));
-        var storagePath = prefix + '/' + fileHash + ext;
-        fs.copyFileSync(sourcePath, path.join(sharedDir, storagePath));
-        var stat = fs.statSync(sourcePath);
-        var mimeType = guessMimeType(ext, path.basename(sourcePath));
-        db.prepare('INSERT INTO cloud_files (hash, owner_user_id, original_name, size, mime_type, storage_path) VALUES (?, ?, ?, ?, ?, ?)').run(fileHash, '__system__', path.basename(sourcePath), stat.size, mimeType, storagePath);
-        displayName = path.basename(sourcePath);
-      } else {
-        displayName = existing.original_name || path.basename(sourcePath);
-      }
+    try {
+      var copiedResource = copyResourceIntoCloud(sourcePath);
+      fileHash = copiedResource.fileHash;
+      displayName = copiedResource.displayName;
     } catch (e) {
       console.error('[Cloud] 转存资源文件失败:', e);
       return res.status(500).json({ code: 500, message: '文件处理失败' });
@@ -1109,22 +1181,9 @@ router.post('/save-from-url', auth.requireAuth, function(req, res) {
     }
 
     try {
-      fileHash = crypto.createHash('sha256').update(fs.readFileSync(sourcePath2)).digest('hex');
-      var ext2 = path.extname(sourcePath2).toLowerCase();
-      var existing2 = db.prepare('SELECT hash FROM cloud_files WHERE hash = ?').get(fileHash);
-
-      if (!existing2) {
-        var prefix2 = fileHash.substring(0, 2);
-        ensureDir(path.join(sharedDir, prefix2));
-        var storagePath2 = prefix2 + '/' + fileHash + ext2;
-        fs.copyFileSync(sourcePath2, path.join(sharedDir, storagePath2));
-        var stat2 = fs.statSync(sourcePath2);
-        var mimeType2 = guessMimeType(ext2, path.basename(sourcePath2));
-        db.prepare('INSERT INTO cloud_files (hash, owner_user_id, original_name, size, mime_type, storage_path) VALUES (?, ?, ?, ?, ?, ?)').run(fileHash, '__system__', path.basename(sourcePath2), stat2.size, mimeType2, storagePath2);
-        displayName = path.basename(sourcePath2);
-      } else {
-        displayName = existing2.original_name || path.basename(sourcePath2);
-      }
+      var copiedPhoto = copyResourceIntoCloud(sourcePath2);
+      fileHash = copiedPhoto.fileHash;
+      displayName = copiedPhoto.displayName;
     } catch (e) {
       console.error('[Cloud] 转存照片失败:', e);
       return res.status(500).json({ code: 500, message: '文件处理失败' });
@@ -1135,25 +1194,100 @@ router.post('/save-from-url', auth.requireAuth, function(req, res) {
     return res.status(404).json({ code: 404, message: '无法定位源文件' });
   }
 
-  // 检查源文件是否已被删除
-  var cloudFile = db.prepare('SELECT hash, size, deleted FROM cloud_files WHERE hash = ?').get(fileHash);
-  if (!cloudFile || cloudFile.deleted === 1) {
-    return res.status(404).json({ code: 404, message: '源文件已被删除' });
-  }
+  finishSaveFromUrl(res, userId, fileHash, displayName);
+});
 
-  // 建立引用
-  var refResult = db.prepare('INSERT OR IGNORE INTO cloud_user_files (user_id, file_hash, display_name) VALUES (?, ?, ?)').run(userId, fileHash, displayName || '转存文件');
+// ============ 失效资源检测与一键清除 ============
 
-  res.json({
-    code: 200,
-    data: {
-      hash: fileHash,
-      name: displayName || '转存文件',
-      size: cloudFile.size,
-      url: '/api/cloud/files/' + fileHash,
-      existed: refResult.changes === 0
+// 检测当前用户名下「物理文件已丢失」的云盘条目。
+// 典型成因：bot 清理了 botmedia 原文件（硬链接策略上线前的历史双副本不受影响，
+// 但跨班同步失败、手动删盘、数据损坏都会造成 shared/ 下实体缺失）。
+// 可见性口径与 /files 一致（deleted=0、非 hidden、不含隐藏分组）。
+router.get('/invalid', auth.requireAuth, function(req, res) {
+  var userId = req.user.user_id;
+  try {
+    var rows = db.prepare([
+      'SELECT cuf.file_hash, cuf.display_name, cuf.folder, cf.size, cf.storage_path',
+      'FROM cloud_user_files cuf',
+      'JOIN cloud_files cf ON cuf.file_hash = cf.hash',
+      'LEFT JOIN cloud_folders cfolder ON cfolder.user_id = cuf.user_id AND cfolder.name = cuf.folder',
+      'WHERE cuf.user_id = ? AND cf.deleted = 0 AND IFNULL(cf.status, \'ok\') != \'hidden\'',
+      '  AND (cuf.folder = \'\' OR cfolder.id IS NULL OR cfolder.hide_from_all = 0)'
+    ].join('\n')).all(userId);
+
+    var invalid = [];
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      var sp = String(r.storage_path || '');
+      // 形态异常的 storage_path 视为失效（数据损坏），不进 path.join 防穿越
+      if (!/^[a-f0-9]{2}\/[a-f0-9]{64}\.\w{1,8}$/.test(sp)) {
+        invalid.push({ hash: r.file_hash, name: r.display_name, size: r.size || 0, folder: r.folder || '' });
+        continue;
+      }
+      if (!fs.existsSync(path.join(sharedDir, sp))) {
+        invalid.push({ hash: r.file_hash, name: r.display_name, size: r.size || 0, folder: r.folder || '' });
+      }
     }
-  });
+    res.json({ code: 200, data: { invalid: invalid, total: rows.length } });
+  } catch (e) {
+    console.error('[Cloud] 失效资源检测失败:', e);
+    res.json({ code: 200, data: { invalid: [], total: 0 } });
+  }
+});
+
+// 一键清除失效资源：移除当前用户对这些条目的引用；
+// 引用清零的 cloud_files 行顺手软删（物理文件本就缺失，避免孤儿行越积越多）。
+// 安全：清理前对每个条目复验物理文件仍不存在——检测期间可能被恢复
+//（如跨班同步补档），恢复了的不能删引用。
+router.post('/invalid/clear', auth.requireAuth, function(req, res) {
+  var userId = req.user.user_id;
+  var HASH_RE = /^[a-f0-9]{64}$/;
+  var hashes = Array.isArray(req.body.hashes)
+    ? req.body.hashes.filter(function(h) { return HASH_RE.test(String(h)); })
+    : null;
+  try {
+    var targets;
+    if (hashes && hashes.length) {
+      // 只清理前端展示过的那批，防止检测期间的新变化被误伤
+      var marks = hashes.map(function() { return '?'; }).join(',');
+      targets = db.prepare(
+        'SELECT cuf.file_hash AS hash, cf.storage_path AS storage_path FROM cloud_user_files cuf ' +
+        'JOIN cloud_files cf ON cuf.file_hash = cf.hash ' +
+        'WHERE cuf.user_id = ? AND cuf.file_hash IN (' + marks + ')'
+      ).all.apply(null, [userId].concat(hashes));
+    } else {
+      // 未传 hashes：按服务端当前检测结果全清（容错路径）
+      targets = db.prepare(
+        'SELECT cuf.file_hash AS hash, cf.storage_path AS storage_path FROM cloud_user_files cuf ' +
+        'JOIN cloud_files cf ON cuf.file_hash = cf.hash ' +
+        'WHERE cuf.user_id = ? AND cf.deleted = 0'
+      ).all(userId).filter(function(t) {
+        var sp = String(t.storage_path || '');
+        if (!/^[a-f0-9]{2}\/[a-f0-9]{64}\.\w{1,8}$/.test(sp)) return true;
+        return !fs.existsSync(path.join(sharedDir, sp));
+      });
+    }
+
+    var delRefStmt = db.prepare('DELETE FROM cloud_user_files WHERE user_id = ? AND file_hash = ?');
+    var countRefStmt = db.prepare('SELECT COUNT(*) AS n FROM cloud_user_files WHERE file_hash = ?');
+    var getPathStmt = db.prepare('SELECT storage_path FROM cloud_files WHERE hash = ?');
+    var softDelStmt = db.prepare('UPDATE cloud_files SET deleted = 1 WHERE hash = ?');
+    var removed = 0;
+    targets.forEach(function(t) {
+      // 复验：物理文件可能已恢复（跨班同步补档等），恢复了的跳过不删引用
+      var sp = String(t.storage_path || '');
+      if (/^[a-f0-9]{2}\/[a-f0-9]{64}\.\w{1,8}$/.test(sp) && fs.existsSync(path.join(sharedDir, sp))) {
+        return;
+      }
+      removed += delRefStmt.run(userId, t.hash).changes;
+      var left = countRefStmt.get(t.hash);
+      if (!left || left.n === 0) softDelStmt.run(t.hash);
+    });
+    res.json({ code: 200, message: '已清除 ' + removed + ' 个失效资源', data: { removed: removed } });
+  } catch (e) {
+    console.error('[Cloud] 清除失效资源失败:', e);
+    res.status(500).json({ code: 500, message: '清除失败，请重试' });
+  }
 });
 
 // ============ 分组（文件夹）管理 ============

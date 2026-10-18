@@ -237,6 +237,13 @@
       </div>
     </div>
 
+    <!-- 失效资源入口条（检测到丢失文件时常驻，点击重新打开提醒弹窗） -->
+    <div v-if="invalidFiles.length && !invalidDialog.show" class="invalid-banner" @click="reopenInvalidDialog">
+      <i class="fa-solid fa-triangle-exclamation"></i>
+      <span>{{ invalidFiles.length }} 个资源已失效（可能被 bot 删除）</span>
+      <span class="invalid-banner-action">查看/清除</span>
+    </div>
+
     <!-- 导入分组弹窗 -->
     <div class="import-section">
       <button class="import-btn" @click="showImport = true">
@@ -272,6 +279,31 @@
         <div v-else class="modal-actions">
           <button class="btn-cancel" @click="showImport = false">取消</button>
           <button class="btn-confirm" @click="previewImport" :disabled="importCode.length !== 8">查看</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 失效资源提醒弹窗（一次性：同一批失效资源只提醒一次） -->
+    <div v-if="invalidDialog.show" class="modal-overlay" @click.self="dismissInvalidDialog">
+      <div class="modal-sheet">
+        <h3>资源失效提醒</h3>
+        <p class="invalid-dialog-desc">
+          检测到 <b>{{ invalidDialog.files.length }}</b> 个云盘资源已被 bot 删除或已失效，无法打开。
+          建议一键清除，避免失效条目一直留在云盘列表里。
+        </p>
+        <div class="invalid-dialog-files">
+          <div v-for="f in invalidDialog.files.slice(0, 5)" :key="f.hash" class="invalid-dialog-file">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+            <span class="invalid-file-name">{{ f.name }}</span>
+            <span class="invalid-file-size">{{ formatSize(f.size) }}</span>
+          </div>
+          <div v-if="invalidDialog.files.length > 5" class="invalid-more">...还有 {{ invalidDialog.files.length - 5 }} 个失效资源</div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn-cancel" @click="dismissInvalidDialog">取消</button>
+          <button class="btn-confirm" @click="clearInvalidResources" :disabled="invalidDialog.clearing">
+            {{ invalidDialog.clearing ? '清除中...' : '一键清除失效资源' }}
+          </button>
         </div>
       </div>
     </div>
@@ -358,7 +390,10 @@ export default {
       reviewMode: false,
       reviewFiles: [],
       reviewLoading: false,
-      reviewFilter: 'all'
+      reviewFilter: 'all',
+      // 失效资源（bot 删除/物理文件丢失）
+      invalidFiles: [],
+      invalidDialog: { show: false, files: [], clearing: false, signature: '' }
     };
   },
   computed: {
@@ -374,6 +409,7 @@ export default {
     this.loadFiles();
     this.loadFolders();
     this.loadUploadCode();
+    this.checkInvalidResources();
   },
   methods: {
     showToast: function(msg) {
@@ -381,6 +417,68 @@ export default {
       self.toastMsg = msg;
       clearTimeout(self.toastTimer);
       self.toastTimer = setTimeout(function() { self.toastMsg = ''; }, 2000);
+    },
+
+    // ====== 失效资源检测（bot 删除/物理文件丢失）======
+    // 一次性提醒：同一批失效资源只弹一次（localStorage 记签名），
+    // 之后出现新的失效资源（签名变化）才再次提醒；取消后仍保留入口条，可随时手动打开。
+    checkInvalidResources: function() {
+      var self = this;
+      api.get('/cloud/invalid').then(function(res) {
+        var invalid = (res.data.data && res.data.data.invalid) || [];
+        self.invalidFiles = invalid;
+        if (!invalid.length) return;
+        var sig = self.invalidSignature(invalid);
+        var dismissed = '';
+        try { dismissed = localStorage.getItem(self.invalidDismissKey()) || ''; } catch (e) {}
+        if (dismissed === sig) return; // 这批已提醒过，不重复弹
+        self.invalidDialog = { show: true, files: invalid, clearing: false, signature: sig };
+      }).catch(function() { /* 检测失败静默，不打扰用户 */ });
+    },
+    invalidDismissKey: function() {
+      var uid = '';
+      try {
+        var u = JSON.parse(localStorage.getItem('user') || 'null');
+        if (u) uid = u.user_id || u.id || '';
+      } catch (e) {}
+      return 'cloud_invalid_dismissed_' + uid;
+    },
+    invalidSignature: function(files) {
+      return files.map(function(f) { return f.hash; }).sort().join(',');
+    },
+    dismissInvalidDialog: function() {
+      try { localStorage.setItem(this.invalidDismissKey(), this.invalidDialog.signature || ''); } catch (e) {}
+      this.invalidDialog = { show: false, files: [], clearing: false, signature: '' };
+    },
+    reopenInvalidDialog: function() {
+      this.invalidDialog = {
+        show: true,
+        files: this.invalidFiles,
+        clearing: false,
+        signature: this.invalidSignature(this.invalidFiles)
+      };
+    },
+    clearInvalidResources: function() {
+      var self = this;
+      self.invalidDialog.clearing = true;
+      api.post('/cloud/invalid/clear', {
+        hashes: self.invalidDialog.files.map(function(f) { return f.hash; })
+      }).then(function(res) {
+        self.invalidDialog.clearing = false;
+        if (res.data.code === 200) {
+          self.showToast(res.data.message || '已清除失效资源');
+          // 清除后失效集已空：写入空签名，避免同一批再次触发
+          try { localStorage.setItem(self.invalidDismissKey(), self.invalidSignature([])); } catch (e) {}
+          self.invalidDialog = { show: false, files: [], clearing: false, signature: '' };
+          self.invalidFiles = [];
+          self.loadFiles();
+        } else {
+          self.showToast(res.data.message || '清除失败');
+        }
+      }).catch(function() {
+        self.invalidDialog.clearing = false;
+        self.showToast('清除失败，请重试');
+      });
     },
 
     // ====== 文件列表 ======
@@ -1243,6 +1341,65 @@ export default {
 .btn-cancel { background: var(--bg-color); color: var(--text-secondary); }
 .btn-confirm { background: var(--primary-color); color: #fff; }
 .btn-confirm:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* 失效资源提醒 */
+.invalid-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  background: rgba(255, 152, 0, 0.12);
+  border: 1px solid rgba(255, 152, 0, 0.35);
+  color: #ff9800;
+  font-size: var(--font-size-body);
+  cursor: pointer;
+}
+.invalid-banner .invalid-banner-action {
+  margin-left: auto;
+  font-weight: 600;
+  text-decoration: underline;
+}
+.invalid-dialog-desc {
+  margin: 0 0 14px;
+  font-size: var(--font-size-body);
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+.invalid-dialog-desc b { color: #ff9800; }
+.invalid-dialog-files {
+  max-height: 30vh;
+  overflow-y: auto;
+  margin-bottom: 16px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+.invalid-dialog-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  font-size: var(--font-size-body);
+  border-bottom: 1px solid var(--border-color);
+}
+.invalid-dialog-file:last-child { border-bottom: none; }
+.invalid-dialog-file .fa-triangle-exclamation { color: #ff9800; flex-shrink: 0; }
+.invalid-file-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+.invalid-file-size { color: var(--text-secondary); flex-shrink: 0; }
+.invalid-more {
+  padding: 10px 12px;
+  font-size: var(--font-size-body);
+  color: var(--text-secondary);
+  text-align: center;
+}
 
 /* 移动分组弹窗 */
 .modal-folder-list {
