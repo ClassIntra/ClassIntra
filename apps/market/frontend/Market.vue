@@ -284,6 +284,7 @@
               </template>
             </article>
           </div>
+          <div v-else class="empty-state"><i class="fa-solid fa-plug-circle-xmark"></i><p>暂无已安装的插件</p></div>
         </section>
       </template>
     </div>
