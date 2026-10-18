@@ -5,6 +5,7 @@
 // POST /api/market/install            安装应用（仅管理员/班管）
 // POST /api/market/update             更新应用（仅管理员/班管）
 // POST /api/market/uninstall          卸载应用（仅管理员/班管）
+// POST /api/market/plugin-toggle      启用/暂停插件（仅管理员/班管）
 
 var express = require('express');
 var router = express.Router();
@@ -149,6 +150,19 @@ router.post('/uninstall-plugin', auth.requireAuth, auth.requireAdmin, function(r
   }).catch(function(e) {
     console.error('[market] 插件卸载失败:', name, e.message);
     res.status(400).json({ code: 400, message: e.message || '插件卸载失败' });
+  });
+});
+
+// 启用/暂停插件（管理员）：暂停后插件后端接口即时下线（请求期闸门），无需重启
+router.post('/plugin-toggle', auth.requireAuth, auth.requireAdmin, function(req, res) {
+  var name = req.body && req.body.name;
+  if (!name) return res.status(400).json({ code: 400, message: '缺少插件名' });
+  var enabled = !!(req.body && req.body.enabled);
+  marketService.setPluginEnabled(name, enabled, req.user && req.user.user_id).then(function(result) {
+    broadcastMarketChange(enabled ? 'plugin-enabled' : 'plugin-paused', name, result);
+    res.json({ code: 200, data: result, message: enabled ? '插件已启用' : '插件已暂停' });
+  }).catch(function(e) {
+    res.status(400).json({ code: 400, message: e.message || '操作失败' });
   });
 });
 
