@@ -165,19 +165,23 @@ function pruneDistPlugin() {
 }
 
 // legacy 双产物（现代 bundle + nomodule legacy bundle）——构建耗时的大头
-// 实测（2026-09-29，2663 模块）：全量构建 180s，其中 vite:legacy-post-process 占 ~85%
-// （Babel 把每个 chunk 再转译一遍，含 1MB 的 mermaid/vhs；累计 1271s、单次最高 86s）。
-// 关掉 renderLegacyChunks 后只保留现代 bundle + 现代 polyfills，旧浏览器不再有 nomodule 兜底。
-//   LEGACY_CHUNKS=0 node node_modules/vite/bin/vite.js build   → 快，但不给 nomodule 浏览器兜底
-// 校园平板基线是 Chrome 80（原生支持 ESM，加载的是 type=module 的现代 bundle），
-// 因此默认仍保持 LEGACY_CHUNKS=1 的稳妥行为，是否切换由设备实测后决定。
-var legacyChunks = process.env.LEGACY_CHUNKS !== '0';
+// 实测（2026-10-17，2674 模块）：默认 4m25s（265s）；关掉后 1m25s（85s）。
+// renderLegacyChunks 独占 180s（67%），换来 108 个 *-legacy-*.js / 10MB。
+// 关键结论：**这套产物在本项目从不执行** —— 设备基线 Chrome 80+ 原生支持 ESM（Chrome 61+），
+// 会忽略所有 nomodule 脚本；这 180 秒是在为「不会访问的浏览器」付账。
+// 因此默认关闭；需要验证 IE11 / Chrome<61 场景时用 LEGACY_CHUNKS=1 临时回退。
+// 注意：现代浏览器缺的 API 仍由 modernPolyfills 按 targets 补齐，
+// 与 renderLegacyChunks 是两件事 —— 关掉后者不影响前者。
+var legacyChunks = process.env.LEGACY_CHUNKS === '1';
 
 export default defineConfig({
   plugins: [
     vue2(),
     legacy({
-      targets: ['Chrome >= 89', 'Android >= 9'],
+      // 基线 = Chrome 80（校园平板最低版本）。Chrome 80 原生支持 ESM 与 ?./??，
+      // 语法层已由 build.target: 'chrome80' 保证；这里决定的是**运行时 API** 要补哪些 polyfill。
+      // 写成 >= 80 而不是 89：89 会漏掉 80~88 区间新增 API（如 String.prototype.replaceAll）。
+      targets: ['Chrome >= 80', 'Android >= 9'],
       modernPolyfills: true,
       renderLegacyChunks: legacyChunks
     }),
