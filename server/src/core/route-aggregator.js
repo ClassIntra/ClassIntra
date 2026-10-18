@@ -8,6 +8,28 @@ var manifestLoader = require('./manifest-loader');
 var rateLimitLib = require('../middleware/rate-limit').createRateLimiter;
 var hotReload = require('./hot-reload');
 
+// 读取 app_control 表中的模块启停状态（与 market-service 调度器共用同一份真相）。
+// 无记录视为启用；表未就绪或查询失败一律按启用处理，保证正常环境行为不变。
+function _isModuleEnabled(name) {
+  try {
+    var db = require('../utils/db');
+    var row = db.prepare('SELECT enabled FROM app_control WHERE app_name = ?').get(name);
+    return !row || !!row.enabled;
+  } catch (e) {
+    return true;
+  }
+}
+
+// 插件启停闸门：被暂停的插件不对外提供任何接口。
+// 采用「请求期校验」而不是「启动期跳过挂载」，让暂停/启用即时生效、无需重启进程。
+function _pluginGate(manifest) {
+  var label = manifest.label || manifest.name;
+  return function (req, res, next) {
+    if (_isModuleEnabled(manifest.name)) return next();
+    res.status(404).json({ code: 404, message: '插件「' + label + '」已暂停' });
+  };
+}
+
 // 挂载单个 backend 声明（主 backend 或 extraBackends 中的一项）
 // backend 形如 { mountPath, entry, rateLimit? }
 // m 为完整 manifest 对象，携带 _sourceDir 用于解析入口路径
@@ -21,6 +43,10 @@ function _mountOne(app, m, backend) {
     return false;
   }
   try {
+    // 插件启停闸门（置于限流与路由之前）：声明 canDisable === false 的插件常开，不受管控
+    if (m._sourceType === 'plugin' && m.canDisable !== false) {
+      app.use(backend.mountPath, _pluginGate(m));
+    }
     // rateLimit 挂在代理/路由外层，热重载时限流规则保持不变
     if (backend.rateLimit) {
       var opts = backend.rateLimit;

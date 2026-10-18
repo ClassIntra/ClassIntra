@@ -837,14 +837,22 @@ function _scanInstalledPlugins() {
       var m = JSON.parse(fs.readFileSync(mp, 'utf8'));
       if (m.type !== 'plugin') continue;
       var st = fs.statSync(path.join(runtimePluginsDir, dirs[i]));
+      var pname = m.name || dirs[i];
+      var canDisable = m.canDisable !== false;
       list.push({
-        name: m.name || dirs[i],
-        label: m.label || m.name,
+        name: pname,
+        label: m.label || pname,
         version: m.version || '0.0.0',
         description: m.description || '',
+        // 署名字段：市场化插件由 index.json 提供，插件 manifest 通常不写
+        author: m.author || '',
+        // 是否允许管理员暂停（canDisable === false 表示声明常开，不受管控）
+        canDisable: canDisable,
+        // 当前启停状态：常开插件恒为 true，其余取 app_control 记录
+        enabled: canDisable ? isAppEnabled(pname) : true,
         // 是否声明了配置项 + required 缺失项（插件无前端页面，管理端插件列表据此显示）
         hasConfig: Array.isArray(m.config) && m.config.length > 0,
-        configMissing: _configMissing({ name: m.name || dirs[i], config: m.config }),
+        configMissing: _configMissing({ name: pname, config: m.config }),
         installedAt: st.mtimeMs,
         dir: dirs[i]
       });
@@ -1048,6 +1056,26 @@ function uninstallPlugin(pluginName) {
   });
 }
 
+// 设置插件启停：写 app_control 表（与 market 调度器、route-aggregator 闸门共用同一份真相），
+// 即时生效——请求期闸门实时读取该表，无需重启。
+function setPluginEnabled(pluginName, enabled, operatorId) {
+  return Promise.resolve().then(function() {
+    if (!/^[a-z][a-z0-9-]*$/.test(pluginName || '')) throw new Error('插件名非法');
+    var manifestPath = path.join(runtimePluginsDir, pluginName, 'manifest.json');
+    if (!fs.existsSync(manifestPath)) throw new Error('插件未安装: ' + pluginName);
+    var manifest = {};
+    try { manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')); } catch (e) {}
+    if (manifest.canDisable === false && !enabled) {
+      throw new Error('插件「' + (manifest.label || pluginName) + '」声明为不可暂停');
+    }
+    var db = require('../utils/db');
+    db.prepare("INSERT INTO app_control (app_name, enabled, updated_by, updated_at) VALUES (?, ?, ?, datetime('now')) ON CONFLICT(app_name) DO UPDATE SET enabled = excluded.enabled, updated_by = excluded.updated_by, updated_at = excluded.updated_at")
+      .run(pluginName, enabled ? 1 : 0, operatorId || '');
+    console.log('[market] 插件启停更新:', pluginName, enabled ? '启用' : '暂停');
+    return { name: pluginName, label: manifest.label || pluginName, enabled: !!enabled };
+  });
+}
+
 module.exports = {
   init: init,
   dispatcher: dispatcher,
@@ -1064,6 +1092,7 @@ module.exports = {
   listInstalledPlugins: listInstalledPlugins,
   installPlugin: installPlugin,
   uninstallPlugin: uninstallPlugin,
+  setPluginEnabled: setPluginEnabled,
   getSources: function() {
     return DEFAULT_SOURCES.map(function(s) { return { id: s.id, label: s.label, type: s.type }; });
   },

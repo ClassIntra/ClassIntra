@@ -43,15 +43,33 @@
       </div>
 
       <template v-if="!loading">
-        <section class="market-section">
+        <!-- 分区标签栏：宽屏作分区导航，竖屏为顶部横向可滚动标签栏 -->
+        <nav class="market-tabs" role="tablist" aria-label="市场分区">
+          <button
+            v-for="tab in tabs"
+            :key="tab.id"
+            type="button"
+            role="tab"
+            class="market-tab"
+            :class="{ active: activeTab === tab.id }"
+            :aria-selected="activeTab === tab.id ? 'true' : 'false'"
+            @click="activeTab = tab.id"
+          >
+            <i class="fa-solid" :class="tab.icon"></i>
+            <span>{{ tab.label }}</span>
+            <span v-if="tab.count" class="tab-count">{{ tab.count }}</span>
+          </button>
+        </nav>
+
+        <section v-show="activeTab === 'apps'" class="market-section">
           <div class="section-heading">
             <div>
-              <h2>市场目录</h2>
+              <h2>可安装应用</h2>
               <span v-if="catalogUpdatedAt" class="section-meta">更新于 {{ catalogUpdatedAt }}</span>
             </div>
-            <span class="count-badge">{{ catalogApps.length }} 个应用</span>
+            <span class="count-badge">{{ filteredCatalog.length }} 个应用</span>
           </div>
-          <div v-if="catalogApps.length" class="app-grid">
+          <div v-if="filteredCatalog.length" class="app-grid">
             <article v-for="app in filteredCatalog" :key="app.name" class="app-card">
               <div class="app-card-header">
                 <div class="app-icon" :style="{ background: app.color || '#5856D6' }">
@@ -76,8 +94,10 @@
                 </span>
               </div>
               <div class="app-card-footer">
-                <span v-if="installedMap[app.name]" class="installed-label"><i class="fa-solid fa-circle-check"></i> 已安装</span>
-                <span v-else class="app-author">{{ app.author || 'ClassIntra 社区' }}</span>
+                <span class="app-author">
+                  {{ app.author || 'ClassIntra 社区' }}
+                  <span v-if="installedMap[app.name]" class="installed-flag"><i class="fa-solid fa-circle-check"></i> 已安装</span>
+                </span>
                 <button type="button" class="app-action" :disabled="actionLoading === app.name" @click="installApp(app)">
                   <span v-if="actionLoading === app.name" class="mini-spinner"></span>
                   <span v-else>{{ installedMap[app.name] ? '重新安装' : '安装' }}</span>
@@ -88,13 +108,13 @@
           <div v-else class="empty-state"><i class="fa-solid fa-store-slash"></i><p>当前市场源暂无应用</p></div>
         </section>
 
-        <section class="market-section installed-section">
-          <div class="section-heading">
+        <section v-show="activeTab === 'apps'" class="market-section installed-section">
+          <div class="section-heading sub-heading">
             <h2>已安装应用</h2>
-            <span class="count-badge">{{ installedApps.length }} 个应用</span>
+            <span class="count-badge">{{ filteredInstalledApps.length }} 个应用</span>
           </div>
-          <div v-if="installedApps.length" class="installed-list">
-            <article v-for="app in installedApps" :key="app.name" class="installed-card">
+          <div v-if="filteredInstalledApps.length" class="installed-list">
+            <article v-for="app in filteredInstalledApps" :key="app.name" class="installed-card">
               <div class="app-icon small" :style="{ background: app.color || '#5856D6' }">
                 <img v-if="app.icon && !iconErrors[app.name]" :src="app.icon" :alt="app.label" @error="onIconError(app)" />
                 <i v-else class="fa-solid fa-puzzle-piece"></i>
@@ -165,46 +185,69 @@
           <div v-else class="empty-state"><i class="fa-solid fa-box-open"></i><p>暂无已安装的第三方应用</p></div>
         </section>
 
-        <section class="market-section plugins-section">
-          <div class="section-header">
-            <h2><i class="fa-solid fa-plug"></i> 服务端插件</h2>
-            <span class="count-badge">{{ catalogPlugins.length }} 个插件</span>
+        <section v-show="activeTab === 'plugins'" class="market-section plugins-section">
+          <div class="section-heading">
+            <div>
+              <h2>可安装插件</h2>
+              <span class="section-meta">插件为服务端扩展，装好后可在下方随时启用或暂停</span>
+            </div>
+            <span class="count-badge">{{ filteredPlugins.length }} 个插件</span>
           </div>
-          <div v-if="catalogPlugins.length" class="app-grid">
-            <article v-for="plugin in catalogPlugins" :key="plugin.name" class="app-card">
-              <div class="app-head">
-                <div class="app-icon placeholder-icon"><i class="fa-solid fa-plug"></i></div>
-                <div class="app-titles">
+          <div v-if="filteredPlugins.length" class="app-grid">
+            <article v-for="plugin in filteredPlugins" :key="plugin.name" class="app-card">
+              <div class="app-card-header">
+                <div class="app-icon plugin-icon"><i class="fa-solid fa-plug"></i></div>
+                <div class="app-title">
                   <h3>{{ plugin.label }}</h3>
-                  <small>{{ plugin.name }} · v{{ plugin.version }}</small>
+                  <span>{{ plugin.name }} · v{{ plugin.version }}</span>
                 </div>
               </div>
-              <p class="app-desc">{{ plugin.description }}</p>
-              <div class="app-foot">
-                <span v-if="installedPluginMap[plugin.name]" class="installed-label"><i class="fa-solid fa-circle-check"></i> 已安装 v{{ installedPluginMap[plugin.name].version }}</span>
-                <button type="button" class="primary-action" :disabled="actionLoading === plugin.name" @click="installPlugin(plugin)">
+              <p class="app-description">{{ plugin.description || '暂无插件描述' }}</p>
+              <div class="app-card-footer">
+                <span class="app-author">
+                  {{ plugin.author || 'ClassIntra 社区' }}
+                  <span v-if="installedPluginMap[plugin.name]" class="installed-flag"><i class="fa-solid fa-circle-check"></i> 已安装</span>
+                </span>
+                <button type="button" class="app-action" :disabled="actionLoading === plugin.name" @click="installPlugin(plugin)">
                   <span v-if="actionLoading === plugin.name" class="mini-spinner"></span>
                   <span v-else>{{ installedPluginMap[plugin.name] ? '重新安装' : '安装' }}</span>
                 </button>
               </div>
             </article>
           </div>
-          <div v-else class="empty-state"><i class="fa-solid fa-plug"></i><p>市场目录中暂无插件</p></div>
-          <div v-if="installedPlugins.length" class="installed-list" style="margin-top: 12px;">
-            <article v-for="plugin in installedPlugins" :key="'ip-' + plugin.name" class="installed-card">
+          <div v-else class="empty-state"><i class="fa-solid fa-plug"></i><p>当前市场源暂无插件</p></div>
+
+          <div class="section-heading sub-heading">
+            <h2>已安装插件</h2>
+            <span class="count-badge">{{ filteredInstalledPlugins.length }} 个插件</span>
+          </div>
+          <div v-if="filteredInstalledPlugins.length" class="installed-list">
+            <article v-for="plugin in filteredInstalledPlugins" :key="'ip-' + plugin.name" class="installed-card">
+              <div class="app-icon small plugin-icon"><i class="fa-solid fa-plug"></i></div>
               <div class="installed-info">
                 <div class="installed-title-row">
-                  <strong><i class="fa-solid fa-plug"></i> {{ plugin.label }}</strong>
+                  <h3>{{ plugin.label }}</h3>
                   <span v-if="plugin.configMissing && plugin.configMissing.length" class="status-badge pending-config">
                     <i class="fa-solid fa-triangle-exclamation"></i> 待配置
                   </span>
-                  <small>v{{ plugin.version }}</small>
+                  <span v-if="plugin.canDisable === false" class="status-badge always-on">常开</span>
+                  <span v-else class="status-badge" :class="plugin.enabled === false ? 'disabled' : 'enabled'">
+                    {{ plugin.enabled === false ? '已暂停' : '已启用' }}
+                  </span>
                 </div>
-                <small class="status-hint">{{ plugin.name }}</small>
+                <p>{{ plugin.description || '暂无插件描述' }}</p>
+                <span>当前版本 v{{ plugin.version }} · {{ plugin.author || 'ClassIntra 社区' }}</span>
+                <small v-if="plugin.canDisable === false" class="status-hint">该插件声明为常开，不可暂停</small>
+                <small v-else-if="plugin.enabled === false" class="status-hint">暂停后插件接口即时下线，无需重启</small>
+                <small v-else class="status-hint">插件接口对全班成员开放</small>
               </div>
               <div class="installed-actions">
                 <button v-if="plugin.hasConfig" type="button" class="secondary-action" @click="openConfig(plugin)">
                   <i class="fa-solid fa-sliders"></i> 配置
+                </button>
+                <button v-if="plugin.canDisable !== false" type="button" class="control-action" :class="plugin.enabled === false ? 'enable' : 'disable'" :disabled="actionLoading === plugin.name" @click="togglePlugin(plugin)">
+                  <span v-if="actionLoading === plugin.name" class="mini-spinner"></span>
+                  <span v-else>{{ plugin.enabled === false ? '启用' : '暂停' }}</span>
                 </button>
                 <button type="button" class="danger-action" :disabled="actionLoading === plugin.name" @click="uninstallPlugin(plugin)">卸载</button>
               </div>
@@ -270,6 +313,8 @@ export default {
       catalogUpdatedAt: '',
       activeSource: '',
       loading: true,
+      // 当前分区标签：'apps'（应用）| 'plugins'（服务端插件）
+      activeTab: 'apps',
       actionLoading: '',
       // 应用/插件配置面板状态（manifest.config 声明）
       configEditing: '',
@@ -287,12 +332,24 @@ export default {
     };
   },
   computed: {
+    // 分区标签（应用 / 插件）：count 显示在徽标中
+    tabs: function() {
+      return [
+        { id: 'apps', label: '应用', icon: 'fa-puzzle-piece', count: this.catalogApps.length + this.installedApps.length },
+        { id: 'plugins', label: '插件', icon: 'fa-plug', count: this.catalogPlugins.length + this.installedPlugins.length }
+      ];
+    },
     filteredCatalog: function() {
-      var q = String(this.searchQuery || '').trim().toLowerCase();
-      if (!q) return this.catalogApps;
-      return this.catalogApps.filter(function (app) {
-        return (app.label || '').toLowerCase().indexOf(q) > -1 || (app.name || '').toLowerCase().indexOf(q) > -1;
-      });
+      return this.filterList(this.catalogApps);
+    },
+    filteredInstalledApps: function() {
+      return this.filterList(this.installedApps);
+    },
+    filteredPlugins: function() {
+      return this.filterList(this.catalogPlugins);
+    },
+    filteredInstalledPlugins: function() {
+      return this.filterList(this.installedPlugins);
     },
     installedMap: function() {
       var result = {};
@@ -314,6 +371,14 @@ export default {
     this.loadMarket();
   },
   methods: {
+    // 关键字过滤：按 label / name 匹配，空关键字返回原列表（应用与插件共用）
+    filterList: function(list) {
+      var q = String(this.searchQuery || '').trim().toLowerCase();
+      if (!q) return list;
+      return list.filter(function (item) {
+        return (item.label || '').toLowerCase().indexOf(q) > -1 || (item.name || '').toLowerCase().indexOf(q) > -1;
+      });
+    },
     // 能力清单 → 展示元数据（模板里用，返回 [{name,label,icon,level,description}]）
     describeCaps: function(names) {
       return describeCapabilities(names);
@@ -429,6 +494,31 @@ export default {
             app.enabled = enabled;
             self.$store.commit('toast/SHOW_TOAST', { message: enabled ? '应用已启用，全班已同步' : '应用已暂停，全班已同步', type: 'success' });
             return self.refreshMarketRuntime();
+          });
+      }).catch(function(error) {
+        if (error) self.error = self.getErrorMessage(error, enabled ? '启用失败' : '暂停失败');
+      }).finally(function() {
+        self.actionLoading = '';
+      });
+    },
+    // 启用/暂停服务端插件（走 /market/plugin-toggle，请求期闸门即时生效）
+    togglePlugin: function(plugin) {
+      var self = this;
+      var enabled = plugin.enabled === false;
+      self.$modal.confirm({
+        title: enabled ? '启用插件' : '暂停插件',
+        message: enabled ? '启用后插件后端接口立即恢复对外服务。' : '暂停后插件后端接口立即下线，无需重启服务器。',
+        confirmText: enabled ? '启用' : '暂停',
+        cancelText: '取消'
+      }).then(function(confirmed) {
+        if (!confirmed || self.actionLoading) return;
+        self.actionLoading = plugin.name;
+        self.error = '';
+        return api.post('/market/plugin-toggle', { name: plugin.name, enabled: enabled })
+          .then(function() {
+            plugin.enabled = enabled;
+            self.$store.commit('toast/SHOW_TOAST', { message: enabled ? '插件已启用' : '插件已暂停', type: 'success' });
+            return self.loadInstalledPlugins();
           });
       }).catch(function(error) {
         if (error) self.error = self.getErrorMessage(error, enabled ? '启用失败' : '暂停失败');
@@ -655,6 +745,38 @@ export default {
   margin-bottom: 20px;
 }
 
+/* 分区标签栏（应用 / 插件）：宽屏为分区导航，窄屏/竖屏转为顶部横向可滚动标签栏 */
+.market-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 22px;
+  padding-bottom: 2px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.market-tabs::-webkit-scrollbar { display: none; }
+.market-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 9px 18px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-pill);
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--ease-standard), background var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard);
+}
+.market-tab i { font-size: var(--font-size-sm); }
+.market-tab.active { background: var(--primary-color); border-color: var(--primary-color); color: #fff; font-weight: 600; }
+.tab-count { padding: 1px 8px; border-radius: var(--radius-pill); background: rgba(120, 120, 128, 0.14); color: var(--text-secondary); font-size: 11px; line-height: 1.6; }
+.market-tab.active .tab-count { background: rgba(255, 255, 255, 0.25); color: #fff; }
+
 .market-search {
   display: flex;
   align-items: center;
@@ -709,6 +831,8 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .market-loading, .empty-state { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 12px; min-height: 180px; color: var(--text-secondary); }
 .market-section { margin-bottom: 34px; }
 .section-heading { margin-bottom: 14px; }
+/* 二级分组标题（如「已安装应用 / 已安装插件」）：与上方同级区块拉开层次，去掉左侧色条 */
+.section-heading.sub-heading { margin-top: 28px; }
 .section-meta, .count-badge, .installed-info span, .app-title span { color: var(--text-secondary); font-size: 12px; }
 .section-meta { display: block; margin-top: 4px; }
 .count-badge { padding: 5px 9px; border-radius: var(--radius-pill); background: rgba(120,120,128,0.12); }
@@ -724,6 +848,8 @@ button:disabled { opacity: .55; cursor: not-allowed; }
    方形图标 + 全圆角在 48px 下会变成正圆，与系统其他位置的图标形状不一致 */
 .app-icon.small { width: 42px; height: 42px; border-radius: var(--radius-md); }
 .app-icon img { width: 100%; height: 100%; object-fit: cover; }
+/* 插件卡图标：无自定义图标，统一用主题主色底衬 */
+.plugin-icon { background: var(--primary-color); }
 .app-title { min-width: 0; }
 .app-title h3 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .app-title span { display: block; margin-top: 5px; }
@@ -737,7 +863,12 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .app-card-footer { border-top: 1px solid var(--separator-color); padding-top: 14px; }
 .installed-label { color: var(--success-color); font-size: 12px; }
 .app-author { color: var(--text-secondary); font-size: 12px; }
+/* 应用/插件卡：作者名旁的「已安装」角标 */
+.installed-flag { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; color: var(--success-color); }
+.installed-flag i { font-size: 11px; }
 .app-action { background: var(--primary-light); color: var(--primary-color); border-color: transparent; font-weight: 600; }
+/* 配置面板主按钮（与卡片按钮同一语言，做强调态） */
+.primary-action { border: 1px solid transparent; border-radius: var(--radius-md); padding: 9px 16px; background: var(--primary-color); color: #fff; font-weight: 600; cursor: pointer; }
 .installed-list { display: flex; flex-direction: column; gap: 10px; }
 .installed-card { padding: 14px 18px; }
 .installed-info { flex: 1; min-width: 0; }
@@ -746,6 +877,7 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .status-badge { padding: 3px 7px; border-radius: var(--radius-pill); font-size: 11px; }
 .status-badge.enabled { color: var(--success-color); background: rgba(52, 199, 89, .12); }
 .status-badge.disabled { color: var(--danger-color); background: rgba(255, 59, 48, .12); }
+.status-badge.always-on { color: var(--text-secondary); background: rgba(120, 120, 128, .14); }
 .status-hint { display: block; margin-top: 5px; color: var(--text-secondary); font-size: 11px; }
 .control-action { border: 1px solid transparent; border-radius: var(--radius-md); padding: 9px 12px; background: transparent; cursor: pointer; }
 .control-action.enable { color: var(--success-color); border-color: rgba(52, 199, 89, .35); }
