@@ -251,6 +251,27 @@
   </style>
   <script>(function(){window.__ciBootStart=Date.now();try{var u=JSON.parse(localStorage.getItem('user')||'null');if(u&&u.info&&u.info.dev===true)localStorage.setItem('_ci_dev_user','1');else localStorage.removeItem('_ci_dev_user');}catch(e){localStorage.removeItem('_ci_dev_user');}})();</script>
   <script>function __ciDeviceId(){try{var k='_ci_device_id',v=localStorage.getItem(k);if(!v){v=([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,function(c){return(c^crypto.getRandomValues(new Uint8Array(1))[0]&15>>c/4).toString(16);});localStorage.setItem(k,v);}return v;}catch(e){return 'volatile-'+String(Date.now());}}function __ciDiagError(error,source){window.__ciDiagErrors=window.__ciDiagErrors||[];window.__ciDiagErrors.push({message:String(error&&error.message||error||'未知错误'),source:source||'unknown',stack:String(error&&error.stack||'').substring(0,4000),time:new Date().toISOString()});}function __ciSend(payload){try{if(!localStorage.getItem('_ci_dev_user'))return;var headers={'Content-Type':'application/json'},token=localStorage.getItem('token');if(token)headers.Authorization='Bearer '+token;fetch('/api/system/diagnostics',{method:'POST',headers:headers,credentials:'include',body:JSON.stringify(payload)}).catch(function(){});}catch(e){}}function __ciReportError(){__ciSend({device_id:__ciDeviceId(),url:location.href,errors:window.__ciDiagErrors||[],timestamp:new Date().toISOString(),error_only:true});}function __ciReport(retry){try{if(!localStorage.getItem('_ci_dev_user'))return;if(!retry&&localStorage.getItem('_ci_diag_sent'))return;var nav=navigator||{},scr=screen||{};var payload={device_id:__ciDeviceId(),retry:!!retry,url:location.href,user_agent:nav.userAgent||'',platform:nav.platform||'',language:nav.language||'',languages:nav.languages||[],hardware_concurrency:nav.hardwareConcurrency||null,device_memory:nav.deviceMemory||null,screen:{width:scr.width||0,height:scr.height||0,pixel_ratio:window.devicePixelRatio||1},viewport:{width:innerWidth||0,height:innerHeight||0},touch_points:nav.maxTouchPoints||0,connection:nav.connection?{effectiveType:nav.connection.effectiveType||'',rtt:nav.connection.rtt||null,downlink:nav.connection.downlink||null}:null,errors:window.__ciDiagErrors||[],timestamp:new Date().toISOString()};__ciSend(payload);if(!retry)localStorage.setItem('_ci_diag_sent','1');}catch(e){__ciDiagError(e,'diagnostics');}}window.addEventListener('error',function(e){__ciDiagError(e.error||e.message,'window.error');});window.addEventListener('unhandledrejection',function(e){__ciDiagError(e.reason,'unhandledrejection');});__ciReport(false);function __onVueReady(){window.__vueReady=true;var el=document.getElementById('app-loading');if(!el||el.classList.contains('al-done')||el.classList.contains('al-timeout'))return;var minShow=1500;var elapsed=Date.now()-(window.__ciBootStart||Date.now());var wait=Math.max(0,minShow-elapsed);setTimeout(function(){if(!el.parentNode)return;el.classList.add('al-complete');setTimeout(function(){if(!el.parentNode)return;el.classList.add('al-done');setTimeout(function(){if(el.parentNode)el.parentNode.removeChild(el);},750);},420);},wait);}window.__onVueReady=__onVueReady;setTimeout(function(){if(!window.__vueReady){var el=document.getElementById('app-loading');if(el&&!el.classList.contains('al-timeout')&&!el.classList.contains('al-done')){el.classList.add('al-timeout');el.innerHTML='<div class="al-timeout-inner"><img class="al-timeout-mark" src="/resources/public/brand/logo-mark-white.png" alt=""><div class="al-timeout-title">启动失败</div><div class="al-timeout-msg">加载时间较长，请尝试刷新</div><div class="al-timeout-error" id="ci-load-error"></div><button class="al-reload-btn" onclick="localStorage.removeItem(\'_ci_diag_sent\');__ciReport(true);location.reload(true)">刷新页面</button></div>';var errors=window.__ciDiagErrors||[];if(errors.length){document.getElementById('ci-load-error').textContent='错误：'+errors[errors.length-1].message;__ciReportError();}}}},15000);</script>
+  <script>
+    /* Web Proxy 状态预取：把代理基地址写入 window.__WEB_PROXY__，供超能岛浏览器判定外网站点是否改走代理。
+       插件未安装 / 接口不可用时静默降级（ready=true, enabled=false），浏览行为保持不变。 */
+    (function () {
+      var info = window.__WEB_PROXY__ = { ready: false, enabled: false, port: 0, base: '', scheme: 'http' };
+      try {
+        fetch('/api/web-proxy/status', { credentials: 'include' })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (j) {
+            var d = j && j.data ? j.data : null;
+            if (d && d.running && d.port) {
+              info.enabled = true;
+              info.port = d.port;
+              info.base = 'http://' + location.hostname + ':' + d.port;
+            }
+          })
+          .catch(function () { })
+          .then(function () { info.ready = true; });
+      } catch (e) { info.ready = true; }
+    })();
+  </script>
 </head>
 <body>
   <script>(function(){var t=localStorage.getItem('theme')||'dark';if(t!=='light'){document.documentElement.setAttribute('data-theme',t);document.body&&(document.body.setAttribute('data-theme',t));}})();</script>
