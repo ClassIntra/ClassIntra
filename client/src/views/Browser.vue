@@ -56,7 +56,7 @@
       <!-- 正在浏览：iframe -->
       <iframe
         ref="browserFrame"
-        :src="currentUrl"
+        :src="frameSrc || currentUrl"
         class="browser-iframe"
         sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-modals allow-popups-to-escape-sandbox"
         allow="clipboard-read; clipboard-write"
@@ -166,11 +166,51 @@
 <script>
 import islandNotify from '@/utils/island-notify';
 import { mountBridge, unmountBridge, ACTIONS_CHILD_TO_PARENT } from '@/integrations/campusbili-bridge-client';
+import {
+  mountBridge as mountWebProxyBridge,
+  unmountBridge as unmountWebProxyBridge,
+  ACTIONS_CHILD_TO_PARENT as WEB_PROXY_ACTIONS,
+  WEB_PROXY_BRIDGE_AVAILABLE
+} from '@/integrations/web-proxy-client';
 
 var HISTORY_KEY = 'browser_history';
 var BOOKMARKS_KEY = 'browser_bookmarks';
 var HOMEPAGE_KEY = 'browser_homepage';
 var MAX_HISTORY = 100;
+
+// 读取网页代理状态（由 index.html 预取写入 window.__WEB_PROXY__）
+// 插件未安装 / 未就绪 → 返回 null，浏览行为保持不变（直连）
+function getWebProxyInfo() {
+  var info = (typeof window !== 'undefined' && window.__WEB_PROXY__) || null;
+  if (!info || !info.ready || !info.enabled || !info.base) return null;
+  return info;
+}
+
+// 判断某个绝对 URL 是否需要改走网页代理
+// 规则（与插件 README 一致）：仅 http/https 外网站点走代理；
+// CampusBili（含 9002 端口）、与 ClassIntra 同主机名的内网页面、已是代理地址 → 均直连
+function shouldProxyUrl(url) {
+  var info = getWebProxyInfo();
+  if (!info) return false;
+  if (!/^https?:\/\//i.test(url || '')) return false;
+  var parsed;
+  try { parsed = new URL(url); } catch (e) { return false; }
+  if (/campusbili/i.test(parsed.hostname) || parsed.port === '9002') return false;
+  if (typeof location !== 'undefined' && location.hostname && parsed.hostname === location.hostname) return false;
+  if (url.indexOf(info.base + '/') === 0) return false;
+  return true;
+}
+
+// 把真实 URL 转成代理 URL：http://<host>:<port>/<scheme>/<host><path><search><hash>
+function buildProxyUrl(url) {
+  var info = getWebProxyInfo();
+  if (!info) return url;
+  var parsed;
+  try { parsed = new URL(url); } catch (e) { return url; }
+  var scheme = parsed.protocol === 'https:' ? 'https' : 'http';
+  return info.base + '/' + scheme + '/' + parsed.host
+    + (parsed.pathname || '/') + (parsed.search || '') + (parsed.hash || '');
+}
 
 function loadFromStorage(key) {
   try {
@@ -192,6 +232,9 @@ export default {
   data: function() {
     return {
       currentUrl: '',
+      // iframe 实际 src：外网站点可能为代理地址，内网/直连站点等于 currentUrl
+      // currentUrl 始终保存原始 URL（供地址栏输入、历史、书签使用）
+      frameSrc: '',
       urlText: '',
       activeTab: 'history',
       history: [],
@@ -258,6 +301,11 @@ export default {
   beforeDestroy: function() {
     // 卸载桥接实例，移除 message 监听
     unmountBridge();
+    // 卸载网页代理桥接（若存在）
+    if (this._webProxyBridge) {
+      unmountWebProxyBridge(this._webProxyBridge);
+      this._webProxyBridge = null;
+    }
     if (this._onSwipeStart) {
       document.removeEventListener('touchstart', this._onSwipeStart);
       document.removeEventListener('touchmove', this._onSwipeMove);
@@ -275,6 +323,11 @@ export default {
       var self = this;
       var frame = self.$refs.browserFrame;
       if (!frame || !frame.contentWindow) return;
+      // 每次加载先卸载上一次的网页代理桥接，避免 message 监听器泄漏
+      if (self._webProxyBridge) {
+        unmountWebProxyBridge(self._webProxyBridge);
+        self._webProxyBridge = null;
+      }
       var user = self.$store && self.$store.state && self.$store.state.auth && self.$store.state.auth.user;
       // 同源时读取 iframe 页面标题（跨域会抛异常，退化为空）
       try {
@@ -315,6 +368,19 @@ export default {
       bridge.on('ready', function() {
         // 握手成功：可在此触发 UI 反馈（当前保持静默，避免噪音）
       });
+
+      // ===== 网页代理桥接：iframe 为代理页时，接收被代理页面真实地址 / 标题上报 =====
+      // 仅当 frameSrc 与 currentUrl 不一致（说明已走代理）且插件桥接可用时挂载
+      if (WEB_PROXY_BRIDGE_AVAILABLE && self.frameSrc && self.frameSrc !== self.currentUrl) {
+        var proxyBridge = mountWebProxyBridge(frame, {
+          allowedChannels: ['handshake', 'page-info', 'proxy-status', 'ping']
+        });
+        proxyBridge.on(WEB_PROXY_ACTIONS.PAGE_INFO, function(payload) {
+          if (payload && payload.url) self.urlText = payload.url;
+          if (payload && payload.title) self.pageTitle = payload.title;
+        });
+        self._webProxyBridge = proxyBridge;
+      }
     },
     navigateTo: function(url) {
       var self = this;
@@ -333,7 +399,9 @@ export default {
            raw = embeddedUrl.toString();
          }
        } catch (e) {}
-       self.currentUrl = raw;
+      self.currentUrl = raw;
+      // 外网站点改走网页代理（插件就绪时）；内网 / CampusBili / 已是代理地址均直连
+      self.frameSrc = shouldProxyUrl(raw) ? buildProxyUrl(raw) : raw;
       self.urlText = raw;
       // 添加到历史记录
       self.addHistory(raw);
@@ -378,6 +446,7 @@ export default {
     },
     stopBrowsing: function() {
       this.currentUrl = '';
+      this.frameSrc = '';
       this.activeTab = 'history';
     },
     goBack: function() {
