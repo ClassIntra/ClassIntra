@@ -208,7 +208,7 @@
                   <div class="app-icon plugin-icon"><i class="fa-solid fa-plug"></i></div>
                   <div class="app-title">
                     <h3>{{ plugin.label }}</h3>
-                    <span>{{ plugin.name }} · v{{ plugin.version }}</span>
+                    <span>{{ plugin.name }} · v{{ plugin.version || '0.0.0' }}</span>
                   </div>
                 </div>
                 <p class="app-description">{{ plugin.description || '暂无插件描述' }}</p>
@@ -250,7 +250,7 @@
                   </span>
                 </div>
                 <p>{{ plugin.description || '暂无插件描述' }}</p>
-                <span>当前版本 v{{ plugin.version }} · {{ plugin.author || 'ClassIntra 社区' }}</span>
+                <span>当前版本 v{{ plugin.version || '0.0.0' }} · {{ plugin.author || 'ClassIntra 社区' }}</span>
                 <small v-if="plugin.canDisable === false" class="status-hint">该插件声明为常开，不可暂停</small>
                 <small v-else-if="plugin.enabled === false" class="status-hint">暂停后插件接口即时下线，无需重启</small>
                 <small v-else class="status-hint">插件接口对全班成员开放</small>
