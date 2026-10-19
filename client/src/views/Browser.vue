@@ -62,6 +62,12 @@
         allow="clipboard-read; clipboard-write"
         @load="onIframeLoad"
       ></iframe>
+      <!-- 加载指示器：外网站点走代理转发，首次加载需要与目标站点建连，
+          期间 iframe 为空白，这里给出进度反馈，避免被误认为「白屏卡死」 -->
+      <div v-if="iframeLoading" class="browser-loading">
+        <div class="browser-loading-spinner"></div>
+        <div class="browser-loading-text">{{ iframeSlow ? '外网站点首次加载较慢，正在与目标站点建立连接…' : '正在加载…' }}</div>
+      </div>
     </div>
     <div v-else class="browser-home">
       <!-- 首页设置区 -->
@@ -246,6 +252,9 @@ export default {
       showShareCapsule: false,
       // 当前 iframe 页面标题（同源时可读取，跨域时为空）
       pageTitle: '',
+      // 页面加载指示器状态
+      iframeLoading: false,
+      iframeSlow: false,
       // 移动端边缘滑动手势状态（左边缘右滑返回）
       swipeState: null
     };
@@ -299,6 +308,9 @@ export default {
     document.addEventListener('touchend', self._onSwipeEnd, { passive: true });
   },
   beforeDestroy: function() {
+    // 清理加载指示器定时器
+    clearTimeout(this._slowTimer);
+    clearTimeout(this._loadTimer);
     // 卸载桥接实例，移除 message 监听
     unmountBridge();
     // 卸载网页代理桥接（若存在）
@@ -316,11 +328,29 @@ export default {
     }
   },
   methods: {
+    // 开始加载：立刻显示指示器，5 秒后升级为慢速提示，60 秒兜底收起
+    // （iframe 因网络层错误不触发 load 时，避免指示器永久转圈）
+    startLoading: function() {
+      var self = this;
+      self.iframeLoading = true;
+      self.iframeSlow = false;
+      clearTimeout(self._slowTimer);
+      clearTimeout(self._loadTimer);
+      self._slowTimer = setTimeout(function() { self.iframeSlow = true; }, 5000);
+      self._loadTimer = setTimeout(function() { self.iframeLoading = false; }, 60000);
+    },
+    stopLoading: function() {
+      clearTimeout(this._slowTimer);
+      clearTimeout(this._loadTimer);
+      this.iframeLoading = false;
+      this.iframeSlow = false;
+    },
     // ===== CampusBili 桥接：通过插件桥接模块统一收发消息 =====
     // iframe 加载完成时挂载桥接实例并注册订阅
     // 身份注入 + request-mute + 握手（HELLO/WELCOME/READY）+ PING 兜底均由桥接内部完成
     onIframeLoad: function() {
       var self = this;
+      self.stopLoading();
       var frame = self.$refs.browserFrame;
       if (!frame || !frame.contentWindow) return;
       // 每次加载先卸载上一次的网页代理桥接，避免 message 监听器泄漏
@@ -399,9 +429,14 @@ export default {
            raw = embeddedUrl.toString();
          }
        } catch (e) {}
-      self.currentUrl = raw;
       // 外网站点改走网页代理（插件就绪时）；内网 / CampusBili / 已是代理地址均直连
-      self.frameSrc = shouldProxyUrl(raw) ? buildProxyUrl(raw) : raw;
+      var nextFrameSrc = shouldProxyUrl(raw) ? buildProxyUrl(raw) : raw;
+      // 重复导航到同一地址时 iframe 不会重新加载（也就不会触发 load），此时不显示指示器
+      if (nextFrameSrc !== self.frameSrc || raw !== self.currentUrl) {
+        self.startLoading();
+      }
+      self.currentUrl = raw;
+      self.frameSrc = nextFrameSrc;
       self.urlText = raw;
       // 添加到历史记录
       self.addHistory(raw);
@@ -445,6 +480,7 @@ export default {
       saveToStorage(BOOKMARKS_KEY, this.bookmarks);
     },
     stopBrowsing: function() {
+      this.stopLoading();
       this.currentUrl = '';
       this.frameSrc = '';
       this.activeTab = 'history';
@@ -672,6 +708,7 @@ export default {
 
 /* ========== 浏览区 (iframe) ========== */
 .browser-content {
+  position: relative;
   flex: 1;
   display: flex;
   overflow: hidden;
@@ -686,6 +723,42 @@ export default {
   -webkit-transform: translateZ(0);
   transform: translateZ(0);
   will-change: transform;
+}
+
+/* ========== 加载指示器（覆盖在 iframe 之上，避免加载期白屏无反馈） ========== */
+.browser-loading {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 24px;
+  background: var(--card-bg);
+  z-index: 3;
+}
+.browser-loading-spinner {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 3px solid var(--border-color);
+  border-top-color: var(--primary-color);
+  animation: browser-loading-spin 0.8s linear infinite;
+}
+.browser-loading-text {
+  max-width: 320px;
+  font-size: 13px;
+  line-height: 1.6;
+  text-align: center;
+  color: var(--text-secondary);
+}
+@keyframes browser-loading-spin {
+  to { transform: rotate(360deg); }
+}
+/* 减弱动效偏好下放慢旋转，避免眩晕 */
+@media (prefers-reduced-motion: reduce) {
+  .browser-loading-spinner { animation-duration: 2.4s; }
 }
 
 /* ========== 首页 ========== */
