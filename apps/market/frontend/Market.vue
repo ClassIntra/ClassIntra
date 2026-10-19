@@ -3,22 +3,24 @@
     <AppNavBar title="应用市场" />
     <div class="market-content scrollbar-thin">
       <div class="market-toolbar">
-        <div>
-          <h1>应用市场</h1>
-          <p>浏览、安装和管理 ClassIntra 应用与插件</p>
+        <div class="toolbar-row">
+          <div class="toolbar-lead">
+            <h1>应用市场</h1>
+            <p>浏览、安装和管理 ClassIntra 应用与插件</p>
+          </div>
+          <div class="market-toolbar-actions">
+            <select v-model="selectedSource" class="source-select" :disabled="loading || actionLoading">
+              <option v-for="source in sources" :key="source.id" :value="source.id">{{ source.label }}</option>
+            </select>
+            <button type="button" class="refresh-btn" :disabled="loading || actionLoading" @click="loadMarket">
+              <i class="fa-solid fa-rotate" :class="{ spinning: loading }"></i>
+              刷新
+            </button>
+          </div>
         </div>
         <div class="market-search">
           <i class="fa-solid fa-magnifying-glass"></i>
           <input v-model="searchQuery" type="text" placeholder="搜索应用或插件…" />
-        </div>
-        <div class="market-toolbar-actions">
-          <select v-model="selectedSource" class="source-select" :disabled="loading || actionLoading">
-            <option v-for="source in sources" :key="source.id" :value="source.id">{{ source.label }}</option>
-          </select>
-          <button type="button" class="refresh-btn" :disabled="loading || actionLoading" @click="loadMarket">
-            <i class="fa-solid fa-rotate" :class="{ spinning: loading }"></i>
-            刷新
-          </button>
         </div>
       </div>
 
@@ -806,24 +808,27 @@ export default {
 .market-page { width: 100%; height: 100%; display: flex; flex-direction: column; background: var(--bg-color); }
 .market-content { flex: 1; min-height: 0; padding: 28px 34px 48px; overflow-y: auto; }
 .market-toolbar, .section-heading, .app-card-footer, .installed-card { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+/* 工具栏：上行标题 + 操作，下行整宽搜索框（信息层级更清晰，搜索空间更充裕） */
 .market-toolbar {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 18px;
   background: var(--card-bg);
   border: 0.5px solid var(--border-color);
   border-radius: var(--radius-xl);
-  padding: 16px 20px;
-  margin-bottom: 20px;
+  padding: 20px 22px;
+  margin-bottom: 24px;
 }
+.toolbar-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.toolbar-lead { min-width: 0; }
 
 /* 分区标签栏（应用 / 插件）：宽屏为分区导航，窄屏/竖屏转为顶部横向可滚动标签栏 */
 .market-tabs {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 22px;
+  margin-bottom: 24px;
   padding-bottom: 2px;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
@@ -853,15 +858,16 @@ export default {
 .market-search {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex: 1;
-  max-width: 320px;
-  padding: 0 14px;
-  height: 40px;
+  gap: 10px;
+  width: 100%;
+  padding: 0 16px;
+  height: 44px;
   border-radius: var(--radius-pill);
   background: var(--bg-color);
   border: 1px solid var(--border-color);
+  transition: border-color var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard);
 }
+.market-search:focus-within { border-color: var(--primary-color); box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.12); }
 
 .market-search i { color: var(--text-tertiary); font-size: var(--font-size-sm); }
 
@@ -893,7 +899,7 @@ h2 { color: var(--text-primary); font-size: 20px; }
 h3 { color: var(--text-primary); font-size: 16px; }
 .market-toolbar p, .app-description, .installed-info p { color: var(--text-secondary); }
 .market-toolbar p { margin-top: 6px; }
-.market-toolbar-actions, .installed-actions { display: flex; align-items: center; gap: 10px; }
+.market-toolbar-actions, .installed-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .source-select, .refresh-btn, .app-action, .secondary-action, .danger-action, .market-error button { border: 1px solid var(--separator-color); border-radius: var(--radius-md); padding: 9px 14px; background: var(--card-bg); color: var(--text-primary); cursor: pointer; }
 .refresh-btn { background: var(--primary-color); color: #fff; border-color: var(--primary-color); }
 button:disabled { opacity: .55; cursor: not-allowed; }
@@ -902,16 +908,16 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .market-progress, .market-source-status { display: flex; align-items: center; gap: 8px; padding: 10px 14px; margin-bottom: 16px; border-radius: var(--radius-md); background: rgba(120,120,128,0.12); color: var(--text-secondary); font-size: 13px; }
 .market-source-status { color: var(--success-color); }
 .market-loading, .empty-state { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 12px; min-height: 180px; color: var(--text-secondary); }
-.market-section { margin-bottom: 34px; }
-.section-heading { margin-bottom: 14px; }
+.market-section { margin-bottom: 32px; }
+.section-heading { margin-bottom: 16px; }
 /* 二级分组标题（如「已安装应用 / 已安装插件」）：与上方同级区块拉开层次，去掉左侧色条 */
-.section-heading.sub-heading { margin-top: 28px; }
+.section-heading.sub-heading { margin-top: 24px; }
 .section-meta, .count-badge, .installed-info span, .app-title span { color: var(--text-secondary); font-size: 12px; }
 .section-meta { display: block; margin-top: 4px; }
 .count-badge { padding: 5px 9px; border-radius: var(--radius-pill); background: rgba(120,120,128,0.12); }
-.app-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+.app-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 18px; }
 .app-card, .installed-card { background: var(--card-bg); border: 1px solid var(--separator-color); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); }
-.app-card { padding: 18px; min-height: 160px; display: flex; flex-direction: column; justify-content: space-between; gap: 18px;   transition: transform var(--duration-fast) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard);
+.app-card { padding: 20px; min-height: 164px; display: flex; flex-direction: column; justify-content: flex-start; gap: 14px;   transition: transform var(--duration-fast) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard);
 }
 .app-card:hover { box-shadow: var(--shadow-md); border-color: rgba(var(--primary-rgb), 0.4); }
 .app-card:active { transform: scale(0.98); }
@@ -933,7 +939,8 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .cap-chip i { font-size: 10px; }
 /* notice 级：需要用户留意的能力，用警示色轻描边区分 */
 .cap-chip-notice { background: rgba(var(--warning-rgb, 255, 149, 0), 0.12); color: rgb(var(--warning-rgb, 255, 149, 0)); }
-.app-card-footer { border-top: 1px solid var(--separator-color); padding-top: 14px; }
+/* footer 用 margin-top:auto 钉在卡片底部，行内卡片等高、footer 对齐一致 */
+.app-card-footer { border-top: 1px solid var(--separator-color); padding-top: 14px; margin-top: auto; }
 .installed-label { color: var(--success-color); font-size: 12px; }
 .app-author { color: var(--text-secondary); font-size: 12px; }
 /* 应用/插件卡：作者名旁的「已安装」角标 */
@@ -942,8 +949,11 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .app-action { background: var(--primary-light); color: var(--primary-color); border-color: transparent; font-weight: 600; }
 /* 配置面板主按钮（与卡片按钮同一语言，做强调态） */
 .primary-action { border: 1px solid transparent; border-radius: var(--radius-md); padding: 9px 16px; background: var(--primary-color); color: #fff; font-weight: 600; cursor: pointer; }
-.installed-list { display: flex; flex-direction: column; gap: 10px; }
-.installed-card { padding: 14px 18px; }
+.installed-list { display: flex; flex-direction: column; gap: 8px; }
+/* 已安装卡：顶部对齐（内容高度不一时操作区不漂移），并补 hover 反馈与目录卡一致 */
+.installed-card { padding: 14px 18px; align-items: flex-start; transition: border-color var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard); }
+.installed-card:hover { border-color: rgba(var(--primary-rgb), 0.4); box-shadow: var(--shadow-sm); }
+.installed-card .installed-actions { margin-top: 2px; }
 .installed-info { flex: 1; min-width: 0; }
 .installed-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .installed-info p { margin: 5px 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -970,7 +980,16 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .mini-spinner { display: inline-block; width: 13px; height: 13px; border-width: 2px; vertical-align: -2px; }
 .spinning { animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-@media (max-width: 700px) { .market-content { padding: 20px 16px 32px; } .market-toolbar { align-items: flex-start; flex-direction: column; } .market-toolbar-actions { width: 100%; } .source-select, .refresh-btn { flex: 1; } .installed-card { align-items: flex-start; flex-wrap: wrap; } .installed-actions { width: 100%; justify-content: flex-end; } }
+/* 窄屏/竖屏降级：工具栏收窄内边距，操作区与已安装卡操作改为整行铺开 */
+@media (max-width: 700px) {
+  .market-content { padding: 20px 16px 32px; }
+  .market-toolbar { padding: 16px; }
+  .toolbar-row { gap: 12px; }
+  .market-toolbar-actions { width: 100%; }
+  .source-select, .refresh-btn { flex: 1; }
+  .installed-card { flex-wrap: wrap; }
+  .installed-actions { width: 100%; justify-content: flex-end; margin-top: 10px; }
+}
 
 /* 应用/插件配置面板（manifest.config 声明 → 安装时引导填写） */
 .status-badge.pending-config { color: var(--danger-color, #E8463A); background: rgba(232, 70, 58, 0.12); }
