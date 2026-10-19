@@ -5,6 +5,16 @@
       <button class="icon-btn browser-btn" @click="goBack" title="返回" aria-label="返回">
         <i class="fa-solid fa-chevron-left"></i>
       </button>
+      <!-- 代理状态提示：当前页面经网页代理转发加速时给出明确标识，
+           避免用户无法判断代理是否生效（此前提到的「看不出网址有没有变」） -->
+      <span
+        v-if="isProxied"
+        class="browser-proxy-chip"
+        title="该页面经网页代理转发：已透传压缩、复用上游连接并支持条件缓存"
+      >
+        <i class="fa-solid fa-bolt"></i>
+        <span>加速</span>
+      </span>
       <div v-if="!hideAddressBar" class="browser-url-wrap">
         <i class="fa-solid fa-globe browser-url-icon"></i>
         <input
@@ -66,7 +76,11 @@
           期间 iframe 为空白，这里给出进度反馈，避免被误认为「白屏卡死」 -->
       <div v-if="iframeLoading" class="browser-loading">
         <div class="browser-loading-spinner"></div>
-        <div class="browser-loading-text">{{ iframeSlow ? '外网站点首次加载较慢，正在与目标站点建立连接…' : '正在加载…' }}</div>
+        <div class="browser-loading-text">{{ iframeSlow ? '外网站点加载较慢，正在与目标站点建立连接…' : '正在加载…' }}</div>
+        <!-- 显示目标站点与已等待秒数：让「慢」可被感知为「仍在进行」，而非卡死 -->
+        <div v-if="currentHost" class="browser-loading-host">
+          {{ currentHost }}<span v-if="iframeSlow"> · 已等待 {{ loadSeconds }}s</span>
+        </div>
       </div>
     </div>
     <div v-else class="browser-home">
@@ -255,6 +269,8 @@ export default {
       // 页面加载指示器状态
       iframeLoading: false,
       iframeSlow: false,
+      // 加载已等待秒数（慢速阶段展示，帮助用户判断「仍在进行」而非卡死）
+      loadSeconds: 0,
       // 移动端边缘滑动手势状态（左边缘右滑返回）
       swipeState: null
     };
@@ -268,6 +284,18 @@ export default {
     // 班管/班干无浏览器权限时隐藏地址栏（仅允许从社区链接进入浏览，不可自由输入网址）
     hideAddressBar: function() {
       return !!(this.$route && this.$route.query && this.$route.query.noaddr === '1');
+    },
+    // 当前页面是否经网页代理转发（frameSrc 与原始 URL 不同即已改走代理）
+    isProxied: function() {
+      var self = this;
+      if (!self.currentUrl || self.frameSrc === self.currentUrl) return false;
+      return shouldProxyUrl(self.currentUrl);
+    },
+    // 当前页面主机名（加载提示用）
+    currentHost: function() {
+      var self = this;
+      if (!self.currentUrl) return '';
+      try { return new URL(self.currentUrl).host; } catch (e) { return ''; }
     }
   },
   watch: {
@@ -311,6 +339,7 @@ export default {
     // 清理加载指示器定时器
     clearTimeout(this._slowTimer);
     clearTimeout(this._loadTimer);
+    clearInterval(this._tickTimer);
     // 卸载桥接实例，移除 message 监听
     unmountBridge();
     // 卸载网页代理桥接（若存在）
@@ -334,16 +363,27 @@ export default {
       var self = this;
       self.iframeLoading = true;
       self.iframeSlow = false;
+      self.loadSeconds = 0;
       clearTimeout(self._slowTimer);
       clearTimeout(self._loadTimer);
+      clearInterval(self._tickTimer);
       self._slowTimer = setTimeout(function() { self.iframeSlow = true; }, 5000);
-      self._loadTimer = setTimeout(function() { self.iframeLoading = false; }, 60000);
+      self._loadTimer = setTimeout(function() {
+        self.iframeLoading = false;
+        self.loadSeconds = 0;
+      }, 60000);
+      // 每秒累加等待时长（仅慢速阶段展示，成本极低）
+      self._tickTimer = setInterval(function() {
+        self.loadSeconds = self.loadSeconds + 1;
+      }, 1000);
     },
     stopLoading: function() {
       clearTimeout(this._slowTimer);
       clearTimeout(this._loadTimer);
+      clearInterval(this._tickTimer);
       this.iframeLoading = false;
       this.iframeSlow = false;
+      this.loadSeconds = 0;
     },
     // ===== CampusBili 桥接：通过插件桥接模块统一收发消息 =====
     // iframe 加载完成时挂载桥接实例并注册订阅
@@ -613,6 +653,30 @@ export default {
   transform: scale(0.94);  /* emil-design：图标按钮按压至 0.94-0.95 */
 }
 
+/* 代理状态提示：小胶囊，仅用主色文字 + 描边，随主题自动适配 */
+.browser-proxy-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  font-size: 12px;
+  line-height: 1;
+  color: var(--primary-color);
+  white-space: nowrap;
+}
+.browser-proxy-chip i {
+  font-size: 11px;
+}
+/* 窄屏下只保留闪电图标，避免工具栏拥挤 */
+@media (max-width: 560px) {
+  .browser-proxy-chip { padding: 0 8px; }
+  .browser-proxy-chip span { display: none; }
+}
+
 /* 转到按钮：胶囊形主色按钮（capsule-btn 已处理大部分样式，仅覆盖尺寸） */
 .browser-go-btn {
   width: 36px;
@@ -752,6 +816,15 @@ export default {
   line-height: 1.6;
   text-align: center;
   color: var(--text-secondary);
+}
+/* 目标站点 + 已等待秒数：弱化显示，提供「仍在进行」的确定性反馈 */
+.browser-loading-host {
+  max-width: 320px;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+  color: var(--text-tertiary);
+  word-break: break-all;
 }
 @keyframes browser-loading-spin {
   to { transform: rotate(360deg); }
