@@ -206,6 +206,34 @@ function getWebProxyInfo() {
   return info;
 }
 
+// 判断是否局域网 / 本机 / 内网短主机名 —— 这类地址应当直连，不要绕代理。
+// 原因：一是局域网地址经代理转发时，实际由服务器所在网络去访问，
+// 可能指向学生自己的设备（如 192.168.x 的打印机、投屏）而无法到达；
+// 二是直连明显更快，绕一层纯属浪费。
+function isLanHost(hostname) {
+  var h = String(hostname || '').toLowerCase();
+  if (!h) return true;
+  if (h === 'localhost' || /\.localhost$/.test(h)) return true;
+  // IPv6：环回、链路本地 fe80::、唯一本地 fc00::/7
+  if (h === '[::1]' || h === '::1') return true;
+  if (/^\[?fe80:/i.test(h) || /^\[?f[cd][0-9a-f]{2}:/i.test(h)) return true;
+  // 单标签主机名（无点）通常是内网主机名，如 nas、server、print
+  if (h.indexOf('.') < 0 && h.indexOf(':') < 0) return true;
+  // 内网保留域名后缀
+  if (/(\.local|\.lan|\.internal|\.home|\.corp|\.intranet|\.localdomain|\.home\.arpa)$/.test(h)) return true;
+  // IPv4 私有 / 环回 / 链路本地 / 运营商级 NAT
+  var m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+  if (!m) return false;
+  var a = parseInt(m[1], 10);
+  var b = parseInt(m[2], 10);
+  if (a === 10 || a === 127 || a === 0) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 100 && b >= 64 && b <= 127) return true;
+  return false;
+}
+
 // 判断某个绝对 URL 是否需要改走网页代理
 // 规则（与插件 README 一致）：仅 http/https 外网站点走代理；
 // CampusBili（含 9002 端口）、与 ClassIntra 同主机名的内网页面、已是代理地址 → 均直连
@@ -217,6 +245,8 @@ function shouldProxyUrl(url) {
   try { parsed = new URL(url); } catch (e) { return false; }
   if (/campusbili/i.test(parsed.hostname) || parsed.port === '9002') return false;
   if (typeof location !== 'undefined' && location.hostname && parsed.hostname === location.hostname) return false;
+  // 局域网 / 本机 / 内网主机名一律直连（代理反而是绕远路，且可能根本到不了）
+  if (isLanHost(parsed.hostname)) return false;
   if (url.indexOf(info.base + '/') === 0) return false;
   return true;
 }
