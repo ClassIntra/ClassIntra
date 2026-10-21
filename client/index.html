@@ -255,7 +255,7 @@
     /* Web Proxy 状态预取：把代理基地址写入 window.__WEB_PROXY__，供超能岛浏览器判定外网站点是否改走代理。
        插件未安装 / 接口不可用时静默降级（ready=true, enabled=false），浏览行为保持不变。 */
     (function () {
-      var info = window.__WEB_PROXY__ = { ready: false, enabled: false, port: 0, base: '', scheme: 'http' };
+      var info = window.__WEB_PROXY__ = { ready: false, enabled: false, port: 0, base: '', scheme: 'http', render: null };
       try {
         fetch('/api/web-proxy/status', { credentials: 'include' })
           .then(function (r) { return r.ok ? r.json() : null; })
@@ -265,6 +265,8 @@
               info.enabled = true;
               info.port = d.port;
               info.base = 'http://' + location.hostname + ':' + d.port;
+              // 兼容模式（服务器端无头浏览器渲染）能力，供浏览器页决定是否展示入口
+              info.render = d.render || null;
             }
           })
           .catch(function () { })

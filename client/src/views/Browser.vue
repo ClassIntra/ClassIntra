@@ -15,6 +15,15 @@
         <i class="fa-solid fa-bolt"></i>
         <span>加速</span>
       </span>
+      <!-- 兼容模式标识：由服务器端真实浏览器渲染后以画面流回传 -->
+      <span
+        v-if="compatMode"
+        class="browser-proxy-chip browser-compat-chip"
+        title="兼容模式：页面由服务器端真实浏览器渲染，可绕过部分站点的脚本挑战"
+      >
+        <i class="fa-solid fa-shield-halved"></i>
+        <span>兼容</span>
+      </span>
       <div v-if="!hideAddressBar" class="browser-url-wrap">
         <i class="fa-solid fa-globe browser-url-icon"></i>
         <input
@@ -36,6 +45,11 @@
       </button>
       <button v-if="currentUrl" class="icon-btn browser-btn browser-share-btn" :class="{ active: showShareCapsule }" @click="toggleShareCapsule" title="分享" aria-label="分享">
         <i class="fa-solid fa-share-nodes"></i>
+      </button>
+      <!-- 兼容模式入口：仅当服务端具备无头渲染能力时出现。
+           用于少数被脚本挑战 / WAF 拦截、普通改写无法正常打开的站点 -->
+      <button v-if="compatCapable" class="icon-btn browser-btn browser-compat-btn" :class="{ active: compatMode }" @click="toggleCompat" :title="compatMode ? '退出兼容模式' : '兼容模式（真实浏览器渲染，适合被拦截的站点）'" :aria-label="compatMode ? '退出兼容模式' : '兼容模式'">
+        <i class="fa-solid fa-shield-halved"></i>
       </button>
       <button class="icon-btn browser-btn" @click="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏'" :aria-label="isFullscreen ? '退出全屏' : '全屏'">
         <i :class="isFullscreen ? 'fa-solid fa-compress' : 'fa-solid fa-expand'"></i>
@@ -63,8 +77,21 @@
 
     <!-- 主内容区 -->
     <div v-if="currentUrl" class="browser-content">
+      <!-- 兼容模式：服务器端无头浏览器渲染的画面流（canvas 承载，输入回灌） -->
+      <canvas
+        v-if="compatMode"
+        ref="compatCanvas"
+        class="browser-iframe browser-compat-canvas"
+        tabindex="0"
+        @mousemove="onCompatMouseMove"
+        @mousedown="onCompatMouseDown"
+        @mouseup="onCompatMouseUp"
+        @wheel.prevent="onCompatWheel"
+        @keydown="onCompatKeyDown"
+      ></canvas>
       <!-- 正在浏览：iframe -->
       <iframe
+        v-else
         ref="browserFrame"
         :src="frameSrc || currentUrl"
         class="browser-iframe"
@@ -72,6 +99,12 @@
         allow="clipboard-read; clipboard-write"
         @load="onIframeLoad"
       ></iframe>
+      <!-- 兼容模式异常提示：只影响兼容模式，可直接退出回到普通浏览 -->
+      <div v-if="compatMode && compatError" class="browser-compat-error">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        <span>{{ compatError }}</span>
+        <button class="capsule-btn browser-compat-exit" @click="exitCompat">退出兼容模式</button>
+      </div>
       <!-- 加载指示器：外网站点走代理转发，首次加载需要与目标站点建连，
           期间 iframe 为空白，这里给出进度反馈，避免被误认为「白屏卡死」 -->
       <div v-if="iframeLoading" class="browser-loading">
@@ -301,6 +334,9 @@ export default {
       iframeSlow: false,
       // 加载已等待秒数（慢速阶段展示，帮助用户判断「仍在进行」而非卡死）
       loadSeconds: 0,
+      // 兼容模式：服务器端无头浏览器渲染（canvas 画面流 + 输入回灌）
+      compatMode: false,
+      compatError: '',
       // 移动端边缘滑动手势状态（左边缘右滑返回）
       swipeState: null
     };
@@ -326,6 +362,23 @@ export default {
       var self = this;
       if (!self.currentUrl) return '';
       try { return new URL(self.currentUrl).host; } catch (e) { return ''; }
+    },
+    // 服务端是否具备兼容模式能力（无头浏览器可用）
+    renderAvailable: function() {
+      var info = getWebProxyInfo();
+      return !!(info && info.render && info.render.available);
+    },
+    // 是否允许对当前页面启用兼容模式：外网 http(s) 站点才需要（局域网/本机直连即可）
+    compatCapable: function() {
+      if (!this.renderAvailable || !this.currentUrl) return false;
+      try {
+        var u = new URL(this.currentUrl);
+        if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+        if (isLanHost(u.hostname)) return false;
+        return true;
+      } catch (e) {
+        return false;
+      }
     }
   },
   watch: {
@@ -370,6 +423,8 @@ export default {
     clearTimeout(this._slowTimer);
     clearTimeout(this._loadTimer);
     clearInterval(this._tickTimer);
+    // 关闭兼容模式渲染会话（否则服务端标签页会一直占用内存）
+    this.disconnectCompat();
     // 卸载桥接实例，移除 message 监听
     unmountBridge();
     // 卸载网页代理桥接（若存在）
@@ -499,6 +554,18 @@ export default {
            raw = embeddedUrl.toString();
          }
        } catch (e) {}
+      // 兼容模式下的导航：留在同一条渲染会话里跳转，避免切回 iframe
+      if (self.compatMode) {
+        self.currentUrl = raw;
+        self.urlText = raw;
+        self.addHistory(raw);
+        self.disconnectCompat();
+        self.startLoading();
+        self.$nextTick(function() {
+          self.connectCompat(raw);
+        });
+        return;
+      }
       // 外网站点改走网页代理（插件就绪时）；内网 / CampusBili / 已是代理地址均直连
       var nextFrameSrc = shouldProxyUrl(raw) ? buildProxyUrl(raw) : raw;
       // 重复导航到同一地址时 iframe 不会重新加载（也就不会触发 load），此时不显示指示器
@@ -514,6 +581,188 @@ export default {
       self.$nextTick(function() {
         if (self.$refs.urlInput) self.$refs.urlInput.blur();
       });
+    },
+    // ===== 兼容模式：服务器端无头浏览器渲染（WS 画面流 + 输入回灌）=====
+    toggleCompat: function() {
+      var self = this;
+      if (self.compatMode) {
+        self.exitCompat();
+        return;
+      }
+      if (!self.currentUrl) return;
+      self.compatMode = true;
+      self.startLoading();
+      self.$nextTick(function() {
+        self.connectCompat(self.currentUrl);
+      });
+    },
+    exitCompat: function() {
+      this.compatMode = false;
+      this.disconnectCompat();
+      this.stopLoading();
+      // 退出兼容模式后回到普通 iframe：按原规则重新计算 frameSrc
+      var url = this.currentUrl;
+      if (url) this.frameSrc = shouldProxyUrl(url) ? buildProxyUrl(url) : url;
+    },
+    // 建立渲染通道；失败只影响兼容模式，不影响普通浏览
+    connectCompat: function(url) {
+      var self = this;
+      var info = getWebProxyInfo();
+      if (!info || !info.render || !info.render.available) {
+        self.compatError = '服务端未启用兼容模式';
+        self.stopLoading();
+        return;
+      }
+      self.disconnectCompat();
+      self.compatError = '';
+      var wsUrl = 'ws://' + location.hostname + ':' + info.port + '/__render__?url=' + encodeURIComponent(url);
+      var ws;
+      try {
+        ws = new WebSocket(wsUrl);
+      } catch (e) {
+        self.compatError = e.message || '兼容模式连接失败';
+        self.stopLoading();
+        return;
+      }
+      self._compatWs = ws;
+      ws.onmessage = function(ev) { self.onCompatMessage(ev); };
+      ws.onerror = function() {
+        if (self._compatWs === ws) {
+          self.compatError = '兼容模式连接失败';
+          self.stopLoading();
+        }
+      };
+      ws.onclose = function() {
+        if (self._compatWs === ws) {
+          self._compatWs = null;
+          self.stopLoading();
+        }
+      };
+    },
+    disconnectCompat: function() {
+      var ws = this._compatWs;
+      this._compatWs = null;
+      this._compatBusy = false;
+      this._compatPending = null;
+      if (ws) {
+        try { ws.close(); } catch (e) {}
+      }
+    },
+    onCompatMessage: function(ev) {
+      var msg;
+      try { msg = JSON.parse(ev.data); } catch (e) { return; }
+      if (msg.type === 'frame') {
+        this.drawCompatFrame(msg);
+        return;
+      }
+      if (msg.type === 'loaded') {
+        this.stopLoading();
+        return;
+      }
+      if (msg.type === 'url') {
+        // 无头浏览器内的跳转：同步到地址栏与历史（保持单一地址来源）
+        if (msg.url && /^https?:\/\//i.test(msg.url)) {
+          this.currentUrl = msg.url;
+          this.urlText = msg.url;
+          this.addHistory(msg.url);
+        }
+        return;
+      }
+      if (msg.type === 'error') {
+        this.compatError = msg.message || '兼容模式异常';
+        this.stopLoading();
+        return;
+      }
+      if (msg.type === 'closed') {
+        this.stopLoading();
+      }
+    },
+    // 逐帧绘制：同一时刻只解码一张图，避免高帧率下堆积造成卡顿
+    drawCompatFrame: function(msg) {
+      var self = this;
+      var canvas = self.$refs.compatCanvas;
+      if (!canvas || !msg.data) return;
+      if (self._compatBusy) {
+        self._compatPending = msg;
+        return;
+      }
+      self._compatBusy = true;
+      var img = new Image();
+      img.onload = function() {
+        try {
+          if (canvas.width !== msg.width) canvas.width = msg.width;
+          if (canvas.height !== msg.height) canvas.height = msg.height;
+          canvas.getContext('2d').drawImage(img, 0, 0);
+        } catch (e) {}
+        self._compatBusy = false;
+        if (self._compatPending) {
+          var next = self._compatPending;
+          self._compatPending = null;
+          self.drawCompatFrame(next);
+        }
+      };
+      img.onerror = function() { self._compatBusy = false; };
+      img.src = 'data:image/jpeg;base64,' + msg.data;
+    },
+    sendCompatInput: function(msg) {
+      var ws = this._compatWs;
+      if (!ws || ws.readyState !== 1) return;
+      try { ws.send(JSON.stringify(msg)); } catch (e) {}
+    },
+    // 把画布内的 CSS 坐标换算成无头浏览器的视口坐标（1280×800）
+    // 画布以 object-fit: contain 居中缩放，两侧/上下可能有留白，需要按实际绘制区域换算
+    compatPoint: function(e) {
+      var canvas = this.$refs.compatCanvas;
+      if (!canvas) return { x: 0, y: 0 };
+      var rect = canvas.getBoundingClientRect();
+      var vw = canvas.width || 1280;
+      var vh = canvas.height || 800;
+      var scale = Math.min(rect.width / vw, rect.height / vh);
+      if (!scale || scale <= 0) return { x: 0, y: 0 };
+      var offsetX = (rect.width - vw * scale) / 2;
+      var offsetY = (rect.height - vh * scale) / 2;
+      var x = (e.clientX - rect.left - offsetX) / scale;
+      var y = (e.clientY - rect.top - offsetY) / scale;
+      return {
+        x: Math.round(Math.max(0, Math.min(vw - 1, x))),
+        y: Math.round(Math.max(0, Math.min(vh - 1, y)))
+      };
+    },
+    onCompatMouseMove: function(e) {
+      var p = this.compatPoint(e);
+      this.sendCompatInput({ type: 'mouse', event: 'mouseMoved', x: p.x, y: p.y, button: 'none', buttons: e.buttons || 0 });
+    },
+    onCompatMouseDown: function(e) {
+      var p = this.compatPoint(e);
+      var canvas = this.$refs.compatCanvas;
+      if (canvas) canvas.focus();
+      this.sendCompatInput({ type: 'mouse', event: 'mousePressed', x: p.x, y: p.y, button: 'left', buttons: 1, clickCount: 1 });
+    },
+    onCompatMouseUp: function(e) {
+      var p = this.compatPoint(e);
+      this.sendCompatInput({ type: 'mouse', event: 'mouseReleased', x: p.x, y: p.y, button: 'left', buttons: 0, clickCount: 1 });
+    },
+    onCompatWheel: function(e) {
+      var p = this.compatPoint(e);
+      this.sendCompatInput({ type: 'wheel', x: p.x, y: p.y, deltaX: e.deltaX || 0, deltaY: e.deltaY || 0 });
+    },
+    // 键盘：功能键走 key 事件，可打印字符走 insertText（避免输入法与组合键问题）
+    onCompatKeyDown: function(e) {
+      var key = e.key;
+      if (!key) return;
+      // 组合键交给浏览器自身处理（复制粘贴等），不转发以免与服务端状态错乱
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (key === 'Enter' || key === 'Backspace' || key === 'Tab' || key === 'Escape' ||
+          key === 'Delete' || key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' ||
+          key === 'ArrowRight' || key === 'Home' || key === 'End' || key === 'PageUp' || key === 'PageDown') {
+        e.preventDefault();
+        this.sendCompatInput({ type: 'key', key: key, event: 'down' });
+        return;
+      }
+      if (key.length === 1) {
+        e.preventDefault();
+        this.sendCompatInput({ type: 'text', text: key });
+      }
     },
     addHistory: function(url) {
       var self = this;
@@ -551,6 +800,9 @@ export default {
     },
     stopBrowsing: function() {
       this.stopLoading();
+      // 退出兼容模式：关闭渲染会话，释放服务端浏览器
+      this.compatMode = false;
+      this.disconnectCompat();
       this.currentUrl = '';
       this.frameSrc = '';
       this.activeTab = 'history';
@@ -701,6 +953,15 @@ export default {
 .browser-proxy-chip i {
   font-size: 11px;
 }
+/* 兼容模式标识：用警示色区分「已切到服务端渲染」 */
+.browser-compat-chip {
+  color: var(--warning-color);
+  border-color: var(--warning-color);
+}
+/* 兼容模式开关按钮 */
+.browser-compat-btn.active {
+  color: var(--warning-color);
+}
 /* 窄屏下只保留闪电图标，避免工具栏拥挤 */
 @media (max-width: 560px) {
   .browser-proxy-chip { padding: 0 8px; }
@@ -817,6 +1078,40 @@ export default {
   -webkit-transform: translateZ(0);
   transform: translateZ(0);
   will-change: transform;
+}
+
+/* 兼容模式画布：等比缩放显示服务端渲染画面（留白居中，不拉伸变形） */
+.browser-compat-canvas {
+  object-fit: contain;
+  object-position: center center;
+  background: #fff;
+  outline: none;
+  cursor: default;
+}
+/* 兼容模式异常提示：底部悬浮条，避免整页被错误态占满 */
+.browser-compat-error {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100% - 32px);
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  font-size: 13px;
+  color: var(--text-secondary);
+  z-index: 3;
+}
+.browser-compat-error i {
+  color: var(--warning-color);
+}
+.browser-compat-exit {
+  flex-shrink: 0;
 }
 
 /* ========== 加载指示器（覆盖在 iframe 之上，避免加载期白屏无反馈） ========== */
