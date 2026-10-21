@@ -67,7 +67,7 @@ mkdir -p Resources/public/wallpapers Resources/public/music Resources/videos
 pnpm dev
 ```
 
-打开 `http://localhost:5001`，首次使用访问 `/setup` 完成班级初始化。
+打开 `http://localhost:20001`，首次使用访问 `/setup` 完成班级初始化。
 
 ### 生产部署
 

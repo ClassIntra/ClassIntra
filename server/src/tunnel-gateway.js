@@ -1,11 +1,11 @@
 // 隧道专用网关：公网（frpc）入口只放行 登录+云盘 API 与轻量上传/下载页
-// frpc 两条隧道均指向本网关（127.0.0.1:9002），API 按白名单流式转发到主服务（127.0.0.1:9001）
+// frpc 两条隧道均指向本网关（127.0.0.1:10111），API 按白名单流式转发到主服务（127.0.0.1:9001）
 // 教室局域网仍直连主服务端口，不经过本网关，功能不受影响
 var http = require('http');
 var fs = require('fs');
 var path = require('path');
 
-var PORT = parseInt(process.env.TUNNEL_GATEWAY_PORT, 10) || 9002;
+var PORT = parseInt(process.env.TUNNEL_GATEWAY_PORT, 10) || 10111;
 var UPSTREAM_PORT = parseInt(process.env.UPSTREAM_PORT, 10) || 9001;
 var UPSTREAM_HOST = '127.0.0.1';
 
