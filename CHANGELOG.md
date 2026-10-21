@@ -2,6 +2,21 @@
 
 ## [未发布]
 
+### 修复（应用管控漏掉桌面上的应用）
+
+- **管控面板的应用名单改为从 `apps/*/manifest.json` 动态读取**，不再手抄一份常量数组。
+  过去「桌面显示什么」由前端 `core/app-registry.js` 扫 manifest 决定，
+  「管控能管什么」由 `routes/admin.js` 里手写的 `DESKTOP_APPS` 决定 —— 两份名单。
+  只要新增应用忘了同步抄一份，就会出现「桌面有图标、管控里查不到也管不了」。
+  实测差集为 **Cluss** 与 **应用市场**：两者 manifest 里都有（`category: desktop`），
+  却从未进过手抄名单；顺带 `PUT /admin/app-control/cluss` 之前会直接 400「无效的应用名称」。
+- 「是否允许禁用」的语义也一并回到 manifest 的 `canDisable`，不再在手抄数组里另写一个
+  `protected`。settings / admin / 应用市场 原本在 manifest 里就是 `canDisable: false`，
+  行为与改前完全一致。
+- 管控面板的图标/配色仍保留手写覆盖：manifest 的 `icon` 是**图片路径**（给桌面用真图标），
+  而管控渲染的是 Font Awesome 类名，两套图标体系并存是有意的。新增应用不登记也不会报错，
+  只给一个通用灰方块。
+
 ### 新增（Cluss 可在 HTTPS 版 CI 中内嵌访问）
 
 HTTPS 站点（https://\<局域网IP\>）此前无法内嵌 Cluss：浏览器把 HTTPS 页面里的
