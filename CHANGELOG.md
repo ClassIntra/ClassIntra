@@ -1,5 +1,45 @@
 # Changelog
 
+## [未发布]
+
+### 新增（Cluss 可在 HTTPS 版 CI 中内嵌访问）
+
+HTTPS 站点（https://\<局域网IP\>）此前无法内嵌 Cluss：浏览器把 HTTPS 页面里的
+HTTP 子资源一律按混合内容拦截，iframe 属 active mixed content，没有开关可放行，
+Cluss 应用只能降级成「新窗口打开一个没有导航的裸页面」。
+
+- 新增同源反代 `/cluss-app/*` → `http://127.0.0.1:9003`（`server/src/routes/cluss-proxy.js`）：
+  HTTPS 页面 iframe 指向 `/cluss-app/`，浏览器看到的是同一个 https origin，混合内容问题从根上消失。
+  - 前缀刻意**不叫 `/cluss`** —— 那是本系统自己的应用壳路由（`apps/cluss` 的 `route`，
+    history 模式由 `app.get('*')` 兜底），占了它学生点桌面图标就会直接被反代截走；
+  - 反代挂在 **server 层**而非 express 中间件链：Cluss 的对话/批改/写作全是 SSE 长连接，
+    必须绕过 compression 才不会被攒帧（学生看到「转圈半天不出字」）；
+  - `/cluss-app`（无斜杠）302 到 `/cluss-app/`：地址稳定，且相对资源解析只有带斜杠一种标准形态；
+  - `Set-Cookie` 的 `Path=/` 收窄为 `Path=/cluss-app`：Cluss 的 `cluss_token` 与本系统的
+    `token` 虽不同名，但没理由让一个 httpOnly 学习令牌在全站范围内裸奔；
+  - 上游不可达时回一个说人话的 502 页面（不是 JSON），并提示 Cluss 未启动。
+- Cluss 应用壳（`apps/cluss`）HTTPS 分支改为：先 `fetch('/cluss-app/api/health')` 探活，
+  通了才挂 iframe；不通则显示「Cluss 没有启动 + 重试」，不再把 502 兜底页嵌进 iframe
+  （iframe 的 load 事件分不清「Cluss 首页」和「错误页」）。HTTP 版仍走原来的 9003 直连，行为不变。
+- HTTPS 服务纳入 PM2（`classintra-https`，443）：此前是手动 `node src/app-https.js` 起在某个
+  cmd 窗口里，机器重启不回来、崩了没人拉、改了代码不生效（旧进程攥着旧代码）——
+  而本次反代恰恰需要它重启才能加载。开机 `pm2 resurrect` 一并恢复。
+
+### 修复（HTTPS 镜像实例不再与主实例争抢全局唯一资源）
+
+新增的镜像进程复用同一份 express 与同一个 SQLite 库，但 WS(10001)/Relay(10011)/
+mesh 席位/机器人 relay/网页代理(9101) 全都「全局只能有一个所有者」：
+
+- `ws/chat-server.js` 顶部按 `WS_MIRROR_MODE` 早退为空壳：不再监听端口、不连 8i 节点。
+  此前两个实例同时当中枢，8i 侧反复 `removing existing peers with same ID`，
+  两边互相把对方踢出 mesh，跨班同步的数据在两边来回倒。
+- `plugins/astrbot-relay` 镜像实例跳过启动：机器人账号在 CI WS 上只能有一个连接，
+  双登的后果是每 3 秒一轮的互踢循环（服务端回 code=1005 → 这边立刻重连），
+  机器人在学生端表现为间歇性掉线。
+- 镜像实例 `WEB_PROXY_AUTOSTART=0`：网页代理端口归主实例，否则被镜像抢走、
+  真正要用的主实例反而 EADDRINUSE 起不来。
+- 天气提醒调度同样只由主实例跑，否则同一个提醒发两遍。
+
 ## [1.5.0] - 2026-10-18
 【优化】
 - 云盘转存改走 bot 硬链接转运：从 AstrBot 下载的视频转存云盘时，不再复制一份字节进 `cloud/shared/`，改由 bot 侧校验后建立硬链接（同盘零额外占用）；存量 413 个重复副本可回收约 7.58 GB（治理脚本 `scripts/cloud-bot-relink.mjs`，三重校验 + 原子替换）

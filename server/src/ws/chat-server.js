@@ -1,3 +1,68 @@
+// ============================================================================
+// 镜像实例早退（TLS 镜像 / app-https.js）
+//
+// 同一台机器上会有两个进程加载本模块：
+//   · app.js（PM2 classintra-server，9001/10001/10011）—— 主实例，**唯一**所有者
+//   · app-https.js（PM2 classintra-https，443）—— 只负责把同一套 express 应用
+//     套上层 TLS，让 https://<IP> 可访问；routes/admin.js 等会间接 require 本模块
+//
+// 若镜像实例也照常启动，后果不只是日志里几条 EADDRINUSE：
+//   · 两个实例都会作为 relay 客户端去连 8i 节点，而 mesh 席位是唯一的
+//     （RELAY_SERVER_ID 相同）→ 8i 侧反复 "removing existing peers with same ID"，
+//     跨班同步的消息/名单在两边来回倒，数据错乱且难查；
+//   · 两个实例各自持一份在线用户表与广播队列，同一个用户在两边看到的在线数不一致。
+//
+// 所以镜像实例必须降级成「只提供 API 空壳」：不监听端口、不连 relay、
+// 不做任何后台轮询。由 app-https.js 在最早设 WS_MIRROR_MODE=true。
+// ============================================================================
+var WS_MIRROR_MODE = process.env.WS_MIRROR_MODE === 'true';
+
+if (WS_MIRROR_MODE) {
+  // 空实现：键名与下方 module.exports 保持一致，另外用 Proxy 兜底以后新增的方法，
+  // 免得漏一个就让 admin 的某个接口 TypeError。
+  var noop = function() {};
+  var stub = {
+    broadcast: noop,
+    broadcastToIsland: noop,
+    broadcastToClients: noop,
+    sendToClient: noop,
+    registerPoller: noop,
+    unregisterPoller: noop,
+    consumePollEvents: function() { return []; },
+    getCurrentPollSeq: function() { return 0; },
+    handleHttpMessage: noop,
+    isPoller: function() { return false; },
+    onRelayEvent: noop,
+    relayCustomEvent: noop,
+    connectRelay: noop,
+    disconnectRelay: noop,
+    getOnlineCount: function() { return 0; },
+    getOnlineUsers: function() { return []; },
+    getRemoteOnlineUsers: function() { return []; },
+    getRelayPeers: function() { return []; },
+    getRelayEnabled: function() { return false; },
+    setRelayEnabled: noop
+  };
+  module.exports = new Proxy(stub, {
+    get: function(target, prop) {
+      if (typeof prop !== 'string') return undefined;
+      if (prop in target) return target[prop];
+      // 未列出的方法：按命名猜一个安全的默认值，绝不抛错
+      return function() {
+        if (/^get/.test(prop)) {
+          if (/Count|Seq|Size|Length/.test(prop)) return 0;
+          if (/Users|Peers|List|Items/.test(prop)) return [];
+          if (/Enabled|Disabled/.test(prop)) return false;
+          return null;
+        }
+        return undefined;
+      };
+    }
+  });
+  console.log('[WebSocket] 镜像实例（app-https）：跳过 WS/Relay 监听与 mesh 连接，席位归 9001 主实例');
+  return;
+}
+
 var WebSocket = require('ws');
 var crypto = require('crypto');
 var db = require('../utils/db');

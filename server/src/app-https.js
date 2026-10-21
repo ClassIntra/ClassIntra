@@ -1,3 +1,17 @@
+// ============================================================================
+// 本进程的角色：9001 主实例的 **TLS 镜像**。
+//
+// 它复用同一份 express 应用、同一个 SQLite 库，只为 https://<局域网IP> 提供服务。
+// 因此凡「全局只能有一个」的东西都不该在这里启动，具体见下面三处：
+//   1. WS(10001) / Relay(10011) / mesh 席位 —— 归主实例（ws/chat-server.js 顶部早退）
+//   2. 天气提醒定时调度 —— 归主实例，否则同一个提醒会发两遍
+//   3. AstrBot relay 长连接 —— 由 routes 侧按需加载，见 relay-bus 的单实例判定
+//
+// ⚠️ 这个赋值必须在**任何 require 之前**：ws/chat-server.js 是被
+// routes/admin.js 间接拉起的，晚一步设置就来不及了。
+// ============================================================================
+process.env.WS_MIRROR_MODE = 'true';
+
 var crashLogger = require('./utils/crash-logger');
 crashLogger.installCrashHandlers();
 
@@ -228,7 +242,13 @@ app.use(function(err, req, res, next) {
   res.status(status).json({ code: status, message: message });
 });
 
-var server = https.createServer(sslOptions, app);
+// server 这里**不直接把 app 当 listener**，而是先过一层 /cluss 反代：
+//   · Cluss（9003）是 HTTP 服务，HTTPS 页面 iframe 它会被按混合内容拦掉；
+//   · Cluss 的对话/批改/写作全是 SSE 长连接，必须绕过 express 的 compression
+//     才不会攒帧，所以也不能用 app.use 挂在中间件链里。
+// 命中 /cluss 的请求走反代，其余一律交给 express（行为与改动前完全一致）。
+var server = https.createServer(sslOptions);
+require('./routes/cluss-proxy').mount(server, app);
 
 var portRetries = 0;
 var MAX_PORT_RETRIES = 10;
@@ -366,4 +386,10 @@ function startWeatherAlertScheduler() {
   }, 60000);
 }
 
-startWeatherAlertScheduler();
+// 天气调度同样只由主实例跑：镜像实例也开会让同一个提醒发两遍
+// （两个进程各自查一遍 weather_alert_settings、各自发一遍通知）。
+if (process.env.WS_MIRROR_MODE !== 'true') {
+  startWeatherAlertScheduler();
+} else {
+  console.log('[WeatherAlert] 镜像实例（app-https）：天气调度由 9001 主实例负责，本实例跳过');
+}

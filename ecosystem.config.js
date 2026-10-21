@@ -102,6 +102,55 @@ module.exports = {
       }
     },
     {
+      // HTTPS 站点（https://<局域网IP>，默认 443）。
+      //
+      // 为什么单独一个 app 而不是让 app.js 同时监听两个端口：
+      //   app-https.js 与 app.js 是两份入口（证书、helmet、压缩策略都不同），
+      //   历史上 HTTPS 一直是「手动 node src/app-https.js」起在某个 cmd 窗口里。
+      //   那种活法有三个后果：机器重启后不回来、崩了没人拉、改了代码不生效
+      //   （旧进程还攥着旧代码）—— 而 Cluss 应用在 HTTPS 下的同源反代
+      //   （/cluss-app → 127.0.0.1:9003）恰恰需要它重启才能加载。
+      //   纳入 PM2 后开机 resurrect 一并恢复，与 classintra-server 同规格。
+      //
+      // env 里**只列 HTTPS_PORT**，其余一律不列：dotenv 会读 server/.env，
+      //   而 PM2 的 env 会先写进 process.env、反过来盖住 .env 的同名键
+      //   （dotenv 不覆盖已存在的值）。多列一个键就多一个「改了 .env 不生效」
+      //   的坑，这是 ClassIntra 自己踩过的（见 Cluss ecosystem.config.js 的长注释）。
+      name: 'classintra-https',
+      script: 'src/app-https.js',
+      cwd: serverDir,
+      exec_mode: 'fork',
+      exec_interpreter: nodeInterpreter,    // 钉死系统 Node（见上方 NODE_BIN 说明）
+      autorestart: true,
+      max_restarts: 20,
+      restart_delay: 8000,
+      exp_backoff_restart_delay: 100,
+      watch: false,
+      max_memory_restart: '1G',
+      node_args: '--max-old-space-size=768',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss',
+      error_file: path.join(__dirname, 'logs', 'https-error.log'),
+      out_file: path.join(__dirname, 'logs', 'https-out.log'),
+      merge_logs: true,
+      min_uptime: '30s',
+      listen_timeout: 30000,
+      kill_timeout: 10000,
+      env: {
+        NODE_ENV: 'production',
+        NODE_PATH: path.join(serverDir, 'node_modules'),
+        HTTPS_PORT: envVars.HTTPS_PORT || '443',
+        // 本实例是 9001 的 TLS 镜像：WS/Relay/mesh 席位/天气调度全部归主实例。
+        // app-https.js 顶部也会硬设一次，这里写出来是让「读配置的人」一眼能看到，
+        // 不必去翻代码才知道这个进程不持有那些东西。
+        WS_MIRROR_MODE: 'true',
+        // 网页代理的 9102 同样只能有一个所有者：镜像实例抢了它，
+        // 主实例（真正要用的那个）反而 EADDRINUSE 起不来，功能就坏了。
+        WEB_PROXY_AUTOSTART: '0',
+        // 外部工具（WorkBuddy 等）会经 NODE_OPTIONS 注入垫片，清空防污染
+        NODE_OPTIONS: ''
+      }
+    },
+    {
       name: 'tunnel-gateway',
       script: 'src/tunnel-gateway.js',
       cwd: serverDir,
@@ -118,7 +167,7 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         NODE_PATH: path.join(serverDir, 'node_modules'),
-        TUNNEL_GATEWAY_PORT: '9002',
+        TUNNEL_GATEWAY_PORT: '10111',
         UPSTREAM_PORT: envVars.PORT || '9001'
       }
     },
