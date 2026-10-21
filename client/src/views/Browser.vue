@@ -37,8 +37,8 @@
           <i class="fa-solid fa-xmark"></i>
         </button>
       </div>
-      <button v-if="!hideAddressBar" class="capsule-btn browser-go-btn" @click="navigateTo(urlText)" :disabled="!urlText.trim()" title="转到">
-        <i class="fa-solid fa-arrow-right"></i>
+      <button v-if="!hideAddressBar" class="capsule-btn browser-go-btn" @click="onCompatGo" :disabled="!urlText.trim()" :title="compatReloadMode ? '刷新' : '转到'">
+        <i :class="compatReloadMode ? 'fa-solid fa-rotate-right' : 'fa-solid fa-arrow-right'"></i>
       </button>
       <button v-if="!hideAddressBar" class="icon-btn browser-btn browser-bookmark-btn" :class="{ bookmarked: isBookmarked }" @click="toggleBookmark" title="收藏" aria-label="收藏">
         <i :class="isBookmarked ? 'fa-solid fa-star' : 'fa-regular fa-star'"></i>
@@ -388,6 +388,9 @@ export default {
       compatViewW: 0,
       compatViewH: 0,
       compatTouch: false,
+      // 兼容模式页面自身的历史状态：决定顶部返回是「页内后退」还是「退出浏览」
+      compatCanBack: false,
+      compatCanForward: false,
       // 移动端文字输入条：画面流无法唤起系统键盘，需要这个中转输入框
       compatKeyboardOpen: false,
       compatText: '',
@@ -406,10 +409,20 @@ export default {
       return !!(this.$route && this.$route.query && this.$route.query.noaddr === '1');
     },
     // 当前页面是否经网页代理转发（frameSrc 与原始 URL 不同即已改走代理）
+    // 兼容模式下页面由服务端浏览器渲染，不走代理改写，因此不显示「加速」标识
     isProxied: function() {
       var self = this;
+      if (self.compatMode) return false;
       if (!self.currentUrl || self.frameSrc === self.currentUrl) return false;
       return shouldProxyUrl(self.currentUrl);
+    },
+    // 兼容模式下地址栏地址未变化时，「转到」按钮转为「刷新」，避免额外占用工具栏
+    compatReloadMode: function() {
+      if (!this.compatMode) return false;
+      var text = (this.urlText || '').trim();
+      if (!text) return false;
+      if (!/^https?:\/\//i.test(text)) text = 'https://' + text;
+      return text === this.currentUrl;
     },
     // 当前页面主机名（加载提示用）
     currentHost: function() {
@@ -608,16 +621,25 @@ export default {
            raw = embeddedUrl.toString();
          }
        } catch (e) {}
-      // 兼容模式下的导航：留在同一条渲染会话里跳转，避免切回 iframe
+      // 兼容模式下的导航：复用同一条渲染会话跳转，保留页内历史，比重新建会话快
       if (self.compatMode) {
+        var same = raw === self.currentUrl;
         self.currentUrl = raw;
         self.urlText = raw;
-        self.addHistory(raw);
-        self.disconnectCompat();
-        self.startLoading();
-        self.$nextTick(function() {
-          self.connectCompat(raw);
-        });
+        if (!same) self.addHistory(raw);
+        self.compatError = '';
+        if (same) {
+          self.reloadCompat();
+        } else if (self._compatWs && self._compatWs.readyState === 1) {
+          self._compatFrameShown = false;
+          self.startLoading();
+          self.sendCompatInput({ type: 'navigate', url: raw });
+        } else {
+          self.startLoading();
+          self.$nextTick(function() {
+            self.connectCompat(raw);
+          });
+        }
         return;
       }
       // 外网站点改走网页代理（插件就绪时）；内网 / CampusBili / 已是代理地址均直连
@@ -658,6 +680,28 @@ export default {
       var url = this.currentUrl;
       if (url) this.frameSrc = shouldProxyUrl(url) ? buildProxyUrl(url) : url;
     },
+    // 地址栏按钮：兼容模式下地址未变即刷新，否则按新地址跳转
+    onCompatGo: function() {
+      if (this.compatMode && this.compatReloadMode) {
+        this.reloadCompat();
+        return;
+      }
+      this.navigateTo(this.urlText);
+    },
+    // 兼容模式刷新：保留会话与页内历史；通道已断开时重新建会话
+    reloadCompat: function() {
+      var self = this;
+      if (!self._compatWs || self._compatWs.readyState !== 1) {
+        self.startLoading();
+        self.$nextTick(function() {
+          self.connectCompat(self.currentUrl);
+        });
+        return;
+      }
+      self._compatFrameShown = false;
+      self.startLoading();
+      self.sendCompatInput({ type: 'reload' });
+    },
     // 建立渲染通道；失败只影响兼容模式，不影响普通浏览
     connectCompat: function(url) {
       var self = this;
@@ -672,6 +716,8 @@ export default {
       self._compatFrameShown = false;
       self.compatKeyboardOpen = false;
       self.compatText = '';
+      self.compatCanBack = false;
+      self.compatCanForward = false;
       // 视口按当前可用区域下发：移动端用窄视口 + 触摸仿真 + 移动 UA，
       // 否则服务端仍按 1280×800 桌面视口渲染，手机上只能看到缩小后的桌面版。
       var box = self.$refs.browserContent;
@@ -710,9 +756,48 @@ export default {
       this._compatWs = null;
       this._compatBusy = false;
       this._compatPending = null;
+      this.compatCanBack = false;
+      this.compatCanForward = false;
+      this.teardownCompatResize();
       if (ws) {
         try { ws.close(); } catch (e) {}
       }
+    },
+    // ===== 视口自适应：容器尺寸变化（手机旋转 / 窗口缩放）时同步无头浏览器 =====
+    setupCompatResize: function() {
+      var self = this;
+      self.teardownCompatResize();
+      if (typeof ResizeObserver === 'undefined') return;
+      var box = self.$refs.browserContent;
+      if (!box) return;
+      self._compatResizeObs = new ResizeObserver(function() {
+        clearTimeout(self._compatResizeTimer);
+        // 旋转/拖拽会产生连续回调，防抖后再下发，避免频繁重开 screencast
+        self._compatResizeTimer = setTimeout(function() {
+          self.syncCompatSize();
+        }, 260);
+      });
+      self._compatResizeObs.observe(box);
+    },
+    teardownCompatResize: function() {
+      clearTimeout(this._compatResizeTimer);
+      this._compatResizeTimer = null;
+      if (this._compatResizeObs) {
+        try { this._compatResizeObs.disconnect(); } catch (e) {}
+        this._compatResizeObs = null;
+      }
+    },
+    // 只在尺寸真正变化时下发，避免无意义的视口重设与帧流重启
+    syncCompatSize: function() {
+      var self = this;
+      if (!self.compatMode) return;
+      var box = self.$refs.browserContent;
+      var rect = box ? box.getBoundingClientRect() : null;
+      if (!rect || !rect.width || !rect.height) return;
+      var w = Math.round(rect.width);
+      var h = Math.round(rect.height);
+      if (Math.abs(w - self.compatViewW) < 2 && Math.abs(h - self.compatViewH) < 2) return;
+      self.sendCompatInput({ type: 'resize', width: w, height: h });
     },
     onCompatMessage: function(ev) {
       var self = this;
@@ -723,6 +808,26 @@ export default {
         self.compatViewW = Number(msg.width) || 0;
         self.compatViewH = Number(msg.height) || 0;
         self.compatTouch = !!msg.touch;
+        // 通道就绪后再挂视口监听：此时容器尺寸才是最终可用区域
+        self.setupCompatResize();
+        return;
+      }
+      if (msg.type === 'history') {
+        // 页面自身的导航历史：决定顶部返回是页内后退还是退出浏览
+        self.compatCanBack = !!msg.canBack;
+        self.compatCanForward = !!msg.canForward;
+        if (msg.title) self.pageTitle = msg.title;
+        return;
+      }
+      if (msg.type === 'title') {
+        // 兼容模式页面标题（分享到聊天/社区时带上）
+        if (msg.title) self.pageTitle = msg.title;
+        return;
+      }
+      if (msg.type === 'resized') {
+        // 服务端已按新视口重设画面，后续帧按新尺寸下发
+        self.compatViewW = Number(msg.width) || self.compatViewW;
+        self.compatViewH = Number(msg.height) || self.compatViewH;
         return;
       }
       if (msg.type === 'focus') {
@@ -986,11 +1091,18 @@ export default {
       this.activeTab = 'history';
     },
     goBack: function() {
-      if (this.currentUrl) {
-        this.stopBrowsing();
-      } else {
+      if (!this.currentUrl) {
         this.$router.push({ name: 'Desktop' }).catch(function() {});
+        return;
       }
+      // 兼容模式：页面自身还有历史时先页内后退，退到首站才退出浏览
+      if (this.compatMode && this.compatCanBack) {
+        this._compatFrameShown = false;
+        this.startLoading();
+        this.sendCompatInput({ type: 'back' });
+        return;
+      }
+      this.stopBrowsing();
     },
     saveHomepage: function() {
       var self = this;
