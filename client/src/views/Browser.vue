@@ -76,7 +76,7 @@
     </transition>
 
     <!-- 主内容区 -->
-    <div v-if="currentUrl" class="browser-content">
+    <div v-if="currentUrl" ref="browserContent" class="browser-content">
       <!-- 兼容模式：服务器端无头浏览器渲染的画面流（canvas 承载，输入回灌） -->
       <canvas
         v-if="compatMode"
@@ -88,6 +88,10 @@
         @mouseup="onCompatMouseUp"
         @wheel.prevent="onCompatWheel"
         @keydown="onCompatKeyDown"
+        @touchstart.prevent="onCompatTouchStart"
+        @touchmove.prevent="onCompatTouchMove"
+        @touchend.prevent="onCompatTouchEnd"
+        @touchcancel.prevent="onCompatTouchEnd"
       ></canvas>
       <!-- 正在浏览：iframe -->
       <iframe
@@ -105,6 +109,41 @@
         <span>{{ compatError }}</span>
         <button class="capsule-btn browser-compat-exit" @click="exitCompat">退出兼容模式</button>
       </div>
+      <!-- 移动端文字输入：画面流无法唤起系统键盘，用悬浮按钮 + 输入条代劳 -->
+      <template v-if="compatMode && compatTouch">
+        <button
+          v-if="!compatKeyboardOpen"
+          class="browser-compat-kbd-btn"
+          title="输入文字"
+          aria-label="输入文字"
+          @click="toggleCompatKeyboard"
+        >
+          <i class="fa-solid fa-keyboard"></i>
+        </button>
+        <div v-else class="browser-compat-inputbar">
+          <input
+            ref="compatTextInput"
+            v-model="compatText"
+            class="browser-compat-text"
+            type="text"
+            placeholder="输入后发送到网页…"
+            autocomplete="off"
+            autocapitalize="off"
+            autocorrect="off"
+            spellcheck="false"
+            @input="onCompatTextInput"
+            @keydown="onCompatTextKeydown"
+            @compositionstart="onCompatCompositionStart"
+            @compositionend="onCompatCompositionEnd"
+          />
+          <button class="browser-compat-kbd-send" title="发送" aria-label="发送" @click="onCompatTextSend">
+            <i class="fa-solid fa-arrow-up"></i>
+          </button>
+          <button class="browser-compat-kbd-close" title="收起" aria-label="收起键盘" @click="toggleCompatKeyboard">
+            <i class="fa-solid fa-keyboard"></i>
+          </button>
+        </div>
+      </template>
       <!-- 加载指示器：外网站点走代理转发，首次加载需要与目标站点建连，
           期间 iframe 为空白，这里给出进度反馈，避免被误认为「白屏卡死」 -->
       <div v-if="iframeLoading" class="browser-loading">
@@ -310,6 +349,14 @@ function saveToStorage(key, data) {
   } catch (e) {}
 }
 
+// 是否为触摸设备：决定兼容模式走触摸仿真（移动 UA + 窄视口）还是桌面鼠标键盘
+// 以「主指针是否为粗略指针」为准，避免带触屏的笔记本被误判成手机布局
+function isTouchDevice() {
+  if (typeof window === 'undefined') return false;
+  if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) return true;
+  return ('ontouchstart' in window) || (navigator.maxTouchPoints || 0) > 0;
+}
+
 export default {
   name: 'Browser',
   data: function() {
@@ -337,6 +384,13 @@ export default {
       // 兼容模式：服务器端无头浏览器渲染（canvas 画面流 + 输入回灌）
       compatMode: false,
       compatError: '',
+      // 兼容模式视口（CSS 像素）与触摸能力，由服务端 ready 消息下发
+      compatViewW: 0,
+      compatViewH: 0,
+      compatTouch: false,
+      // 移动端文字输入条：画面流无法唤起系统键盘，需要这个中转输入框
+      compatKeyboardOpen: false,
+      compatText: '',
       // 移动端边缘滑动手势状态（左边缘右滑返回）
       swipeState: null
     };
@@ -615,7 +669,19 @@ export default {
       }
       self.disconnectCompat();
       self.compatError = '';
-      var wsUrl = 'ws://' + location.hostname + ':' + info.port + '/__render__?url=' + encodeURIComponent(url);
+      self._compatFrameShown = false;
+      self.compatKeyboardOpen = false;
+      self.compatText = '';
+      // 视口按当前可用区域下发：移动端用窄视口 + 触摸仿真 + 移动 UA，
+      // 否则服务端仍按 1280×800 桌面视口渲染，手机上只能看到缩小后的桌面版。
+      var box = self.$refs.browserContent;
+      var rect = box ? box.getBoundingClientRect() : null;
+      var w = Math.round(rect && rect.width ? rect.width : window.innerWidth);
+      var h = Math.round(rect && rect.height ? rect.height : window.innerHeight);
+      var dpr = Math.min(window.devicePixelRatio || 1, 2);
+      var touch = isTouchDevice();
+      var wsUrl = 'ws://' + location.hostname + ':' + info.port + '/__render__?url=' + encodeURIComponent(url)
+        + '&w=' + w + '&h=' + h + '&dpr=' + dpr + '&touch=' + (touch ? '1' : '0');
       var ws;
       try {
         ws = new WebSocket(wsUrl);
@@ -649,8 +715,26 @@ export default {
       }
     },
     onCompatMessage: function(ev) {
+      var self = this;
       var msg;
       try { msg = JSON.parse(ev.data); } catch (e) { return; }
+      if (msg.type === 'ready') {
+        // 服务端确认的视口尺寸（CSS 像素）与触摸能力：坐标换算与键盘按钮都依赖它
+        self.compatViewW = Number(msg.width) || 0;
+        self.compatViewH = Number(msg.height) || 0;
+        self.compatTouch = !!msg.touch;
+        return;
+      }
+      if (msg.type === 'focus') {
+        // 页面内输入框获得焦点：移动端没有系统键盘可唤起，自动展开输入条
+        if (msg.input && self.compatTouch) {
+          self.compatKeyboardOpen = true;
+          self.$nextTick(function() {
+            if (self.$refs.compatTextInput) self.$refs.compatTextInput.focus();
+          });
+        }
+        return;
+      }
       if (msg.type === 'frame') {
         this.drawCompatFrame(msg);
         return;
@@ -690,10 +774,19 @@ export default {
       var img = new Image();
       img.onload = function() {
         try {
-          if (canvas.width !== msg.width) canvas.width = msg.width;
-          if (canvas.height !== msg.height) canvas.height = msg.height;
+          // 画布尺寸按图片真实像素设置（含 dpr），坐标换算另用 viewWidth/viewHeight
+          var cw = img.naturalWidth || msg.width;
+          var ch = img.naturalHeight || msg.height;
+          if (canvas.width !== cw) canvas.width = cw;
+          if (canvas.height !== ch) canvas.height = ch;
           canvas.getContext('2d').drawImage(img, 0, 0);
         } catch (e) {}
+        // 收到首帧即视为「已经能看了」：收起加载遮罩，否则页面迟迟不触发 load
+        // 时会一直盖在画布上，导致触摸和点击全部被遮罩吞掉。
+        if (!self._compatFrameShown) {
+          self._compatFrameShown = true;
+          self.stopLoading();
+        }
         self._compatBusy = false;
         if (self._compatPending) {
           var next = self._compatPending;
@@ -709,24 +802,29 @@ export default {
       if (!ws || ws.readyState !== 1) return;
       try { ws.send(JSON.stringify(msg)); } catch (e) {}
     },
-    // 把画布内的 CSS 坐标换算成无头浏览器的视口坐标（1280×800）
-    // 画布以 object-fit: contain 居中缩放，两侧/上下可能有留白，需要按实际绘制区域换算
-    compatPoint: function(e) {
+    // 把画布内的 CSS 坐标换算成无头浏览器的视口坐标（CSS 像素）
+    // 画布以 object-fit: contain 居中缩放，两侧/上下可能有留白，需要按实际绘制区域换算。
+    // 注意：canvas.width/height 是物理像素（含 dpr），Input.* 需要 CSS 像素，
+    // 所以必须用服务端下发的 viewWidth/viewHeight 换算，否则高 dpr 下坐标会偏移一倍。
+    compatPointFromClient: function(clientX, clientY) {
       var canvas = this.$refs.compatCanvas;
       if (!canvas) return { x: 0, y: 0 };
       var rect = canvas.getBoundingClientRect();
-      var vw = canvas.width || 1280;
-      var vh = canvas.height || 800;
+      var vw = this.compatViewW || 1280;
+      var vh = this.compatViewH || 800;
       var scale = Math.min(rect.width / vw, rect.height / vh);
       if (!scale || scale <= 0) return { x: 0, y: 0 };
       var offsetX = (rect.width - vw * scale) / 2;
       var offsetY = (rect.height - vh * scale) / 2;
-      var x = (e.clientX - rect.left - offsetX) / scale;
-      var y = (e.clientY - rect.top - offsetY) / scale;
+      var x = (clientX - rect.left - offsetX) / scale;
+      var y = (clientY - rect.top - offsetY) / scale;
       return {
         x: Math.round(Math.max(0, Math.min(vw - 1, x))),
         y: Math.round(Math.max(0, Math.min(vh - 1, y)))
       };
+    },
+    compatPoint: function(e) {
+      return this.compatPointFromClient(e.clientX, e.clientY);
     },
     onCompatMouseMove: function(e) {
       var p = this.compatPoint(e);
@@ -745,6 +843,86 @@ export default {
     onCompatWheel: function(e) {
       var p = this.compatPoint(e);
       this.sendCompatInput({ type: 'wheel', x: p.x, y: p.y, deltaX: e.deltaX || 0, deltaY: e.deltaY || 0 });
+    },
+    // ===== 触摸：转发为 CDP 触摸序列，页面才会响应点击、原生滚动与惯性 =====
+    // 单指手势足够覆盖浏览场景；多指（缩放）暂不转发，避免与页面手势冲突。
+    onCompatTouchStart: function(e) {
+      if (!e.touches || !e.touches.length) return;
+      // 点画面即收起输入条，避免系统键盘一直占着半屏
+      if (this.compatKeyboardOpen) this.compatKeyboardOpen = false;
+      var t = e.touches[0];
+      var p = this.compatPointFromClient(t.clientX, t.clientY);
+      this._compatTouch = { lastX: p.x, lastY: p.y };
+      this.sendCompatInput({ type: 'touch', event: 'start', points: [{ x: p.x, y: p.y, id: 1 }] });
+    },
+    onCompatTouchMove: function(e) {
+      var st = this._compatTouch;
+      if (!st || !e.touches || !e.touches.length) return;
+      var t = e.touches[0];
+      var p = this.compatPointFromClient(t.clientX, t.clientY);
+      // 位移过小时不转发：既过滤手指抖动（否则轻点会被页面当成拖动），
+      // 也减少无效帧造成的带宽浪费。
+      if (Math.abs(p.x - st.lastX) < 2 && Math.abs(p.y - st.lastY) < 2) return;
+      st.lastX = p.x;
+      st.lastY = p.y;
+      this.sendCompatInput({ type: 'touch', event: 'move', points: [{ x: p.x, y: p.y, id: 1 }] });
+    },
+    onCompatTouchEnd: function(e) {
+      if (!this._compatTouch) return;
+      this._compatTouch = null;
+      // 结束帧必须带空 points：CDP 以此判定触摸序列结束并触发 click
+      this.sendCompatInput({ type: 'touch', event: 'end', points: [] });
+    },
+    // ===== 移动端文字输入：把输入条里的内容插入无头浏览器的焦点元素 =====
+    toggleCompatKeyboard: function() {
+      var self = this;
+      self.compatKeyboardOpen = !self.compatKeyboardOpen;
+      if (self.compatKeyboardOpen) {
+        self.$nextTick(function() {
+          if (self.$refs.compatTextInput) self.$refs.compatTextInput.focus();
+        });
+      }
+    },
+    onCompatTextInput: function(e) {
+      // 输入法组合期间不转发，等 compositionend 一次性发送最终文本
+      if (this._compatComposing) return;
+      var value = e && e.target ? e.target.value : this.compatText;
+      this.flushCompatText(value);
+    },
+    onCompatCompositionStart: function() {
+      this._compatComposing = true;
+    },
+    onCompatCompositionEnd: function(e) {
+      this._compatComposing = false;
+      var value = e && e.target ? e.target.value : this.compatText;
+      this.flushCompatText(value);
+    },
+    flushCompatText: function(value) {
+      var text = typeof value === 'string' ? value : this.compatText;
+      if (!text) return;
+      this.compatText = '';
+      this.sendCompatInput({ type: 'text', text: text });
+    },
+    onCompatTextSend: function() {
+      if (this.compatText) {
+        var text = this.compatText;
+        this.compatText = '';
+        this.sendCompatInput({ type: 'text', text: text });
+      }
+      this.sendCompatInput({ type: 'key', key: 'Enter', event: 'down' });
+    },
+    onCompatTextKeydown: function(e) {
+      if (this._compatComposing || e.isComposing) return;
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        this.onCompatTextSend();
+        return;
+      }
+      // 输入框已空时的退格才转发给页面（有内容时由输入框自己删）
+      if (e.key === 'Backspace' && !this.compatText) {
+        e.preventDefault();
+        this.sendCompatInput({ type: 'key', key: 'Backspace', event: 'down' });
+      }
     },
     // 键盘：功能键走 key 事件，可打印字符走 insertText（避免输入法与组合键问题）
     onCompatKeyDown: function(e) {
@@ -861,6 +1039,10 @@ export default {
     // 仅在边缘 24px 内起始才捕获，避免干扰 iframe 内部正常滚动
     onSwipeStart: function(e) {
       if (!e.touches || !e.touches.length) return;
+      // 兼容模式画布内的滑动属于网页自身滚动，不参与「边缘右滑返回」
+      // （iframe 会拦下触摸事件，canvas 不会冒泡到这里，必须显式过滤）
+      var target = e.target;
+      if (target && target.classList && target.classList.contains('browser-compat-canvas')) return;
       var t = e.touches[0];
       var startX = t.clientX;
       var startY = t.clientY;
@@ -1087,6 +1269,10 @@ export default {
   background: #fff;
   outline: none;
   cursor: default;
+  /* 触摸事件全部由 JS 转发给服务端（含滚动），禁用浏览器默认手势避免双重滚动/缩放 */
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 /* 兼容模式异常提示：底部悬浮条，避免整页被错误态占满 */
 .browser-compat-error {
@@ -1112,6 +1298,71 @@ export default {
 }
 .browser-compat-exit {
   flex-shrink: 0;
+}
+/* 移动端键盘按钮：画面流无法唤起系统键盘，点此展开中转输入条 */
+.browser-compat-kbd-btn {
+  position: absolute;
+  right: 14px;
+  bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  z-index: 3;
+  width: 42px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16);
+  font-size: 16px;
+}
+.browser-compat-kbd-btn:active {
+  transform: scale(0.94);
+}
+/* 移动端输入条：输入内容通过 CDP 插入页面焦点元素 */
+.browser-compat-inputbar {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 22px;
+  background: var(--card-bg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+.browser-compat-text {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+.browser-compat-kbd-send,
+.browser-compat-kbd-close {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: var(--primary-light);
+  color: var(--primary-color);
+  font-size: 13px;
+}
+.browser-compat-kbd-close {
+  background: var(--bg-color);
+  color: var(--text-tertiary);
 }
 
 /* ========== 加载指示器（覆盖在 iframe 之上，避免加载期白屏无反馈） ========== */
