@@ -8,6 +8,7 @@ var auth = require('../middleware/auth');
 var time = require('../utils/time');
 var constants = require('../utils/constants');
 var marketService = require('../core/market-service');
+var manifestLoader = require('../core/manifest-loader');
 
 // 获取管理员的班级号（班管返回CC，班干也返回对应班级）
 function getUserAdminClass(userId) {
@@ -2015,25 +2016,74 @@ router.post('/weather-alert/broadcast', function(req, res) {
 // ===== 应用管控 =====
 // 管理员/班干控制每个桌面应用的启用与禁用，禁用的应用不在用户桌面显示
 
-// 桌面应用元数据（与前端 Desktop.vue dockApps 保持一致）
-// protectedApps: 系统级应用，禁止通过应用管控禁用（settings 永远可用；admin 仅管理员/班干可见）
-var DESKTOP_APPS = [
-  { name: 'chat', label: '聊天', icon: 'fa-solid fa-comments', color: '#007AFF' },
-  { name: 'community', label: '社区', icon: 'fa-solid fa-people-group', color: '#FF9500' },
-  { name: 'ai-chat', label: 'AI', icon: 'fa-solid fa-robot', color: '#AF52DE' },
-  { name: 'notes', label: '笔记', icon: 'fa-solid fa-note-sticky', color: '#FFCC00' },
-  { name: 'resource', label: '资源', icon: 'fa-solid fa-folder', color: '#5856D6' },
-  { name: 'weather', label: '天气', icon: 'fa-solid fa-cloud-sun-rain', color: '#5AC8FA' },
-  { name: 'music', label: '音乐', icon: 'fa-solid fa-music', color: '#FF2D55' },
-  { name: 'settings', label: '设置', icon: 'fa-solid fa-gear', color: '#8E8E93', protected: true },
-  { name: 'timetable', label: '课程表', icon: 'fa-solid fa-table-list', color: '#FF3B30' },
-  { name: 'calendar', label: '日历', icon: 'fa-solid fa-calendar-days', color: '#FF3B30' },
-  { name: 'countdown', label: '倒数日', icon: 'fa-solid fa-hourglass-half', color: '#FF9500' },
-  // admin: 管控中心，仅管理员/班干可见（前端通过 visibleRoles 过滤），后端管控禁止禁用
-  { name: 'admin', label: '管控中心', icon: 'fa-solid fa-shield-halved', color: '#FF3B30', protected: true },
-  { name: 'calculator', label: '计算器', icon: 'fa-solid fa-calculator', color: '#5856D6' }
+// 桌面应用元数据
+//
+// **名单必须动态生成**。桌面上的图标来自前端 core/app-registry.js 扫描
+// apps/*/manifest.json；这里过去是一份手抄的常量数组。两份名单一旦漂移，
+// 症状就是「桌面能看到图标、管控面板里却没有它 —— 查不到也管不了」。
+// Cluss 和「应用市场」正是掉在这个缝里：manifest 里有，名单里抄漏了。
+// 现在名单与「能否禁用」都回到 manifest 这一份唯一的真相源。
+//
+// 仍然手写的只有展示用的图标/配色，原因：manifest 的 icon 是**图片路径**
+// （给桌面显示真图标用），而管控面板渲染的是 Font Awesome 类名
+// （<i :class="app.icon">）。两套图标体系并存是有意的，所以新增应用时
+// 这里可以不登记 —— 会拿一个通用灰方块图标，不好看而已，不妨碍管控。
+
+var APP_CONTROL_META = {
+  chat:       { icon: 'fa-solid fa-comments', color: '#007AFF' },
+  community:  { icon: 'fa-solid fa-people-group', color: '#FF9500' },
+  'ai-chat':  { icon: 'fa-solid fa-robot', color: '#AF52DE' },
+  notes:      { icon: 'fa-solid fa-note-sticky', color: '#FFCC00' },
+  resource:   { icon: 'fa-solid fa-folder', color: '#5856D6' },
+  weather:    { icon: 'fa-solid fa-cloud-sun-rain', color: '#5AC8FA' },
+  music:      { icon: 'fa-solid fa-music', color: '#FF2D55' },
+  settings:   { icon: 'fa-solid fa-gear', color: '#8E8E93' },
+  timetable:  { icon: 'fa-solid fa-table-list', color: '#FF3B30' },
+  calendar:   { icon: 'fa-solid fa-calendar-days', color: '#FF3B30' },
+  countdown:  { icon: 'fa-solid fa-hourglass-half', color: '#FF9500' },
+  admin:      { icon: 'fa-solid fa-shield-halved', color: '#FF3B30' },
+  calculator: { icon: 'fa-solid fa-calculator', color: '#5856D6' },
+  cluss:      { icon: 'fa-solid fa-graduation-cap', color: '#2F6BDD' },
+  market:     { icon: 'fa-solid fa-store', color: '#5856D6' }
   // 超能岛浏览器不通过应用管控管理，改为 per-user browser_enabled（Admin → 用户列表 → 编辑用户）
-];
+};
+
+// 新应用忘了登记 meta 时的兜底：不报错，只是图标是个灰方块
+var APP_META_FALLBACK = { icon: 'fa-solid fa-cube', color: '#8E8E93' };
+
+function loadDesktopApps() {
+  try {
+    return manifestLoader.loadManifests()
+      .filter(function(m) {
+        return m._sourceType === 'app' && (m.category || 'desktop') === 'desktop';
+      })
+      .sort(function(a, b) { return (a.order || 99) - (b.order || 99); })
+      .map(function(m) {
+        var meta = APP_CONTROL_META[m.name] || APP_META_FALLBACK;
+        return {
+          name: m.name,
+          label: m.label || m.name,
+          icon: meta.icon,
+          color: m.color || meta.color,
+          // 「不可禁用」同样回到 manifest 的 canDisable：
+          // settings / admin / market 都写了 false，此前语义又被抄了一份到 protected
+          protected: m.canDisable === false
+        };
+      });
+  } catch (e) {
+    console.error('[Admin] 读取应用 manifest 失败，应用管控退回静态名单:', e.message);
+    return Object.keys(APP_CONTROL_META).map(function(name) {
+      return {
+        name: name, label: name,
+        icon: APP_CONTROL_META[name].icon,
+        color: APP_CONTROL_META[name].color,
+        protected: false
+      };
+    });
+  }
+}
+
+var DESKTOP_APPS = loadDesktopApps();
 
 // GET /api/admin/app-control - 获取所有应用及启用状态
 router.get('/app-control', auth.requirePermission('manage_app_control'), function(req, res) {
