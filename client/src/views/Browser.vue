@@ -51,6 +51,11 @@
       <button v-if="compatCapable" class="icon-btn browser-btn browser-compat-btn" :class="{ active: compatMode }" @click="toggleCompat" :title="compatMode ? '退出兼容模式' : '兼容模式（真实浏览器渲染，适合被拦截的站点）'" :aria-label="compatMode ? '退出兼容模式' : '兼容模式'">
         <i class="fa-solid fa-shield-halved"></i>
       </button>
+      <!-- 兼容模式声音开关：默认关闭。开启后服务端采集页面声音（含 CDN 音源）经通道回传，
+           有声音时按钮会轻微脉动，便于确认「确实在出声」 -->
+      <button v-if="compatMode" class="icon-btn browser-btn browser-audio-btn" :class="{ active: compatAudio, pulsing: compatAudioActive }" :disabled="!compatAudioSupported" @click="toggleCompatAudio" :title="compatAudioSupported ? (compatAudio ? '关闭声音' : '开启声音') : '当前页面无法采集声音'" :aria-label="compatAudio ? '关闭声音' : '开启声音'" :aria-pressed="compatAudio ? 'true' : 'false'">
+        <i :class="compatAudio ? 'fa-solid fa-volume-high' : 'fa-solid fa-volume-xmark'"></i>
+      </button>
       <button class="icon-btn browser-btn" @click="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏'" :aria-label="isFullscreen ? '退出全屏' : '全屏'">
         <i :class="isFullscreen ? 'fa-solid fa-compress' : 'fa-solid fa-expand'"></i>
       </button>
@@ -394,6 +399,12 @@ export default {
       // 移动端文字输入条：画面流无法唤起系统键盘，需要这个中转输入框
       compatKeyboardOpen: false,
       compatText: '',
+      // 兼容模式声音：默认关闭，开启后服务端采集页面音频并经通道回传，前端用 Web Audio 直接播放
+      compatAudio: false,
+      // 是否真的在出流（收到音频分片后短暂置真，供按钮脉动反馈）
+      compatAudioActive: false,
+      // 服务端确认当前页面环境可用采集（false 时按钮禁用并给出提示）
+      compatAudioSupported: true,
       // 移动端边缘滑动手势状态（左边缘右滑返回）
       swipeState: null
     };
@@ -492,6 +503,11 @@ export default {
     clearInterval(this._tickTimer);
     // 关闭兼容模式渲染会话（否则服务端标签页会一直占用内存）
     this.disconnectCompat();
+    // 释放音频上下文（suspend 只是暂停，close 后才真正释放音频线程资源）
+    if (this._audioCtx) {
+      try { this._audioCtx.close(); } catch (e) {}
+      this._audioCtx = null;
+    }
     // 卸载桥接实例，移除 message 监听
     unmountBridge();
     // 卸载网页代理桥接（若存在）
@@ -674,6 +690,8 @@ export default {
     },
     exitCompat: function() {
       this.compatMode = false;
+      // 先通知服务端停止采集，再断开通道
+      this.stopCompatAudio();
       this.disconnectCompat();
       this.stopLoading();
       // 退出兼容模式后回到普通 iframe：按原规则重新计算 frameSrc
@@ -718,6 +736,10 @@ export default {
       self.compatText = '';
       self.compatCanBack = false;
       self.compatCanForward = false;
+      // 新会话从「音频关闭」开始（ready 后会按用户偏好重新申请开启）
+      self.compatAudioSupported = true;
+      self.compatAudioActive = false;
+      self._audioNext = 0;
       // 视口按当前可用区域下发：移动端用窄视口 + 触摸仿真 + 移动 UA，
       // 否则服务端仍按 1280×800 桌面视口渲染，手机上只能看到缩小后的桌面版。
       var box = self.$refs.browserContent;
@@ -758,6 +780,8 @@ export default {
       this._compatPending = null;
       this.compatCanBack = false;
       this.compatCanForward = false;
+      // 通道关闭后声音必然中断：停掉本地播放，但保留用户的开关偏好（重连时恢复）
+      this.haltCompatAudio();
       this.teardownCompatResize();
       if (ws) {
         try { ws.close(); } catch (e) {}
@@ -810,6 +834,11 @@ export default {
         self.compatTouch = !!msg.touch;
         // 通道就绪后再挂视口监听：此时容器尺寸才是最终可用区域
         self.setupCompatResize();
+        // 会话重建（刷新 / 重连）后恢复用户的声音偏好
+        if (self.compatAudio && self.compatAudioSupported) {
+          self._audioNext = 0;
+          self.sendCompatInput({ type: 'audio', enabled: true });
+        }
         return;
       }
       if (msg.type === 'history') {
@@ -828,6 +857,21 @@ export default {
         // 服务端已按新视口重设画面，后续帧按新尺寸下发
         self.compatViewW = Number(msg.width) || self.compatViewW;
         self.compatViewH = Number(msg.height) || self.compatViewH;
+        return;
+      }
+      if (msg.type === 'audio') {
+        self.enqueueCompatAudio(msg.data, Number(msg.rate) || 16000);
+        return;
+      }
+      if (msg.type === 'audio-state') {
+        // 服务端回执：页面环境无法采集时把按钮复位并禁用
+        if (msg.available === false) {
+          self.compatAudioSupported = false;
+          self.compatAudio = false;
+          self.haltCompatAudio();
+        } else {
+          self.compatAudioSupported = true;
+        }
         return;
       }
       if (msg.type === 'focus') {
@@ -859,10 +903,15 @@ export default {
       }
       if (msg.type === 'error') {
         this.compatError = msg.message || '兼容模式异常';
+        // 会话不可用时停止声音，避免按钮停留在「开启」状态却收不到数据
+        this.compatAudio = false;
+        this.haltCompatAudio();
         this.stopLoading();
         return;
       }
       if (msg.type === 'closed') {
+        this.compatAudio = false;
+        this.haltCompatAudio();
         this.stopLoading();
       }
     },
@@ -906,6 +955,73 @@ export default {
       var ws = this._compatWs;
       if (!ws || ws.readyState !== 1) return;
       try { ws.send(JSON.stringify(msg)); } catch (e) {}
+    },
+    // ===== 兼容模式声音：服务端采集 PCM 分片，前端按块排期播放 =====
+    toggleCompatAudio: function() {
+      var self = this;
+      if (!self.compatMode || !self.compatAudioSupported) return;
+      if (self.compatAudio) {
+        self.stopCompatAudio();
+        return;
+      }
+      // 点击本身就是合法用户手势：此时创建 / 恢复 AudioContext，后续声音不会被自动播放策略拦截
+      self.compatAudio = true;
+      try {
+        if (!self._audioCtx) {
+          var AC = window.AudioContext || window.webkitAudioContext;
+          if (AC) self._audioCtx = new AC();
+        }
+        if (self._audioCtx && self._audioCtx.state === 'suspended') self._audioCtx.resume();
+      } catch (e) {}
+      self._audioNext = 0;
+      self.sendCompatInput({ type: 'audio', enabled: true });
+    },
+    stopCompatAudio: function() {
+      this.compatAudio = false;
+      this.haltCompatAudio();
+      this.sendCompatInput({ type: 'audio', enabled: false });
+    },
+    // 只停播放（通道重建 / 退出时用），不改变用户的声音偏好
+    haltCompatAudio: function() {
+      this.compatAudioActive = false;
+      clearTimeout(this._audioPulseTimer);
+      this._audioNext = 0;
+      if (this._audioCtx) {
+        try { this._audioCtx.suspend(); } catch (e) {}
+      }
+    },
+    // PCM 分片（16 位小端单声道）→ AudioBuffer 排期播放；断档落后时直接对齐到当前时刻
+    enqueueCompatAudio: function(b64, rate) {
+      var self = this;
+      if (!self.compatAudio || !b64 || !self._audioCtx) return;
+      var ctx = self._audioCtx;
+      if (ctx.state === 'suspended') {
+        try { ctx.resume(); } catch (e) {}
+      }
+      var bin;
+      try { bin = atob(b64); } catch (e) { return; }
+      var n = bin.length >> 1;
+      if (!n) return;
+      var buf;
+      try { buf = ctx.createBuffer(1, n, rate || 16000); } catch (e) { return; }
+      var ch = buf.getChannelData(0);
+      for (var i = 0; i < n; i++) {
+        var v = (bin.charCodeAt(i * 2) | (bin.charCodeAt(i * 2 + 1) << 8)) << 16 >> 16;
+        ch[i] = v / 32768;
+      }
+      var src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(ctx.destination);
+      var now = ctx.currentTime;
+      // 缓冲区断档（页面静音 / 切后台 / 网络抖动）后重新对齐，避免声音越拖越晚
+      if (!self._audioNext || self._audioNext < now - 0.1 || self._audioNext > now + 1.2) {
+        self._audioNext = now + 0.06;
+      }
+      try { src.start(self._audioNext); } catch (e) { return; }
+      self._audioNext += buf.duration;
+      self.compatAudioActive = true;
+      clearTimeout(self._audioPulseTimer);
+      self._audioPulseTimer = setTimeout(function() { self.compatAudioActive = false; }, 600);
     },
     // 把画布内的 CSS 坐标换算成无头浏览器的视口坐标（CSS 像素）
     // 画布以 object-fit: contain 居中缩放，两侧/上下可能有留白，需要按实际绘制区域换算。
@@ -1256,8 +1372,28 @@ export default {
 .browser-compat-btn.active {
   color: var(--warning-color);
 }
-/* 窄屏下只保留闪电图标，避免工具栏拥挤 */
+/* 兼容模式声音按钮：开启为主色；有声音在播时轻微脉动，给「确实出声」的可见反馈 */
+.browser-audio-btn {
+  color: var(--text-tertiary);
+}
+.browser-audio-btn.active {
+  color: var(--primary-color);
+}
+.browser-audio-btn.pulsing {
+  animation: browser-audio-pulse 0.6s ease-out;
+}
+.browser-audio-btn:disabled {
+  opacity: 0.4;
+}
+@keyframes browser-audio-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(var(--primary-rgb, 0, 122, 255), 0.32); }
+  100% { box-shadow: 0 0 0 9px rgba(var(--primary-rgb, 0, 122, 255), 0); }
+}
+/* 窄屏下只保留闪电图标并压缩按钮密度：兼容模式会多出声音按钮，
+   手机上地址栏可用宽度有限，不收紧间距会挤出可视区 */
 @media (max-width: 560px) {
+  .browser-toolbar { gap: 4px; padding-left: 8px; padding-right: 8px; }
+  .browser-btn { width: 32px; height: 32px; font-size: 14px; }
   .browser-proxy-chip { padding: 0 8px; }
   .browser-proxy-chip span { display: none; }
 }
@@ -1520,6 +1656,7 @@ export default {
 /* 减弱动效偏好下放慢旋转，避免眩晕 */
 @media (prefers-reduced-motion: reduce) {
   .browser-loading-spinner { animation-duration: 2.4s; }
+  .browser-audio-btn.pulsing { animation: none; }
 }
 
 /* ========== 首页 ========== */
