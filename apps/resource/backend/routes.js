@@ -42,11 +42,35 @@ function getHiddenFolders(req) {
   return hidden;
 }
 
+// ── 路径归一化（2026-10-22 修复「管控里移动 / 重命名报错」）──
+// 前端面包屑计算属性拼出来的路径是 '/videos/a.mp4'（带前导斜杠），而
+// path.resolve(ROOT, '/videos/a.mp4') 在 Windows 上等于 'D:\videos\a.mp4' ——
+// 直接跳到 Resources 之外，所有写操作都被 isPathSafe 判成 403「禁止访问」。
+// 现在所有入口统一归一化：剥前导 /、'\' 折成 '/'、丢掉空段与 '.'，
+// 出现 '..' 一律视为非法（返回 null）。
+function normalizeRelPath(userPath) {
+  if (userPath === undefined || userPath === null) return '';
+  var raw = String(userPath).replace(/\\/g, '/').replace(/^\/+/, '');
+  if (!raw) return '';
+  var parts = raw.split('/');
+  var out = [];
+  for (var i = 0; i < parts.length; i++) {
+    var seg = parts[i];
+    if (!seg || seg === '.') continue;
+    if (seg === '..') return null;
+    out.push(seg);
+  }
+  return out.join('/');
+}
+
 function isPathSafe(userPath) {
-  if (!userPath) return true;
-  var resolved = path.resolve(RESOURCES_DIR, userPath || '');
-  if (!resolved.startsWith(RESOURCES_DIR)) return false;
-  var basename = path.basename(userPath);
+  var rel = normalizeRelPath(userPath);
+  if (rel === null) return false;
+  var root = path.resolve(RESOURCES_DIR);
+  var resolved = path.resolve(root, rel);
+  // 必须落在 Resources 根内；用分隔符边界比较，避免 'Resources2/x' 这种同前缀旁路
+  if (resolved !== root && resolved.indexOf(root + path.sep) !== 0) return false;
+  var basename = path.basename(rel);
   if (basename !== basename.replace(/[\r\n"\\]/g, '')) return false;
   return true;
 }
@@ -60,7 +84,9 @@ function isNameSafe(name) {
 }
 
 function getFullPath(userPath) {
-  return path.resolve(RESOURCES_DIR, userPath || '');
+  var rel = normalizeRelPath(userPath);
+  if (rel === null) return path.resolve(RESOURCES_DIR);
+  return path.resolve(RESOURCES_DIR, rel);
 }
 
 function copyDirSync(src, dest) {
@@ -569,7 +595,9 @@ router.delete('/file', auth.requireAdmin, function(req, res) {
 
 router.patch('/rename', auth.requireAdmin, function(req, res) {
   var oldPath = req.body.old_path;
-  var newName = req.body.new_name;
+  // 去掉首尾空白：Windows 不允许文件名结尾带空格（会被静默裁掉），
+  // 前端 trim 过一道，后端再兜一道，避免「提示成功但名字没变」。
+  var newName = typeof req.body.new_name === 'string' ? req.body.new_name.trim() : '';
 
   if (!oldPath || !newName) {
     return res.status(400).json({ code: 400, message: '参数不完整' });
@@ -588,15 +616,45 @@ router.patch('/rename', auth.requireAdmin, function(req, res) {
   if (!fs.existsSync(oldFullPath)) {
     return res.status(404).json({ code: 404, message: '文件不存在' });
   }
+  // 改成同名 = 用户其实没改，按成功返回。此前报「目标名称已存在」，
+  // 用户会以为是故障（同一个输入、两种结果，语义上是 no-op）。
+  if (path.resolve(newFullPath) === path.resolve(oldFullPath)) {
+    return res.json({ code: 200, message: '名称未变化' });
+  }
   if (fs.existsSync(newFullPath)) {
-    return res.status(400).json({ code: 400, message: '目标名称已存在' });
+    var isDir = false;
+    try { isDir = fs.statSync(oldFullPath).isDirectory(); } catch (e) {}
+    return res.status(400).json({ code: 400, message: '目标名称已存在' + (isDir ? '同名文件夹' : '同名文件') });
   }
 
   try {
     fs.renameSync(oldFullPath, newFullPath);
     res.json({ code: 200, message: '重命名成功' });
   } catch (e) {
-    res.status(500).json({ code: 500, message: '重命名失败' });
+    // Windows 上文件被播放器/预览占用会抛 EPERM/EBUSY；跨盘会抛 EXDEV
+    // （Resources 一般同盘，但资源目录可外置到别的盘，必须兜住）。
+    if (e.code === 'EPERM' || e.code === 'EBUSY' || e.code === 'EXDEV') {
+      try {
+        if (fs.statSync(oldFullPath).isDirectory()) {
+          copyDirSync(oldFullPath, newFullPath);
+          rmDirSync(oldFullPath);
+        } else {
+          fs.copyFileSync(oldFullPath, newFullPath);
+          fs.unlinkSync(oldFullPath);
+        }
+        return res.json({ code: 200, message: '重命名成功' });
+      } catch (e2) {
+        if (e2.code === 'EPERM' || e2.code === 'EBUSY') {
+          return res.status(423).json({ code: 423, message: '文件正被占用（可能正在播放或预览），请关闭后重试' });
+        }
+        return res.status(500).json({ code: 500, message: '重命名失败：' + (e2.code || e2.message || '未知错误') });
+      }
+    }
+    if (e.code === 'EINVAL') {
+      return res.status(400).json({ code: 400, message: '目标名称不合法' });
+    }
+    console.error('[resource] rename failed:', e.code, e.message);
+    res.status(500).json({ code: 500, message: '重命名失败：' + (e.code || e.message || '未知错误') });
   }
 });
 
@@ -604,7 +662,10 @@ router.post('/move', auth.requireAdmin, function(req, res) {
   var sourcePaths = req.body.source_paths;
   var targetDir = req.body.target_dir;
 
-  if (!sourcePaths || !targetDir) {
+  // target_dir 允许空字符串 = 移回 Resources 根目录。
+  // 旧代码用 `if (!targetDir)` 判空，把「移到根目录」当成「参数不完整」直接 400，
+  // 于是用户一旦把文件挪进子文件夹就再也移不回来。
+  if (!Array.isArray(sourcePaths) || sourcePaths.length === 0 || typeof targetDir !== 'string') {
     return res.status(400).json({ code: 400, message: '参数不完整' });
   }
 
@@ -625,16 +686,27 @@ router.post('/move', auth.requireAdmin, function(req, res) {
 
     for (var j = 0; j < sourcePaths.length; j++) {
       var sourceFullPath = getFullPath(sourcePaths[j]);
-      var targetFullPath = path.join(targetDirFullPath, path.basename(sourcePaths[j]));
+      var targetFullPath = path.join(targetDirFullPath, path.basename(sourceFullPath));
 
-      if (sourceFullPath === targetFullPath) {
+      if (path.resolve(sourceFullPath) === path.resolve(targetFullPath)) {
         return res.status(400).json({ code: 400, message: '源路径和目标路径相同' });
       }
       if (!fs.existsSync(sourceFullPath)) {
-        return res.status(400).json({ code: 400, message: '源文件不存在: ' + path.basename(sourcePaths[j]) });
+        return res.status(400).json({ code: 400, message: '源文件不存在: ' + path.basename(sourceFullPath) });
+      }
+      // 文件夹不能移动到它自己或自己的子孙目录里（Windows 上会抛 EINVAL，看不出原因）
+      var srcResolved = path.resolve(sourceFullPath);
+      var dstDirResolved = path.resolve(targetDirFullPath);
+      try {
+        if (fs.statSync(sourceFullPath).isDirectory() &&
+            (dstDirResolved === srcResolved || dstDirResolved.indexOf(srcResolved + path.sep) === 0)) {
+          return res.status(400).json({ code: 400, message: '不能把文件夹移动到它自己里面: ' + path.basename(sourceFullPath) });
+        }
+      } catch (statErr) {
+        return res.status(400).json({ code: 400, message: '源文件无法读取: ' + path.basename(sourceFullPath) });
       }
       if (fs.existsSync(targetFullPath)) {
-        return res.status(400).json({ code: 400, message: '目标位置已存在: ' + path.basename(sourcePaths[j]) });
+        return res.status(400).json({ code: 400, message: '目标位置已存在: ' + path.basename(sourceFullPath) });
       }
 
       try {
@@ -655,7 +727,8 @@ router.post('/move', auth.requireAdmin, function(req, res) {
     }
     res.json({ code: 200, message: '移动成功' });
   } catch (e) {
-    res.status(500).json({ code: 500, message: '移动失败: ' + (e.message || '') });
+    console.error('[resource] move failed:', e.code, e.message);
+    res.status(500).json({ code: 500, message: '移动失败: ' + (e.message || e.code || '') });
   }
 });
 
@@ -663,7 +736,8 @@ router.post('/copy', auth.requireAdmin, function(req, res) {
   var sourcePaths = req.body.source_paths;
   var targetDir = req.body.target_dir;
 
-  if (!sourcePaths || !targetDir) {
+  // 同 move：target_dir 允许空字符串 = 复制到 Resources 根目录
+  if (!Array.isArray(sourcePaths) || sourcePaths.length === 0 || typeof targetDir !== 'string') {
     return res.status(400).json({ code: 400, message: '参数不完整' });
   }
 
@@ -674,14 +748,26 @@ router.post('/copy', auth.requireAdmin, function(req, res) {
   }
 
   try {
+    var copyTargetDirFull = getFullPath(targetDir);
+    if (!fs.existsSync(copyTargetDirFull) || !fs.statSync(copyTargetDirFull).isDirectory()) {
+      return res.status(400).json({ code: 400, message: '目标目录不存在' });
+    }
     for (var j = 0; j < sourcePaths.length; j++) {
       var sourceFullPath = getFullPath(sourcePaths[j]);
-      var targetFullPath = path.join(getFullPath(targetDir), path.basename(sourcePaths[j]));
+      if (!fs.existsSync(sourceFullPath)) {
+        return res.status(400).json({ code: 400, message: '源文件不存在: ' + path.basename(sourceFullPath) });
+      }
+      var targetFullPath = path.join(copyTargetDirFull, path.basename(sourceFullPath));
+      // cpSync 默认 overwrite:true，会静默覆盖同名文件 —— 先挡一道，让用户看见
+      if (fs.existsSync(targetFullPath)) {
+        return res.status(400).json({ code: 400, message: '目标位置已存在: ' + path.basename(sourceFullPath) });
+      }
       fs.cpSync(sourceFullPath, targetFullPath, { recursive: true });
     }
     res.json({ code: 200, message: '复制成功' });
   } catch (e) {
-    res.status(500).json({ code: 500, message: '复制失败' });
+    console.error('[resource] copy failed:', e.code, e.message);
+    res.status(500).json({ code: 500, message: '复制失败: ' + (e.code || e.message || '') });
   }
 });
 
