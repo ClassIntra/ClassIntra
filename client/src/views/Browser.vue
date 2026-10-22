@@ -96,7 +96,7 @@
         @touchstart.prevent="onCompatTouchStart"
         @touchmove.prevent="onCompatTouchMove"
         @touchend.prevent="onCompatTouchEnd"
-        @touchcancel.prevent="onCompatTouchEnd"
+        @touchcancel.prevent="onCompatTouchCancel"
       ></canvas>
       <!-- 正在浏览：iframe -->
       <iframe
