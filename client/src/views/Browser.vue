@@ -829,6 +829,7 @@ export default {
       clearTimeout(this._momentumTimer);
       this._momentumTimer = null;
       this._compatTouch = null;
+      this._compatPinch = null;
       this._compatBusyAt = 0;
       // 通道关闭后声音必然中断：停掉本地播放，但保留用户的开关偏好（重连时恢复）
       this.haltCompatAudio();
@@ -947,7 +948,7 @@ export default {
         return;
       }
       if (msg.type === 'audio') {
-        self.enqueueCompatAudio(msg.data, Number(msg.rate) || 16000);
+        self.enqueueCompatAudio(msg.data, Number(msg.rate) || 24000);
         return;
       }
       if (msg.type === 'audio-state') {
@@ -1160,7 +1161,7 @@ export default {
       var n = bin.length >> 1;
       if (!n) return;
       var buf;
-      try { buf = ctx.createBuffer(1, n, rate || 16000); } catch (e) { return; }
+      try { buf = ctx.createBuffer(1, n, rate || 24000); } catch (e) { return; }
       var ch = buf.getChannelData(0);
       for (var i = 0; i < n; i++) {
         var v = (bin.charCodeAt(i * 2) | (bin.charCodeAt(i * 2 + 1) << 8)) << 16 >> 16;
@@ -1247,14 +1248,23 @@ export default {
         self.sendCompatInput({ type: 'wheel', x: p.x, y: p.y, deltaX: dx, deltaY: dy });
       });
     },
-    // ===== 触摸：转发为 CDP 触摸序列，页面才会响应点击、原生滚动与惯性 =====
-    // 单指手势足够覆盖浏览场景；多指（缩放）暂不转发，避免与页面手势冲突。
+    // ===== 触摸：单指转发为 CDP 触摸序列，双指捏合转为浏览器原生缩放 =====
     onCompatTouchStart: function(e) {
       if (!e.touches || !e.touches.length) return;
       // 点画面即收起输入条，避免系统键盘一直占着半屏
       if (this.compatKeyboardOpen) this.compatKeyboardOpen = false;
       // 上一次滑动的惯性补间还没跑完：先收尾，避免两段触摸序列在服务端重叠
       this.cancelCompatMomentum();
+      // 第二根手指落下：先结束单指序列，再改走原生捏合。
+      // 否则单指移动会把双指手势拆成两次乱滑，页面无法进入缩放。
+      if (e.touches.length >= 2) {
+        if (this._compatTouch) {
+          this._compatTouch = null;
+          this.sendCompatInput({ type: 'touch', event: 'cancel', points: [] });
+        }
+        this.startCompatPinch(e);
+        return;
+      }
       var t = e.touches[0];
       var p = this.compatPointFromClient(t.clientX, t.clientY);
       this._compatTouch = {
@@ -1268,8 +1278,13 @@ export default {
     // 重载页面上帧回调迟迟不来，慢速小位移就发不出去，表现就是「手指在滑、页面不动」。
     onCompatTouchMove: function(e) {
       var self = this;
+      if (!e.touches || !e.touches.length) return;
+      if (self._compatPinch) {
+        if (e.touches.length >= 2) self.moveCompatPinch(e);
+        return;
+      }
       var st = self._compatTouch;
-      if (!st || !e.touches || !e.touches.length) return;
+      if (!st) return;
       var t = e.touches[0];
       var p = self.compatPointFromClient(t.clientX, t.clientY);
       var now = Date.now();
@@ -1280,6 +1295,38 @@ export default {
       st.lastX = p.x;
       st.lastY = p.y;
       self.sendCompatInput({ type: 'touch', event: 'move', points: [{ x: p.x, y: p.y, id: 1 }] });
+    },
+    // 双指捏合：记录起始指距，之后按增量下发原生 pinch 手势（浏览器级缩放，非页面手势）
+    startCompatPinch: function(e) {
+      var a = e.touches[0];
+      var b = e.touches[1];
+      var pa = this.compatPointFromClient(a.clientX, a.clientY);
+      var pb = this.compatPointFromClient(b.clientX, b.clientY);
+      var dist = Math.sqrt(Math.pow(pa.x - pb.x, 2) + Math.pow(pa.y - pb.y, 2)) || 1;
+      this._compatPinch = { startDist: dist, lastScale: 1, lastAt: 0 };
+    },
+    moveCompatPinch: function(e) {
+      var p = this._compatPinch;
+      if (!p) return;
+      var a = e.touches[0];
+      var b = e.touches[1];
+      var pa = this.compatPointFromClient(a.clientX, a.clientY);
+      var pb = this.compatPointFromClient(b.clientX, b.clientY);
+      var dist = Math.sqrt(Math.pow(pa.x - pb.x, 2) + Math.pow(pa.y - pb.y, 2)) || 1;
+      var scale = dist / p.startDist;
+      // 累计变化不足 2% 或距上次下发不足 50ms 就先攒着，避免小抖动打满输入队列
+      if (Math.abs(scale / p.lastScale - 1) < 0.02) return;
+      var now = Date.now();
+      if (now - p.lastAt < 50) return;
+      p.lastAt = now;
+      var inc = scale / p.lastScale;
+      p.lastScale = scale;
+      this.sendCompatInput({
+        type: 'pinch',
+        x: Math.round((pa.x + pb.x) / 2),
+        y: Math.round((pa.y + pb.y) / 2),
+        scaleFactor: inc
+      });
     },
     // 抬手速度与方向（CSS 像素/毫秒）：只取最近 120ms 的采样，早期慢速拖动不参与
     compatTouchRelease: function(st) {
@@ -1303,8 +1350,25 @@ export default {
       if (Date.now() - last.t > 120) res.speed = 0;
       return res;
     },
-    onCompatTouchEnd: function() {
+    onCompatTouchEnd: function(e) {
       var self = this;
+      // 捏合过程中：全部手指离开才算结束；若还剩一根，重置单指追踪让用户能接着滑
+      if (self._compatPinch) {
+        var left = e && e.touches ? e.touches.length : 0;
+        if (left >= 2) return;
+        self._compatPinch = null;
+        if (left === 1) {
+          var t = e.touches[0];
+          var pt = self.compatPointFromClient(t.clientX, t.clientY);
+          self._compatTouch = {
+            lastX: pt.x,
+            lastY: pt.y,
+            samples: [{ x: pt.x, y: pt.y, t: Date.now() }]
+          };
+          self.sendCompatInput({ type: 'touch', event: 'start', points: [{ x: pt.x, y: pt.y, id: 1 }] });
+        }
+        return;
+      }
       var st = self._compatTouch;
       if (!st) return;
       self._compatTouch = null;
@@ -1370,6 +1434,7 @@ export default {
     },
     onCompatTouchCancel: function() {
       this.cancelCompatMomentum();
+      this._compatPinch = null;
       if (!this._compatTouch) return;
       this._compatTouch = null;
       this.sendCompatInput({ type: 'touch', event: 'cancel', points: [] });
