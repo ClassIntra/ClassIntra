@@ -102,7 +102,13 @@ module.exports = {
       }
     },
     {
-      // HTTPS 站点（https://<局域网IP>，默认 443）。
+      // HTTPS 站点（https://<局域网IP>:9443）。
+      //
+      // ⚠️ **默认端口不是 443**。443 归本机其他服务使用（用户在跑自己的东西），
+      //    这里刻意避让：过去写成 `|| '443'`，结果 `pm2 start ecosystem.config.js`
+      //    一执行就把用户的 443 抢了，且 PM2 会 resurrect —— 开机就抢。
+      //    要用 443 必须由 `.env` 显式给 `HTTPS_PORT=443`，属于自愿行为。
+      //    （app-https.js 自身的缺省值是 9001，所以这个文件只负责「显式指定」。）
       //
       // 为什么单独一个 app 而不是让 app.js 同时监听两个端口：
       //   app-https.js 与 app.js 是两份入口（证书、helmet、压缩策略都不同），
@@ -138,7 +144,8 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         NODE_PATH: path.join(serverDir, 'node_modules'),
-        HTTPS_PORT: envVars.HTTPS_PORT || '443',
+        // 443 已被本机其他服务占用，默认让开；要换端口改 server/.env 的 HTTPS_PORT
+        HTTPS_PORT: envVars.HTTPS_PORT || '9443',
         // 本实例是 9001 的 TLS 镜像：WS/Relay/mesh 席位/天气调度全部归主实例。
         // app-https.js 顶部也会硬设一次，这里写出来是让「读配置的人」一眼能看到，
         // 不必去翻代码才知道这个进程不持有那些东西。
