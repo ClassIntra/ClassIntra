@@ -740,6 +740,9 @@ export default {
         return;
       }
       self.disconnectCompat();
+      // disconnectCompat 会把通道标记为「主动关闭」，这里建立新通道后解除，
+      // 否则后续真正的异常断开不会触发自动重连
+      self._compatClosing = false;
       self.compatError = '';
       self._compatFrameShown = false;
       self.compatKeyboardOpen = false;
@@ -777,10 +780,26 @@ export default {
         }
       };
       ws.onclose = function() {
-        if (self._compatWs === ws) {
-          self._compatWs = null;
-          self.stopLoading();
-        }
+        if (self._compatWs !== ws) return;
+        self._compatWs = null;
+        self._compatBusy = false;
+        self._compatPending = null;
+        self.stopLoading();
+        // 非主动断开（网络抖动 / 切网 / 服务端回收）时自动重建会话，
+        // 避免画面停在最后一帧、还要用户手动刷新。最多连续重试两次。
+        if (self._compatClosing || !self.compatMode || !self.currentUrl) return;
+        // 页面在后台时不重建：等服务端回收也无所谓，回到前台由可见性回调重新连接
+        if (document.hidden) return;
+        if (self._compatRetryTimer || self._compatRetry >= 2) return;
+        self._compatRetry = (self._compatRetry || 0) + 1;
+        var delay = self._compatRetry === 1 ? 600 : 2500;
+        self._compatRetryTimer = setTimeout(function() {
+          self._compatRetryTimer = null;
+          if (!self.compatMode || !self.currentUrl || self._compatWs) return;
+          self._compatFrameShown = false;
+          self.startLoading();
+          self.connectCompat(self.currentUrl);
+        }, delay);
       };
     },
     disconnectCompat: function() {
@@ -788,11 +807,18 @@ export default {
       this._compatWs = null;
       this._compatBusy = false;
       this._compatPending = null;
+      // 主动关闭：抑制 onclose 里的自动重连，并清掉待执行的重连定时器
+      this._compatClosing = true;
+      clearTimeout(this._compatRetryTimer);
+      this._compatRetryTimer = null;
       this.compatCanBack = false;
       this.compatCanForward = false;
       // 取消尚未发出的输入合并帧，避免断开后还往废弃通道发消息
       if (this._mouseRaf) { cancelAnimationFrame(this._mouseRaf); this._mouseRaf = 0; }
       if (this._wheelRaf) { cancelAnimationFrame(this._wheelRaf); this._wheelRaf = 0; }
+      if (this._touchRaf) { cancelAnimationFrame(this._touchRaf); this._touchRaf = 0; }
+      this._touchPos = null;
+      this._compatTouch = null;
       // 通道关闭后声音必然中断：停掉本地播放，但保留用户的开关偏好（重连时恢复）
       this.haltCompatAudio();
       this.teardownCompatResize();
@@ -840,7 +866,20 @@ export default {
     // 既省服务端 CPU / 带宽，也避免离开页面后还在出声。
     onCompatVisibility: function() {
       var self = this;
-      if (!self.compatMode || !self._compatWs || self._compatWs.readyState !== 1) return;
+      if (!self.compatMode) return;
+      var ws = self._compatWs;
+      if (!ws || ws.readyState > 1) {
+        // 后台停留过久被服务端回收、或通道已断：回到前台立即重建会话，
+        // 而不是把最后一帧冻在屏幕上等用户手动刷新
+        if (!document.hidden && self.currentUrl && !self._compatRetryTimer) {
+          self._compatFrameShown = false;
+          self.startLoading();
+          self.connectCompat(self.currentUrl);
+        }
+        return;
+      }
+      // 握手进行中：等 ready 回调里按 document.hidden 统一处理
+      if (ws.readyState !== 1) return;
       if (document.hidden) {
         self.sendCompatInput({ type: 'pause' });
         self.compatAudioActive = false;
@@ -867,11 +906,15 @@ export default {
         self.compatTouch = !!msg.touch;
         // 通道就绪后再挂视口监听：此时容器尺寸才是最终可用区域
         self.setupCompatResize();
+        // 通道恢复正常：重置自动重连计数，下次异常断开重新从第一次开始
+        self._compatRetry = 0;
         // 会话重建（刷新 / 重连）后恢复用户的声音偏好
         if (self.compatAudio && self.compatAudioSupported) {
           self._audioNext = 0;
           self.sendCompatInput({ type: 'audio', enabled: true });
         }
+        // 后台自动重建的会话要立刻暂停，避免屏幕没亮着却还在跑帧流
+        if (document.hidden) self.sendCompatInput({ type: 'pause' });
         return;
       }
       if (msg.type === 'history') {
@@ -948,25 +991,27 @@ export default {
         this.stopLoading();
       }
     },
-    // 逐帧绘制：同一时刻只解码一张图，避免高帧率下堆积造成卡顿
+    // 逐帧绘制：同一时刻只解码一张图，避免高帧率下堆积造成卡顿。
+    // 优先 Blob + createImageBitmap：JPEG 解码在浏览器解码线程完成，不阻塞主线程绘制；
+    // 老内核不支持时回退到 Image + data URL。
     drawCompatFrame: function(msg) {
       var self = this;
       var canvas = self.$refs.compatCanvas;
       if (!canvas || !msg.data) return;
       if (self._compatBusy) {
+        // 只保留最新一帧：解码跟不上时旧帧没有价值
         self._compatPending = msg;
         return;
       }
       self._compatBusy = true;
-      var img = new Image();
-      img.onload = function() {
+      // 画布尺寸按图片真实像素设置（含 dpr），坐标换算另用 viewWidth/viewHeight
+      var paint = function(source, cw, ch) {
         try {
-          // 画布尺寸按图片真实像素设置（含 dpr），坐标换算另用 viewWidth/viewHeight
-          var cw = img.naturalWidth || msg.width;
-          var ch = img.naturalHeight || msg.height;
+          cw = cw || source.naturalWidth || msg.width;
+          ch = ch || source.naturalHeight || msg.height;
           if (canvas.width !== cw) canvas.width = cw;
           if (canvas.height !== ch) canvas.height = ch;
-          canvas.getContext('2d').drawImage(img, 0, 0);
+          canvas.getContext('2d').drawImage(source, 0, 0);
         } catch (e) {}
         // 收到首帧即视为「已经能看了」：收起加载遮罩，否则页面迟迟不触发 load
         // 时会一直盖在画布上，导致触摸和点击全部被遮罩吞掉。
@@ -974,14 +1019,45 @@ export default {
           self._compatFrameShown = true;
           self.stopLoading();
         }
+      };
+      var next = function() {
         self._compatBusy = false;
         if (self._compatPending) {
-          var next = self._compatPending;
+          var pending = self._compatPending;
           self._compatPending = null;
-          self.drawCompatFrame(next);
+          self.drawCompatFrame(pending);
         }
       };
-      img.onerror = function() { self._compatBusy = false; };
+      if (!self._compatUseImg && window.createImageBitmap && typeof Blob !== 'undefined') {
+        var blob = null;
+        try {
+          var bin = atob(msg.data);
+          var bytes = new Uint8Array(bin.length);
+          for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          blob = new Blob([bytes], { type: 'image/jpeg' });
+        } catch (e) {
+          blob = null;
+        }
+        if (blob) {
+          createImageBitmap(blob).then(function(bmp) {
+            paint(bmp, bmp.width, bmp.height);
+            try { if (bmp.close) bmp.close(); } catch (e) {}
+            next();
+          }).catch(function() {
+            // 个别内核的解码器不接受 Blob JPEG：回退并记住，后续直接走 Image
+            self._compatUseImg = true;
+            self._compatBusy = false;
+            self.drawCompatFrame(msg);
+          });
+          return;
+        }
+      }
+      var img = new Image();
+      img.onload = function() {
+        paint(img);
+        next();
+      };
+      img.onerror = function() { next(); };
       img.src = 'data:image/jpeg;base64,' + msg.data;
     },
     sendCompatInput: function(msg) {
@@ -1129,28 +1205,51 @@ export default {
       if (!e.touches || !e.touches.length) return;
       // 点画面即收起输入条，避免系统键盘一直占着半屏
       if (this.compatKeyboardOpen) this.compatKeyboardOpen = false;
+      // 上一次触摸残留的待发位移不能带到这次手势里
+      if (this._touchRaf) { cancelAnimationFrame(this._touchRaf); this._touchRaf = 0; }
+      this._touchPos = null;
       var t = e.touches[0];
       var p = this.compatPointFromClient(t.clientX, t.clientY);
       this._compatTouch = { lastX: p.x, lastY: p.y };
       this.sendCompatInput({ type: 'touch', event: 'start', points: [{ x: p.x, y: p.y, id: 1 }] });
     },
     onCompatTouchMove: function(e) {
-      var st = this._compatTouch;
+      var self = this;
+      var st = self._compatTouch;
       if (!st || !e.touches || !e.touches.length) return;
       var t = e.touches[0];
-      var p = this.compatPointFromClient(t.clientX, t.clientY);
+      self._touchPos = self.compatPointFromClient(t.clientX, t.clientY);
+      if (self._touchRaf) return;
+      // 触摸移动同样按帧合并：一帧内的多次采样只发最后一次，
+      // 页面仍按合成位移滚动，WS 消息量和手指抖动都明显减少。
+      self._touchRaf = requestAnimationFrame(function() {
+        self._touchRaf = 0;
+        self.flushCompatTouchMove();
+      });
+    },
+    // 下发累计的触摸位移；位移过小（手指抖动）直接丢弃
+    flushCompatTouchMove: function() {
+      var self = this;
+      var st = self._compatTouch;
+      var p = self._touchPos;
+      self._touchPos = null;
+      if (!st || !p) return;
       // 位移过小时不转发：既过滤手指抖动（否则轻点会被页面当成拖动），
       // 也减少无效帧造成的带宽浪费。
       if (Math.abs(p.x - st.lastX) < 2 && Math.abs(p.y - st.lastY) < 2) return;
       st.lastX = p.x;
       st.lastY = p.y;
-      this.sendCompatInput({ type: 'touch', event: 'move', points: [{ x: p.x, y: p.y, id: 1 }] });
+      self.sendCompatInput({ type: 'touch', event: 'move', points: [{ x: p.x, y: p.y, id: 1 }] });
     },
     onCompatTouchEnd: function(e) {
-      if (!this._compatTouch) return;
-      this._compatTouch = null;
+      var self = this;
+      if (!self._compatTouch) return;
+      // 结束前补发最后一次移动，避免最后一段位移被吞掉
+      if (self._touchRaf) { cancelAnimationFrame(self._touchRaf); self._touchRaf = 0; }
+      self.flushCompatTouchMove();
+      self._compatTouch = null;
       // 结束帧必须带空 points：CDP 以此判定触摸序列结束并触发 click
-      this.sendCompatInput({ type: 'touch', event: 'end', points: [] });
+      self.sendCompatInput({ type: 'touch', event: 'end', points: [] });
     },
     // ===== 移动端文字输入：把输入条里的内容插入无头浏览器的焦点元素 =====
     toggleCompatKeyboard: function() {
