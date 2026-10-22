@@ -772,7 +772,15 @@ export default {
         return;
       }
       self._compatWs = ws;
-      ws.onmessage = function(ev) { self.onCompatMessage(ev); };
+      // 画面帧为二进制 JPEG：省掉 JSON.parse 与 base64 转换
+      ws.binaryType = 'arraybuffer';
+      ws.onmessage = function(ev) {
+        if (typeof ev.data !== 'string') {
+          self.drawCompatFrame({ buffer: ev.data });
+          return;
+        }
+        self.onCompatMessage(ev);
+      };
       ws.onerror = function() {
         if (self._compatWs === ws) {
           self.compatError = '兼容模式连接失败';
@@ -816,9 +824,12 @@ export default {
       // 取消尚未发出的输入合并帧，避免断开后还往废弃通道发消息
       if (this._mouseRaf) { cancelAnimationFrame(this._mouseRaf); this._mouseRaf = 0; }
       if (this._wheelRaf) { cancelAnimationFrame(this._wheelRaf); this._wheelRaf = 0; }
-      if (this._touchRaf) { cancelAnimationFrame(this._touchRaf); this._touchRaf = 0; }
-      this._touchPos = null;
+      // 惯性补间立即停：通道已废弃，继续发 move 没有意义
+      this._compatMomentum = false;
+      clearTimeout(this._momentumTimer);
+      this._momentumTimer = null;
       this._compatTouch = null;
+      this._compatBusyAt = 0;
       // 通道关闭后声音必然中断：停掉本地播放，但保留用户的开关偏好（重连时恢复）
       this.haltCompatAudio();
       this.teardownCompatResize();
@@ -997,18 +1008,27 @@ export default {
     drawCompatFrame: function(msg) {
       var self = this;
       var canvas = self.$refs.compatCanvas;
-      if (!canvas || !msg.data) return;
+      if (!canvas) return;
+      if (!msg.buffer && !msg.data) return;
       if (self._compatBusy) {
         // 只保留最新一帧：解码跟不上时旧帧没有价值
         self._compatPending = msg;
+        // 解码看门狗：个别内核上 createImageBitmap 可能迟迟不回调，
+        // 忙标志一旦卡住，画面会永久停在上一帧（表现为「卡住、滑不动」）。
+        if (Date.now() - (self._compatBusyAt || 0) > 1200) {
+          self._compatBusy = false;
+          self._compatBusyAt = 0;
+          self.drawCompatFrame(msg);
+        }
         return;
       }
       self._compatBusy = true;
+      self._compatBusyAt = Date.now();
       // 画布尺寸按图片真实像素设置（含 dpr），坐标换算另用 viewWidth/viewHeight
       var paint = function(source, cw, ch) {
         try {
-          cw = cw || source.naturalWidth || msg.width;
-          ch = ch || source.naturalHeight || msg.height;
+          cw = cw || source.naturalWidth || source.videoWidth;
+          ch = ch || source.naturalHeight || source.videoHeight;
           if (canvas.width !== cw) canvas.width = cw;
           if (canvas.height !== ch) canvas.height = ch;
           canvas.getContext('2d').drawImage(source, 0, 0);
@@ -1022,22 +1042,28 @@ export default {
       };
       var next = function() {
         self._compatBusy = false;
+        self._compatBusyAt = 0;
         if (self._compatPending) {
           var pending = self._compatPending;
           self._compatPending = null;
           self.drawCompatFrame(pending);
         }
       };
-      if (!self._compatUseImg && window.createImageBitmap && typeof Blob !== 'undefined') {
-        var blob = null;
+      // 二进制帧直接包成 Blob；旧协议的 base64 帧走兜底转换
+      var makeBlob = function() {
+        if (typeof Blob === 'undefined') return null;
+        if (msg.buffer) {
+          try { return new Blob([msg.buffer], { type: 'image/jpeg' }); } catch (e) { return null; }
+        }
         try {
           var bin = atob(msg.data);
           var bytes = new Uint8Array(bin.length);
           for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-          blob = new Blob([bytes], { type: 'image/jpeg' });
-        } catch (e) {
-          blob = null;
-        }
+          return new Blob([bytes], { type: 'image/jpeg' });
+        } catch (e) { return null; }
+      };
+      if (!self._compatUseImg && window.createImageBitmap) {
+        var blob = makeBlob();
         if (blob) {
           createImageBitmap(blob).then(function(bmp) {
             paint(bmp, bmp.width, bmp.height);
@@ -1047,18 +1073,40 @@ export default {
             // 个别内核的解码器不接受 Blob JPEG：回退并记住，后续直接走 Image
             self._compatUseImg = true;
             self._compatBusy = false;
+            self._compatBusyAt = 0;
             self.drawCompatFrame(msg);
           });
           return;
         }
       }
       var img = new Image();
+      var url = '';
+      var isObjectUrl = false;
+      if (msg.buffer) {
+        var fallbackBlob = makeBlob();
+        if (fallbackBlob) {
+          try {
+            url = URL.createObjectURL(fallbackBlob);
+            isObjectUrl = true;
+          } catch (e) { url = ''; }
+        }
+      } else if (msg.data) {
+        url = 'data:image/jpeg;base64,' + msg.data;
+      }
+      if (!url) {
+        next();
+        return;
+      }
       img.onload = function() {
         paint(img);
+        if (isObjectUrl) { try { URL.revokeObjectURL(url); } catch (e) {} }
         next();
       };
-      img.onerror = function() { next(); };
-      img.src = 'data:image/jpeg;base64,' + msg.data;
+      img.onerror = function() {
+        if (isObjectUrl) { try { URL.revokeObjectURL(url); } catch (e) {} }
+        next();
+      };
+      img.src = url;
     },
     sendCompatInput: function(msg) {
       var ws = this._compatWs;
@@ -1205,51 +1253,126 @@ export default {
       if (!e.touches || !e.touches.length) return;
       // 点画面即收起输入条，避免系统键盘一直占着半屏
       if (this.compatKeyboardOpen) this.compatKeyboardOpen = false;
-      // 上一次触摸残留的待发位移不能带到这次手势里
-      if (this._touchRaf) { cancelAnimationFrame(this._touchRaf); this._touchRaf = 0; }
-      this._touchPos = null;
+      // 上一次滑动的惯性补间还没跑完：先收尾，避免两段触摸序列在服务端重叠
+      this.cancelCompatMomentum();
       var t = e.touches[0];
       var p = this.compatPointFromClient(t.clientX, t.clientY);
-      this._compatTouch = { lastX: p.x, lastY: p.y };
+      this._compatTouch = {
+        lastX: p.x,
+        lastY: p.y,
+        samples: [{ x: p.x, y: p.y, t: Date.now() }]
+      };
       this.sendCompatInput({ type: 'touch', event: 'start', points: [{ x: p.x, y: p.y, id: 1 }] });
     },
+    // 触摸移动必须逐条转发：合并到 requestAnimationFrame 后，
+    // 重载页面上帧回调迟迟不来，慢速小位移就发不出去，表现就是「手指在滑、页面不动」。
     onCompatTouchMove: function(e) {
       var self = this;
       var st = self._compatTouch;
       if (!st || !e.touches || !e.touches.length) return;
       var t = e.touches[0];
-      self._touchPos = self.compatPointFromClient(t.clientX, t.clientY);
-      if (self._touchRaf) return;
-      // 触摸移动同样按帧合并：一帧内的多次采样只发最后一次，
-      // 页面仍按合成位移滚动，WS 消息量和手指抖动都明显减少。
-      self._touchRaf = requestAnimationFrame(function() {
-        self._touchRaf = 0;
-        self.flushCompatTouchMove();
-      });
-    },
-    // 下发累计的触摸位移；位移过小（手指抖动）直接丢弃
-    flushCompatTouchMove: function() {
-      var self = this;
-      var st = self._compatTouch;
-      var p = self._touchPos;
-      self._touchPos = null;
-      if (!st || !p) return;
-      // 位移过小时不转发：既过滤手指抖动（否则轻点会被页面当成拖动），
-      // 也减少无效帧造成的带宽浪费。
-      if (Math.abs(p.x - st.lastX) < 2 && Math.abs(p.y - st.lastY) < 2) return;
+      var p = self.compatPointFromClient(t.clientX, t.clientY);
+      var now = Date.now();
+      st.samples.push({ x: p.x, y: p.y, t: now });
+      if (st.samples.length > 8) st.samples.shift();
+      // 阈值只用来过滤原地抖动：宁可多转发，也不能吞掉慢速滑动
+      if (Math.abs(p.x - st.lastX) < 1 && Math.abs(p.y - st.lastY) < 1) return;
       st.lastX = p.x;
       st.lastY = p.y;
       self.sendCompatInput({ type: 'touch', event: 'move', points: [{ x: p.x, y: p.y, id: 1 }] });
     },
-    onCompatTouchEnd: function(e) {
+    // 抬手速度与方向（CSS 像素/毫秒）：只取最近 120ms 的采样，早期慢速拖动不参与
+    compatTouchRelease: function(st) {
+      var list = st && st.samples ? st.samples : [];
+      var res = { speed: 0, dx: 0, dy: 0, x: 0, y: 0 };
+      if (list.length < 2) return res;
+      var last = list[list.length - 1];
+      var first = list[0];
+      for (var i = list.length - 2; i >= 0; i--) {
+        first = list[i];
+        if (last.t - first.t >= 120) break;
+      }
+      res.x = last.x;
+      res.y = last.y;
+      var dt = last.t - first.t;
+      if (dt < 1) return res;
+      res.dx = (last.x - first.x) / dt;
+      res.dy = (last.y - first.y) / dt;
+      res.speed = Math.sqrt(res.dx * res.dx + res.dy * res.dy);
+      // 手指已经停稳再抬起不算甩动
+      if (Date.now() - last.t > 120) res.speed = 0;
+      return res;
+    },
+    onCompatTouchEnd: function() {
       var self = this;
-      if (!self._compatTouch) return;
-      // 结束前补发最后一次移动，避免最后一段位移被吞掉
-      if (self._touchRaf) { cancelAnimationFrame(self._touchRaf); self._touchRaf = 0; }
-      self.flushCompatTouchMove();
+      var st = self._compatTouch;
+      if (!st) return;
       self._compatTouch = null;
-      // 结束帧必须带空 points：CDP 以此判定触摸序列结束并触发 click
-      self.sendCompatInput({ type: 'touch', event: 'end', points: [] });
+      var rel = self.compatTouchRelease(st);
+      // 轻点 / 慢慢拖到位：直接收尾，保证 click 判定正常触发
+      if (rel.speed < 0.45) {
+        self.sendCompatInput({ type: 'touch', event: 'end', points: [] });
+        return;
+      }
+      self.startCompatMomentum(rel);
+    },
+    // 补一段衰减位移模拟甩动惯性：CDP 触摸序列抬手即停，没有原生惯性，
+    // 快速滑到底会「戛然而止」，体感很像滑不动。
+    startCompatMomentum: function(rel) {
+      var self = this;
+      var vw = self.compatViewW || 1280;
+      var vh = self.compatViewH || 800;
+      var len = Math.sqrt(rel.dx * rel.dx + rel.dy * rel.dy) || 1;
+      var ux = rel.dx / len;
+      var uy = rel.dy / len;
+      // 惯性距离 ≈ 速度 × 180ms，并限制上限，避免极端甩动把页面甩飞
+      var total = Math.min(rel.speed * 180, 520);
+      // 手指若已贴近视口边缘，按剩余空间收缩，避免补间被边界夹死
+      var roomX = ux >= 0 ? (vw - 1 - rel.x) : rel.x;
+      var roomY = uy >= 0 ? (vh - 1 - rel.y) : rel.y;
+      if (Math.abs(ux) > 0.001) total = Math.min(total, roomX / Math.abs(ux));
+      if (Math.abs(uy) > 0.001) total = Math.min(total, roomY / Math.abs(uy));
+      if (total < 6) {
+        self.sendCompatInput({ type: 'touch', event: 'end', points: [] });
+        return;
+      }
+      var steps = 6;
+      var done = 0;
+      var tick = function() {
+        if (!self._compatMomentum) return;
+        done++;
+        // 先快后慢：位移按 1-(1-p)^2 收敛，接近真实惯性手感
+        var p = done / steps;
+        var d = total * (1 - Math.pow(1 - p, 2));
+        var x = Math.max(0, Math.min(vw - 1, Math.round(rel.x + ux * d)));
+        var y = Math.max(0, Math.min(vh - 1, Math.round(rel.y + uy * d)));
+        self.sendCompatInput({ type: 'touch', event: 'move', points: [{ x: x, y: y, id: 1 }] });
+        if (done >= steps) {
+          self._compatMomentum = false;
+          self._momentumTimer = null;
+          self.sendCompatInput({ type: 'touch', event: 'end', points: [] });
+          return;
+        }
+        // 34ms 一步 ≈ 30Hz：够顺滑，也不会把服务端输入队列打满
+        self._momentumTimer = setTimeout(tick, 34);
+      };
+      self._compatMomentum = true;
+      self._momentumTimer = setTimeout(tick, 16);
+    },
+    // 中止未完成的惯性补间：新触摸或通道断开时调用，避免两段触摸序列重叠
+    cancelCompatMomentum: function() {
+      if (!this._compatMomentum) return;
+      this._compatMomentum = false;
+      clearTimeout(this._momentumTimer);
+      this._momentumTimer = null;
+      // 惯性序列已经发过 move，必须补一个 end 收尾，否则下一次 touchStart 会被当成第二根手指
+      this.sendCompatInput({ type: 'touch', event: 'end', points: [] });
+    },
+    onCompatTouchCancel: function() {
+      this.cancelCompatMomentum();
+      if (!this._compatTouch) return;
+      this._compatTouch = null;
+      this.sendCompatInput({ type: 'touch', event: 'cancel', points: [] });
     },
     // ===== 移动端文字输入：把输入条里的内容插入无头浏览器的焦点元素 =====
     toggleCompatKeyboard: function() {
@@ -1676,6 +1799,9 @@ export default {
   cursor: default;
   /* 触摸事件全部由 JS 转发给服务端（含滚动），禁用浏览器默认手势避免双重滚动/缩放 */
   touch-action: none;
+  /* 避免手机下拉刷新 / 长按弹出系统菜单抢占手势 */
+  overscroll-behavior: contain;
+  -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
 }
