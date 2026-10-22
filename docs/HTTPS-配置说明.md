@@ -103,7 +103,14 @@ HTTPS 服务已纳入 PM2，与 9001 主实例并列：
 | 应用 | 端口 | 职责 |
 | --- | --- | --- |
 | `classintra-server` | 9001 / WS 10001 / Relay 10011 | 主实例，持有全部「全局唯一」资源 |
-| `classintra-https` | 443 | 只把同一份 express 应用套上层 TLS，供 `https://<局域网IP>` 访问 |
+| `classintra-https` | **9443**（默认，见下） | 只把同一份 express 应用套上层 TLS，供 `https://<局域网IP>:9443` 访问 |
+
+> **443 是避让的，不是笔误。** 这台机器的 443 归用户自己的其他服务使用，
+> ecosystem 里刻意把默认值写成 `HTTPS_PORT: '9443'`。曾经写成 `|| '443'`，
+> 后果是 `pm2 start ecosystem.config.js` 一执行就抢端口，而 PM2 还会
+> resurrect —— **开机就抢**，用户的服务永远起不来。
+> 真要用 443，必须由 `server/.env` 显式写 `HTTPS_PORT=443`，属自愿行为。
+> （`app-https.js` 自身的缺省值是 9001，这个文件只负责「显式指定」。）
 
 镜像实例通过 `WS_MIRROR_MODE=true` 明确放弃以下资源（都在主实例）：
 
@@ -122,10 +129,12 @@ HTTPS 页面 iframe 一个 `http://<host>:9003` 会被浏览器按混合内容�
 所以新增了同源反代（`server/src/routes/cluss-proxy.js`）：
 
 ```
-https://<host>/cluss-app/           → http://127.0.0.1:9003/
-https://<host>/cluss-app/api/xxx    → http://127.0.0.1:9003/api/xxx
-https://<host>/cluss-app            → 302 /cluss-app/
+https://<host>:9443/cluss-app/           → http://127.0.0.1:9003/
+https://<host>:9443/cluss-app/api/xxx    → http://127.0.0.1:9003/api/xxx
+https://<host>:9443/cluss-app            → 302 /cluss-app/
 ```
+
+（端口换成 `HTTPS_PORT` 实际值；反代路径与端口无关，因为它按 `req.url` 匹配前缀。）
 
 - 前缀刻意不叫 `/cluss`：那是 `apps/cluss` 自己的应用壳路由（history 模式，
   由 `app.get('*')` 兜底），占了它学生点桌面图标会被反代截走。

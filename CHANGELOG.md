@@ -2,6 +2,18 @@
 
 ## [未发布]
 
+### 变更（HTTPS 服务默认端口 443 → 9443，不再抢占 443）
+
+本机 443 归用户自己的其他服务使用，ecosystem 里 `classintra-https` 的默认端口
+改为 **9443**。过去的写法是 `HTTPS_PORT: envVars.HTTPS_PORT || '443'`，只要执行一次
+`pm2 start ecosystem.config.js`（不带 `--only`）就会把 443 抢走，而 PM2 还会
+`resurrect` —— **开机就抢**，用户的服务永远起不来。
+
+- 现在要占用 443 必须在 `server/.env` 里显式写 `HTTPS_PORT=443`，属自愿行为。
+- `/cluss-app` 反代与端口无关（按 `req.url` 匹配前缀），换端口不需改代码。
+- 已在 9443 实测：首页 200、`/cluss-app/` 200、`/cluss-app/api/health` 200；
+  443 无 LISTENING。
+
 ### 修复（应用管控漏掉桌面上的应用）
 
 - **管控面板的应用名单改为从 `apps/*/manifest.json` 动态读取**，不再手抄一份常量数组。
