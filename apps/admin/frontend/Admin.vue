@@ -1020,9 +1020,20 @@
             <h4 class="control-group-title" style="margin-top:24px">应用列表</h4>
             <div v-if="appControlApps.length === 0" class="admin-empty">暂无应用数据</div>
             <div v-else class="app-control-grid">
-              <div v-for="app in appControlApps" :key="app.name" class="app-control-card" :class="{ disabled: !app.enabled }">
-                <div class="app-control-icon" :style="{ backgroundColor: app.color }">
-                  <i :class="app.icon"></i>
+              <div
+                v-for="app in appControlApps"
+                :key="app.name"
+                class="app-control-card"
+                :class="{ disabled: !app.enabled }"
+              >
+                <!-- 图标优先用 manifest 里的真实应用图标（与桌面一致）；只有拿不到图片时才退回 FA -->
+                <div
+                  class="app-control-icon"
+                  :class="{ 'app-control-icon--image': !!app.iconUrl }"
+                  :style="app.iconUrl ? null : { backgroundColor: app.color }"
+                >
+                  <img v-if="app.iconUrl" :src="app.iconUrl" :alt="app.label" loading="lazy" draggable="false" />
+                  <i v-else :class="app.icon"></i>
                 </div>
                 <div class="app-control-info">
                   <div class="app-control-name">{{ app.label }}</div>
@@ -1137,6 +1148,10 @@
               <span class="move-browser-path">{{ moveBrowserPath }}</span>
             </div>
             <div class="move-browser-list scrollbar-thin">
+              <div class="move-browser-item" @click="moveBrowserGoRoot">
+                <i class="fa-solid fa-house"></i>
+                <span>根目录</span>
+              </div>
               <div class="move-browser-item" :class="{ active: moveTargetPath === moveBrowserPath }" @click="moveTargetPath = moveBrowserPath">
                 <i class="fa-solid fa-folder-open"></i>
                 <span>.（当前目录）</span>
@@ -2692,20 +2707,32 @@ export default {
         self.resourcesLoading = false;
       });
     },
+    // 资源路径归一化：内部统一用「无前导斜杠」的相对路径，'' / '/' 都表示根目录。
+    // 历史坑：面包屑计算属性生成的是 '/videos'（带前导斜杠），点一次面包屑就把
+    // resourcePath 污染成 '/videos'，随后重命名/移动拼出 '/videos/a.mp4'，
+    // 后端 path.resolve 会把它当成磁盘绝对路径 → 403「禁止访问」。
+    normalizeResourcePath: function(p) {
+      return String(p === undefined || p === null ? '' : p)
+        .replace(/\\/g, '/')
+        .replace(/^\/+/, '')
+        .replace(/\/+$/, '');
+    },
     buildResourcePath: function(name) {
-      var base = this.resourcePath === '/' ? '' : this.resourcePath;
+      var base = this.normalizeResourcePath(this.resourcePath);
       return (base ? base + '/' : '') + name;
     },
     navigateResource: function(path) {
-      this.resourcePath = path || '/';
+      var normalized = this.normalizeResourcePath(path);
+      this.resourcePath = normalized || '/';
       this.resourceSearchMode = false;
       this.resourceSearch = '';
       this.resourceTypeFilter = '';
       this.loadResources();
     },
     goResourceBack: function() {
-      if (this.resourcePath === '/' || !this.resourcePath) return;
-      var parts = this.resourcePath.split('/');
+      var current = this.normalizeResourcePath(this.resourcePath);
+      if (!current) return;
+      var parts = current.split('/');
       parts.pop();
       this.resourcePath = parts.join('/') || '/';
       this.loadResources();
@@ -2771,21 +2798,25 @@ export default {
         self.$store.commit('toast/SHOW_TOAST', { message: '重命名成功', type: 'success' });
       }).catch(function(err) {
         console.error('重命名失败:', err);
-        self.$store.commit('toast/SHOW_TOAST', { message: '重命名失败', type: 'error' });
+        // 透出后端的具体原因（占位/非法字符/同名…），否则用户只能看到「重命名失败」
+        var msg = (err.response && err.response.data && err.response.data.message) || '重命名失败';
+        self.$store.commit('toast/SHOW_TOAST', { message: msg, type: 'error' });
       });
     },
     moveResource: function(item) {
       this.moveItem = item;
-      this.moveTargetPath = '';
-      this.moveBrowserPath = '/';
+      // 默认目标 = 当前所在目录（归一化后再加前导斜杠，给弹窗内浏览用）
+      var here = this.normalizeResourcePath(this.resourcePath);
+      this.moveBrowserPath = here ? '/' + here : '/';
+      this.moveTargetPath = this.moveBrowserPath;
       this.moveBrowserFolders = [];
       this.showMoveModal = true;
-      this.loadMoveBrowserFolders('/');
+      this.loadMoveBrowserFolders(this.moveBrowserPath);
     },
     loadMoveBrowserFolders: function(dirPath) {
       var self = this;
-      var apiPath = dirPath === '/' ? '' : dirPath;
-      api.get('/resources', { params: { path: apiPath } }).then(function(response) {
+      var rel = self.normalizeResourcePath(dirPath);
+      api.get('/resources', { params: { path: rel } }).then(function(response) {
         var data = response.data.data || {};
         var files = data.files || [];
         self.moveBrowserFolders = files.filter(function(f) { return f.is_dir; });
@@ -2795,29 +2826,35 @@ export default {
     },
     moveBrowserNavigate: function(folderName) {
       var self = this;
-      var newPath = self.moveBrowserPath === '/' ? '/' + folderName : self.moveBrowserPath + '/' + folderName;
+      var current = self.normalizeResourcePath(self.moveBrowserPath);
+      var newPath = current ? '/' + current + '/' + folderName : '/' + folderName;
       self.moveBrowserPath = newPath;
       self.moveTargetPath = newPath;
       self.loadMoveBrowserFolders(newPath);
     },
+    moveBrowserGoRoot: function() {
+      this.moveBrowserPath = '/';
+      this.moveTargetPath = '/';   // '/' 即 Resources 根目录
+      this.loadMoveBrowserFolders('/');
+    },
     moveBrowserGoBack: function() {
       var self = this;
-      if (self.moveBrowserPath === '/' || !self.moveBrowserPath) return;
-      var parts = self.moveBrowserPath.split('/');
+      var current = self.normalizeResourcePath(self.moveBrowserPath);
+      if (!current) return;
+      var parts = current.split('/');
       parts.pop();
-      var parentPath = parts.join('/') || '/';
+      var parentPath = parts.length ? '/' + parts.join('/') : '/';
       self.moveBrowserPath = parentPath;
+      self.moveTargetPath = parentPath;
       self.loadMoveBrowserFolders(parentPath);
     },
     confirmMove: function() {
       var self = this;
-      if (!self.moveTargetPath.trim() || !self.moveItem) {
-        self.$store.commit('toast/SHOW_TOAST', { message: '请选择目标路径', type: 'warning' });
-        return;
-      }
+      if (!self.moveItem) return;
+      // 目标路径留空 = 根目录（后端接受 target_dir: ''）
+      var rawTarget = String(self.moveTargetPath === undefined || self.moveTargetPath === null ? '' : self.moveTargetPath).trim();
+      var targetDir = self.normalizeResourcePath(rawTarget);
       var sourcePath = self.buildResourcePath(self.moveItem.name);
-      var targetDir = self.moveTargetPath.trim();
-      if (targetDir.charAt(0) === '/') targetDir = targetDir.substring(1);
       if (sourcePath === targetDir) {
         self.$store.commit('toast/SHOW_TOAST', { message: '源路径和目标路径相同', type: 'warning' });
         return;
@@ -2839,31 +2876,31 @@ export default {
     },
     copyResource: function(item) {
       this.copyItem = item;
-      this.copyTargetPath = this.resourcePath;
+      var here = this.normalizeResourcePath(this.resourcePath);
+      this.copyTargetPath = here ? '/' + here : '/';
       this.showCopyModal = true;
     },
     confirmCopy: function() {
       var self = this;
-      if (!self.copyTargetPath.trim() || !self.copyItem) {
-        self.$store.commit('toast/SHOW_TOAST', { message: '请选择目标路径', type: 'warning' });
-        return;
-      }
+      if (!self.copyItem) return;
+      var targetDir = self.normalizeResourcePath(self.copyTargetPath);
       var sourcePath = self.buildResourcePath(self.copyItem.name);
       api.post('/resources/copy', {
         source_paths: [sourcePath],
-        target_dir: self.copyTargetPath.trim()
+        target_dir: targetDir
       }).then(function() {
         self.showCopyModal = false;
         self.loadResources();
         self.$store.commit('toast/SHOW_TOAST', { message: '复制成功', type: 'success' });
       }).catch(function(err) {
         console.error('复制失败:', err);
-        self.$store.commit('toast/SHOW_TOAST', { message: '复制失败', type: 'error' });
+        var msg = (err.response && err.response.data && err.response.data.message) || '复制失败';
+        self.$store.commit('toast/SHOW_TOAST', { message: msg, type: 'error' });
       });
     },
     deleteResource: function(item) {
       var self = this;
-      if (self.resourcePath === '/' && item.is_dir) {
+      if (self.normalizeResourcePath(self.resourcePath) === '' && item.is_dir) {
         self.$store.commit('toast/SHOW_TOAST', { message: '禁止删除一级文件夹', type: 'error' });
         return;
       }
@@ -5688,6 +5725,16 @@ export default {
   color: #fff;
   font-size: 18px;
   flex-shrink: 0;
+}
+/* 真实应用图标：图标本身自带 iOS 圆角与底色，容器不再叠加品牌色块 */
+.app-control-icon--image {
+  background-color: transparent;
+}
+.app-control-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
 }
 .app-control-info {
   flex: 1;

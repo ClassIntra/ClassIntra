@@ -90,7 +90,10 @@
                 <span>扫码登录网易云</span>
               </div>
               <div v-if="!ncmLoggedIn" class="ncm-guest-tip">未登录也可搜索、播放、看热歌榜与推荐歌单；收藏先存在本机，登录后自动同步云端</div>
-              <div v-if="ncmLoggedIn" class="sidebar-item" @click="ncmLogout" title="点击退出网易云登录">
+              <!-- 账号入口：只打开账号面板，绝不直接退登。
+                   2026-10-22 修复：此前这里绑的是 @click="ncmLogout"，用户点自己的昵称
+                   想看看账号信息，直接被踢下线（无确认、无退路）。 -->
+              <div v-if="ncmLoggedIn" class="sidebar-item" @click="openNcmAccount" title="查看账号信息">
                 <i class="fa-solid fa-circle-user"></i>
                 <span class="sidebar-item-name">{{ ncmProfile && ncmProfile.nickname ? ncmProfile.nickname : '已登录' }}</span>
               </div>
@@ -839,6 +842,34 @@
         </div>
       </div>
     </div>
+
+    <!-- Modal: 网易云账号信息（退出登录必须在这里显式点两次，防止误触） -->
+    <div v-if="showNcmAccount" class="modal-overlay" @click.self="closeNcmAccount">
+      <div class="modal-box ncm-account-box">
+        <div class="modal-title">网易云账号</div>
+        <div class="ncm-account-head">
+          <img v-if="ncmAvatarUrl" class="ncm-account-avatar" :src="ncmAvatarUrl" alt="头像" />
+          <div v-else class="ncm-account-avatar ncm-account-avatar--ph"><i class="fa-solid fa-user"></i></div>
+          <div class="ncm-account-meta">
+            <div class="ncm-account-name">{{ ncmProfile && ncmProfile.nickname ? ncmProfile.nickname : '已登录' }}</div>
+            <div v-if="ncmProfile && (ncmProfile.userId || ncmProfile.id)" class="ncm-account-uid">UID {{ ncmProfile.userId || ncmProfile.id }}</div>
+            <div class="ncm-account-tag"><i class="fa-solid fa-circle-check"></i> 登录态保存在本服务器，任何设备都免登录</div>
+          </div>
+        </div>
+        <p class="ncm-account-hint">收藏先存在本机，退出登录不会丢；重新登录后自动同步云端。</p>
+        <div class="modal-actions">
+          <button class="modal-btn" @click="closeNcmAccount">关闭</button>
+          <button
+            class="modal-btn ncm-account-logout"
+            :class="{ 'ncm-account-logout--armed': ncmLogoutArmed }"
+            :disabled="ncmLogoutLoading"
+            @click="onNcmLogoutClick"
+          >
+            {{ ncmLogoutLoading ? '退出中...' : (ncmLogoutArmed ? '再点一次确认退出' : '退出登录') }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -907,6 +938,11 @@ export default {
       ncmToplistId: 3778678, // 云音乐热歌榜
       ncmLoading: false,
       showNcmLogin: false,
+      // 账号面板：点击侧边栏昵称只打开它，退出登录要在这里显式点两次
+      showNcmAccount: false,
+      ncmLogoutArmed: false,
+      ncmLogoutLoading: false,
+      _ncmArmTimer: null,
       ncmQr: null,
       ncmQrLoading: false,
       ncmQrExpired: false,
@@ -942,6 +978,13 @@ export default {
   computed: {
     isDark: function() {
       return this.$store.state.settings.theme === 'dark';
+    },
+    // 账号头像：走插件图片中转（校园网直连 p*.music.126.net 常常不通）
+    ncmAvatarUrl: function() {
+      var p = this.ncmProfile || {};
+      var raw = p.avatarUrl || p.avatar || '';
+      if (!raw) return '';
+      return '/api/netease-music/image?u=' + encodeURIComponent(raw);
     },
     theme: function() {
       return this.$store.state.settings.theme;
@@ -2964,15 +3007,53 @@ export default {
       this.showNcmLogin = false;
       this.stopQrPolling();
     },
+    // ── 账号面板 ──
+    openNcmAccount: function() {
+      this.ncmLogoutArmed = false;
+      this.showNcmAccount = true;
+    },
+    closeNcmAccount: function() {
+      this.showNcmAccount = false;
+      this.ncmLogoutArmed = false;
+      if (this._ncmArmTimer) { clearTimeout(this._ncmArmTimer); this._ncmArmTimer = null; }
+    },
+    // 退出登录两段式：第一次点只是「上膛」，4 秒内再点一次才真的退出。
+    // 账号是人最容易顺手点的地方，单点直退太容易误伤。
+    onNcmLogoutClick: function() {
+      var vm = this;
+      if (vm.ncmLogoutLoading) return;
+      if (!vm.ncmLogoutArmed) {
+        vm.ncmLogoutArmed = true;
+        if (vm._ncmArmTimer) clearTimeout(vm._ncmArmTimer);
+        vm._ncmArmTimer = setTimeout(function() {
+          vm.ncmLogoutArmed = false;
+          vm._ncmArmTimer = null;
+        }, 4000);
+        return;
+      }
+      if (vm._ncmArmTimer) { clearTimeout(vm._ncmArmTimer); vm._ncmArmTimer = null; }
+      vm.ncmLogoutArmed = false;
+      vm.ncmLogout();
+    },
     ncmLogout: function() {
       var vm = this;
+      if (vm.ncmLogoutLoading) return;
+      vm.ncmLogoutLoading = true;
       api.post('/netease-music/logout').then(function() {
         vm.ncmLoggedIn = false;
         vm.ncmProfile = null;
         vm.ncmPlaylists = [];
+        vm.showNcmAccount = false;
+        vm.showNcmLogin = false;
         if (vm.isNcmTab) vm.activeTab = 'all';
         vm.showNcmMsg('已退出网易云登录', { type: 'info' });
-      }).catch(function() {});
+      }).catch(function(err) {
+        // 此前 catch 是空实现 —— 退登失败时界面毫无反应，用户只能反复点
+        var msg = (err && err.response && err.response.data && err.response.data.message) || '退出登录失败，请稍后重试';
+        vm.showNcmMsg(msg, { type: 'error' });
+      }).finally(function() {
+        vm.ncmLogoutLoading = false;
+      });
     }
   }
 };
@@ -6405,6 +6486,92 @@ export default {
   color: var(--danger-color, #ff3b30);
   background: rgba(255, 59, 48, 0.1);
 }
+
+/* ========== 网易云账号面板 ========== */
+.ncm-account-box { width: 380px; max-width: calc(100vw - 48px); }
+
+.ncm-account-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.ncm-account-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: var(--primary-lighter);
+}
+
+.ncm-account-avatar--ph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  font-size: 22px;
+}
+
+.ncm-account-meta { flex: 1; min-width: 0; }
+
+.ncm-account-name {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ncm-account-uid {
+  margin-top: 2px;
+  font-size: var(--font-size-caption2);
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.ncm-account-tag {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-caption2);
+  color: var(--text-secondary);
+}
+
+.ncm-account-tag i { color: var(--success-color); }
+
+.ncm-account-hint {
+  margin: 16px 0 0;
+  font-size: var(--font-size-caption1);
+  color: var(--text-tertiary);
+  line-height: 1.5;
+}
+
+/* 退出登录：默认低调危险色，第一次点后「上膛」变为实心红 + 换文案 */
+.ncm-account-logout {
+  color: var(--danger-color);
+  border-color: rgba(255, 59, 48, 0.35);
+}
+
+.ncm-account-logout:hover {
+  background: rgba(255, 59, 48, 0.1);
+  color: var(--danger-color);
+}
+
+.ncm-account-logout--armed {
+  background: var(--danger-color);
+  border-color: var(--danger-color);
+  color: #fff;
+}
+
+.ncm-account-logout--armed:hover {
+  background: var(--danger-color);
+  color: #fff;
+}
+
+.ncm-account-logout:disabled { opacity: 0.5; cursor: default; }
 
 /* ========== 网易云登录弹窗（多方式） ========== */
 .ncm-login-box { width: 380px; max-width: calc(100vw - 48px); }

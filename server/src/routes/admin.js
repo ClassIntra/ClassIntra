@@ -2024,10 +2024,14 @@ router.post('/weather-alert/broadcast', function(req, res) {
 // Cluss 和「应用市场」正是掉在这个缝里：manifest 里有，名单里抄漏了。
 // 现在名单与「能否禁用」都回到 manifest 这一份唯一的真相源。
 //
-// 仍然手写的只有展示用的图标/配色，原因：manifest 的 icon 是**图片路径**
-// （给桌面显示真图标用），而管控面板渲染的是 Font Awesome 类名
-// （<i :class="app.icon">）。两套图标体系并存是有意的，所以新增应用时
-// 这里可以不登记 —— 会拿一个通用灰方块图标，不好看而已，不妨碍管控。
+// 仍然手写的只有展示用的配色与 Font Awesome 兜底图标，原因：manifest 的 icon 是
+// **图片路径**（给桌面显示真图标用），而 APP_CONTROL_META 给的是 FA 类名
+// （<i :class="app.icon">）。两套图标体系并存是有意的：管控卡片优先渲染 manifest
+// 的真实图标（iconUrl），拿不到图片时才退回 FA 图标，所以新增应用时这里可以不登记。
+//
+// ⚠️ 2026-10-22：此前管控面板只渲染 FA 图标，与桌面看到的品牌图标完全不一致
+// （用户反馈「图标不是应用实际图标」）。现由 resolveAppIconUrl() 把 manifest.icon
+// 统一翻译成可访问 URL 一并下发，前端优先用 iconUrl。
 
 var APP_CONTROL_META = {
   chat:       { icon: 'fa-solid fa-comments', color: '#007AFF' },
@@ -2051,6 +2055,32 @@ var APP_CONTROL_META = {
 // 新应用忘了登记 meta 时的兜底：不报错，只是图标是个灰方块
 var APP_META_FALLBACK = { icon: 'fa-solid fa-cube', color: '#8E8E93' };
 
+// 把 manifest.icon 翻译成浏览器可直接请求的 URL。
+// 规则与前端 core/app-registry.js 保持一致，两处必须同口径，否则「桌面图标正常、
+// 管控面板空白」：
+//   '/resources/public/icons/Chat.png' → 原样使用（绝对路径）
+//   './icon.png'                       → '/apps-static/<name>/icon.png'（图标随应用目录走）
+//   'http(s)://...'                     → 原样使用（远端图标）
+// 拿不到可用地址时返回 ''，前端退回 FA 兜底。
+function resolveAppIconUrl(m) {
+  if (!m || !m.name) return '';
+  var icon = typeof m.icon === 'string' ? m.icon.trim() : '';
+  if (!icon) return '';
+  if (icon.indexOf('http://') === 0 || icon.indexOf('https://') === 0) return icon;
+  if (icon.charAt(0) === '/') return icon;
+  if (icon.indexOf('./') === 0) {
+    var rest = icon.replace(/^\.\//, '');
+    var base = m._sourceType === 'market' ? '/market-static/' : '/apps-static/';
+    return base + m.name + '/' + rest;
+  }
+  // 裸文件名（'icon.png'）：manifest-schema 允许，按应用目录解析
+  if (icon.indexOf('/') === -1 && icon.indexOf('\\') === -1) {
+    var base2 = m._sourceType === 'market' ? '/market-static/' : '/apps-static/';
+    return base2 + m.name + '/' + icon;
+  }
+  return '';
+}
+
 function loadDesktopApps() {
   try {
     return manifestLoader.loadManifests()
@@ -2064,6 +2094,7 @@ function loadDesktopApps() {
           name: m.name,
           label: m.label || m.name,
           icon: meta.icon,
+          iconUrl: resolveAppIconUrl(m),
           color: m.color || meta.color,
           // 「不可禁用」同样回到 manifest 的 canDisable：
           // settings / admin / market 都写了 false，此前语义又被抄了一份到 protected
@@ -2076,6 +2107,7 @@ function loadDesktopApps() {
       return {
         name: name, label: name,
         icon: APP_CONTROL_META[name].icon,
+        iconUrl: '',
         color: APP_CONTROL_META[name].color,
         protected: false
       };
@@ -2103,6 +2135,7 @@ router.get('/app-control', auth.requirePermission('manage_app_control'), functio
         name: app.name,
         label: app.label,
         icon: app.icon,
+        iconUrl: app.iconUrl || '',
         color: app.color,
         enabled: status.enabled,
         protected: !!app.protected,
@@ -2122,7 +2155,11 @@ router.get('/app-control', auth.requirePermission('manage_app_control'), functio
       apps.push({
         name: marketApp.name,
         label: marketApp.label,
-        icon: marketApp.icon,
+        // 市场应用的 icon 在 listInstalled() 里已翻译成 URL（/market-static/... 或
+        // /api/market/asset?...），不能当 Font Awesome 类名用 —— 直接作为 iconUrl，
+        // icon 留一个通用兜底类名，避免前端拿 URL 去当 class。
+        icon: 'fa-solid fa-cube',
+        iconUrl: (typeof marketApp.icon === 'string' && (marketApp.icon.charAt(0) === '/' || marketApp.icon.indexOf('http') === 0)) ? marketApp.icon : '',
         color: marketApp.color,
         version: marketApp.version,
         route: marketApp.route,
