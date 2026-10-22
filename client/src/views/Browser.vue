@@ -495,6 +495,9 @@ export default {
     document.addEventListener('touchstart', self._onSwipeStart, { passive: true });
     document.addEventListener('touchmove', self._onSwipeMove, { passive: true });
     document.addEventListener('touchend', self._onSwipeEnd, { passive: true });
+    // 页面切后台 / 手机锁屏时暂停兼容模式的帧流与声音，回到前台再恢复
+    self._onVisibilityChange = self.onCompatVisibility.bind(self);
+    document.addEventListener('visibilitychange', self._onVisibilityChange);
   },
   beforeDestroy: function() {
     // 清理加载指示器定时器
@@ -523,6 +526,13 @@ export default {
       this._onSwipeMove = null;
       this._onSwipeEnd = null;
     }
+    if (this._onVisibilityChange) {
+      document.removeEventListener('visibilitychange', this._onVisibilityChange);
+      this._onVisibilityChange = null;
+    }
+    // 取消尚未发出的输入合并帧
+    if (this._mouseRaf) { cancelAnimationFrame(this._mouseRaf); this._mouseRaf = 0; }
+    if (this._wheelRaf) { cancelAnimationFrame(this._wheelRaf); this._wheelRaf = 0; }
   },
   methods: {
     // 开始加载：立刻显示指示器，5 秒后升级为慢速提示，60 秒兜底收起
@@ -780,6 +790,9 @@ export default {
       this._compatPending = null;
       this.compatCanBack = false;
       this.compatCanForward = false;
+      // 取消尚未发出的输入合并帧，避免断开后还往废弃通道发消息
+      if (this._mouseRaf) { cancelAnimationFrame(this._mouseRaf); this._mouseRaf = 0; }
+      if (this._wheelRaf) { cancelAnimationFrame(this._wheelRaf); this._wheelRaf = 0; }
       // 通道关闭后声音必然中断：停掉本地播放，但保留用户的开关偏好（重连时恢复）
       this.haltCompatAudio();
       this.teardownCompatResize();
@@ -822,6 +835,26 @@ export default {
       var h = Math.round(rect.height);
       if (Math.abs(w - self.compatViewW) < 2 && Math.abs(h - self.compatViewH) < 2) return;
       self.sendCompatInput({ type: 'resize', width: w, height: h });
+    },
+    // 页面可见性变化：隐藏时通知服务端停掉帧流与声音采集，回到前台再恢复。
+    // 既省服务端 CPU / 带宽，也避免离开页面后还在出声。
+    onCompatVisibility: function() {
+      var self = this;
+      if (!self.compatMode || !self._compatWs || self._compatWs.readyState !== 1) return;
+      if (document.hidden) {
+        self.sendCompatInput({ type: 'pause' });
+        self.compatAudioActive = false;
+        self._audioNext = 0;
+        if (self._audioCtx) {
+          try { self._audioCtx.suspend(); } catch (e) {}
+        }
+      } else {
+        self.sendCompatInput({ type: 'resume' });
+        if (self.compatAudio && self._audioCtx) {
+          try { self._audioCtx.resume(); } catch (e) {}
+          self._audioNext = 0;
+        }
+      }
     },
     onCompatMessage: function(ev) {
       var self = this;
@@ -1047,11 +1080,22 @@ export default {
     compatPoint: function(e) {
       return this.compatPointFromClient(e.clientX, e.clientY);
     },
+    // 指针移动按帧合并：高频 mousemove（120Hz 触控板）不必逐条走 WS，只发最新位置
     onCompatMouseMove: function(e) {
-      var p = this.compatPoint(e);
-      this.sendCompatInput({ type: 'mouse', event: 'mouseMoved', x: p.x, y: p.y, button: 'none', buttons: e.buttons || 0 });
+      var self = this;
+      self._mousePos = self.compatPoint(e);
+      self._mouseButtons = e.buttons || 0;
+      if (self._mouseRaf) return;
+      self._mouseRaf = requestAnimationFrame(function() {
+        self._mouseRaf = 0;
+        var p = self._mousePos;
+        if (!p || !self.compatMode) return;
+        self.sendCompatInput({ type: 'mouse', event: 'mouseMoved', x: p.x, y: p.y, button: 'none', buttons: self._mouseButtons || 0 });
+      });
     },
     onCompatMouseDown: function(e) {
+      // 取消尚未发出的移动合并帧，避免按下用的是旧坐标
+      if (this._mouseRaf) { cancelAnimationFrame(this._mouseRaf); this._mouseRaf = 0; }
       var p = this.compatPoint(e);
       var canvas = this.$refs.compatCanvas;
       if (canvas) canvas.focus();
@@ -1061,9 +1105,23 @@ export default {
       var p = this.compatPoint(e);
       this.sendCompatInput({ type: 'mouse', event: 'mouseReleased', x: p.x, y: p.y, button: 'left', buttons: 0, clickCount: 1 });
     },
+    // 滚轮按帧合并增量：触控板一帧内可能来多个事件，合并后总位移不变、WS 消息量大幅下降
     onCompatWheel: function(e) {
-      var p = this.compatPoint(e);
-      this.sendCompatInput({ type: 'wheel', x: p.x, y: p.y, deltaX: e.deltaX || 0, deltaY: e.deltaY || 0 });
+      var self = this;
+      self._wheelPos = self.compatPoint(e);
+      self._wheelDx = (self._wheelDx || 0) + (e.deltaX || 0);
+      self._wheelDy = (self._wheelDy || 0) + (e.deltaY || 0);
+      if (self._wheelRaf) return;
+      self._wheelRaf = requestAnimationFrame(function() {
+        self._wheelRaf = 0;
+        var p = self._wheelPos;
+        var dx = self._wheelDx || 0;
+        var dy = self._wheelDy || 0;
+        self._wheelDx = 0;
+        self._wheelDy = 0;
+        if (!p || !self.compatMode || (!dx && !dy)) return;
+        self.sendCompatInput({ type: 'wheel', x: p.x, y: p.y, deltaX: dx, deltaY: dy });
+      });
     },
     // ===== 触摸：转发为 CDP 触摸序列，页面才会响应点击、原生滚动与惯性 =====
     // 单指手势足够覆盖浏览场景；多指（缩放）暂不转发，避免与页面手势冲突。
