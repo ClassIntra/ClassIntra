@@ -159,6 +159,27 @@ function createContext(appName, deps) {
   var cleanups = [];
   var _disposed = false;
 
+  // --- 订阅归属：本 context 经 eventBus 登记的订阅统一挂 'market:<appName>' ---
+  // dispose 时自动 offOwner——第三方忘了退订也不再泄漏总线
+  var BUS_OWNER = 'market:' + appName;
+  var scopedEventBus = null;
+  if (d.eventBus && typeof d.eventBus.on === 'function') {
+    var rawBus = d.eventBus;
+    scopedEventBus = {
+      on: function(topic, fn) { return rawBus.on(topic, fn, BUS_OWNER); },
+      once: function(topic, fn) {
+        var wrapper = function() {
+          rawBus.off(topic, wrapper);
+          try { fn.apply(null, arguments); } catch (e) {}
+        };
+        return rawBus.on(topic, wrapper, BUS_OWNER);
+      },
+      off: function(topic, fn) { rawBus.off(topic, fn); return true; },
+      emit: function(topic) { return rawBus.emit.apply(rawBus, arguments); },
+      listenerCount: function(topic) { return rawBus.listenerCount(topic); }
+    };
+  }
+
   // 取当前应用的资源审计器（用于记录 storage 前缀）
   var auditor = null;
   try {
@@ -248,8 +269,8 @@ function createContext(appName, deps) {
         return (collectTokens() || {})[name] || '';
       } catch (e) { return ''; }
     },
-    // 事件总线
-    eventBus: d.eventBus || null,
+    // 事件总线（scoped：订阅统一归属 market:<appName>，dispose 时自动整批退订）
+    eventBus: scopedEventBus || d.eventBus || null,
     // 提示
     toast: {
       alert: function(options) {
@@ -363,6 +384,12 @@ function createContext(appName, deps) {
       }
     }
     cleanups = [];
+    // 订阅兜底退订：应用忘了退订的 eventBus 订阅按归属整批清理
+    try {
+      if (d.eventBus && typeof d.eventBus.offOwner === 'function') {
+        d.eventBus.offOwner(BUS_OWNER);
+      }
+    } catch (e) {}
     return count;
   };
 

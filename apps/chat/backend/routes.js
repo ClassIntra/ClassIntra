@@ -44,13 +44,17 @@ router.get('/messages', function(req, res) {
     if (limit > 100) limit = 100;
     var beforeId = req.query.before_id ? parseInt(req.query.before_id) : null;
     var rows;
+    // sender_name 用 COALESCE(u.net_name, m.sender_name)：老消息可能存了 user_id 当名字
+    // （poll 通道时期写入的脏数据，见 chat-server 写入侧注释），以用户当前名字覆盖显示
     if (beforeId) {
       rows = db.prepare(
-        'SELECT id, sender_id, sender_name, content, type, extra_json, recalled, created_at FROM chat_messages WHERE room_id = ? AND id < ? ORDER BY id DESC LIMIT ?'
+        'SELECT m.id, m.sender_id, COALESCE(u.net_name, m.sender_name) AS sender_name, m.content, m.type, m.extra_json, m.recalled, m.created_at ' +
+        'FROM chat_messages m LEFT JOIN users u ON u.user_id = m.sender_id WHERE m.room_id = ? AND m.id < ? ORDER BY m.id DESC LIMIT ?'
       ).all('public', beforeId, limit);
     } else {
       rows = db.prepare(
-        'SELECT id, sender_id, sender_name, content, type, extra_json, recalled, created_at FROM chat_messages WHERE room_id = ? ORDER BY id DESC LIMIT ?'
+        'SELECT m.id, m.sender_id, COALESCE(u.net_name, m.sender_name) AS sender_name, m.content, m.type, m.extra_json, m.recalled, m.created_at ' +
+        'FROM chat_messages m LEFT JOIN users u ON u.user_id = m.sender_id WHERE m.room_id = ? ORDER BY m.id DESC LIMIT ?'
       ).all('public', limit);
     }
     var messages = [];
@@ -324,13 +328,15 @@ router.get('/groups/:groupId/messages', function(req, res) {
     var rows;
     if (beforeId) {
       rows = db.prepare(
-        'SELECT id, sender_id, sender_name, content, type, extra_json, recalled, created_at FROM group_messages WHERE group_id = ? AND id < ? ORDER BY id DESC LIMIT ?'
+        'SELECT m.id, m.sender_id, COALESCE(u.net_name, m.sender_name) AS sender_name, m.content, m.type, m.extra_json, m.recalled, m.created_at ' +
+        'FROM group_messages m LEFT JOIN users u ON u.user_id = m.sender_id WHERE m.group_id = ? AND m.id < ? ORDER BY m.id DESC LIMIT ?'
       ).all(groupId, beforeId, limit + 1);
     } else {
       var offset = parseInt(req.query.offset) || 0;
       if (offset < 0) offset = 0;
       rows = db.prepare(
-        'SELECT id, sender_id, sender_name, content, type, extra_json, recalled, created_at FROM group_messages WHERE group_id = ? ORDER BY id DESC LIMIT ? OFFSET ?'
+        'SELECT m.id, m.sender_id, COALESCE(u.net_name, m.sender_name) AS sender_name, m.content, m.type, m.extra_json, m.recalled, m.created_at ' +
+        'FROM group_messages m LEFT JOIN users u ON u.user_id = m.sender_id WHERE m.group_id = ? ORDER BY m.id DESC LIMIT ? OFFSET ?'
       ).all(groupId, limit + 1, offset);
     }
 

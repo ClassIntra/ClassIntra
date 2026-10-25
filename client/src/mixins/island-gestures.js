@@ -40,7 +40,11 @@ export default {
       swipeDy: 0,
       mouseDownTime: 0,
       // 长按已触发标记：用于抑制随后的 click（避免长按后又走一遍 handleClick）
-      longPressFired: false
+      longPressFired: false,
+      // FLIP 首帧尺寸缓存：bounce/dismiss 等待期间的重试沿用最初测量值，
+      // 详见 animateIslandHeight（2026-10-24 修「通知无形变」P0）
+      _flipFirstRect: null,
+      _flipFirstMode: null
     };
   },
 
@@ -190,16 +194,26 @@ export default {
 
       // 低性能模式跳过动画
       var perfLevel = document.documentElement.getAttribute('data-perf');
-      if (perfLevel === 'low') return;
-
-      // 1. 测量 first rect（当前视觉尺寸，可能正处于上次动画中间）
-      var firstRect = islandEl.getBoundingClientRect();
-      if (firstRect.width === 0 || firstRect.height === 0) return;
+      if (perfLevel === 'low') { self._flipFirstRect = null; return; }
 
       // 2. 取消进行中的 FLIP（可中断）—— apple-design §3
       if (self._flipAnimation) {
         self._flipAnimation.cancel();
         self._flipAnimation = null;
+      }
+
+      // 1. 测量 first rect（当前视觉尺寸，可能正处于上次动画中间）。
+      //    ⚠️ 只在「新一轮形变」时测量：bounce/dismiss 等待期间的重试必须沿用
+      //    最初测到的视觉尺寸。此前每次 rAF 重试都重新测量，而通知入场时
+      //    isBouncing 要持续 500ms —— 等能开跑时 DOM 早已长完，
+      //    first == last，形变被下面的「尺寸变化过小」分支静默跳过，
+      //    表现为尺寸瞬变、毫无 morph（2026-10-24 探针实测抓到的 P0）。
+      //    模式号兜底防串味：等待期间又切了模式就重新测。
+      if (!self._flipFirstRect || self._flipFirstMode !== self.islandMode) {
+        var measure = islandEl.getBoundingClientRect();
+        if (measure.width === 0 || measure.height === 0) return;
+        self._flipFirstRect = measure;
+        self._flipFirstMode = self.islandMode;
       }
 
       self.$nextTick(function() {
@@ -212,6 +226,11 @@ export default {
           });
           return;
         }
+
+        // 消耗掉本轮 first rect（等待期间的重试就是为这一刻保留的）
+        var firstRect = self._flipFirstRect;
+        self._flipFirstRect = null;
+        self._flipFirstMode = null;
 
         var lastRect = islandEl.getBoundingClientRect();
         if (lastRect.width === 0 || lastRect.height === 0) return;
@@ -276,6 +295,9 @@ export default {
         this._flipAnimation = null;
       }
       if (this._flipFallbackTimer) clearTimeout(this._flipFallbackTimer);
+      // 丢弃可能残留的首帧缓存，避免下次形变拿到过期尺寸
+      this._flipFirstRect = null;
+      this._flipFirstMode = null;
     }
   }
 };

@@ -2,9 +2,9 @@
   <div class="cloud-picker-overlay" @click.self="$emit('close')">
     <div class="cloud-picker-sheet">
       <div class="picker-header">
-        <span>选择云盘文件</span>
+        <span>{{ mediaType === 'image' ? '选择云盘图片' : '选择云盘文件' }}</span>
         <div class="picker-header-actions">
-          <button class="picker-fullscreen-btn" @click="openFullscreen" title="全屏浏览">
+          <button v-if="mediaType === 'all'" class="picker-fullscreen-btn" @click="openFullscreen" title="全屏浏览">
             <i class="fa-solid fa-expand"></i>
           </button>
           <button class="picker-close" @click="$emit('close')"><i class="fa-solid fa-xmark"></i></button>
@@ -14,7 +14,7 @@
         <i class="fa-solid fa-magnifying-glass picker-search-icon"></i>
         <input v-model="searchQuery" class="picker-search-input" placeholder="搜索文件..." />
       </div>
-      <div class="picker-tabs">
+      <div v-if="mediaType === 'all'" class="picker-tabs">
         <button class="picker-tab" :class="{ active: mediaFilter === 'all' }" @click="mediaFilter = 'all'">全部</button>
         <button class="picker-tab" :class="{ active: mediaFilter === 'image' }" @click="mediaFilter = 'image'"><i class="fa-solid fa-image"></i> 图片</button>
         <button class="picker-tab" :class="{ active: mediaFilter === 'video' }" @click="mediaFilter = 'video'"><i class="fa-solid fa-video"></i> 视频</button>
@@ -38,7 +38,9 @@
         </div>
         <div v-else-if="filteredFiles.length === 0" class="picker-empty">
           <i class="fa-solid fa-cloud"></i>
-          <span>{{ searchQuery ? '无匹配文件' : '云盘无文件' }}</span>
+          <span v-if="searchQuery">没有匹配的文件</span>
+          <span v-else-if="mediaType === 'image'">云盘里还没有图片<br />先去「云盘」上传一张，再回来选择</span>
+          <span v-else>云盘无文件</span>
         </div>
         <div v-else class="picker-grid">
           <div
@@ -48,6 +50,7 @@
             @click="selectFile(file)"
           >
             <img v-if="getFileType(file) === 'image'" :src="file.url + '?w=300'" :alt="file.name" loading="lazy" class="picker-img" />
+            <span v-if="currentHash && file.hash === currentHash" class="picker-current">当前</span>
             <div v-else-if="getFileType(file) === 'video'" class="picker-icon-card">
               <span class="picker-icon-card-inner"><i class="fa-solid fa-video"></i></span>
             </div>
@@ -67,13 +70,20 @@ import api from '@/utils/api';
 
 export default {
   name: 'CloudImagePicker',
+  props: {
+    // 'all' = 全部类型（聊天/社区发图用）；'image' = 只选图片（头像/封面用），
+    // 此时隐藏类型切换标签，避免"点了视频却没反应"的困惑
+    mediaType: { type: String, default: 'all' },
+    // 当前已选中的文件 hash：打「当前」角标并置顶，方便"重新裁选同一张"
+    currentHash: { type: String, default: '' }
+  },
   data: function() {
     return {
       files: [],
       folders: [],
       loading: true,
       searchQuery: '',
-      mediaFilter: 'all',
+      mediaFilter: this.mediaType === 'image' ? 'image' : 'all',
       folderFilter: 'all'
     };
   },
@@ -99,6 +109,14 @@ export default {
         result = result.filter(function(file) {
           var searchName = (file.display_name || file.name || '').toLowerCase();
           return searchName.indexOf(query) > -1;
+        });
+      }
+      // 当前已选中的图排最前：用户点「更换封面」想改裁切时，第一眼就能点回自己那张
+      if (self.currentHash) {
+        result = result.slice().sort(function(a, b) {
+          var A = a.hash === self.currentHash ? 0 : 1;
+          var B = b.hash === self.currentHash ? 0 : 1;
+          return A - B;
         });
       }
       return result;
@@ -392,6 +410,7 @@ export default {
 }
 
 .picker-item {
+  position: relative;   /* 「当前」角标的定位基准 */
   display: flex;
   flex-direction: column;
   border-radius: var(--radius-md);
@@ -411,6 +430,19 @@ export default {
   height: 80px;
   object-fit: cover;
   background: var(--border-color);
+}
+
+.picker-current {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--primary-color);
+  color: #fff;
+  font-size: 10px;
+  font-weight: var(--font-weight-medium);
+  pointer-events: none;
 }
 
 .picker-name {

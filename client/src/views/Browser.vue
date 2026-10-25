@@ -761,8 +761,13 @@ export default {
       var h = Math.round(rect && rect.height ? rect.height : window.innerHeight);
       var dpr = Math.min(window.devicePixelRatio || 1, 2);
       var touch = isTouchDevice();
+      // 带上使用者身份：班管在应用市场的兼容模式管理浮窗里需要知道是谁在用
+      var user = (self.$store && self.$store.state && self.$store.state.auth && self.$store.state.auth.user) || {};
+      var uname = user.nickname || user.username || user.name || '';
       var wsUrl = 'ws://' + location.hostname + ':' + info.port + '/__render__?url=' + encodeURIComponent(url)
-        + '&w=' + w + '&h=' + h + '&dpr=' + dpr + '&touch=' + (touch ? '1' : '0');
+        + '&w=' + w + '&h=' + h + '&dpr=' + dpr + '&touch=' + (touch ? '1' : '0')
+        + '&uid=' + encodeURIComponent(user.user_id || user.id || '')
+        + '&uname=' + encodeURIComponent(uname);
       var ws;
       try {
         ws = new WebSocket(wsUrl);

@@ -62,16 +62,6 @@
                 class="action-btn danger-btn"
                 @click="batchDeleteUsers"
               >批量删除 ({{ selectedUsers.length }})</button>
-              <span v-if="selectedUsers.length > 0 && isAdmin" class="btn-group">
-                <button class="action-btn btn-group-label" disabled>AI 策略</button>
-                <button
-                  v-for="p in policies"
-                  :key="p.id"
-                  class="action-btn"
-                  @click="applyPolicyToSelected(p.id)"
-                  :title="'将「' + p.label + '」应用到选中的 ' + selectedUsers.length + ' 个用户'"
-                >{{ p.label }}</button>
-              </span>
               <span v-if="selectedUsers.length > 0 && isClassAdmin" class="btn-group">
                 <button class="action-btn btn-group-label" disabled>超能岛浏览器</button>
                 <button class="action-btn" @click="batchToggleBrowser(true)">开</button>
@@ -110,8 +100,6 @@
                   <th>网名</th>
                   <th>真实姓名</th>
                   <th>角色</th>
-                  <th>AI模型</th>
-                  <th>AI 策略</th>
                   <th>状态</th>
                   <th>操作</th>
                 </tr>
@@ -137,12 +125,6 @@
                     <span v-if="user.is_admin" class="role-badge admin-badge">班管</span>
 
                     <span v-else class="role-badge user-badge">用户</span>
-                  </td>
-                  <td><span class="model-tag" :class="user.ai_model">{{ user.ai_model === 'deepseek' ? 'DeepSeek' : (user.ai_model === 'default' ? 'GPT' : (user.ai_model || '—')) }}</span></td>
-                  <td>
-                    <span class="model-tag policy-tag" :class="{ restricted: user.ai_policy }">
-                      {{ user.ai_policy ? (user.ai_policy_label || policyLabel(user.ai_policy)) : '不限' }}
-                    </span>
                   </td>
                   <td>
                     <span class="status-badge" :class="user.status === 'disabled' ? 'disabled' : 'active'">
@@ -412,6 +394,316 @@
             <button v-if="isClassAdmin" class="btn-primary btn-danger" @click="showClearChat" style="margin-left: 12px;">
               <i class="fa-solid fa-trash-can"></i> 清除聊天记录
             </button>
+          </div>
+        </div>
+
+        <!-- ========== 大字广播 ========== -->
+        <div v-if="activeTab === 'big_text'" key="big_text" class="admin-section">
+          <!-- 左：表单；右：粘性预览 + 发送。改样式时预览始终在视野里 -->
+          <div class="bt-layout">
+          <div class="broadcast-form bt-form-col">
+            <h3 class="sub-title">发送大字</h3>
+            <p class="perm-desc">
+              大字会全屏覆盖设备界面，到时长自动消失（用户也可轻触关闭）。
+              离线设备上线后会自动补显示一次。
+            </p>
+
+            <textarea
+              v-model="bigTextForm.content"
+              class="broadcast-input"
+              placeholder="输入要全屏显示的内容…要分条播放就换行"
+              rows="3"
+              maxlength="400"
+              @keydown.ctrl.enter.prevent="onBigTextHotkey"
+              @keydown.meta.enter.prevent="onBigTextHotkey"
+            ></textarea>
+            <div class="bt-char-count">
+              {{ bigTextForm.content.length }} / 400
+              <span v-if="bigTextLines.length > 1">· 共 {{ bigTextLines.length }} 行</span>
+              <span v-if="bigTextForm.displayMode === 'carousel' && bigTextLines.length > 1">
+                → 会切成 {{ bigTextLines.length }} 条，每 {{ bigTextForm.switchInterval }} 秒切一条
+              </span>
+            </div>
+
+            <!-- 显示时长 -->
+            <div class="bt-field">
+              <label class="bt-label">显示时长</label>
+              <div class="bt-chip-row">
+                <button
+                  v-for="d in bigTextDurations"
+                  :key="d"
+                  class="bt-chip"
+                  :class="{ active: bigTextForm.duration === d }"
+                  @click="bigTextForm.duration = d"
+                >{{ d }} 秒</button>
+                <span class="bt-unit" style="margin-left: 4px;">自定义</span>
+                <input
+                  type="number"
+                  class="bt-number"
+                  min="3"
+                  max="600"
+                  v-model.number="bigTextForm.duration"
+                  aria-label="自定义显示时长（秒）"
+                >
+                <span class="bt-unit">秒</span>
+              </div>
+            </div>
+
+            <!-- 展示方式 -->
+            <div class="bt-field">
+              <label class="bt-label">展示方式</label>
+              <div class="bt-chip-row">
+                <button class="bt-chip" :class="{ active: bigTextForm.displayMode === 'static' }" @click="bigTextForm.displayMode = 'static'">静态整段</button>
+                <button class="bt-chip" :class="{ active: bigTextForm.displayMode === 'carousel' }" @click="bigTextForm.displayMode = 'carousel'">多行轮播</button>
+                <button class="bt-chip" :class="{ active: bigTextForm.displayMode === 'scroll' }" @click="bigTextForm.displayMode = 'scroll'">横向走马灯</button>
+              </div>
+              <p class="bt-hint-line">
+                <template v-if="bigTextForm.displayMode === 'static'">换行原样保留，适合一段完整通知。</template>
+                <template v-else-if="bigTextForm.displayMode === 'carousel'">
+                  每个换行算一条，按设定间隔自动切换。
+                  <span v-if="bigTextLines.length <= 1" class="bt-warn">当前只有 1 行，会按静态显示。</span>
+                  <span v-else-if="bigTextCarouselGap" class="bt-warn">
+                    时长 {{ bigTextForm.duration }}s 约只能看完前 {{ bigTextCarouselGap.shown }}/{{ bigTextCarouselGap.total }} 条
+                    <button type="button" class="bt-link-btn" @click="fixBigTextCarouselDuration">补到 {{ bigTextCarouselGap.need }}s</button>
+                  </span>
+                </template>
+                <template v-else>多行合并成一条持续横向滚动，适合放不下的长句。</template>
+              </p>
+            </div>
+
+            <div class="bt-field" v-if="bigTextForm.displayMode === 'carousel'">
+              <label class="bt-label">切换间隔</label>
+              <div class="bt-chip-row">
+                <input type="number" class="bt-number" min="2" max="60" v-model.number="bigTextForm.switchInterval">
+                <span class="bt-unit">秒 / 条</span>
+              </div>
+            </div>
+
+            <div class="bt-field" v-if="bigTextForm.displayMode === 'scroll'">
+              <label class="bt-label">滚动速度</label>
+              <div class="bt-chip-row">
+                <input type="number" class="bt-number" min="20" max="200" step="10" v-model.number="bigTextForm.scrollSpeed">
+                <span class="bt-unit">像素 / 秒</span>
+              </div>
+            </div>
+
+            <!-- 副内容与署名 -->
+            <div class="bt-field">
+              <label class="bt-label">副内容 <span class="bt-hint">显示在主文下方，可留空</span></label>
+              <input class="bt-search" v-model="bigTextForm.subContent" maxlength="120" placeholder="例如：请各组长 22:00 前确认人数">
+            </div>
+
+            <div class="bt-field">
+              <label class="bt-label">署名</label>
+              <label class="bt-switch">
+                <input type="checkbox" v-model="bigTextForm.showSender">
+                <span>显示发送人</span>
+              </label>
+            </div>
+
+            <!-- 目标人群 -->
+            <div class="bt-field">
+              <label class="bt-label">显示给谁 <span class="bt-hint" v-if="bigTextScopeLabel">「全班」= {{ bigTextScopeLabel }}</span></label>
+              <div class="bt-chip-row">
+                <button class="bt-chip" :class="{ active: bigTextForm.targetType === 'class' }" @click="bigTextForm.targetType = 'class'">全班</button>
+                <button class="bt-chip" :class="{ active: bigTextForm.targetType === 'users' }" @click="switchBigTextTargetUsers">指定成员</button>
+              </div>
+              <template v-if="bigTextForm.targetType === 'users'">
+                <div class="bt-chip-row">
+                  <input
+                    v-model="bigTextUserSearch"
+                    class="bt-search"
+                    placeholder="搜索学号 / 昵称…"
+                    aria-label="搜索成员"
+                  >
+                  <!-- 全选只作用于当前筛选结果，搜索后能快速选一个组 -->
+                  <button class="bt-chip" @click="selectAllBigTextUsers">全选{{ bigTextUserSearch ? '筛选结果' : '全部' }}</button>
+                  <button class="bt-chip" @click="clearBigTextUsers">清空</button>
+                </div>
+                <div class="bt-user-list">
+                  <label v-for="u in filteredBigTextUsers" :key="u.user_id" class="bt-user-item">
+                    <input type="checkbox" :value="u.user_id" v-model="bigTextForm.targetIds">
+                    <span class="bt-user-name">{{ u.net_name || u.real_name || u.user_id }}</span>
+                    <span class="bt-user-id">{{ u.user_id }}</span>
+                  </label>
+                  <div v-if="filteredBigTextUsers.length === 0" class="bt-empty">没有匹配的成员</div>
+                </div>
+                <div class="bt-selected-count">
+                  已选 {{ bigTextForm.targetIds.length }} 人
+                  <span v-if="bigTextForm.targetIds.length === 0" class="bt-warn">· 至少选 1 人才能发送</span>
+                </div>
+              </template>
+            </div>
+
+            <!-- 外观 -->
+            <div class="bt-field">
+              <label class="bt-label">背景颜色</label>
+              <div class="bt-chip-row">
+                <button
+                  v-for="c in bigTextBgPresets"
+                  :key="c.value"
+                  class="bt-swatch"
+                  :class="{ active: bigTextForm.bgColor === c.value }"
+                  :style="{ background: c.value }"
+                  :title="c.label"
+                  @click="bigTextForm.bgColor = c.value"
+                ></button>
+                <input type="color" class="bt-color" v-model="bigTextForm.bgColor" aria-label="自定义背景颜色">
+                <code class="bt-hex">{{ bigTextForm.bgColor }}</code>
+              </div>
+            </div>
+
+            <div class="bt-field">
+              <label class="bt-label">字体颜色</label>
+              <div class="bt-chip-row">
+                <button
+                  v-for="c in bigTextFontPresets"
+                  :key="c.value"
+                  class="bt-swatch"
+                  :class="{ active: bigTextForm.fontColor === c.value }"
+                  :style="{ background: c.value }"
+                  :title="c.label"
+                  @click="bigTextForm.fontColor = c.value"
+                ></button>
+                <input type="color" class="bt-color" v-model="bigTextForm.fontColor" aria-label="自定义字体颜色">
+                <code class="bt-hex">{{ bigTextForm.fontColor }}</code>
+              </div>
+            </div>
+
+            <!-- 视觉特效 -->
+            <div class="bt-field">
+              <label class="bt-label">视觉特效</label>
+              <div class="bt-chip-row">
+                <button
+                  v-for="e in bigTextEffects"
+                  :key="e.value"
+                  class="bt-chip"
+                  :class="{ active: bigTextForm.effect === e.value }"
+                  @click="bigTextForm.effect = e.value"
+                >{{ e.label }}</button>
+              </div>
+              <div class="bt-chip-row" v-if="bigTextForm.effect === 'gradient_text' || bigTextForm.effect === 'gradient_bg'">
+                <span class="bt-hint">渐变起止</span>
+                <input type="color" class="bt-color" v-model="bigTextForm.gradientFrom" aria-label="渐变起始色">
+                <input type="color" class="bt-color" v-model="bigTextForm.gradientTo" aria-label="渐变结束色">
+                <code class="bt-hex">{{ bigTextForm.gradientFrom }} → {{ bigTextForm.gradientTo }}</code>
+              </div>
+            </div>
+
+            <div class="bt-row">
+              <div class="bt-field bt-field-flex">
+                <label class="bt-label">字体</label>
+                <select v-model="bigTextForm.fontFamily" class="bt-select">
+                  <option v-for="f in bigTextFonts" :key="f.value" :value="f.value">{{ f.label }}</option>
+                </select>
+              </div>
+              <div class="bt-field bt-field-flex">
+                <label class="bt-label">字重</label>
+                <select v-model="bigTextForm.fontWeight" class="bt-select">
+                  <option value="400">常规</option>
+                  <option value="500">中等</option>
+                  <option value="600">半粗</option>
+                  <option value="700">加粗</option>
+                  <option value="900">特粗</option>
+                </select>
+              </div>
+              <div class="bt-field bt-field-flex">
+                <label class="bt-label">对齐</label>
+                <select v-model="bigTextForm.textAlign" class="bt-select">
+                  <option value="center">居中</option>
+                  <option value="left">左对齐</option>
+                  <option value="right">右对齐</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="bt-field">
+              <label class="bt-label">字号 <span class="bt-hint">{{ bigTextForm.fontSize }}px（按设备屏幕宽度自适应缩放）</span></label>
+              <input type="range" min="24" max="400" step="4" v-model.number="bigTextForm.fontSize" class="bt-range">
+            </div>
+
+            <!-- 策略：把整套外观存下来复用 -->
+            <div class="bt-field bt-presets">
+              <label class="bt-label">策略 <span class="bt-hint">保存整套外观，下次一键套用</span></label>
+              <div class="bt-chip-row">
+                <input class="bt-search bt-preset-name" v-model="bigTextPresetName" maxlength="40" placeholder="策略名称，如「紧急停电」">
+                <button class="btn-secondary" @click="saveBigTextPreset">保存策略</button>
+              </div>
+              <div v-if="bigTextPresets.length" class="bt-preset-list">
+                <div v-for="p in bigTextPresets" :key="p.id" class="bt-preset-item">
+                  <button class="bt-preset-apply" @click="applyBigTextPreset(p)">{{ p.name }}</button>
+                  <button class="bt-preset-del" @click="deleteBigTextPreset(p)" title="删除策略">×</button>
+                </div>
+              </div>
+              <div v-else class="bt-hint-line">还没有保存过策略</div>
+            </div>
+          </div>
+
+          <!-- 右栏：预览 + 发送，sticky 跟随，改左侧任何样式都能立刻看到 -->
+          <aside class="bt-side-col">
+            <div class="broadcast-form bt-preview-card">
+              <div class="bt-preview-head">
+                <h3 class="sub-title" style="margin: 0;">预览</h3>
+                <button class="bt-preview-btn" @click="toggleBigTextPreviewPlay">
+                  {{ bigTextPreviewPlaying ? '❚❚ 暂停' : '▶ 试播' }}
+                </button>
+              </div>
+              <p class="bt-hint-line" style="margin: 6px 0 10px;">与真机等比 · 4:3（1043×787）</p>
+              <div
+                ref="btPreviewFrame"
+                class="bt-preview-frame"
+                :style="{ paddingBottom: bigTextPreviewAspect + '%' }"
+              >
+                <BigTextStage
+                  class="bt-preview-stage"
+                  :config="bigTextPreviewConfig"
+                  :stage-width="bigTextPreviewW"
+                  :stage-height="bigTextPreviewH"
+                  :playing="bigTextPreviewPlaying"
+                />
+                <span v-if="!bigTextForm.content.trim()" class="bt-preview-placeholder">在左侧输入内容</span>
+              </div>
+
+              <div class="bt-actions">
+                <button class="btn-primary bt-send-btn" @click="requestSendBigText" :disabled="!canSendBigText || bigTextSending">
+                  {{ bigTextSending ? '发送中…' : '发送大字' }}
+                </button>
+                <button class="btn-secondary" @click="resetBigTextForm">重置</button>
+              </div>
+              <p class="bt-kbd-hint" style="margin: 8px 0 0; text-align: center;">
+                发给 {{ bigTextTargetLabel }} · {{ bigTextForm.duration }} 秒 · Ctrl + Enter 快速发送
+              </p>
+            </div>
+          </aside>
+          </div>
+
+          <!-- 历史记录 -->
+          <div class="broadcast-form">
+            <h3 class="sub-title">发送记录</h3>
+            <div v-if="bigTextHistory.length === 0" class="bt-empty">暂无发送记录</div>
+            <div v-for="item in bigTextHistory" :key="item.id" class="bt-history-item">
+              <div class="bt-history-main">
+                <div class="bt-history-content" :style="{ background: item.bg_color, color: item.font_color }">
+                  {{ item.content }}
+                </div>
+                <div class="bt-history-meta">
+                  {{ item.created_by_name || item.created_by }} · {{ item.duration }}秒 ·
+                  {{ item.target_type === 'class' ? '全班' : (item.target_ids || []).length + ' 人' }} ·
+                  {{ item.created_at }}
+                  <span v-if="item.recalled_at" class="bt-recalled">已撤回</span>
+                </div>
+              </div>
+              <div class="bt-history-actions">
+                <!-- 重发＝把这条的内容和外观回填到表单，不直接推给设备，避免误扰 -->
+                <button class="btn-secondary bt-reuse-btn" @click="reuseBigText(item)" title="把内容和外观填回上方表单">重发</button>
+                <button
+                  v-if="!item.recalled_at"
+                  class="btn-secondary bt-recall-btn"
+                  :disabled="bigTextRecalling[item.id]"
+                  @click="recallBigText(item.id)"
+                >{{ bigTextRecalling[item.id] ? '撤回中…' : '撤回' }}</button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1052,35 +1344,7 @@
           </template>
         </div>
 
-        <!-- AI 模型管理 -->
-        <div v-if="activeTab === 'ai_models'" key="ai_models" class="admin-section">
-          <div class="section-toolbar">
-            <div class="toolbar-left">
-              <h3 class="sub-title"><i class="fa-solid fa-cubes" style="margin-right:6px"></i>AI 模型</h3>
-            </div>
-          </div>
-          <AiModelsPanel />
-
-          <div class="ai-panel-divider">
-            <i class="fa-solid fa-tags"></i> 价格规则（峰谷 / 折扣 / 限免）
-          </div>
-          <AiPricingPanel />
-        </div>
-
-        <!-- AI 用量（按账户记账报表） -->
-        <div v-if="activeTab === 'ai_usage'" key="ai_usage" class="admin-section">
-          <div class="section-toolbar">
-            <div class="toolbar-left">
-              <h3 class="sub-title"><i class="fa-solid fa-chart-pie" style="margin-right:6px"></i>AI 用量</h3>
-            </div>
-          </div>
-          <div class="ai-usage-wrap">
-            <AiUsagePanel />
-          </div>
-          <div class="ai-usage-wrap ai-usage-wrap--wallet">
-            <AiWalletPanel />
-          </div>
-        </div>
+        <!-- AI 模型管理 / AI 用量 面板已随 ai-chat 应用下线移除 -->
 
       </transition>
     </div>
@@ -1300,6 +1564,34 @@
       </div>
     </transition>
 
+    <!-- 大字发送确认：大字会全屏盖住设备，误发代价高，发前必须二次确认 -->
+    <transition name="modal-fade">
+      <div v-if="showBigTextConfirm" class="modal-overlay" @click.self="showBigTextConfirm = false">
+        <div class="modal-card" @click.stop>
+          <h3 class="modal-title">确认发送大字</h3>
+          <div class="bt-confirm-preview">
+            {{ bigTextForm.content }}
+          </div>
+          <ul class="bt-confirm-list">
+            <li>发送给：<strong>{{ bigTextTargetLabel }}</strong></li>
+            <li>显示时长：<strong>{{ bigTextForm.duration }} 秒</strong>（前 5 秒无法关闭）</li>
+            <li>展示方式：<strong>{{ bigTextModeLabel }}</strong></li>
+            <li v-if="bigTextForm.subContent">副内容：{{ bigTextForm.subContent }}</li>
+          </ul>
+          <p v-if="bigTextCarouselGap" class="bt-confirm-warn">
+            ⚠ 显示时长不足以播完所有条目：约只能看完前 {{ bigTextCarouselGap.shown }}/{{ bigTextCarouselGap.total }} 条。
+          </p>
+          <p class="modal-desc">对方设备会被立刻全屏覆盖，请确认内容无误。</p>
+          <div class="modal-actions">
+            <button class="btn-cancel" @click="showBigTextConfirm = false">再改改</button>
+            <button class="btn-confirm" @click="sendBigText" :disabled="bigTextSending">
+              {{ bigTextSending ? '发送中…' : '确认发送' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </transition>
+
     <transition name="modal-fade">
       <div v-if="showBanModal" class="modal-overlay" @click.self="showBanModal = false">
         <div class="modal-card" @click.stop>
@@ -1310,6 +1602,10 @@
               <option v-for="d in banDurations" :key="d.value" :value="d.value">{{ d.label }}</option>
             </select>
           </div>
+          <p class="modal-desc">
+            <template v-if="banForm.duration > 0">{{ banFormExpireLabel }} 后自动解封，设备到点自动恢复，无需手动操作。</template>
+            <template v-else>永久封禁：不会自动解封，需要管理员手动「解禁」。</template>
+          </p>
           <div class="form-group">
             <label class="form-label">封禁原因</label>
             <textarea v-model="banForm.reason" class="form-input form-textarea" placeholder="请输入封禁原因..." rows="3"></textarea>
@@ -1321,30 +1617,69 @@
         </div>
       </div>
     </transition>
+
+    <!-- 批量封禁：与单个封禁同一套时长/原因，避免「批量=永久+无原因」的哑巴操作 -->
+    <transition name="modal-fade">
+      <div v-if="showBatchBanModal" class="modal-overlay" @click.self="showBatchBanModal = false">
+        <div class="modal-card" @click.stop>
+          <h3 class="modal-title">批量封禁（{{ selectedUsers.length }} 人）</h3>
+          <div class="form-group">
+            <label class="form-label">封禁时长</label>
+            <select v-model="batchBanForm.duration" class="form-input">
+              <option v-for="d in banDurations" :key="d.value" :value="d.value">{{ d.label }}</option>
+            </select>
+          </div>
+          <p class="modal-desc">
+            <template v-if="batchBanForm.duration > 0">{{ batchBanExpireLabel }} 后自动解封，设备到点自动恢复。</template>
+            <template v-else>永久封禁：不会自动解封，需要管理员手动「解禁」。</template>
+          </p>
+          <div class="form-group">
+            <label class="form-label">封禁原因</label>
+            <textarea v-model="batchBanForm.reason" class="form-input form-textarea" placeholder="请输入封禁原因..." rows="3"></textarea>
+          </div>
+          <div class="modal-actions">
+            <button class="btn-cancel" @click="showBatchBanModal = false">取消</button>
+            <button class="btn-confirm btn-confirm-danger" @click="confirmBatchBan" :disabled="batchBanSending">
+              {{ batchBanSending ? '处理中…' : '确认封禁' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </transition>
   </div>
 </template>
 
 <script>
 import api from '@/utils/api';
 import AppNavBar from '@/components/AppNavBar.vue';
-import AiModelsPanel from './widgets/AiModelsPanel.vue';
-import AiUsagePanel from './widgets/AiUsagePanel.vue';
-import AiPricingPanel from './widgets/AiPricingPanel.vue';
-import AiWalletPanel from './widgets/AiWalletPanel.vue';
+// 预览用设备端同一个渲染组件，保证「所见即所得」
+import BigTextStage from '@/components/BigTextStage.vue';
+
+/**
+ * 字体 key → CSS font-family。
+ * ⚠️ 必须与服务端 `server/src/routes/big-text.js` 的 FONT_FAMILIES 保持一致，
+ *    否则预览里的「字体」和设备上实际渲染的会不一样。改一处记得改两处。
+ */
+var BIG_TEXT_FONT_CSS = {
+  '': '',
+  system: "system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif",
+  sans: "'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif",
+  serif: "'Songti SC', 'SimSun', 'Noto Serif CJK SC', serif",
+  kai: "'Kaiti SC', 'KaiTi', 'STKaiti', serif",
+  hei: "'Heiti SC', 'SimHei', 'Microsoft YaHei', sans-serif",
+  mono: "'Courier New', Consolas, monospace",
+  rounded: "'PingFang SC', 'Yuanti SC', 'Microsoft YaHei', sans-serif"
+};
 
 export default {
   name: 'Admin',
   components: {
     AppNavBar: AppNavBar,
-    AiModelsPanel: AiModelsPanel,
-    AiUsagePanel: AiUsagePanel,
-    AiPricingPanel: AiPricingPanel,
-    AiWalletPanel: AiWalletPanel
+    BigTextStage: BigTextStage
   },
   data: function() {
     return {
       activeTab: '',
-      policies: [],
       showTempPassword: false,
       tempPasswordInfo: {},
       tabs: [
@@ -1352,13 +1687,12 @@ export default {
   { key: 'permissions', label: '权限管理' },
   { key: 'announcements', label: '公告管理' },
   { key: 'broadcast', label: '广播管理' },
+  { key: 'big_text', label: '大字广播' },
   { key: 'server', label: '服务器状态' },
   { key: 'relay', label: '联动状态' },
   { key: 'resources', label: '资源管理' },
   { key: 'weather', label: '天气提醒' },
   { key: 'app_control', label: '应用管控' },
-  { key: 'ai_models', label: 'AI 模型' },
-  { key: 'ai_usage', label: 'AI 用量' },
   { key: 'logs', label: '操作日志' }
 ],
       loadedTabs: {
@@ -1366,13 +1700,12 @@ export default {
         permissions: false,
         announcements: false,
         broadcast: false,
+        big_text: false,
         server: false,
         relay: false,
         resources: false,
         weather: false,
         app_control: false,
-        ai_models: false,
-        ai_usage: false,
         logs: false
       },
       // Users
@@ -1393,6 +1726,73 @@ export default {
       // Broadcast
       broadcastContent: '',
       broadcastPriority: 'normal',
+      // 大字广播
+      bigTextForm: {
+        content: '',
+        subContent: '',
+        showSender: true,
+        displayMode: 'static',
+        switchInterval: 5,
+        scrollSpeed: 60,
+        effect: 'none',
+        gradientFrom: '#FFD166',
+        gradientTo: '#EF476F',
+        duration: 10,
+        bgColor: '#101828',
+        fontColor: '#ffffff',
+        fontFamily: '',
+        fontSize: 140,
+        fontWeight: '700',
+        textAlign: 'center',
+        targetType: 'class',
+        targetIds: []
+      },
+      bigTextDurations: [5, 10, 30, 60],
+      bigTextEffects: [
+        { value: 'none', label: '无' },
+        { value: 'gradient_text', label: '渐变大字' },
+        { value: 'gradient_bg', label: '渐变背景' },
+        { value: 'rainbow', label: '炫彩流动' },
+        { value: 'neon', label: '霓虹发光' }
+      ],
+      bigTextPresetName: '',
+      bigTextPresets: [],
+      bigTextBgPresets: [
+        { value: '#101828', label: '深墨蓝' },
+        { value: '#000000', label: '纯黑' },
+        { value: '#b91c1c', label: '警示红' },
+        { value: '#c2410c', label: '橙色' },
+        { value: '#15803d', label: '绿色' },
+        { value: '#1d4ed8', label: '蓝色' },
+        { value: '#ffffff', label: '白色' }
+      ],
+      bigTextFontPresets: [
+        { value: '#ffffff', label: '白色' },
+        { value: '#000000', label: '黑色' },
+        { value: '#fde047', label: '明黄' },
+        { value: '#fca5a5', label: '浅红' },
+        { value: '#86efac', label: '浅绿' }
+      ],
+      // 预览：用设备端同一个 BigTextStage 渲染，尺寸按预览框实测宽度传下去
+      bigTextPreviewPlaying: true,
+      bigTextPreviewW: 620,
+      bigTextPreviewH: 465,
+      // 校园平板实测视口 1043×787（4:3），预览按同一比例才谈得上「等比」
+      bigTextPreviewAspect: 75,
+      showBigTextConfirm: false,
+      bigTextFonts: [
+        { value: '', label: '系统默认' },
+        { value: 'system', label: '系统界面体' },
+        { value: 'sans', label: '黑体（无衬线）' },
+        { value: 'serif', label: '宋体（衬线）' },
+        { value: 'kai', label: '楷体' },
+        { value: 'hei', label: '粗黑体' },
+        { value: 'rounded', label: '圆体' },
+        { value: 'mono', label: '等宽体' }
+      ],
+      bigTextUserSearch: '',
+      bigTextHistory: [],
+      bigTextSending: false,
       relayStatus: null,
       relayLoading: false,
       relayRefreshTimer: null,
@@ -1420,6 +1820,15 @@ export default {
         duration: 0,
         reason: ''
       },
+      // 批量封禁：与单个封禁共用时长选项，确认前可改
+      showBatchBanModal: false,
+      batchBanForm: {
+        duration: 0,
+        reason: ''
+      },
+      batchBanSending: false,
+      // 大字撤回防重复点击（按广播 id）
+      bigTextRecalling: {},
       banDurations: [
         { label: '永久封禁', value: 0 },
         { label: '10分钟', value: 10 },
@@ -1455,7 +1864,8 @@ export default {
         { key: 'manage_community', label: '社区管理', icon: 'fa-solid fa-people-group' },
         { key: 'manage_users', label: '用户封禁', icon: 'fa-solid fa-user-slash' },
         { key: 'manage_announcements', label: '公告管理', icon: 'fa-solid fa-bullhorn' },
-        { key: 'manage_app_control', label: '应用管控', icon: 'fa-solid fa-toggle-on' }
+        { key: 'manage_app_control', label: '应用管控', icon: 'fa-solid fa-toggle-on' },
+        { key: 'manage_big_text', label: '大字广播', icon: 'fa-solid fa-font' }
       ],
       // Announcements
       adminAnnouncements: [],
@@ -1584,16 +1994,133 @@ export default {
         if (tab.key === 'permissions') return false;
         if (tab.key === 'announcements') return self.$store.getters['auth/canManage']('manage_announcements') || self.$store.getters['auth/canManage']('manage_broadcast');
         if (tab.key === 'broadcast') return self.$store.getters['auth/canManage']('manage_broadcast');
+        if (tab.key === 'big_text') return self.$store.getters['auth/canManage']('manage_big_text');
         if (tab.key === 'server') return self.$store.getters['auth/canManage']('view_logs');
         if (tab.key === 'relay') return false;
         if (tab.key === 'resources') return self.$store.getters['auth/canManage']('manage_resources');
         if (tab.key === 'weather') return self.isAdmin;
         if (tab.key === 'app_control') return self.isAdmin || self.$store.getters['auth/canManage']('manage_app_control');
-        if (tab.key === 'ai_models') return self.isAdmin;
-        if (tab.key === 'ai_usage') return self.isAdmin;
         if (tab.key === 'logs') return self.$store.getters['auth/canManage']('view_logs');
         return false;
       });
+    },
+    // ===== 大字广播 =====
+    canSendBigText: function() {
+      var f = this.bigTextForm;
+      if (!f.content || !f.content.trim()) return false;
+      if (f.targetType === 'users' && f.targetIds.length === 0) return false;
+      return true;
+    },
+    filteredBigTextUsers: function() {
+      var self = this;
+      var pool = self.allUsersFetched.length > 0 ? self.allUsersFetched : self.users;
+      var kw = String(self.bigTextUserSearch || '').toLowerCase().trim();
+      if (!kw) return pool;
+      return pool.filter(function(u) {
+        return (u.user_id && String(u.user_id).toLowerCase().indexOf(kw) > -1) ||
+               (u.net_name && String(u.net_name).toLowerCase().indexOf(kw) > -1) ||
+               (u.real_name && String(u.real_name).toLowerCase().indexOf(kw) > -1);
+      });
+    },
+    // 内容按换行切成「条」：轮播的每一帧、走马灯的拼接源，与设备端 BigTextStage 同规则
+    bigTextLines: function() {
+      var raw = String(this.bigTextForm.content || '');
+      var parts = raw.split(/\r?\n/);
+      var out = [];
+      for (var i = 0; i < parts.length; i++) {
+        var s = parts[i].replace(/^\s+|\s+$/g, '');
+        if (s) out.push(s);
+      }
+      return out.length ? out : [raw];
+    },
+
+    /**
+     * 预览配置 —— 字段名必须和下发 payload 一致，直接喂给 BigTextStage。
+     * 这样预览走的就是设备端同一套渲染逻辑（轮播/走马灯/特效/副内容/署名全都有）。
+     */
+    bigTextPreviewConfig: function() {
+      var f = this.bigTextForm;
+      var me = this.currentUser || {};
+      return {
+        content: f.content,
+        sub_content: f.subContent,
+        show_sender: !!f.showSender,
+        // 设备端署名取发送人在库里的 net_name，预览用当前登录管理员的同名展示
+        sender_name: me.net_name || me.real_name || me.user_id || '发送人',
+        display_mode: f.displayMode,
+        switch_interval: f.switchInterval,
+        scroll_speed: f.scrollSpeed,
+        effect: f.effect,
+        bg_color: f.bgColor,
+        bg_gradient: { from: f.gradientFrom, to: f.gradientTo, angle: 135 },
+        font_color: f.fontColor,
+        text_gradient: { from: f.gradientFrom, to: f.gradientTo, angle: 90 },
+        font_family_css: BIG_TEXT_FONT_CSS[f.fontFamily] || '',
+        font_size: f.fontSize,
+        font_weight: f.fontWeight,
+        text_align: f.textAlign
+      };
+    },
+
+    bigTextTargetLabel: function() {
+      var f = this.bigTextForm;
+      if (f.targetType === 'class') return '全班';
+      return '指定 ' + f.targetIds.length + ' 人';
+    },
+
+    // 「全班」到底是哪个班：学号形如 YYCCxx，第 3-4 位是班级
+    bigTextScopeLabel: function() {
+      var me = this.currentUser || {};
+      var uid = String(me.user_id || '');
+      if (/^\d{6,}$/.test(uid)) {
+        var cls = uid.substring(2, 4);
+        if (/^\d{2}$/.test(cls)) return cls + ' 班';
+      }
+      return '';
+    },
+
+    bigTextModeLabel: function() {
+      var f = this.bigTextForm;
+      var n = this.bigTextLines.length;
+      if (f.displayMode === 'carousel') {
+        // 设备端单行会退化成静态，这里如实说，别让管理员以为在轮播
+        if (n <= 1) return '静态（只有 1 行，轮播无意义）';
+        return '多行轮播（每 ' + f.switchInterval + ' 秒一条，共 ' + n + ' 条）';
+      }
+      if (f.displayMode === 'scroll') return '横向走马灯（' + f.scrollSpeed + ' px/s）';
+      return '静态整段';
+    },
+
+    /**
+     * 轮播「时长不够看完」检测：duration < 条数 × 间隔时，后面的条学生根本看不到。
+     * 返回 { need, shown, total } 供警告文案与「一键补时长」使用；不缺口返回 null。
+     */
+    bigTextCarouselGap: function() {
+      var f = this.bigTextForm;
+      if (f.displayMode !== 'carousel') return null;
+      var total = this.bigTextLines.length;
+      if (total <= 1) return null;
+      var interval = Math.max(2, parseInt(f.switchInterval, 10) || 5);
+      var need = total * interval;
+      var duration = parseInt(f.duration, 10) || 0;
+      if (duration >= need) return null;
+      return { need: need, shown: Math.max(1, Math.floor(duration / interval)), total: total };
+    },
+
+    // 封禁到期时间（分钟 → 本地时间字符串），时长=0 表示永久不返回
+    banFormExpireLabel: function() {
+      var d = parseInt(this.banForm.duration, 10) || 0;
+      if (d <= 0) return '';
+      var t = new Date(Date.now() + d * 60000);
+      var pad = function(x) { return (x < 10 ? '0' : '') + x; };
+      return (t.getMonth() + 1) + '月' + t.getDate() + '日 ' + pad(t.getHours()) + ':' + pad(t.getMinutes());
+    },
+    batchBanExpireLabel: function() {
+      var d = parseInt(this.batchBanForm.duration, 10) || 0;
+      if (d <= 0) return '';
+      var t = new Date(Date.now() + d * 60000);
+      var pad = function(x) { return (x < 10 ? '0' : '') + x; };
+      return (t.getMonth() + 1) + '月' + t.getDate() + '日 ' + pad(t.getHours()) + ':' + pad(t.getMinutes());
     },
     filteredUsers: function() {
       var self = this;
@@ -1739,16 +2266,15 @@ export default {
   watch: {
     activeTab: function(newVal, oldVal) {
       this.loadTabData(newVal);
-      // 策略可能刚在「AI 模型」tab 改过，切到用户管理时始终刷新，
-      // 避免 loadedTabs 懒加载守卫导致策略按钮组停留在旧数据
-      if (newVal === 'users' && this.isAdmin) {
-        this.loadPolicies();
-      }
       if (newVal === 'relay') {
         this.loadRelayStatus();
         this.startRelayRefreshTimer();
       } else {
         this.stopRelayRefreshTimer();
+      }
+      // 大字面板是 v-if 渲染的，切过来的当下才拿得到预览框，需要重新测量
+      if (newVal === 'big_text') {
+        this.measureBigTextPreview();
       }
     }
   },
@@ -1762,6 +2288,10 @@ export default {
     }
     this.startMonitorTimer();
     this.startPM2Timer();
+    // 预览框宽度随窗口变化，重新测量才能保持与设备等比
+    this._onResizeBigText = this.measureBigTextPreview;
+    window.addEventListener('resize', this._onResizeBigText);
+    this.measureBigTextPreview();
   },
   beforeDestroy: function() {
     if (this.monitorTimer) {
@@ -1779,6 +2309,14 @@ export default {
     }
     if (this.communitySearchTimer) {
       clearTimeout(this.communitySearchTimer);
+    }
+    if (this._onResizeBigText) {
+      window.removeEventListener('resize', this._onResizeBigText);
+      this._onResizeBigText = null;
+    }
+    if (this._previewRO) {
+      this._previewRO.disconnect();
+      this._previewRO = null;
     }
   },
   methods: {
@@ -1803,6 +2341,12 @@ export default {
           break;
         case 'broadcast':
           break;
+        case 'big_text':
+          this.loadBigTextHistory();
+          this.loadBigTextPresets();
+          // 指定成员模式需要完整名单，按需拉取一次
+          if (this.allUsersFetched.length === 0) this.loadUsers();
+          break;
         case 'server':
           this.loadServerStats();
           break;
@@ -1817,13 +2361,6 @@ export default {
           break;
         case 'app_control':
           this.loadAppControl();
-          break;
-        case 'ai_models':
-          this.loadedTabs.ai_models = false;
-          break;
-        case 'ai_usage':
-          // 组件自行拉取用量报表，此处仅翻标记（与其他 pass-through 标签一致）
-          this.loadedTabs.ai_usage = false;
           break;
         case 'logs':
           this.loadAdminLogs();
@@ -1846,7 +2383,6 @@ export default {
 
     // ======== Users ========
     loadUsers: function() {
-      if (this.isAdmin) this.loadPolicies();
       var self = this;
       // 静默刷新：已有数据时不切 loading（v-if 切换会销毁重建整个表格，
       // admin-content 的 scrollTop 归零 —— 用户滚动到一半被刷新就「弹回顶部/滑不动」）
@@ -2054,39 +2590,48 @@ export default {
     },
     batchBanUsers: function() {
       var self = this;
-      var count = self.selectedUsers.length;
-      self.banDuration = 0;
-      self.banReason = '';
-      self.confirmDialog = {
-        title: '批量封禁用户',
-        message: '确定封禁选中的 ' + count + ' 个用户？',
-        onConfirm: function() {
-          var promises = [];
-          for (var i = 0; i < self.selectedUsers.length; i++) {
-            var userId = self.selectedUsers[i];
-            var user = self.users.find(function(u) { return u.user_id === userId; });
-            if (user && user.id && user.status !== 'disabled') {
-              promises.push(api.patch('/admin/users/' + user.id + '/status', {
-                status: 'disabled',
-                reason: self.banReason || '管理员批量封禁',
-                duration: self.banDuration || 0
-              }));
-            }
-          }
-          if (promises.length === 0) {
-            self.$store.commit('toast/SHOW_TOAST', { message: '选中的用户均已被封禁', type: 'warning' });
-            return;
-          }
-          Promise.all(promises).then(function() {
-            self.$store.commit('toast/SHOW_TOAST', { message: '成功封禁 ' + promises.length + ' 个用户', type: 'success' });
-            self.selectedUsers = [];
-            self.loadUsers();
-          }).catch(function(err) {
-            console.error('批量封禁失败:', err);
-            self.$store.commit('toast/SHOW_TOAST', { message: '批量封禁部分失败，请重试', type: 'error' });
-          });
+      if (self.selectedUsers.length === 0) {
+        self.$store.commit('toast/SHOW_TOAST', { message: '请先勾选要封禁的用户', type: 'warning' });
+        return;
+      }
+      // 弹窗选时长与原因，和单个封禁同一套口径（原来直接永久封禁且原因写死）
+      self.batchBanForm = { duration: 0, reason: '' };
+      self.showBatchBanModal = true;
+    },
+    confirmBatchBan: function() {
+      var self = this;
+      if (self.batchBanSending) return;
+      var duration = parseInt(self.batchBanForm.duration, 10) || 0;
+      var reason = (self.batchBanForm.reason || '').trim() || '管理员批量封禁';
+      var promises = [];
+      for (var i = 0; i < self.selectedUsers.length; i++) {
+        var userId = self.selectedUsers[i];
+        var user = self.users.find(function(u) { return u.user_id === userId; });
+        if (user && user.id && user.status !== 'disabled') {
+          promises.push(api.patch('/admin/users/' + user.id + '/status', {
+            status: 'disabled',
+            reason: reason,
+            duration: duration
+          }));
         }
-      };
+      }
+      if (promises.length === 0) {
+        self.$store.commit('toast/SHOW_TOAST', { message: '选中的用户均已被封禁', type: 'warning' });
+        self.showBatchBanModal = false;
+        return;
+      }
+      self.batchBanSending = true;
+      Promise.all(promises).then(function() {
+        self.$store.commit('toast/SHOW_TOAST', { message: '成功封禁 ' + promises.length + ' 个用户', type: 'success' });
+        self.selectedUsers = [];
+        self.showBatchBanModal = false;
+        self.loadUsers();
+      }).catch(function(err) {
+        console.error('批量封禁失败:', err);
+        self.$store.commit('toast/SHOW_TOAST', { message: '批量封禁部分失败，请重试', type: 'error' });
+      }).then(function() {
+        self.batchBanSending = false;
+      });
     },
     batchUnbanUsers: function() {
       var self = this;
@@ -2382,7 +2927,8 @@ export default {
         manage_community: '社区管理',
         manage_users: '用户封禁',
         manage_announcements: '公告管理',
-        manage_app_control: '应用管控'
+        manage_app_control: '应用管控',
+        manage_big_text: '大字广播'
       };
       try {
         var perms = JSON.parse(permsStr || '[]');
@@ -2424,6 +2970,311 @@ export default {
         console.error('广播发送失败:', err);
         self.$store.commit('toast/SHOW_TOAST', { message: '广播发送失败', type: 'error' });
       });
+    },
+
+    // ======== 大字广播 ========
+    switchBigTextTargetUsers: function() {
+      this.bigTextForm.targetType = 'users';
+      if (this.allUsersFetched.length === 0) this.loadUsers();
+    },
+
+    selectAllBigTextUsers: function() {
+      var ids = [];
+      var seen = {};
+      this.filteredBigTextUsers.forEach(function(u) {
+        if (u.user_id && !seen[u.user_id]) { seen[u.user_id] = 1; ids.push(u.user_id); }
+      });
+      this.bigTextForm.targetIds = ids;
+    },
+
+    clearBigTextUsers: function() {
+      this.bigTextForm.targetIds = [];
+    },
+
+    // 大字会全屏盖住设备，发错代价高 —— 先弹确认，看清发给谁、发什么
+    requestSendBigText: function() {
+      if (!this.canSendBigText) return;
+      this.showBigTextConfirm = true;
+    },
+
+    /**
+     * Ctrl/⌘+Enter：确认框开着 = 确认发送；没开 = 弹确认。
+     * 两条路径都过二次确认，避免快捷键绕过确认直接推送到学生设备。
+     */
+    onBigTextHotkey: function() {
+      if (this.showBigTextConfirm) {
+        this.sendBigText();
+      } else {
+        this.requestSendBigText();
+      }
+    },
+
+    // 轮播时长不够看完所有条时，一键把时长补到 条数 × 间隔
+    fixBigTextCarouselDuration: function() {
+      var gap = this.bigTextCarouselGap;
+      if (!gap) return;
+      this.bigTextForm.duration = Math.min(600, gap.need);
+    },
+
+    // 预览播放/暂停：轮播与走马灯只在播放时动，方便核对节奏
+    toggleBigTextPreviewPlay: function() {
+      this.bigTextPreviewPlaying = !this.bigTextPreviewPlaying;
+    },
+
+    /**
+     * 实测预览框宽度。
+     * 设备端字号基准是 1080 宽，预览框可能只有 600 多像素，必须把实测宽度
+     * 传给 BigTextStage 才能等比 —— 这也是「预览与实际不一致」的根因之一。
+     *
+     * ⚠️ 大字面板是 `v-if` 渲染的，切到该 tab 的瞬间 ref 还没挂上，
+     *    单次 $nextTick 拿不到元素就会一直停在初始值（表现为预览字号偏小）。
+     *    所以这里带重试，并挂 ResizeObserver 兜住侧栏折叠、窗口缩放等变化。
+     */
+    measureBigTextPreview: function() {
+      var self = this;
+      var tries = 0;
+      var attempt = function() {
+        var el = self.$refs.btPreviewFrame;
+        if (el) {
+          self.applyPreviewWidth(el);
+          // tab 切走再切回会重建 DOM，观察目标变了要重新挂
+          if (self._previewRO && self._previewROEl !== el) {
+            self._previewRO.disconnect();
+            self._previewRO = null;
+          }
+          if (!self._previewRO && typeof ResizeObserver !== 'undefined') {
+            self._previewROEl = el;
+            self._previewRO = new ResizeObserver(function() { self.applyPreviewWidth(el); });
+            self._previewRO.observe(el);
+          }
+          return;
+        }
+        if (tries++ < 12) setTimeout(attempt, 120);
+      };
+      this.$nextTick(attempt);
+    },
+
+    applyPreviewWidth: function(el) {
+      if (!el) return;
+      var w = el.getBoundingClientRect().width || 0;
+      if (w > 0) {
+        this.bigTextPreviewW = Math.round(w);
+        // 4:3 —— 与校园平板 1043×787 的实际视口同比
+        this.bigTextPreviewH = Math.round(w * 3 / 4);
+      }
+    },
+
+    /**
+     * 重发＝把历史记录的内容与外观回填到表单，**不直接推给设备**。
+     * 目标人群故意保留当前选择：历史那条可能是全班，直接发出去容易误扰。
+     */
+    reuseBigText: function(item) {
+      if (!item) return;
+      var f = this.bigTextForm;
+      f.content = item.content || '';
+      f.subContent = item.sub_content || '';
+      f.showSender = item.show_sender === undefined ? true : !!item.show_sender;
+      f.displayMode = item.display_mode || 'static';
+      f.switchInterval = item.switch_interval || 5;
+      f.scrollSpeed = item.scroll_speed || 60;
+      f.effect = item.effect || 'none';
+      f.duration = item.duration || 10;
+      f.bgColor = item.bg_color || '#101828';
+      f.fontColor = item.font_color || '#ffffff';
+      f.fontFamily = item.font_family || '';
+      f.fontSize = item.font_size || 140;
+      f.fontWeight = String(item.font_weight || '700');
+      f.textAlign = item.text_align || 'center';
+      var g = (f.effect === 'gradient_bg' ? item.bg_gradient : item.text_gradient) ||
+              item.text_gradient || item.bg_gradient || null;
+      if (g) {
+        f.gradientFrom = g.from || f.gradientFrom;
+        f.gradientTo = g.to || f.gradientTo;
+      }
+      this.$store.commit('toast/SHOW_TOAST', { message: '已回填，确认后点「发送大字」', type: 'success' });
+      this.measureBigTextPreview();
+    },
+
+    sendBigText: function() {
+      var self = this;
+      if (!self.canSendBigText) return;
+      var f = self.bigTextForm;
+      var payload = {
+        content: f.content.trim(),
+        sub_content: f.subContent || '',
+        show_sender: !!f.showSender,
+        display_mode: f.displayMode,
+        switch_interval: f.switchInterval,
+        scroll_speed: f.scrollSpeed,
+        effect: f.effect,
+        duration: f.duration,
+        bg_color: f.bgColor,
+        font_color: f.fontColor,
+        font_family: f.fontFamily,
+        font_size: f.fontSize,
+        font_weight: f.fontWeight,
+        text_align: f.textAlign,
+        target_type: f.targetType,
+        target_ids: f.targetType === 'users' ? f.targetIds : []
+      };
+      // 渐变只按当前特效下发，避免把无关参数带到设备上
+      if (f.effect === 'gradient_text') {
+        payload.text_gradient = { from: f.gradientFrom, to: f.gradientTo, angle: 90 };
+      } else if (f.effect === 'gradient_bg') {
+        payload.bg_gradient = { from: f.gradientFrom, to: f.gradientTo, angle: 135 };
+      }
+      self.bigTextSending = true;
+      api.post('/admin/big-text', payload).then(function(res) {
+        var data = (res && res.data && res.data.data) || {};
+        self.showBigTextConfirm = false;
+        self.$store.commit('toast/SHOW_TOAST', {
+          message: '大字已发送（在线 ' + (data.online || 0) + ' 台，待补发 ' + (data.queued || 0) + ' 台）',
+          type: 'success'
+        });
+        // 只清内容，保留样式配置——连续发送同风格大字时不必重调
+        self.bigTextForm.content = '';
+        self.loadBigTextHistory();
+      }).catch(function(err) {
+        console.error('大字发送失败:', err);
+        var msg = (err && err.response && err.response.data && err.response.data.message) || '大字发送失败';
+        self.$store.commit('toast/SHOW_TOAST', { message: msg, type: 'error' });
+      }).then(function() {
+        self.bigTextSending = false;
+      });
+    },
+
+    loadBigTextHistory: function() {
+      var self = this;
+      api.get('/admin/big-text').then(function(res) {
+        var data = (res && res.data && res.data.data) || {};
+        self.bigTextHistory = data.list || [];
+      }).catch(function(err) {
+        console.error('大字记录加载失败:', err);
+      });
+    },
+
+    loadBigTextPresets: function() {
+      var self = this;
+      api.get('/admin/big-text/presets').then(function(res) {
+        var data = (res && res.data && res.data.data) || {};
+        self.bigTextPresets = data.list || [];
+      }).catch(function(err) {
+        console.error('大字策略加载失败:', err);
+      });
+    },
+
+    // 当前表单 → 服务端接受的样式 spec（内容与目标不入策略）
+    buildBigTextStylePayload: function() {
+      var f = this.bigTextForm;
+      return {
+        duration: f.duration,
+        display_mode: f.displayMode,
+        switch_interval: f.switchInterval,
+        scroll_speed: f.scrollSpeed,
+        effect: f.effect,
+        bg_color: f.bgColor,
+        font_color: f.fontColor,
+        font_family: f.fontFamily,
+        font_size: f.fontSize,
+        font_weight: f.fontWeight,
+        text_align: f.textAlign,
+        sub_content: f.subContent || '',
+        show_sender: !!f.showSender,
+        // 两条渐变都存：应用策略时无论当前特效是哪种，颜色都能原样还原
+        text_gradient: { from: f.gradientFrom, to: f.gradientTo, angle: 90 },
+        bg_gradient: { from: f.gradientFrom, to: f.gradientTo, angle: 135 }
+      };
+    },
+
+    saveBigTextPreset: function() {
+      var self = this;
+      var name = (self.bigTextPresetName || '').trim();
+      if (!name) {
+        self.$store.commit('toast/SHOW_TOAST', { message: '请先填写策略名称', type: 'error' });
+        return;
+      }
+      api.post('/admin/big-text/presets', { name: name, payload: self.buildBigTextStylePayload() }).then(function(res) {
+        var d = (res && res.data && res.data.data) || {};
+        self.$store.commit('toast/SHOW_TOAST', {
+          message: d.updated ? ('策略「' + name + '」已更新') : ('策略「' + name + '」已保存'),
+          type: 'success'
+        });
+        self.bigTextPresetName = '';
+        self.loadBigTextPresets();
+      }).catch(function(err) {
+        var msg = (err && err.response && err.response.data && err.response.data.message) || '策略保存失败';
+        self.$store.commit('toast/SHOW_TOAST', { message: msg, type: 'error' });
+      });
+    },
+
+    applyBigTextPreset: function(p) {
+      var style = (p && p.payload) || {};
+      var grad = style.text_gradient || style.bg_gradient || {};
+      var f = this.bigTextForm;
+      f.displayMode = style.display_mode || 'static';
+      f.switchInterval = style.switch_interval || 5;
+      f.scrollSpeed = style.scroll_speed || 60;
+      f.effect = style.effect || 'none';
+      f.duration = style.duration || 10;
+      f.bgColor = style.bg_color || '#101828';
+      f.fontColor = style.font_color || '#ffffff';
+      f.fontFamily = style.font_family || '';
+      f.fontSize = style.font_size || 140;
+      f.fontWeight = style.font_weight || '700';
+      f.textAlign = style.text_align || 'center';
+      f.subContent = style.sub_content || '';
+      f.showSender = style.show_sender === undefined ? true : !!style.show_sender;
+      f.gradientFrom = grad.from || f.gradientFrom;
+      f.gradientTo = grad.to || f.gradientTo;
+      this.$store.commit('toast/SHOW_TOAST', { message: '已套用策略「' + p.name + '」', type: 'info' });
+    },
+
+    deleteBigTextPreset: function(p) {
+      var self = this;
+      api.delete('/admin/big-text/presets/' + p.id).then(function() {
+        self.loadBigTextPresets();
+      }).catch(function() {
+        self.$store.commit('toast/SHOW_TOAST', { message: '删除失败', type: 'error' });
+      });
+    },
+
+    recallBigText: function(id) {
+      var self = this;
+      if (self.bigTextRecalling[id]) return;   // 防重复点击
+      self.$set(self.bigTextRecalling, id, true);
+      api.post('/admin/big-text/' + id + '/recall').then(function() {
+        self.$store.commit('toast/SHOW_TOAST', { message: '已撤回', type: 'success' });
+        self.loadBigTextHistory();
+      }).catch(function(err) {
+        console.error('大字撤回失败:', err);
+        self.$store.commit('toast/SHOW_TOAST', { message: '撤回失败', type: 'error' });
+      }).then(function() {
+        self.$set(self.bigTextRecalling, id, false);
+      });
+    },
+
+    resetBigTextForm: function() {
+      this.bigTextForm = {
+        content: '',
+        subContent: '',
+        showSender: true,
+        displayMode: 'static',
+        switchInterval: 5,
+        scrollSpeed: 60,
+        effect: 'none',
+        gradientFrom: '#FFD166',
+        gradientTo: '#EF476F',
+        duration: 10,
+        bgColor: '#101828',
+        fontColor: '#ffffff',
+        fontFamily: '',
+        fontSize: 140,
+        fontWeight: '700',
+        textAlign: 'center',
+        targetType: 'class',
+        targetIds: []
+      };
+      this.bigTextUserSearch = '';
     },
 
     // ======== Monitor ========
@@ -3044,8 +3895,7 @@ export default {
         reset_levels: '重置等级',
         set_officer: '设为班干',
         remove_officer: '移除班干',
-        update_officer_perms: '更新班干权限',
-        apply_ai_policy: '应用AI策略'
+        update_officer_perms: '更新班干权限'
       };
       return labels[action] || action;
     },
@@ -3093,44 +3943,6 @@ export default {
       } else {
         self.$store.commit('toast/SHOW_TOAST', { message: '当前浏览器不支持自动复制，请手动记录', type: 'warning' });
       }
-    },
-    loadPolicies: function() {
-      var self = this;
-      api.get('/ai-chat/admin/policies').then(function(response) {
-        self.policies = (response.data.data && response.data.data.policies) || [];
-      }).catch(function() {
-        self.policies = [];
-      });
-    },
-    policyLabel: function(policyId) {
-      for (var i = 0; i < this.policies.length; i++) {
-        if (this.policies[i].id === policyId) return this.policies[i].label;
-      }
-      return policyId;
-    },
-    applyPolicyToSelected: function(policyId) {
-      var self = this;
-      if (self.selectedUsers.length === 0) {
-        self.$store.commit('toast/SHOW_TOAST', { message: '请先选择用户', type: 'warning' });
-        return;
-      }
-      var label = self.policyLabel(policyId) || '默认策略';
-      api.post('/ai-chat/admin/apply-policy', { user_ids: self.selectedUsers, policy_id: policyId }).then(function() {
-        for (var i = 0; i < self.users.length; i++) {
-          if (self.selectedUsers.indexOf(self.users[i].user_id) !== -1) {
-            self.$set(self.users[i], 'ai_policy', policyId);
-          }
-        }
-        for (var j = 0; j < self.allUsersFetched.length; j++) {
-          if (self.selectedUsers.indexOf(self.allUsersFetched[j].user_id) !== -1) {
-            self.$set(self.allUsersFetched[j], 'ai_policy', policyId);
-          }
-        }
-        self.selectedUsers = [];
-        self.$store.commit('toast/SHOW_TOAST', { message: '已将「' + label + '」应用到选中用户', type: 'success' });
-      }).catch(function(err) {
-        self.$store.commit('toast/SHOW_TOAST', { message: (err.response && err.response.data && err.response.data.message) || '批量操作失败', type: 'error' });
-      });
     },
     batchToggleBrowser: function(enabled) {
       var self = this;
@@ -4305,6 +5117,494 @@ export default {
 .broadcast-input:focus {
   border-color: var(--primary-color);
   outline: none;
+}
+
+/* ====== 大字广播 ====== */
+.bt-char-count {
+  font-size: var(--font-size-caption);
+  color: var(--text-tertiary);
+  text-align: right;
+  margin: -8px 0 12px;
+}
+
+.bt-field {
+  margin-bottom: 16px;
+}
+
+.bt-row {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.bt-field-flex {
+  flex: 1;
+  min-width: 140px;
+}
+
+.bt-label {
+  display: block;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.bt-hint {
+  font-weight: 400;
+  font-size: var(--font-size-caption);
+  color: var(--text-tertiary);
+}
+
+.bt-chip-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.bt-chip {
+  padding: 6px 14px;
+  min-height: 36px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-color);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.bt-chip:hover {
+  border-color: var(--primary-color);
+}
+
+.bt-chip.active {
+  background: var(--primary-color);
+  border-color: var(--primary-color);
+  color: #fff;
+}
+
+.bt-swatch {
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
+  border-radius: var(--radius-md);
+  border: 2px solid var(--border-color);
+  cursor: pointer;
+  padding: 0;
+}
+
+.bt-swatch.active {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.35);
+}
+
+.bt-color {
+  width: 44px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-color);
+  cursor: pointer;
+}
+
+.bt-hex {
+  font-size: var(--font-size-caption);
+  color: var(--text-tertiary);
+}
+
+.bt-number,
+.bt-select,
+.bt-search {
+  padding: 8px 12px;
+  min-height: 36px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-color);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+}
+
+.bt-number {
+  width: 90px;
+}
+
+.bt-search {
+  width: 100%;
+  margin-bottom: 10px;
+}
+
+/* 搜索框嵌在 chip 行里时让出空间给按钮，否则 width:100% 会把按钮挤出去 */
+.bt-chip-row .bt-search {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  margin-bottom: 0;
+}
+
+.bt-range {
+  width: 100%;
+  accent-color: var(--primary-color);
+}
+
+.bt-user-list {
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 8px;
+  background: var(--bg-color);
+}
+
+.bt-user-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+}
+
+.bt-user-item:hover {
+  background: var(--hover-bg, rgba(128, 128, 128, 0.12));
+}
+
+.bt-user-id {
+  color: var(--text-tertiary);
+  font-size: var(--font-size-caption);
+}
+
+.bt-selected-count {
+  margin-top: 8px;
+  font-size: var(--font-size-caption);
+  color: var(--text-tertiary);
+}
+
+.bt-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
+}
+
+/* 说明文字（展示方式下方的解释、无策略时的占位） */
+.bt-hint-line {
+  margin: 8px 0 0;
+  font-size: var(--font-size-caption);
+  color: var(--text-tertiary);
+  line-height: 1.5;
+}
+
+/* 署名开关 */
+.bt-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  user-select: none;
+}
+
+.bt-switch input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary-color);
+  cursor: pointer;
+}
+
+/* 策略 */
+.bt-presets {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--border-color);
+}
+
+.bt-preset-name {
+  flex: 1;
+  min-width: 160px;
+}
+
+.bt-preset-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.bt-preset-item {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--bg-secondary);
+}
+
+.bt-preset-apply {
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.bt-preset-apply:hover {
+  background: var(--bg-hover);
+}
+
+.bt-preset-del {
+  padding: 6px 9px;
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--border-color);
+  color: var(--text-tertiary);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.bt-preset-del:hover {
+  color: var(--danger-color, #e5484d);
+  background: var(--bg-hover);
+}
+
+/* ===== 预览：设备等比框（16:10），内部就是设备端的 BigTextStage ===== */
+.bt-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.bt-preview-btn {
+  flex-shrink: 0;
+  padding: 4px 12px;
+  min-height: 30px;
+  border: 1px solid var(--border-color);
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-caption);
+  cursor: pointer;
+}
+
+.bt-preview-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* padding-bottom 撑出 16:10 比例：Chrome 80 还不支持 aspect-ratio */
+.bt-preview-frame {
+  position: relative;
+  width: 100%;
+  height: 0;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  overflow: hidden;
+  background: #101828;
+}
+
+.bt-preview-stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+.bt-preview-placeholder {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-size-caption);
+  color: rgba(255, 255, 255, 0.42);
+  pointer-events: none;
+}
+
+/* ===== 发送确认 ===== */
+.bt-confirm-preview {
+  margin: 12px 0;
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle, rgba(128, 128, 128, 0.08));
+  font-size: var(--font-size-body);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 140px;
+  overflow: auto;
+}
+
+.bt-confirm-list {
+  margin: 0 0 12px;
+  padding-left: 18px;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  line-height: 1.9;
+}
+
+.bt-confirm-list strong {
+  color: var(--text-primary);
+}
+
+.bt-kbd-hint {
+  margin-left: 12px;
+  font-size: var(--font-size-caption);
+  color: var(--text-tertiary);
+}
+
+.bt-warn {
+  color: var(--danger-color);
+}
+
+/* 时长不足提示里的行内修复按钮（补到 Ns） */
+.bt-link-btn {
+  margin-left: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--primary-color);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.bt-link-btn:hover {
+  opacity: 0.8;
+}
+
+/* 确认弹窗内的时长不足警告（琥珀色，与红线错误区分） */
+.bt-confirm-warn {
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  font-size: var(--font-size-sm);
+  color: var(--warning-color);
+  background: rgba(var(--warning-rgb), 0.1);
+  border: 1px solid rgba(var(--warning-rgb), 0.2);
+  border-radius: 6px;
+  line-height: 1.6;
+}
+
+.bt-actions {
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.bt-actions .btn-primary {
+  flex: 1;
+}
+
+.bt-actions .btn-secondary {
+  flex: 0 0 auto;
+}
+
+/* ===== 大字面板两栏：左表单 / 右粘性预览 ===== */
+.bt-layout {
+  display: grid;
+  /* 预览列按比例收缩，1080 宽的平板上仍能并排 */
+  grid-template-columns: minmax(0, 1fr) clamp(300px, 36%, 440px);
+  gap: 16px;
+  align-items: start;
+  margin-bottom: 16px;
+}
+
+.bt-form-col {
+  min-width: 0;
+}
+
+/* 改左侧样式时预览始终留在视野里，这是「好用」的关键 */
+.bt-side-col {
+  position: sticky;
+  top: 12px;
+  min-width: 0;
+}
+
+.bt-preview-card {
+  margin-bottom: 0;
+}
+
+/* 窄屏回退单栏：预览改成吸顶小卡，滚动表单时依然能看到 */
+@media (max-width: 820px) {
+  .bt-layout {
+    grid-template-columns: 1fr;
+  }
+  .bt-side-col {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+  }
+  .bt-side-col .bt-preview-card {
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+  }
+  .bt-side-col .bt-preview-frame {
+    max-width: 340px;
+    margin: 0 auto;
+  }
+}
+
+.bt-history-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.bt-history-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.bt-history-content {
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.bt-history-meta {
+  margin-top: 6px;
+  font-size: var(--font-size-caption);
+  color: var(--text-tertiary);
+}
+
+.bt-recalled {
+  margin-left: 6px;
+  color: var(--danger-color);
+}
+
+.bt-history-actions {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bt-reuse-btn {
+  min-height: 36px;
+  padding: 6px 16px;
+}
+
+.bt-recall-btn {
+  flex-shrink: 0;
+  min-height: 36px;
+  padding: 6px 16px;
 }
 
 .btn-primary {

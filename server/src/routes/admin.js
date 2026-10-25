@@ -68,6 +68,55 @@ function logAction(adminId, action, target, detail) {
   }
 }
 
+/**
+ * 推送账号状态变更（封禁/解封）到目标设备。
+ *
+ * 双通道投递，保证「及时」与「必达」兼得：
+ *   1. 实时通道：沿用既有的 account_banned 消息，在线设备秒级生效；
+ *   2. 信箱通道：同时写入 device_commands，设备离线时也不会丢 ——
+ *      上线/重连后补拉执行。这正是修复「有些设备收到不及时」的关键：
+ *      此前只走通道 1，设备若在推送瞬间处于 WS 重连窗口或 X5 poll 未注册，
+ *      sendToClient() 会静默丢弃且永不补发。
+ *
+ * 两条通道语义幂等（都是「把状态设为 X」），设备收到两份也不会出问题。
+ */
+function pushAccountStatus(userIds, status, reason, banExpiresAt, operatorId) {
+  var ids = Array.isArray(userIds) ? userIds : [userIds];
+  var clean = [];
+  for (var i = 0; i < ids.length; i++) {
+    var u = String(ids[i] || '').trim();
+    if (u && clean.indexOf(u) === -1) clean.push(u);
+  }
+  if (clean.length === 0) return;
+
+  // 通道 2：信箱（含跨服务器中继 + 尽力实时推送）
+  try {
+    var deviceCommands = require('../services/device-commands');
+    deviceCommands.dispatch(clean, 'account_status', {
+      status: status,
+      reason: status === 'disabled' ? (reason || '') : '',
+      ban_expires_at: status === 'disabled' ? (banExpiresAt || null) : null
+    }, { createdBy: operatorId || '' });
+  } catch (e) {
+    console.error('[Admin] account status command enqueue failed:', e.message);
+  }
+
+  // 通道 1：既有实时消息（在线设备立即生效，兼容旧客户端）
+  try {
+    var chatServer = require('../ws/chat-server');
+    for (var k = 0; k < clean.length; k++) {
+      chatServer.sendToClient(clean[k], {
+        type: 'account_banned',
+        status: status,
+        reason: status === 'disabled' ? (reason || '') : '',
+        ban_expires_at: status === 'disabled' ? (banExpiresAt || null) : null
+      });
+    }
+  } catch (e) {
+    console.error('[Admin] account status live push failed:', e.message);
+  }
+}
+
 // GET /api/admin/users - User list with pagination and search
 router.get('/users', auth.requirePermission('manage_users'), function(req, res) {
   var page = parseInt(req.query.page) || 1;
@@ -236,28 +285,15 @@ router.patch('/users/:id/status', auth.requirePermission('manage_users'), functi
     });
   } catch (e) { console.error('[Admin] Broadcast event failed:', e.message); }
 
-  if (newStatus === 'disabled' && targetUser) {
-    try {
-      var chatServer3 = require('../ws/chat-server');
-      chatServer3.sendToClient(targetUser.user_id, {
-        type: 'account_banned',
-        status: 'disabled',
-        reason: reason,
-        ban_expires_at: banExpiresAt
-      });
-    } catch (e) { console.error('[Admin] Relay event failed:', e.message); }
-  }
-
-  if (newStatus === 'active' && targetUser) {
-    try {
-      var chatServer4 = require('../ws/chat-server');
-      chatServer4.sendToClient(targetUser.user_id, {
-        type: 'account_banned',
-        status: 'active',
-        reason: '',
-        ban_expires_at: null
-      });
-    } catch (e) { console.error('[Admin] Relay event failed:', e.message); }
+  // 推送到目标设备：实时通道 + 指令信箱（离线设备上线后自动补执行）
+  if (targetUser) {
+    pushAccountStatus(
+      [targetUser.user_id],
+      newStatus,
+      reason,
+      banExpiresAt,
+      req.user ? req.user.user_id : ''
+    );
   }
 
   logAction(req.user.user_id, newStatus === 'disabled' ? 'disable_user' : 'enable_user', targetUser ? targetUser.user_id : userId, reason || (newStatus === 'disabled' ? 'Banned for ' + (duration > 0 ? duration + ' minutes' : 'permanently') : 'Manually enabled'));
@@ -336,17 +372,14 @@ router.post('/users/batch-status', auth.requirePermission('manage_users'), funct
     }
     affected++;
 
-    // 实时通知被操作用户（前端弹窗提示账号状态变更）
-    if (chatServer) {
-      try {
-        chatServer.sendToClient(t.user_id, {
-          type: 'account_banned',
-          status: newStatus,
-          reason: newStatus === 'disabled' ? reason : '',
-          ban_expires_at: newStatus === 'disabled' ? banExpiresAt : null
-        });
-      } catch (e) {}
-    }
+    // 实时通知 + 指令信箱（离线设备上线后自动补执行）
+    pushAccountStatus(
+      [t.user_id],
+      newStatus,
+      reason,
+      banExpiresAt,
+      req.user ? req.user.user_id : ''
+    );
 
     // 同步到远程服务器，确保跨服务器用户状态一致
     if (relayBus) {
@@ -443,16 +476,14 @@ router.post('/users/bulk-status', auth.requirePermission('manage_users'), functi
     affected++;
     okIds.push(row.user_id);
 
-    if (chatServer) {
-      try {
-        chatServer.sendToClient(row.user_id, {
-          type: 'account_banned',
-          status: newStatus,
-          reason: newStatus === 'disabled' ? reason : '',
-          ban_expires_at: newStatus === 'disabled' ? banExpiresAt : null
-        });
-      } catch (e) {}
-    }
+    // 实时通知 + 指令信箱（离线设备上线后自动补执行）
+    pushAccountStatus(
+      [row.user_id],
+      newStatus,
+      reason,
+      banExpiresAt,
+      req.user ? req.user.user_id : ''
+    );
     if (relayBus) {
       try {
         relayBus.emit('admin_user_status_changed', {
@@ -694,7 +725,8 @@ var VALID_OFFICER_PERMISSIONS = [
   'manage_community',
   'manage_users',
   'manage_announcements',
-  'manage_app_control'
+  'manage_app_control',
+  'manage_big_text'
 ];
 
 router.get('/officers', function(req, res) {
@@ -1807,8 +1839,8 @@ router.get('/ai-settings', requireClassAdmin, function(req, res) {
   res.json({ code: 200, message: 'ok', data: { users: users, total: total, page: page, limit: limit } });
 });
 
-// 旧 DeepSeek 单独开关已废弃：模型可见性由「使用策略」（ai_policies）统一管理。
-// 策略应用走 /api/ai-chat/admin/apply-policy（多选用户批量应用）。
+// 旧 DeepSeek 单独开关已废弃。ai-chat 应用已于 2026-10-24 下线删除，
+// AI 使用策略（ai_policies）随之下线；ai_settings_json 现仅承载超能岛浏览器开关。
 
 // POST /api/admin/ai-settings/batch-browser - 批量开启/关闭超能岛浏览器权限
 router.post('/ai-settings/batch-browser', requireClassAdmin, function(req, res) {
@@ -2036,8 +2068,6 @@ router.post('/weather-alert/broadcast', function(req, res) {
 var APP_CONTROL_META = {
   chat:       { icon: 'fa-solid fa-comments', color: '#007AFF' },
   community:  { icon: 'fa-solid fa-people-group', color: '#FF9500' },
-  'ai-chat':  { icon: 'fa-solid fa-robot', color: '#AF52DE' },
-  notes:      { icon: 'fa-solid fa-note-sticky', color: '#FFCC00' },
   resource:   { icon: 'fa-solid fa-folder', color: '#5856D6' },
   weather:    { icon: 'fa-solid fa-cloud-sun-rain', color: '#5AC8FA' },
   music:      { icon: 'fa-solid fa-music', color: '#FF2D55' },
@@ -2216,6 +2246,13 @@ router.put('/app-control/:appName', auth.requirePermission('manage_app_control')
         updatedBy: req.user.user_id || ''
       });
     } catch (broadcastError) {}
+    // 独立端口型市场应用：启停联动子进程（停用杀进程，启用拉起）
+    try {
+      var marketService = require('../core/market-service');
+      marketService.refreshProcessState(appName, enabled === 1);
+    } catch (procError) {
+      console.warn('[Admin] 进程型应用启停联动失败:', procError.message);
+    }
     res.json({ code: 200, message: enabled ? '应用已启用' : '应用已禁用', data: { app_name: appName, enabled: enabled ? true : false } });
   } catch (e) {
     console.error('[Admin] Update app-control failed:', e.message);

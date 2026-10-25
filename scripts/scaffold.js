@@ -164,7 +164,7 @@ TODO：应用功能说明。
 ## 开发流程
 
 1. 编辑 \`frontend/${routeName}.vue\` 写页面（Options API / var / 单引号 / 2 空格）
-2. 需要后端时：建 \`backend/routes.js\`（参考 apps/ai-chat/backend/routes.js），并在 manifest.json 加 backend 声明
+2. 需要后端时：建 \`backend/routes.js\`（参考 apps/community/backend/routes.js），并在 manifest.json 加 backend 声明
 3. 校验：\`node scripts/diag.js app ${name}\`（\`diag.js compat ${name}\` 可查 Chrome 80 兼容性）
 4. 构建生效：\`node scripts/build-app.js ${name}\`（含 lint + vite 全量构建；开发期用 cd client && npx vite dev 热更新免构建）
 5. 重启服务器：\`cd server && node src/app.js\`（后端 manifest 启动时扫描；改了 manifest.json 或 backend 都要重启）
@@ -231,8 +231,7 @@ var TOKENS = {
       music: '#FF2D55',
       weather: '#4A90D9',
       community: '#FF9500',
-      chat: '#34C759',
-      notes: '#FFCC00'
+      chat: '#34C759'
     },
 
     // 语义色

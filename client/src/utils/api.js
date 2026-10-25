@@ -135,6 +135,21 @@ api.interceptors.response.use(
       // 有响应，服务器在线，重置计数
       _networkFailCount = 0;
     }
+    // 403「该账号已被禁用」：**任何**接口都可能返回它（浏览途中被封最常见）。
+    // 之前只有 /auth/check-status 的响应对它做了处理，其它页面会被 axios 当普通错误吞掉，
+    // 于是用户看到的不是「你被封禁了」，而是「这个人没发过帖子」这种假空态。
+    // 这里统一广播一次，由 App.vue 落到账号状态并跳转封禁页。
+    if (error.response && error.response.status === 403) {
+      var banBody = error.response.data;
+      if (banBody && Number(banBody.code) === 403 && /已被禁用/.test(String(banBody.message || ''))) {
+        try {
+          window.dispatchEvent(new CustomEvent('classintra-account-disabled', {
+            detail: { reason: banBody.ban_reason || '', expiresAt: banBody.ban_expires_at || null }
+          }));
+        } catch (e) { /* 页面自身的错误态会兜底 */ }
+      }
+    }
+
     if (error.response && error.response.status === 401) {
       // 公开页面（登录/注册/封禁页）不跳转，避免心跳检测把未登录用户踢出注册页
       var publicRoutes = ['Login', 'Register', 'Banned'];

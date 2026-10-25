@@ -477,10 +477,15 @@ bus.register('user_profile_updated', function(payload, ctx) {
     // 动态SQL：只更新非空字段，不覆盖 is_admin、status、password_hash
     var fields = [];
     var values = [];
-    var profileFields = ['net_name', 'real_name', 'gender', 'info_json', 'wechat', 'qq', 'phone', 'address', 'signature', 'privacy_settings'];
+    // avatar_hash / avatar_crop：头像同步（图片文件由 Syncthing 同步 Resources/cloud，
+    // 这里只同步"引用哪张图 + 裁切参数"，不搬字节）
+    var profileFields = ['net_name', 'real_name', 'gender', 'info_json', 'wechat', 'qq', 'phone', 'address', 'signature', 'privacy_settings', 'avatar_hash', 'avatar_crop', 'cover_hash', 'cover_crop'];
     for (var i = 0; i < profileFields.length; i++) {
       var f = profileFields[i];
-      if (payload[f] !== undefined && payload[f] !== null && payload[f] !== '') {
+      // 头像两个字段**允许空值**：空 hash 代表"用户删掉了头像"，必须能同步过去，
+      // 否则对端会一直停在上一个头像上。其余字段沿用"非空才覆盖"的老语义。
+      var avatarField = (f === 'avatar_hash' || f === 'avatar_crop' || f === 'cover_hash' || f === 'cover_crop');
+      if (payload[f] !== undefined && payload[f] !== null && (avatarField || payload[f] !== '')) {
         fields.push(f + ' = ?');
         values.push(payload[f]);
       }
@@ -514,10 +519,12 @@ bus.register('user_profile_updated', function(payload, ctx) {
       }
     }
     var broadcastData = { type: 'user_profile_updated', user_id: payload.user_id };
-    var bFields = ['net_name', 'real_name', 'gender', 'info_json', 'wechat', 'qq', 'phone', 'address', 'signature', 'privacy_settings'];
+    var bFields = ['net_name', 'real_name', 'gender', 'info_json', 'wechat', 'qq', 'phone', 'address', 'signature', 'privacy_settings', 'avatar_hash', 'avatar_crop', 'cover_hash', 'cover_crop'];
     for (var k = 0; k < bFields.length; k++) {
-      if (payload[bFields[k]] !== undefined && payload[bFields[k]] !== null && payload[bFields[k]] !== '') {
-        broadcastData[bFields[k]] = payload[bFields[k]];
+      var bf = bFields[k];
+      var avatarBroadcast = (bf === 'avatar_hash' || bf === 'avatar_crop' || bf === 'cover_hash' || bf === 'cover_crop');
+      if (payload[bf] !== undefined && payload[bf] !== null && (avatarBroadcast || payload[bf] !== '')) {
+        broadcastData[bf] = payload[bf];
       }
     }
     ctx.broadcast(broadcastData);
@@ -544,6 +551,45 @@ bus.register('admin_user_status_changed', function(payload, ctx) {
       } catch (e) {}
     }
   } catch (e) { console.error('[RelayBus] admin_user_status_changed error:', e.message); }
+});
+
+// ========== 设备指令信箱跨服务器同步 ==========
+// 源服务器下发控制指令（封禁/解禁、大字广播）时，除本地落库外还会把指令中继到对端。
+// 对端在自己库里落一份（复用同一个 cmd_uid），这样漫游到对端的用户连上后也能补拉到；
+// 客户端按 cmd_uid 幂等去重，收到两份也只会执行一次。
+bus.register('device_command', function(payload, ctx) {
+  try {
+    var targets = Array.isArray(payload.targets) ? payload.targets : [];
+    if (!payload.uid || targets.length === 0) return;
+    var deviceCommands = require('../services/device-commands');
+    deviceCommands.enqueue(targets, payload.cmd_type, payload.payload || {}, {
+      uid: payload.uid,
+      createdBy: payload.created_by || '',
+      expiresAt: payload.expires_at || null
+    });
+    // 对端已在线的用户立刻推送一次（补拉兜底仍然保留）
+    var msg = {
+      type: 'device_command',
+      uid: payload.uid,
+      cmd_type: payload.cmd_type,
+      payload: payload.payload || {}
+    };
+    for (var i = 0; i < targets.length; i++) {
+      try { ctx.sendToClient(targets[i], msg); } catch (e) {}
+    }
+  } catch (e) { console.error('[RelayBus] device_command error:', e.message); }
+});
+
+// 指令注销（大字撤回时源服务器发来）：把对端库里同源、未投递的指令标记为
+// 已投递，避免漫游到对端的设备补拉到已作废的指令（典型：先发大字再秒撤回）。
+bus.register('device_command_cancel', function(payload, ctx) {
+  try {
+    var targets = Array.isArray(payload.targets) ? payload.targets : [];
+    if (!payload.cmd_type || !payload.match_field || targets.length === 0) return;
+    var deviceCommands = require('../services/device-commands');
+    var n = deviceCommands.cancelPending(targets, payload.cmd_type, payload.match_field, payload.match_value);
+    if (n) console.log('[RelayBus] device_command_cancel: ' + payload.cmd_type + ' cancelled=' + n);
+  } catch (e) { console.error('[RelayBus] device_command_cancel error:', e.message); }
 });
 
 bus.register('user_deleted', function(payload, ctx) {

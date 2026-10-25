@@ -44,7 +44,7 @@
         </div>
       </div>
 
-      <div class="breadcrumb-bar">
+      <div class="breadcrumb-bar" ref="breadcrumbBar">
         <button class="breadcrumb-crumb" @click="navigateTo('')">
           <i class="fa-solid fa-house"></i>
         </button>
@@ -241,6 +241,9 @@
 import AppNavBar from '@/components/AppNavBar.vue';
 import api from '@/utils/api';
 import { marked } from 'marked';
+import DOMPurify from 'dompurify';
+import LatexRenderer from '@/utils/latex-renderer';
+import 'katex/dist/katex.min.css';
 import videojs from 'video.js';
 import 'video.js/dist/video-js.css';
 import 'videojs-mobile-ui/dist/videojs-mobile-ui.css';
@@ -347,6 +350,11 @@ export default {
           self.breadcrumbs = data.breadcrumbs || [];
           self.loading = false;
           self.recordVisit(dirPath);
+          // 深路径时地址栏自动滚到末尾，保证当前层可见
+          self.$nextTick(function() {
+            var bar = self.$refs.breadcrumbBar;
+            if (bar) bar.scrollLeft = bar.scrollWidth;
+          });
         })
         .catch(function(err) {
           self.error = (err.response && err.response.data && err.response.data.message) || '加载失败';
@@ -447,8 +455,11 @@ export default {
         api.get('/resources/preview', { params: { path: filePath } })
           .then(function(response) {
             var content = response.data.data.content || '';
+            // 与社区同款管线：提取数学/LaTeX 占位符 → marked → 净化 → 占位符还原为 KaTeX
+            var result = LatexRenderer.processContent(content, marked);
+            result.html = DOMPurify.sanitize(result.html);
             self.previewType = 'markdown';
-            self.previewMarkdownHtml = DOMPurify.sanitize(marked(content, { breaks: true, gfm: true }));
+            self.previewMarkdownHtml = LatexRenderer.renderFinalHtml(result.html, result.placeholders);
             self.previewLoading = false;
           })
           .catch(function() {
@@ -730,7 +741,10 @@ export default {
 .search-type-select { border: none; background: var(--card-bg); padding: 6px 8px; border-radius: var(--radius-sm); font-size: var(--font-size-sm); color: var(--text-secondary); cursor: pointer; }
 .search-go-btn { padding: 6px 16px; background: var(--primary-color); color: #FFFFFF; border-radius: var(--radius-sm); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); }
 .search-close-btn { padding: 6px; color: var(--text-tertiary); font-size: var(--font-size-callout); }
-.breadcrumb-bar { display: flex; align-items: center; gap: 4px; padding: 10px 20px; background: var(--card-bg); border-bottom: 0.5px solid var(--separator-color); flex-shrink: 0; overflow-x: auto; white-space: nowrap; }
+.breadcrumb-bar { display: flex; align-items: center; gap: 4px; padding: 10px 20px; background: var(--card-bg); border-bottom: 0.5px solid var(--separator-color); flex-shrink: 0; overflow-x: auto; white-space: nowrap; scrollbar-width: none; }
+.breadcrumb-bar::-webkit-scrollbar { display: none; }
+/* 分组必须是 flex 行内排布：裸 span（inline 盒）里放 flex 子元素会让分隔符叠在文字上方 */
+.breadcrumb-group { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 .breadcrumb-crumb { padding: 4px 10px; border-radius: var(--radius-sm); font-size: var(--font-size-sm); color: var(--text-secondary); background: none; transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard); min-height: 36px; display: flex; align-items: center; }
 .breadcrumb-crumb:hover { background: var(--primary-light); color: var(--primary-color); }
 .breadcrumb-crumb:active { transform: scale(0.94); opacity: 0.7; }
@@ -825,6 +839,12 @@ export default {
 .preview-markdown >>> a { color: var(--primary-color); text-decoration: none; }
 .preview-markdown >>> a:hover { text-decoration: underline; }
 .preview-markdown >>> hr { border: none; border-top: 0.5px solid var(--separator-color); margin: 1.5em 0; }
+/* KaTeX 数学公式（与社区 markdown-body 同款处理） */
+.preview-markdown >>> .katex { font-size: 1.1em; }
+.preview-markdown >>> .katex-display-wrapper { overflow-x: auto; overflow-y: hidden; padding: 8px 0; text-align: center; }
+.preview-markdown >>> .katex-display { overflow-x: auto; overflow-y: hidden; padding: 8px 0; margin: 4px 0; }
+.preview-markdown >>> .katex-html { max-width: 100%; overflow-x: auto; }
+.preview-markdown >>> .latex-error { color: var(--danger-color); font-size: 0.9em; }
 .preview-unsupported { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 40px; color: var(--text-tertiary); background: var(--card-bg); }
 .preview-unsupported i { font-size: 48px; opacity: 0.4; }
 .history-panel { position: fixed; top: 52px; right: 0; width: 320px; height: calc(100% - 52px); background: var(--sidebar-bg); border-left: 0.5px solid var(--separator-color); z-index: 900; display: flex; flex-direction: column; box-shadow: var(--shadow-lg); backdrop-filter: var(--glass-blur-container); -webkit-backdrop-filter: var(--glass-blur-container); }

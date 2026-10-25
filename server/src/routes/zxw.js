@@ -107,6 +107,65 @@ router.get('/log', function(req, res) {
   res.json({ events: events, count: events.length });
 });
 
+// 部署自检：一次说清「产物在不在、密钥在不在、两者配不配对」
+// 背景：zxw-boot.json 不入库，launcher.html 入库；两者必须来自同一次构建。
+// 只拷了产物→页面报「密钥未部署」；只拷了密钥→报「密钥与产物不匹配」。
+// 判据：用密钥解开产物里的 BODY 密文，能解出 <h1 才算配对（与前端同一套算法）。
+function checkPairing(html, pad1B64) {
+  try {
+    var m = /var c1=atob\('([A-Za-z0-9+/=]+)'\)/.exec(html);
+    if (!m) return false;
+    var c = Buffer.from(m[1], 'base64');
+    var p = Buffer.from(pad1B64 || '', 'base64');
+    if (!p.length || p.length < c.length) return false;
+    var n = Math.min(c.length, 64);
+    var head = '';
+    for (var i = 0; i < n; i++) head += String.fromCharCode(c[i] ^ p[i]);
+    return head.indexOf('<h1') !== -1 || head.indexOf('<div') !== -1;
+  } catch (e) {
+    return false;
+  }
+}
+
+router.get('/health', function(req, res) {
+  var out = {
+    ok: false,
+    launcher: { exists: false, bytes: 0 },
+    boot: { exists: false, pad1: 0, pad2: 0, builtAt: null },
+    payload: { file: cfg.payloadFile, exists: false },
+    paired: false,
+    hint: ''
+  };
+  var html = '';
+  try {
+    html = fs.readFileSync(path.join(ZXW_DIR, LAUNCHER_FILE), 'utf8');
+    out.launcher.exists = true;
+    out.launcher.bytes = Buffer.byteLength(html);
+  } catch (e) {
+    out.hint = '启动页产物缺失：需在构建机运行 node scripts/build-zxw-launcher.mjs';
+  }
+  var boot = null;
+  try { boot = JSON.parse(fs.readFileSync(BOOT_FILE, 'utf8')); } catch (e) { boot = null; }
+  if (boot) {
+    out.boot.exists = true;
+    out.boot.builtAt = boot.builtAt || null;
+    out.boot.pad1 = String(boot.pad1 || '').length;
+    out.boot.pad2 = String(boot.pad2 || '').length;
+  } else if (out.launcher.exists) {
+    out.hint = '密钥缺失（server/config/zxw-boot.json 不入库）：从构建机把 launcher.html 与 zxw-boot.json 成对拷来，不要在目标机单独重建';
+  }
+  if (out.launcher.exists && out.boot.exists) {
+    out.paired = checkPairing(html, boot.pad1);
+    if (!out.paired) out.hint = '密钥与产物不匹配（不是同一次构建）：请成对替换 launcher.html + zxw-boot.json';
+  }
+  try {
+    out.payload.exists = fs.statSync(path.join(ZXW_DIR, cfg.payloadFile)).isFile();
+  } catch (e) { out.payload.exists = false; }
+  if (!out.payload.exists && !out.hint) out.hint = '负载页缺失：server/public/zxw/' + cfg.payloadFile;
+  out.ok = out.launcher.exists && out.boot.exists && out.paired && out.payload.exists;
+  res.json(out);
+});
+
 // 负载页（白名单：仅 config.payloadFile 一个文件名可被下发）
 router.get('/:name', function(req, res, next) {
   if (req.params.name !== cfg.payloadFile) return next();

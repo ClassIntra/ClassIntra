@@ -13,11 +13,14 @@ import { ERROR_CODES } from '@shared/constants';
 
 function EventEmitter() {
   this._handlers = {}; // { eventName: [handler, ...] }
+  this._owners = {};   // { owner: [ { eventName, handler } ] } —— on 时带 owner 登记用于批量退订
 }
 
 // 注册事件监听器
+// owner（可选）：订阅归属（如 'market:gomoku'）——offOwner(owner) 可整批退订，
+// 第三方应用卸载时治理订阅泄漏。不影响 emit 路径（登记表独立维护）。
 // 返回取消订阅函数
-EventEmitter.prototype.on = function(eventName, handler) {
+EventEmitter.prototype.on = function(eventName, handler, owner) {
   if (typeof eventName !== 'string' || typeof handler !== 'function') {
     return function() {};
   }
@@ -25,6 +28,10 @@ EventEmitter.prototype.on = function(eventName, handler) {
     this._handlers[eventName] = [];
   }
   this._handlers[eventName].push(handler);
+  if (owner) {
+    if (!this._owners[owner]) this._owners[owner] = [];
+    this._owners[owner].push({ eventName: eventName, handler: handler });
+  }
   var self = this;
   return function() {
     self.off(eventName, handler);
@@ -32,7 +39,7 @@ EventEmitter.prototype.on = function(eventName, handler) {
 };
 
 // 注册一次性事件监听器
-EventEmitter.prototype.once = function(eventName, handler) {
+EventEmitter.prototype.once = function(eventName, handler, owner) {
   if (typeof eventName !== 'string' || typeof handler !== 'function') {
     return function() {};
   }
@@ -43,19 +50,57 @@ EventEmitter.prototype.once = function(eventName, handler) {
     try {
       handler.apply(null, arguments);
     } catch (e) {
-      self._reportHandlerError(eventName, e);
+      self._reportHandlerError(eventName, wrapper, e);
     }
   };
-  return this.on(eventName, wrapper);
+  return this.on(eventName, wrapper, owner);
 };
 
 // 移除事件监听器
 EventEmitter.prototype.off = function(eventName, handler) {
   var list = this._handlers[eventName];
-  if (!list) return;
-  var idx = list.indexOf(handler);
-  if (idx !== -1) list.splice(idx, 1);
-  if (list.length === 0) delete this._handlers[eventName];
+  if (list) {
+    var idx = list.indexOf(handler);
+    if (idx !== -1) list.splice(idx, 1);
+    if (list.length === 0) delete this._handlers[eventName];
+  }
+  // 同步清理 owner 登记表（避免 offOwner 退订已失效引用——无害但占内存）
+  var ownerKeys = Object.keys(this._owners);
+  if (ownerKeys.length) {
+    var self = this;
+    ownerKeys.forEach(function(owner) {
+      var recs = self._owners[owner];
+      for (var i = recs.length - 1; i >= 0; i--) {
+        if (recs[i].eventName === eventName && recs[i].handler === handler) recs.splice(i, 1);
+      }
+      if (recs.length === 0) delete self._owners[owner];
+    });
+  }
+};
+
+// 按 owner 批量退订（第三方应用卸载时治理订阅泄漏）。返回退订数量。
+EventEmitter.prototype.offOwner = function(owner) {
+  var recs = this._owners[owner];
+  if (!recs || !recs.length) return 0;
+  var count = recs.length;
+  // 复制后清空登记表再逐条 off（off 内部会尝试清理登记表，先清可省功）
+  var snapshot = recs.slice();
+  delete this._owners[owner];
+  var self = this;
+  snapshot.forEach(function(rec) {
+    self.off(rec.eventName, rec.handler);
+  });
+  return count;
+};
+
+// 各 owner 的存活订阅数（诊断用）
+EventEmitter.prototype.ownerStats = function() {
+  var out = {};
+  var self = this;
+  Object.keys(this._owners).forEach(function(owner) {
+    out[owner] = self._owners[owner].length;
+  });
+  return out;
 };
 
 // 触发事件
@@ -75,14 +120,25 @@ EventEmitter.prototype.emit = function(eventName) {
     try {
       snapshot[j].apply(null, args);
     } catch (e) {
-      this._reportHandlerError(eventName, e);
+      this._reportHandlerError(eventName, snapshot[j], e);
     }
   }
 };
 
 // 报告 handler 异常（避免递归：直接 console.error + 触发 'error:handler'）
-EventEmitter.prototype._reportHandlerError = function(eventName, error) {
-  try { console.error('[EventBus] handler error for "' + eventName + '":', error); } catch (_) {}
+// 归因：反查该 handler 的订阅 owner（如 market:gomoku），错误可定位到具体应用
+EventEmitter.prototype._reportHandlerError = function(eventName, handler, error) {
+  var owner = '';
+  var ownerKeys = Object.keys(this._owners);
+  for (var oi = 0; oi < ownerKeys.length && !owner; oi++) {
+    var recs = this._owners[ownerKeys[oi]];
+    for (var ri = 0; ri < recs.length; ri++) {
+      if (recs[ri].handler === handler) { owner = ownerKeys[oi]; break; }
+    }
+  }
+  try {
+    console.error('[EventBus] handler error for "' + eventName + '"' + (owner ? '（归属 ' + owner + '）' : '') + ':', error);
+  } catch (_) {}
   // 触发 'error:handler'，但不再 try/catch（避免无限递归）
   // 如果 'error:handler' 的 handler 也 throw，异常会向上传播
   var errList = this._handlers['error:handler'];
@@ -91,7 +147,7 @@ EventEmitter.prototype._reportHandlerError = function(eventName, error) {
     var snapshot = errList.slice();
     for (var i = 0; i < snapshot.length; i++) {
       try {
-        snapshot[i]({ event: eventName, error: ciError });
+        snapshot[i]({ event: eventName, owner: owner, error: ciError });
       } catch (_) {
         // 'error:handler' 自身异常仅 console.error，不再传播
       }

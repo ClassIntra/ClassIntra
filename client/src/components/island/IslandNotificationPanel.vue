@@ -14,10 +14,10 @@
       </div>
       <div class="notif-meta">
         <span v-if="timestamp" class="notif-time">{{ timestamp }}</span>
-        <span v-if="queueCount > 0" class="notif-queue" :style="queueBadgeStyle">+{{ queueCount }}</span>
+        <span v-if="queueCount > 0" class="notif-queue" :class="queueClass">{{ queueCount > 99 ? '99+' : '+' + queueCount }}</span>
       </div>
     </div>
-    <div class="notif-progress" :style="progressBarStyle"></div>
+    <div class="notif-progress" :class="progressClass" :style="progressStyle"></div>
   </div>
 </template>
 
@@ -30,7 +30,12 @@ export default {
     timestamp: { type: String, default: '' },
     queueCount: { type: Number, default: 0 },
     isBouncing: { type: Boolean, default: false },
-    progressWidth: { type: Number, default: 100 }
+    /**
+     * 通知展示时长（ms）—— 由 SuperIsland 的 notificationDuration 统一推入
+     * （collapseTimer 与进度条共用同一真相源，见 island-notifications.js）。
+     * 进度条是 CSS animation：duration 走自定义属性注入，零 JS tick。
+     */
+    notifDuration: { type: Number, default: 3000 }
   },
   computed: {
     iconStyle: function() {
@@ -43,23 +48,21 @@ export default {
         'notif-icon-pulse': this.isBouncing
       };
     },
-    queueBadgeStyle: function() {
-      var color = 'var(--primary-color)';
-      if (this.notification) {
-        if (this.notification.type === 'group_event') color = 'var(--warning-color)';
-        else if (this.notification.type === 'online') color = 'var(--success-color)';
-      }
-      return { background: color };
+    // 进度条颜色：与图标语义一致（群事件=琥珀、上线=绿、紧急=红、低=灰，默认主色）
+    progressClass: function() {
+      if (this.priority === 'urgent') return 'notif-progress--urgent';
+      if (this.priority === 'low') return 'notif-progress--low';
+      if (this.notification && this.notification.type === 'group_event') return 'notif-progress--group';
+      if (this.notification && this.notification.type === 'online') return 'notif-progress--online';
+      return '';
     },
-    progressBarStyle: function() {
-      var color = 'var(--primary-color)';
-      if (this.notification) {
-        if (this.notification.type === 'group_event') color = 'var(--warning-color)';
-        else if (this.notification.type === 'online') color = 'var(--success-color)';
-      }
-      if (this.priority === 'urgent') color = 'var(--danger-color)';
-      else if (this.priority === 'low') color = 'var(--text-tertiary)';
-      return { transform: 'scaleX(' + (this.progressWidth / 100) + ')', background: color };
+    queueClass: function() {
+      if (this.notification && this.notification.type === 'group_event') return 'notif-queue--group';
+      if (this.notification && this.notification.type === 'online') return 'notif-queue--online';
+      return '';
+    },
+    progressStyle: function() {
+      return { '--notif-duration': this.notifDuration + 'ms' };
     }
   }
 };
@@ -99,15 +102,17 @@ export default {
   100% { transform: scale(1); }
 }
 
+/* 紧急图标呼吸：只动 transform/opacity（合成层）。
+   原实现扩散 box-shadow 光环——每帧重绘模糊阴影，且是 ease-in-out 关键字曲线
+   （项目红线禁关键字），2026-10-24 改为缩放+透明度呼吸，语义不变、零重绘。 */
 .notif-icon-urgent {
   background: rgba(var(--danger-rgb), 0.2) !important;
-  animation: notif-icon-urgent-pulse 1.2s ease-in-out infinite;
+  animation: notif-icon-urgent-pulse 1.2s var(--ease-standard) infinite;
 }
 
 @keyframes notif-icon-urgent-pulse {
-  0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(var(--danger-rgb), 0.4); }
-  50% { transform: scale(1.1); box-shadow: 0 0 0 6px rgba(var(--danger-rgb), 0); }
-  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(var(--danger-rgb), 0); }
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.08); opacity: 0.82; }
 }
 
 /* 通知图标色统一走系统令牌（此前是 Tailwind 越界色值泄漏） */
@@ -159,6 +164,7 @@ export default {
   white-space: nowrap;
 }
 
+/* 排队徽章：出现时弹一下（0.4 起步，E8 禁 scale(0)），只动 transform/opacity */
 .notif-queue {
   font-size: 10px;
   font-weight: 700;
@@ -167,8 +173,25 @@ export default {
   border-radius: var(--radius-md);
   line-height: 1.4;
   white-space: nowrap;
+  background: var(--primary-color);
+  animation: notif-queue-pop 0.32s var(--motion-spring-bouncy) both;
 }
 
+.notif-queue--group { background: var(--warning-color); }
+.notif-queue--online { background: var(--success-color); }
+
+@keyframes notif-queue-pop {
+  0% { transform: scale(0.4); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/**
+ * 倒计时进度条：CSS animation 驱动（scaleX 1→0，合成层）。
+ * 原实现是 JS 每 30ms 改一次 progressWidth → Vue 重渲染整条通知生命周期，
+ * 且 30ms transition 比 tick 还短、等于没平滑。duration 经内联
+ * --notif-duration 注入（= collapseTimer 同一真相源，island-notifications.js）。
+ * 面板由 :key（含 notificationAppearTime）重挂载 → 每条新通知动画自然重启。
+ */
 .notif-progress {
   position: absolute;
   bottom: 0;
@@ -177,8 +200,18 @@ export default {
   height: 2px;
   border-radius: 0 0 var(--radius-3xl) var(--radius-3xl);
   transform-origin: left center;
-  transform: scaleX(0);
-  transition: transform 30ms var(--ease-standard);
+  background: var(--primary-color);
+  animation: notif-progress-shrink var(--notif-duration, 3000ms) linear forwards;
+}
+
+.notif-progress--group { background: var(--warning-color); }
+.notif-progress--online { background: var(--success-color); }
+.notif-progress--urgent { background: var(--danger-color); }
+.notif-progress--low { background: var(--text-tertiary); }
+
+@keyframes notif-progress-shrink {
+  from { transform: scaleX(1); }
+  to   { transform: scaleX(0); }
 }
 
 .ptag {
@@ -205,5 +238,8 @@ export default {
 @media (prefers-reduced-motion: reduce) {
   .notif-icon-pulse { animation: none !important; }
   .notif-icon-urgent { animation: none !important; }
+  .notif-queue { animation: none !important; }
+  /* reduce 模式下进度条不缩（静止满条，信息不减） */
+  .notif-progress { animation: none !important; transform: scaleX(1) !important; }
 }
 </style>

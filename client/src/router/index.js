@@ -107,6 +107,14 @@ var routes = [
     name: 'Browser',
     component: function() { return import('@/views/Browser.vue'); },
     meta: { requiresAuth: true }
+  },
+  // 运行时检查器：内核/市场应用/事件总线的实时只读诊断（管理员）。
+  // 生产也可用（平板真机排障），数据全部来自内核现成接口
+  {
+    path: '/dev/runtime',
+    name: 'DevRuntime',
+    component: function() { return import('@/views/DevRuntime.vue'); },
+    meta: { requiresAuth: true, requiresAdmin: true }
   }
 ].concat(import.meta.env.DEV ? [
   // 性能诊断页：仅开发模式注册，不进入生产构建

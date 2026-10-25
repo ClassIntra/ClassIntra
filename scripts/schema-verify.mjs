@@ -178,6 +178,44 @@ ok(JSON.stringify(vrShared.manifest.visibleRoles) === JSON.stringify(['classAdmi
 ok(hasRoleWarn(server.validateManifest({ name: 'vrb', label: 'VRB', visibleRoles: ['nonsense'] })),
   '未知令牌仍然报警（校验未被改废）');
 
+console.log('\n=== 8. 扩展主题 profile 令牌（个人主页装扮接口）===');
+// 这条链路没有任何运行时兜底：schema 放行了不该放行的键，就会直接写进 CSS 变量。
+const themeSchema = await import(pathToFileURL(ROOT + '/shared/src/theme-extension-schema.js').href);
+ok(Array.isArray(themeSchema.PROFILE_TOKENS) && themeSchema.PROFILE_TOKENS.indexOf('accent') !== -1,
+  'PROFILE_TOKENS 已导出且包含 accent（消费端别名依赖这份清单）');
+ok(themeSchema.CAPABILITIES.indexOf('profile-skin') !== -1,
+  'capabilities 枚举包含 profile-skin');
+
+const extBase = { schema: themeSchema.SCHEMA_VERSION, id: 'probe-ext', name: 'Probe Ext', entry: './apply.js' };
+const extGood = themeSchema.validateThemeExtensionManifest(Object.assign({}, extBase, {
+  profile: {
+    accent: '#7C4DFF',
+    radius: '20px',
+    'cover-overlay': 'linear-gradient(to top, rgba(0, 0, 0, 0.4), transparent)'
+  }
+}));
+ok(extGood.valid && extGood.manifest.profile.accent === '#7C4DFF' && extGood.manifest.profile.radius === '20px',
+  '合法 profile（颜色 + 长度 + 渐变）被原样保留');
+ok(extGood.manifest.profile['cover-overlay'] === 'linear-gradient(to top, rgba(0, 0, 0, 0.4), transparent)',
+  '渐变值中的括号/逗号/透明度不被误杀');
+
+const extBad = themeSchema.validateThemeExtensionManifest(Object.assign({}, extBase, {
+  profile: { accent: '#FFFFFF', 'not-a-token': '1', 'card-bg': 'url(http://evil/x.png)' }
+}));
+ok(extBad.valid, '未知键 / 危险值只产生告警，不阻断整包（开放模型）');
+ok(!extBad.manifest.profile['not-a-token'] && !extBad.manifest.profile['card-bg'],
+  '未知键与 url() 值被静默丢弃（不会漏进 CSS 变量）');
+ok(!themeSchema.validateThemeExtensionManifest(extBase).manifest.profile,
+  '未声明 profile 时不注入空对象（保持 manifest 忠实）');
+
+// 命名契约：tokens.profile → --ci-profile-*（消费端 global.scss 的 --pf-* 别名依赖它）
+const themeAdapter = await import(pathToFileURL(ROOT + '/shared/src/theme-adapter.js').href);
+const flatProfile = themeAdapter.flattenTokens({ profile: extGood.manifest.profile });
+ok(flatProfile['--ci-profile-accent'] === '#7C4DFF'
+  && flatProfile['--ci-profile-radius'] === '20px'
+  && String(flatProfile['--ci-profile-cover-overlay']).indexOf('linear-gradient') === 0,
+  'tokens.profile 展平为 --ci-profile-* 且 kebab 键不被二次改写');
+
 console.log('\n================================');
 console.log('通过 ' + pass + ' 项，失败 ' + fail + ' 项');
 process.exit(fail === 0 ? 0 : 1);

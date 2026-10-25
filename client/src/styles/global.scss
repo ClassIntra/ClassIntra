@@ -9,6 +9,20 @@
 // ============================================================
 @use './motion';
 
+// 个人主页 / 装扮令牌：输入层 → 消费别名的映射（见下方 :root 处的长注释）
+// 抽成 mixin 是因为要在两个地方求值：:root（全局默认）与 .ci-skin-scope（元素级覆盖）。
+@mixin ci-profile-tokens {
+  --pf-radius: var(--ci-profile-radius, var(--radius-lg, 16px));
+  --pf-radius-sm: var(--ci-profile-radius-sm, var(--radius-md, 10px));
+  --pf-avatar: var(--ci-profile-avatar, 96px);
+  --pf-card-bg: var(--ci-profile-card-bg, var(--surface-elevated, #fff));
+  --pf-surface: var(--ci-profile-surface, var(--primary-lighter, rgba(0, 122, 255, 0.06)));
+  --pf-accent: var(--ci-profile-accent, var(--primary-color));
+  --pf-hairline: var(--ci-profile-hairline, var(--separator-color));
+  /* 封面蒙版：装扮可叠渐变膜/噪点，默认透明 = 保持原样 */
+  --pf-cover-overlay: var(--ci-profile-cover-overlay, transparent);
+}
+
 :root {
   /* 主交互色 - iOS System Blue（别名指向 --ci-color-primary） */
   --primary-color: var(--ci-color-primary, #007AFF);
@@ -45,6 +59,8 @@
   --card-bg: var(--ci-color-bg-card, #FFFFFF);
   --surface-elevated: var(--ci-color-bg-elevated, rgba(255, 255, 255, 0.72));
   --surface-glass: var(--ci-color-bg-glass, rgba(255, 255, 255, 0.65));
+  /* 透明 PNG 头像的衬底：原来这个变量从未定义，深色模式下会露出一块亮灰圆盘 */
+  --avatar-img-bg: var(--ci-color-fill-avatar, #E5E5EA);
 
   /* 文字色 - 半透明设计，毛玻璃上自动获得对比度（别名指向 --ci-color-text-*） */
   --text-primary: var(--ci-color-text-primary, rgba(0, 0, 0, 0.90));
@@ -231,9 +247,47 @@
   --transition-normal: var(--duration-normal) var(--ease-standard);
   --transition-slow: var(--duration-slow) var(--ease-standard);
 
-  /* 层级（静态，与主题无关） */
+  /* ── 个人主页 / 装扮令牌（10-24 从 Profile.vue 提升为全局）────────────────
+     命名约定，两段式：
+       `--ci-profile-*` = **输入**（由扩展主题 or 装扮系统写入，自己不带默认值）
+       `--pf-*`         = **消费别名**（组件只用这一层，带默认回退）
+     三条通路都写同一个输入层，所以互不打架：
+       1. 扩展主题：manifest 里写 `profile: { accent: '#7C4DFF' }`（schema 会校验），
+          由该扩展的 apply.js 透传到 `tokens.profile` → flattenTokens 落成 `--ci-profile-accent`；
+          切换主题时 removeFromElement 会连同 --ci-color-* 一起清掉，不留残影
+          （参考实现见 theme-extensions/material-you/apply.js 的 buildTokens）；
+       2. 装扮系统（client/src/core/profile-skin.js）inline 覆盖同一批变量，实时生效，
+          且切主题后会自动重写（否则会被 removeFromElement 一并清掉）；
+       3. 都没写时退回应用既有令牌，行为与提升前完全一致。
+     可覆盖键的唯一清单：core/profile-skin.js 的 TOKEN_SPEC（schema 也引用它）。
+     ⚠️ 为什么同一个 mixin 要 include 两次：CSS 变量在**声明它的元素**上求值。
+       `:root` 那份决定全局默认；`.ci-skin-scope` 那份让「元素级覆盖」能生效 ——
+       否则把 --ci-profile-accent 写在 .profile-page 上时，:root 里算好的 --pf-accent
+       已经定死，子元素再改输入层也不会重算（装扮按"被访问者"下发时必需）。 */
+  @include ci-profile-tokens;
+
+  /* 层级（静态，与主题无关）
+     约定（自上而下，避免"谁挡住谁"靠猜）：
+       99999  锁屏 / offline-secure 黑幕
+       99998  断网黑屏遮罩
+       99997  --z-toast：全局轻提示。必须压过 10000/10001 那一档浮层 —— 以前 toast
+              用的是 9999，比灵动岛(10000)和模态(10001)都低，于是"操作成功/失败"
+              经常被岛或弹窗吞掉，用户以为没反应。
+       10002  图片预览 / 云相册选择器（模态中的模态）
+       10001  --z-modal：模态弹窗
+       10000  --z-overlay：灵动岛 / 生日全屏 / 抽屉类浮层
+       1100   桌面设置面板 / 1200 其内部层
+       900/1000 桌面公告浮层 / 文件夹展开 / 分页指示器
+  */
   --z-modal: 10001;
   --z-overlay: 10000;
+  --z-toast: 99997;
+}
+
+/* 元素级装扮作用域：给容器加这个 class，就能在**该容器上**覆盖 --ci-profile-*，
+   而不影响全局（「看别人主页看到对方的装扮」走这条，不需要动 documentElement）。 */
+.ci-skin-scope {
+  @include ci-profile-tokens;
 }
 
 [data-theme="dark"] {
@@ -250,6 +304,7 @@
   --card-bg: var(--ci-color-bg-card, #1C1C1E);
   --surface-elevated: var(--ci-color-bg-elevated, rgba(28, 28, 30, 0.72));
   --surface-glass: var(--ci-color-bg-glass, rgba(28, 28, 30, 0.65));
+  --avatar-img-bg: var(--ci-color-fill-avatar, #2C2C2E);
 
   /* 文字色 */
   --text-primary: var(--ci-color-text-primary, rgba(235, 235, 245, 0.95));
@@ -765,7 +820,11 @@ a:focus-visible {
   }
 
   .global-toast {
-    top: 16px;
+    /* 横屏平板（本项目主力设备）专用微调：只缩字号与内边距，位置必须和 App.vue 一致
+       避开灵动岛（top 12 + 高 40）。原来这里是 top:16px —— 正好整块压在岛上面，
+       而灵动岛 z-index(10000) 高于 toast 当时的 9999，于是通知条在横屏平板上
+       100% 被盖住，这就是「通知条经常被挡住」的直接原因。 */
+    top: 64px;
     font-size: 13px;
     padding: 10px 20px;
   }

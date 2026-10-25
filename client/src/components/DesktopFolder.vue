@@ -71,7 +71,7 @@
             :app="appMeta(name)"
             :editing="editing"
             :show-label="false"
-            @launch="onLaunchApp(name)"
+            @launch="onLaunchApp"
           />
         </div>
         <div v-if="visibleApps.length === 0" class="folder-empty-hint">
@@ -146,8 +146,9 @@ export default {
     onRemove: function() {
       this.$emit('remove', this.folder);
     },
-    onLaunchApp: function(name) {
-      this.$emit('launch-app', name);
+    onLaunchApp: function(app, el) {
+      // 透传图标元素：供容器变换过渡捕获展开起点
+      this.$emit('launch-app', app && app.name, el);
     },
     startRename: function() {
       this.renaming = true;

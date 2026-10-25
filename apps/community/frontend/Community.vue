@@ -35,6 +35,10 @@
                 <button class="sort-btn" :class="{ active: sortMode === 'hot' }" @click="changeSort('hot')">最热</button>
                 <button class="sort-btn" :class="{ active: sortMode === 'featured' }" @click="changeSort('featured')"><i class="fa-solid fa-star" style="margin-right:3px;font-size:11px;color:#FF9500"></i>精选</button>
               </div>
+              <div class="view-switch">
+                <button class="view-switch-btn" :class="{ active: forumView === 'waterfall' }" :aria-pressed="forumView === 'waterfall' ? 'true' : 'false'" @click="setForumView('waterfall')" title="瀑布流视图" aria-label="切换到瀑布流视图"><i class="fa-solid fa-table-cells-large"></i></button>
+                <button class="view-switch-btn" :class="{ active: forumView === 'list' }" :aria-pressed="forumView === 'list' ? 'true' : 'false'" @click="setForumView('list')" title="列表视图" aria-label="切换到列表视图"><i class="fa-solid fa-list"></i></button>
+              </div>
               <div class="search-box">
                 <i class="fa-solid fa-magnifying-glass"></i>
                 <input
@@ -92,7 +96,7 @@
                 </div>
               </div>
             </div>
-            <div class="waterfall-grid"><div class="waterfall-col" v-for="(colArr, wi) in waterfallColumns" :key="'wc' + wi">
+            <div class="waterfall-grid" :class="forumView === 'list' ? 'view-list' : 'view-waterfall'"><div class="waterfall-col" v-for="(colArr, wi) in waterfallColumns" :key="'wc' + wi">
             <div
               v-for="post in colArr"
               :key="post.id"
@@ -349,42 +353,129 @@
         </div>
 
         <!-- 我的 -->
-        <div v-if="activeTab === 'mine'" class="content-panel mine-panel">
+        <div v-if="activeTab === 'mine'" class="content-panel mine-panel ci-skin-scope">
           <div class="content-header">
             <h2 class="content-title">个人中心</h2>
           </div>
           <div class="mine-body scrollbar-thin">
-            <div class="profile-card" v-if="currentUser">
-              <div class="profile-card-left">
-                <div class="profile-card-avatar" :style="{ background: getAvatarColor(currentUser.user_id) }">
-                  {{ getAvatarText(currentUser.net_name) }}
-                </div>
-                <div class="profile-card-info">
-                  <div class="profile-card-name">{{ currentUser.net_name }}</div>
-                  <div class="profile-card-id"><template v-if="currentUser.real_name && !(profile && profile.privacy_settings && profile.privacy_settings.hide_real_name)">{{ currentUser.real_name }} · </template>{{ currentUser.user_id }}</div>
-                  <div v-if="profile && profile.signature" class="profile-card-signature">{{ profile.signature }}</div>
-                </div>
-              </div>
-              <div class="profile-card-stats">
-                <div class="stat-block">
-                  <div class="stat-value">{{ myStats.post_count || 0 }}</div>
-                  <div class="stat-label">帖子</div>
-                </div>
-                <div class="stat-block">
-                  <div class="stat-value">{{ myStats.like_count || 0 }}</div>
-                  <div class="stat-label">获赞</div>
-                </div>
-                <div class="stat-block">
-                  <div class="stat-value">{{ myStats.comment_count || 0 }}</div>
-                  <div class="stat-label">评论</div>
-                </div>
-              </div>
-            </div>
 
+            <!-- ══ 名片：封面 + 头像 + 身份 + 统计 ══
+                 与 /profile/:id 用同一套令牌（--pf-*）与同一张默认封面渐变，
+                 所以「我的」页和自己主页看起来是同一个人的两扇门，不是两套设计。 -->
+            <section class="mine-hero" v-if="overviewLoaded">
+              <div class="mine-cover">
+                <img
+                  v-if="myCover.has_cover && !myCoverFailed"
+                  :src="myCover.url"
+                  class="mine-cover-img"
+                  :class="{ 'is-loaded': myCoverLoaded }"
+                  alt=""
+                  draggable="false"
+                  decoding="async"
+                  @load="onMineCoverLoad"
+                  @error="onMineCoverError"
+                />
+                <!-- 没设封面 / 加载中 / 加载失败：都垫一层确定性渐变，
+                     弱网下不再是一块纯色干等 -->
+                <div v-if="!myCover.has_cover || myCoverFailed || !myCoverLoaded" class="mine-cover-fallback" :style="{ backgroundImage: myCoverGradient }"></div>
+                <span class="mine-cover-glow"></span>
+                <button class="mine-cover-edit" title="更换封面" @click="goEditProfile">
+                  <i class="fa-solid fa-camera"></i>
+                </button>
+              </div>
+
+              <div class="mine-hero-body">
+                <div class="mine-avatar" title="进入我的主页" @click="goMyProfile">
+                  <UserAvatar :user-id="myUserId" :name="myName" :size="84" :avatar="myAvatar" />
+                </div>
+
+                <div class="mine-hero-top">
+                  <div class="mine-identity">
+                    <div class="mine-name-row">
+                      <span class="mine-name">{{ myName || '未登录' }}</span>
+                      <img v-if="myLevelIconUrl" :src="myLevelIconUrl" class="mine-level" alt="" />
+                      <span v-if="isAdminUser" class="mine-badge">管理</span>
+                      <span v-if="myOfficerTitle" class="mine-badge mine-badge--officer">{{ myOfficerTitle }}</span>
+                    </div>
+                    <div class="mine-sub">
+                      {{ myUserId }}<template v-if="myShowRealName && currentUser && currentUser.real_name"> · {{ currentUser.real_name }}</template>
+                    </div>
+                    <div class="mine-signature" :class="{ 'mine-signature--empty': !(profile && profile.signature) }">
+                      {{ (profile && profile.signature) || '还没有签名，去编辑资料写一句吧' }}
+                    </div>
+                  </div>
+                  <div class="mine-actions">
+                    <button class="mine-btn" @click="goMyProfile">
+                      <i class="fa-regular fa-address-card"></i><span>我的主页</span>
+                    </button>
+                    <button class="mine-btn mine-btn--primary" @click="goEditProfile">
+                      <i class="fa-solid fa-pen"></i><span>编辑资料</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="mine-stats">
+                  <div class="mine-stat">
+                    <span class="mine-stat-v">{{ myStats.post_count || 0 }}</span>
+                    <span class="mine-stat-l">帖子</span>
+                  </div>
+                  <div class="mine-stat">
+                    <span class="mine-stat-v">{{ myStats.like_count || 0 }}</span>
+                    <span class="mine-stat-l">获赞</span>
+                  </div>
+                  <button class="mine-stat mine-stat--link" @click="openFollowSheet('following')">
+                    <span class="mine-stat-v">{{ myFollow.following_count || 0 }}</span>
+                    <span class="mine-stat-l">关注<i class="fa-solid fa-chevron-right mine-stat-arrow"></i></span>
+                  </button>
+                  <button class="mine-stat mine-stat--link" @click="openFollowSheet('followers')">
+                    <span class="mine-stat-v">{{ myFollow.followers || 0 }}</span>
+                    <span class="mine-stat-l">粉丝<i class="fa-solid fa-chevron-right mine-stat-arrow"></i></span>
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <!-- 骨架：形状与真实名片一致，避免"先看到 0 再跳到真值" -->
+            <section class="mine-hero mine-hero--sk" v-else-if="overviewLoading">
+              <div class="mine-cover mine-sk-block"></div>
+              <div class="mine-hero-body">
+                <div class="mine-avatar mine-avatar--sk"></div>
+                <div class="mine-sk-line" style="width: 132px; height: 16px; margin-top: 4px;"></div>
+                <div class="mine-sk-line" style="width: 76px; height: 11px; margin-top: 8px;"></div>
+                <div class="mine-sk-line" style="width: 58%; height: 12px; margin-top: 10px;"></div>
+                <div class="mine-stats mine-sk-stats">
+                  <span v-for="i in 4" :key="'sks' + i" class="mine-sk-stat"></span>
+                </div>
+              </div>
+            </section>
+
+            <!-- 真的拉不到（不是"没有数据"）：给重试，不显示一排 0 -->
+            <section class="mine-hero mine-hero--error" v-else>
+              <i class="fa-solid fa-cloud-arrow-down"></i>
+              <span>资料没加载出来</span>
+              <button class="mine-btn" @click="fetchMineOverview"><i class="fa-solid fa-rotate-right"></i><span>重试</span></button>
+            </section>
+
+            <!-- ══ 两栏：我的帖子 / 收藏 ══ -->
             <div class="mine-columns">
-              <div class="mine-column">
+              <section class="mine-column">
+                <div class="mine-section-head">
+                  <h3 class="section-title">我的帖子 <span v-if="myPosts.length || myPostsTotal" class="mine-count">{{ myPostsTotal }}</span></h3>
+                  <div class="mine-filters">
+                    <button
+                      v-for="f in myPostFilters"
+                      :key="f.key"
+                      class="mine-filter"
+                      :class="{ active: myPostType === f.key }"
+                      @click="setMyPostType(f.key)"
+                    >{{ f.label }}</button>
+                  </div>
+                </div>
+
                 <div class="my-posts-section">
-                  <h3 class="section-title">我的帖子 ({{ myPostsTotal }})</h3>
+                  <div v-if="myPostsLoading && myPosts.length === 0" class="mine-loading">
+                    <i class="fa-solid fa-spinner fa-spin"></i><span>加载中...</span>
+                  </div>
                   <div
                     v-for="post in myPosts"
                     :key="post.id"
@@ -411,16 +502,21 @@
                       <i class="fa-solid fa-trash-can"></i>
                     </button>
                   </div>
-                  <div v-if="myPosts.length === 0" class="empty-state-sm">
+                  <div v-if="!myPostsLoading && myPosts.length === 0" class="empty-state-sm">
                     <i class="fa-regular fa-face-meh"></i>
-                    <span>暂无帖子</span>
+                    <span>{{ myPostType === 'all' ? '还没有发过帖子' : '这个分类下还没有帖子' }}</span>
                   </div>
+                  <button v-if="myPostHasMore" class="mine-load-more" :disabled="myPostsLoading" @click="loadMoreMyPosts">
+                    {{ myPostsLoading ? '加载中...' : '加载更多' }}
+                  </button>
                 </div>
-              </div>
+              </section>
 
-              <div class="mine-column">
+              <section class="mine-column">
+                <div class="mine-section-head">
+                  <h3 class="section-title"><i class="fa-solid fa-bookmark mine-section-icon"></i>收藏</h3>
+                </div>
                 <div class="bookmarks-section">
-                  <h3 class="section-title"><i class="fa-solid fa-bookmark" style="color:var(--accent-community);margin-right:6px"></i>收藏</h3>
                   <div
                     v-for="post in bookmarks"
                     :key="post.id"
@@ -463,14 +559,26 @@
                       </div>
                     </div>
                   </div>
-                  <div v-if="bookmarks.length === 0" class="empty-state-sm">
+                  <!-- 拉取中不能显示「还没有收藏」：那是假空态，会让人以为收藏丢了 -->
+                  <div v-if="bookmarksLoading && bookmarks.length === 0" class="mine-loading">
+                    <i class="fa-solid fa-spinner fa-spin"></i><span>加载中...</span>
+                  </div>
+                  <div v-else-if="bookmarks.length === 0" class="empty-state-sm">
                     <i class="fa-regular fa-bookmark"></i>
-                    <span>暂无收藏</span>
+                    <span>还没有收藏，看到好帖点一下书签</span>
                   </div>
                 </div>
-              </div>
+              </section>
             </div>
           </div>
+
+          <FollowListSheet
+            v-if="showFollowSheet"
+            :user-id="myUserId"
+            :direction="followDirection"
+            @close="showFollowSheet = false"
+            @changed="reloadMyFollow"
+          />
         </div>
       </div>
     </div>
@@ -1041,51 +1149,6 @@
       </div>
     </div>
 
-    <!-- 用户信息卡片弹窗 -->
-    <div v-if="showUserCard" class="modal-overlay" @click.self="closeUserCard">
-      <div class="user-card-modal">
-        <button class="modal-close" @click="closeUserCard"><i class="fa-solid fa-xmark"></i></button>
-        <div class="user-card">
-          <div class="user-card-avatar" :style="{ background: getAvatarColor(userCardUserId) }">
-            {{ getAvatarText(userProfile.net_name) }}
-          </div>
-          <h3 class="user-card-name">{{ userProfile.net_name || '未知用户' }}</h3>
-          <div v-if="userProfile.real_name" class="user-card-realname">{{ userProfile.real_name }}</div>
-          <div v-if="userProfile.signature" class="user-card-signature">{{ userProfile.signature }}</div>
-          <div class="user-card-stats">
-            <div class="stat-block">
-              <div class="stat-value">{{ userCardStats.post_count || 0 }}</div>
-              <div class="stat-label">帖子</div>
-            </div>
-            <div class="stat-block">
-              <div class="stat-value">{{ userCardStats.like_count || 0 }}</div>
-              <div class="stat-label">获赞</div>
-            </div>
-            <div class="stat-block">
-              <div class="stat-value">{{ userCardStats.comment_count || 0 }}</div>
-              <div class="stat-label">评论</div>
-            </div>
-          </div>
-          <div class="user-card-info">
-            <div v-if="userProfile.birthday" class="info-row"><i class="fa-solid fa-cake-candles"></i><span>{{ userProfile.birthday }}</span></div>
-            <div v-if="userProfile.wechat" class="info-row"><i class="fa-brands fa-weixin"></i><span>{{ userProfile.wechat }}</span></div>
-            <div v-if="userProfile.qq" class="info-row"><i class="fa-brands fa-qq"></i><span>{{ userProfile.qq }}</span></div>
-            <div v-if="userProfile.phone" class="info-row"><i class="fa-solid fa-phone"></i><span>{{ userProfile.phone }}</span></div>
-            <div v-if="userProfile.address" class="info-row"><i class="fa-solid fa-location-dot"></i><span>{{ userProfile.address }}</span></div>
-          </div>
-          <button
-            v-if="!isSelfProfile"
-            class="btn-primary btn-like-user"
-            :class="{ liked: userProfile.liked_by_me }"
-            @click="likeUser"
-          >
-            <i :class="userProfile.liked_by_me ? 'fa-solid fa-heart' : 'fa-regular fa-heart'"></i>
-            {{ userProfile.liked_by_me ? '已点赞 (' + (userProfile.like_count || 0) + ')' : '点赞 (' + (userProfile.like_count || 0) + ')' }}
-          </button>
-        </div>
-      </div>
-    </div>
-
     <!-- 自定义确认弹窗 -->
     <div v-if="showConfirm" class="modal-overlay" @click.self="cancelConfirm">
       <div class="confirm-box">
@@ -1131,8 +1194,9 @@ import UserAvatar from '@/components/UserAvatar.vue';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import CloudImagePicker from '@/components/CloudImagePicker.vue';
 import ImagePreview from '@/components/ImagePreview.vue';
+import FollowListSheet from '@/components/FollowListSheet.vue';
+import { coverGradient } from '@/utils/profile-cover';
 import api from '@/utils/api';
-import helpers from '@/utils/helpers';
 import wsManager from '@/utils/websocket';
 import cloudPickerReceiver from '@/mixins/cloud-picker-receiver';
 import { marked } from 'marked';
@@ -1242,10 +1306,19 @@ marked.setOptions({
 });
 
 
+// 「我的」首屏聚合缓存（模块级，切 tab / 重进页面都还在）
+// 目的：① 再进「我的」先渲染上次的数据，不出现「0 帖子 / 0 关注」闪一下；
+//       ② 10s 内连续切换 tab 不重复请求（弱网下少几次往返）。
+// 之后再进来走「先渲染缓存 + 后台静默刷新」，改了封面/资料最多晚一次刷新就能看到。
+var _mineOverviewCache = { at: 0, user_id: '', data: null };
+var MINE_OVERVIEW_TTL = 10 * 1000;
+// 列表（我的帖子 / 收藏）最近一次拉取时间：与名片同一套 TTL，避免快速切 tab 反复请求
+var _mineListsAt = 0;
+
 export default {
   name: 'Community',
   mixins: [cloudPickerReceiver],
-  components: { AppNavBar: AppNavBar, UserAvatar: UserAvatar, ConfirmDialog: ConfirmDialog, CloudImagePicker: CloudImagePicker, ImagePreview: ImagePreview },
+  components: { AppNavBar: AppNavBar, UserAvatar: UserAvatar, ConfirmDialog: ConfirmDialog, CloudImagePicker: CloudImagePicker, ImagePreview: ImagePreview, FollowListSheet: FollowListSheet },
   data: function() {
     return {
       tabs: [
@@ -1289,14 +1362,34 @@ export default {
       foodForm: { dish_name: '', canteen: '', window: '', reason: '' },
       showCreateHot: false,
       hotForm: { title: '', detail: '', location: '' },
-      showUserCard: false,
-      userProfile: {},
-      userCardUserId: null,
-      userCardStats: {},
       myStats: {},
+      // 「我的」页名片（与 /profile/:id 同源：封面走 /api/user/cover，关注数走 /api/user/follow）
+      myCover: { has_cover: false, hash: '', url: '' },
+      myCoverFailed: false,
+      // 封面图片是否已加载完成：加载中先垫 deterministic 渐变兜底，完成再淡入
+      myCoverLoaded: false,
+      // 头像数据随首屏聚合一起到，直接喂给 UserAvatar（不再单独打 avatar/batch）
+      myAvatar: null,
+      myFollow: { followers: 0, following_count: 0 },
+      myLevelInfo: null,
+      // 首屏聚合的加载态：有缓存时不显示骨架（避免"数据闪回 0 再跳"）
+      overviewLoaded: false,
+      overviewLoading: false,
+      // 我的帖子筛选：/my/posts 是**精确类型**匹配（forum 不含 poll/survey），
+      // 所以这里给的是真实类型，不做主页那套"论坛=forum+poll+survey"的合并
+      myPostType: 'all',
+      myPostPage: 1,
+      myPostsLoading: false,
+      bookmarksLoading: false,
+      showFollowSheet: false,
+      followDirection: 'followers',
       showConfirm: false,
       confirmData: { title: '', message: '', action: null },
       sortMode: 'latest',
+      // 论坛视图：'waterfall' 瀑布流（默认） / 'list' 列表（旧版单图右置行卡片），记忆上次选择
+      forumView: (function() { try { return localStorage.getItem('classintra_community_forum_view') === 'list' ? 'list' : 'waterfall'; } catch (e) { return 'waterfall'; } })(),
+      // 视口尺寸变化计数：waterfallColumns 依赖非响应式的 window.innerWidth，靠它触发重算
+      viewportTick: 0,
       postsPage: 1,
       postsHasMore: true,
       postsLoadingMore: false,
@@ -1329,6 +1422,48 @@ export default {
   computed: {
     currentUser: function() {
       return this.$store.state.auth.user;
+    },
+    // ── 「我的」名片 ──────────────────────────────────────────────
+    myUserId: function() {
+      return (this.currentUser && this.currentUser.user_id) || '';
+    },
+    myName: function() {
+      return (this.currentUser && this.currentUser.net_name) || '';
+    },
+    isAdminUser: function() {
+      return !!this.$store.getters['auth/isAdmin'];
+    },
+    myOfficerTitle: function() {
+      var info = this.myLevelInfo || {};
+      // 职务名来自 level/batch-levels（与主页徽章同源），别从 auth.user 猜
+      return info.officer_title || '';
+    },
+    myLevelIconUrl: function() {
+      var info = this.myLevelInfo;
+      if (!info || !info.show_level_community || info.level === undefined || info.level === null) return '';
+      return '/resources/public/level/Lv' + info.level + '.svg';
+    },
+    myCoverGradient: function() {
+      return coverGradient(this.myUserId);
+    },
+    myShowRealName: function() {
+      var p = this.profile || {};
+      // overview 的 profile 是**隐私过滤后**的形状：hide_real_name 平铺成布尔，
+      // 不再下发 privacy_settings 对象本体（给别人看时不能泄漏哪些字段被设了私密）
+      return !!(this.currentUser && this.currentUser.real_name) && !p.hide_real_name;
+    },
+    myPostFilters: function() {
+      return [
+        { key: 'all', label: '全部' },
+        { key: 'forum', label: '论坛' },
+        { key: 'food', label: '美食' },
+        { key: 'hot', label: '热事' },
+        { key: 'poll', label: '投票' },
+        { key: 'survey', label: '问卷' }
+      ];
+    },
+    myPostHasMore: function() {
+      return this.myPosts.length < this.myPostsTotal;
     },
     // 超能岛浏览器是否启用（per-user browser_enabled，Admin → 用户列表 → 编辑用户）
     // 禁用时社区中的链接以纯文本显示，不可点击
@@ -1382,10 +1517,6 @@ export default {
     currentPost: function() { return this.$store.state.community.currentPost; },
     profile: function() { return this.$store.state.community.profile; },
     tagList: function() { return this.$store.state.community.tagList; },
-    isSelfProfile: function() {
-      var user = this.currentUser;
-      return user && String(this.userCardUserId) === String(user.user_id);
-    },
     canManageFeatured: function() {
       var user = this.currentUser;
       if (!user) return false;
@@ -1415,8 +1546,10 @@ export default {
       if (this.newPost.type === 'hot' && !this.newPost.hotForm.title.trim()) return false;
       return true;
     },
-    // 瀑布流分列：横屏 760-1023 三列、≥1024 四列，轮转分配保持阅读顺序
+    // 瀑布流分列：横屏 760-1023 三列、≥1024 四列，轮转分配保持阅读顺序；列表视图退回单列
     waterfallColumns: function() {
+      void this.viewportTick;
+      if (this.forumView === 'list') return [this.displayPosts.slice()];
       var wide = window.innerWidth >= 1024 && window.innerWidth > window.innerHeight;
       var mid = window.innerWidth >= 760 && window.innerWidth > window.innerHeight;
       var n = wide ? 4 : (mid ? 3 : 1);
@@ -1486,7 +1619,8 @@ export default {
   },
   watch: {
     activeTab: function(val) {
-      if (val === 'mine') { this.loadMyData(); this.$store.dispatch('community/fetchBookmarks', { page: 1 }); }
+      // 书签/帖子都由 loadMyData 统一处理（含 10s 去抖），这里不要再单独拉一次
+      if (val === 'mine') { this.loadMyData(); }
       else if (val === 'food') { this.foodLoading = true; this.$store.dispatch('community/fetchFoodRanking').finally(function() { this.foodLoading = false; }.bind(this)); }
       else if (val === 'hot') { this.hotLoading = true; this.$store.dispatch('community/fetchHotRanking').finally(function() { this.hotLoading = false; }.bind(this)); }
     }
@@ -1494,6 +1628,7 @@ export default {
   created: function() {
     var self = this;
     self.initData();
+    window.addEventListener('resize', self.onViewportResize);
     // 拉取部署方可配置项（食堂列表）；失败静默回落内置默认值
     self.$store.dispatch('community/fetchConfig');
     self.setupWSListeners();
@@ -1556,7 +1691,10 @@ export default {
       } catch (e) {}
     }
   },
-  beforeDestroy: function() { this.cleanupWSListeners(); },
+  beforeDestroy: function() {
+    window.removeEventListener('resize', this.onViewportResize);
+    this.cleanupWSListeners();
+  },
   methods: {
     // === 图片预览与长按菜单 ===
     // 判断指定作者是否为班管/班干（基于 userLevels 缓存）
@@ -1935,6 +2073,14 @@ export default {
         });
       }
     },
+    setForumView: function(mode) {
+      if (mode !== 'waterfall' && mode !== 'list') return;
+      this.forumView = mode;
+      try { localStorage.setItem('classintra_community_forum_view', mode); } catch (e) {}
+    },
+    onViewportResize: function() {
+      this.viewportTick++;
+    },
     onPostsScroll: function(event) {
       var container = event.target;
       if (container.scrollTop + container.clientHeight >= container.scrollHeight - 100) {
@@ -1992,14 +2138,137 @@ export default {
     },
     loadMyData: function() {
       var self = this;
-      var userId = self.currentUser ? self.currentUser.user_id : '';
-      self.$store.dispatch('community/fetchMyPosts', { page: 1 });
-      self.$store.dispatch('community/fetchProfile');
-      if (userId) {
-        self.$store.dispatch('community/fetchUserStats', userId).then(function(stats) {
-          self.myStats = stats || {};
-        });
+      var uid = self.myUserId;
+
+      // ① 名片：有缓存先渲染（不闪 0），再决定要不要后台刷新
+      var hit = (_mineOverviewCache.data && _mineOverviewCache.user_id === uid)
+        ? _mineOverviewCache.data
+        : null;
+      if (hit) {
+        self.applyMineOverview(hit);
+        self.overviewLoaded = true;
       }
+      self.overviewLoading = !hit;
+      var fresh = hit && (Date.now() - _mineOverviewCache.at < MINE_OVERVIEW_TTL);
+      if (!fresh) self.fetchMineOverview();
+
+      // ② 列表：store 里已有数据会直接显示，这里只是后台刷新
+      //    10s 内连续切换 tab 就跳过 —— 快速来回点不产生任何请求（发帖/删帖后会显式重置）
+      var listsFresh = Date.now() - _mineListsAt < MINE_OVERVIEW_TTL;
+      if (listsFresh) return;
+      self.myPostPage = 1;
+      self.myPostsLoading = true;
+      self.bookmarksLoading = true;
+      // type 传 'all' 时后端 isValidType 判否 → 等价于不加类型条件，不用前端特判
+      self.$store.dispatch('community/fetchMyPosts', { page: 1, type: self.myPostType })
+        .finally(function() { self.myPostsLoading = false; });
+      self.$store.dispatch('community/fetchBookmarks', { page: 1 })
+        .finally(function() { self.bookmarksLoading = false; });
+      _mineListsAt = Date.now();
+    },
+    // 首屏聚合：profile / stats / follow / cover / level 一次往返拿全
+    fetchMineOverview: function() {
+      var self = this;
+      if (!self.myUserId) return;
+      self.overviewLoading = !self.overviewLoaded;
+      return api.get('/community/mine/overview').then(function(res) {
+        var d = (res.data && res.data.data) || {};
+        _mineOverviewCache = { at: Date.now(), user_id: self.myUserId, data: d };
+        self.applyMineOverview(d);
+        self.overviewLoaded = true;
+      }).catch(function() {
+        // 失败时保留已渲染的缓存；真的什么都没有才回到占位态（不谎报 0）
+        if (!_mineOverviewCache.data) self.overviewLoaded = false;
+      }).finally(function() {
+        self.overviewLoading = false;
+      });
+    },
+    applyMineOverview: function(d) {
+      if (!d) return;
+      if (d.profile) this.$store.commit('community/SET_PROFILE', d.profile);
+      this.myStats = d.stats || {};
+      this.myFollow = d.follow || { followers: 0, following_count: 0 };
+      // 同图静默刷新（SWR）不能重置 loaded：src 不变、浏览器不会再派发 load，
+      // 重置了就永远停在渐变兜底上（与 Profile 封面的 syncCoverNatural 同型坑）
+      var coverHashChanged = String((d.cover || {}).hash || '') !== String(this.myCover.hash || '');
+      this.myCover = d.cover || { has_cover: false, hash: '', url: '' };
+      this.myCoverFailed = false;
+      this._mineCoverRetry = 0;
+      if (coverHashChanged) this.myCoverLoaded = false;
+      this.myAvatar = d.avatar || null;
+      this.myLevelInfo = d.level || null;
+    },
+    onMineCoverLoad: function() {
+      this.myCoverLoaded = true;
+    },
+    // 封面加载失败最多重试 2 次（与 /profile/:id 的封面策略对齐）：
+    // 云盘图经 relay 偶发抖动，一次失败就永久显示兜底会让用户以为"封面丢了"
+    onMineCoverError: function() {
+      var self = this;
+      self._mineCoverRetry = (self._mineCoverRetry || 0) + 1;
+      if (self._mineCoverRetry <= 2 && self.myCover.has_cover && self.myCover.url) {
+        setTimeout(function() {
+          if (!self.myCover.has_cover) return;
+          var base = String(self.myCover.url).split('&r=')[0];
+          self.myCover = Object.assign({}, self.myCover, {
+            url: base + (base.indexOf('?') > -1 ? '&' : '?') + 'r=' + self._mineCoverRetry
+          });
+        }, 500 * self._mineCoverRetry);
+        return;
+      }
+      self.myCoverFailed = true;
+    },
+    invalidateMineOverview: function() {
+      _mineOverviewCache = { at: 0, user_id: '', data: null };
+    },
+    reloadMyFollow: function() {
+      var self = this;
+      // 关注/取关后计数变了：既更新界面，也让缓存失效（下次进入重新聚合）
+      this.invalidateMineOverview();
+      api.get('/user/follow/' + self.myUserId).then(function(res) {
+        var d = (res.data && res.data.data) || {};
+        self.myFollow = { followers: d.followers || 0, following_count: d.following_count || 0 };
+      }).catch(function() {});
+    },
+    setMyPostType: function(key) {
+      if (this.myPostType === key) return;
+      var self = this;
+      this.myPostType = key;
+      this.myPostPage = 1;
+      this.myPostsLoading = true;
+      this.$store.dispatch('community/fetchMyPosts', { page: 1, type: key }).finally(function() {
+        self.myPostsLoading = false;
+      });
+    },
+    loadMoreMyPosts: function() {
+      if (this.myPostsLoading || !this.myPostHasMore) return;
+      var self = this;
+      this.myPostPage += 1;
+      this.myPostsLoading = true;
+      this.$store.dispatch('community/fetchMyPosts', {
+        page: this.myPostPage,
+        type: this.myPostType,
+        append: true
+      }).catch(function() {
+        // 失败把页码退回去，否则下一次点击会跳过这一页
+        self.myPostPage -= 1;
+      }).finally(function() {
+        self.myPostsLoading = false;
+      });
+    },
+    goMyProfile: function() {
+      if (!this.myUserId) return;
+      this.$router.push('/profile/' + this.myUserId);
+    },
+    goEditProfile: function() {
+      if (!this.myUserId) return;
+      // 编辑面板只保留 /profile 里那一份实例（带 edit=1 直接进编辑态），
+      // 避免社区再挂一个 ProfileEditor —— 两份编辑器必然漂移
+      this.$router.push('/profile/' + this.myUserId + '?edit=1');
+    },
+    openFollowSheet: function(direction) {
+      this.followDirection = direction === 'following' ? 'following' : 'followers';
+      this.showFollowSheet = true;
     },
     switchTab: function(key) { this.activeTab = key; },
     loadFeaturedPosts: function() {
@@ -2097,30 +2366,6 @@ export default {
     closeFullDetail: function() {
       this.showFullDetail = false;
       this.replyToUser = '';
-    },
-    getAvatarColor: function(userId) {
-      return helpers.getAvatarColor(userId);
-    },
-    getAvatarText: function(input) {
-      // 兼容两种调用方式：post 对象（含 is_anonymous/net_name）或纯字符串
-      var name;
-      if (typeof input === 'string') {
-        name = input;
-      } else if (input && typeof input === 'object') {
-        if (input.is_anonymous) return '?';
-        name = input.net_name;
-      }
-      if (!name) return '?';
-      // Intl.Segmenter 正确提取第一个"用户感知字符"（grapheme cluster）
-      if (typeof Intl !== 'undefined' && Intl.Segmenter) {
-        try {
-          var seg = new Intl.Segmenter('zh-CN', { granularity: 'grapheme' });
-          var first = seg.segment(name).containing(0);
-          if (first && first.segment) return first.segment;
-        } catch (e) { /* 降级 */ }
-      }
-      var chars = Array.from(name);
-      return chars[0] || '?';
     },
     isRemoteUser: function(userId) {
       // 检查是否是其他班（联动了/中继了）的用户
@@ -2323,6 +2568,8 @@ export default {
         self.showPostModal = false;
         self.newPostExtra = null;
         self.$store.commit('toast/SHOW_TOAST', { message: '发布成功', type: 'success' });
+        // 新帖要立刻出现在「我的」列表里，同样绕过 10s 去抖
+        _mineListsAt = 0;
         self.initData();
       }).catch(function(err) {
         var msg = '发布失败';
@@ -2699,6 +2946,8 @@ export default {
               self.currentPostId = null;
             }
             self.$store.commit('toast/SHOW_TOAST', { message: '已删除', type: 'success' });
+            // 删了帖子必须让「我的」列表立刻重拉，不能被 10s 去抖挡住
+            _mineListsAt = 0;
             self.loadMyData();
           }).catch(function() {
             self.$store.commit('toast/SHOW_TOAST', { message: '删除失败', type: 'error' });
@@ -2712,36 +2961,11 @@ export default {
       this.showConfirm = false;
     },
     cancelConfirm: function() { this.showConfirm = false; },
+    // 个人资料统一走 /profile/:userId 页面（原来这里的浮窗已废弃）：
+    // 聊天、社区、评论入口都能进同一张主页，不用各自维护一套卡片。
     showUserProfile: function(userId) {
       if (!userId) return;
-      var self = this;
-      this.userCardUserId = userId;
-      this.$store.dispatch('community/fetchUserProfile', userId).then(function(data) {
-        self.userProfile = data || {};
-        self.showUserCard = true;
-        self.$store.dispatch('community/fetchUserStats', userId).then(function(stats) {
-          self.userCardStats = stats || {};
-        });
-      }).catch(function() {
-        self.$store.commit('toast/SHOW_TOAST', { message: '获取用户信息失败', type: 'error' });
-      });
-    },
-    closeUserCard: function() { this.showUserCard = false; this.userProfile = {}; },
-    likeUser: function() {
-      if (!this.userCardUserId) return;
-      var self = this;
-      var isLiked = !!this.userProfile.liked_by_me;
-      var data = { target_type: 'user', target_id: this.userCardUserId };
-      if (isLiked) { data.liked = true; }
-      this.$store.dispatch('community/toggleLike', data).then(function() {
-        self.userProfile.liked_by_me = !isLiked;
-        self.userProfile.like_count = (self.userProfile.like_count || 0) + (isLiked ? -1 : 1);
-        self.$store.commit('toast/SHOW_TOAST', { message: isLiked ? '已取消点赞' : '点赞成功', type: 'success' });
-      }).catch(function(err) {
-        var msg = '操作失败';
-        if (err.response && err.response.data && err.response.data.message) { msg = err.response.data.message; }
-        self.$store.commit('toast/SHOW_TOAST', { message: msg, type: 'error' });
-      });
+      this.$router.push('/profile/' + userId);
     },
     onPullStart: function(e) {
       var contentList = this.$el.querySelector('.content-list');
@@ -3134,17 +3358,125 @@ export default {
 .btn-send:active:not(:disabled) { transform: scale(0.94); opacity: 0.7; }
 .empty-hint { font-size: var(--font-size-caption); color: var(--text-secondary); text-align: center; padding: 14px 0; }
 
-.profile-card { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; background: linear-gradient(135deg, rgba(var(--primary-rgb),0.06), rgba(var(--primary-rgb),0.02)); border-bottom: 0.5px solid var(--separator-color); }
-.profile-card-left { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; }
-.profile-card-avatar { width: 48px; height: 48px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-size: var(--font-size-headline); font-weight: 600; flex-shrink: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI Symbol', 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif; }
-.profile-card-info { flex: 1; min-width: 0; }
-.profile-card-name { font-size: var(--font-size-body); font-weight: 600; color: var(--text-primary); }
-.profile-card-id { font-size: var(--font-size-caption); color: var(--text-secondary); margin-top: 1px; }
-.profile-card-signature { font-size: var(--font-size-caption); color: var(--text-secondary); margin-top: 2px; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.profile-card-stats { display: flex; gap: 20px; flex-shrink: 0; }
-.stat-block { text-align: center; }
-.stat-value { font-size: var(--font-size-callout); font-weight: 700; color: var(--text-primary); }
-.stat-label { font-size: var(--font-size-caption2); color: var(--text-secondary); margin-top: 1px; }
+/* ══ 名片：封面 + 头像 + 身份 + 统计 ══
+   令牌全部走 global.scss 的 --pf-*（与 /profile/:id 同源），
+   装扮系统覆盖 --ci-profile-* 时这里自动跟随，不需要改社区。 */
+.mine-hero {
+  margin: 4px 16px 14px;
+  border-radius: var(--pf-radius);
+  border: 0.5px solid var(--pf-hairline);
+  background: var(--pf-card-bg);
+  overflow: hidden;
+}
+/* 骨架 / 失败占位：尺寸与真实名片一致，加载完成不跳版 */
+.mine-hero--sk .mine-hero-body { padding: 50px 16px 12px; }
+.mine-sk-block, .mine-sk-line, .mine-sk-stat {
+  background: linear-gradient(90deg, var(--bg-color) 25%, var(--border-color) 50%, var(--bg-color) 75%);
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.5s infinite;
+}
+.mine-avatar--sk {
+  position: absolute; left: 16px; top: -42px; z-index: 4;
+  width: 90px; height: 90px; border-radius: 50%;
+  background: linear-gradient(90deg, var(--bg-color) 25%, var(--border-color) 50%, var(--bg-color) 75%);
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.5s infinite;
+  box-shadow: 0 0 0 1px var(--pf-hairline);
+}
+.mine-sk-line { border-radius: var(--radius-sm); }
+.mine-sk-stats { border-top: 0.5px solid var(--pf-hairline); }
+.mine-sk-stat { flex: 1; height: 42px; margin: 8px; border-radius: var(--radius-sm); opacity: 0.75; }
+.mine-hero--error {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 26px 16px; color: var(--text-secondary); font-size: var(--font-size-caption);
+}
+.mine-hero--error i { font-size: 18px; opacity: 0.6; }
+
+/* 高度响应式：clamp(150, 18vw, 210)。原来固定 118px，而个人主页同内容是
+   width/3.2 的 240-280px —— 同一套设计语言的两页，封面差一倍多，「我的」
+   页明显被压瘪。这里用 vw 跟随视口，不引 JS 测量（封面是 object-fit:cover
+   的展示位，不像主页那样有「展示比例=裁剪比例」的硬约束）。
+   ⚠️ z-index: 0 同样关键：cover 是 relative + z-index:auto 时不形成堆叠上下文，
+   内部 img(z1)/glow(z2)/edit(z3) 会漏进祖先堆叠上下文，把后面 z-index:auto 的
+   头像压住（头像骑跨封面下沿，上半截被盖住，像被切一半）。给 cover 一个显式
+   层级把内部 z-index 关在里面，头像那侧再单独置顶（见 .mine-avatar z-index:4）。 */
+.mine-cover { position: relative; z-index: 0; height: clamp(150px, 18vw, 210px); overflow: hidden; background: var(--pf-surface); }
+/* 加载分层：渐变兜底(z0) < 封面图(z1) < 柔光(z2) < 编辑按钮(z3)。
+   图片淡入完成前兜底一直垫在底下 —— 弱网下不再是一块纯色干等 */
+.mine-cover-img { position: relative; z-index: 1; display: block; width: 100%; height: 100%; object-fit: cover; object-position: center 35%; opacity: 0; transition: opacity var(--duration-normal) var(--ease-standard); pointer-events: none; }
+.mine-cover-img.is-loaded { opacity: 1; }
+.mine-cover-fallback { position: absolute; z-index: 0; top: 0; right: 0; bottom: 0; left: 0; background-size: cover; background-position: center; }
+.mine-cover-glow { position: absolute; z-index: 2; top: 0; right: 0; bottom: 0; left: 0; background: radial-gradient(120% 90% at 18% 0%, rgba(255, 255, 255, 0.22), transparent 62%); pointer-events: none; }
+.mine-cover-edit {
+  position: absolute; z-index: 3; right: 10px; top: 10px;
+  width: 32px; height: 32px; border-radius: 50%;
+  border: 0.5px solid rgba(255, 255, 255, 0.35);
+  background: rgba(0, 0, 0, 0.32);
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  color: #fff; font-size: 12px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+.mine-cover-edit:hover { background: rgba(0, 0, 0, 0.5); }
+
+.mine-hero-body { position: relative; padding: 50px 16px 0; }
+/* 头像骑跨封面下沿：用负 top 定位而不是负 margin，文案块就不会被顶歪。
+   z-index: 4 压过封面子树最高层（编辑按钮 z3）——少了它，封面图会盖住
+   头像骑跨封面的那半截（封面内部 z1/z2/z3 曾直接漏到祖先堆叠上下文）。 */
+.mine-avatar {
+  position: absolute; left: 16px; top: -42px; z-index: 4;
+  width: 90px; height: 90px; padding: 3px; border-radius: 50%;
+  background: var(--pf-card-bg);
+  box-shadow: 0 0 0 1px var(--pf-hairline), 0 4px 14px -6px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  transition: transform var(--duration-fast) var(--ease-standard);
+}
+.mine-avatar:active { transform: scale(0.97); }
+
+.mine-hero-top { display: flex; align-items: flex-start; gap: 12px; }
+.mine-identity { flex: 1; min-width: 0; }
+.mine-name-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.mine-name { font-size: var(--font-size-subheadline); font-weight: 700; color: var(--text-primary); }
+.mine-level { height: 16px; }
+.mine-badge {
+  padding: 1px 7px; border-radius: var(--radius-xs);
+  font-size: var(--font-size-caption2); font-weight: 500;
+  color: var(--danger-color); background: rgba(var(--danger-rgb), 0.12);
+  flex-shrink: 0;
+}
+.mine-badge--officer { color: var(--pf-accent); background: rgba(var(--primary-rgb), 0.12); }
+.mine-sub { margin-top: 2px; font-size: var(--font-size-caption); color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+.mine-signature {
+  margin-top: 6px; font-size: var(--font-size-footnote); color: var(--text-secondary); line-height: 1.5;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.mine-signature--empty { color: var(--text-tertiary); font-style: italic; }
+
+.mine-actions { display: flex; gap: 8px; flex-shrink: 0; padding-top: 2px; }
+.mine-btn {
+  height: 34px; padding: 0 13px;
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 0.5px solid var(--pf-hairline); border-radius: var(--radius-pill);
+  background: transparent; color: var(--text-primary);
+  font-size: var(--font-size-caption); cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard);
+}
+.mine-btn:hover { background: var(--pf-surface); }
+.mine-btn--primary { background: var(--pf-accent); border-color: var(--pf-accent); color: #fff; }
+.mine-btn--primary:hover { background: var(--pf-accent); filter: brightness(1.06); }
+
+.mine-stats { display: flex; margin: 14px -16px 0; border-top: 0.5px solid var(--pf-hairline); }
+.mine-stat {
+  flex: 1; min-width: 0; padding: 10px 4px;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  border: none; background: transparent;
+}
+.mine-stat + .mine-stat { border-left: 0.5px solid var(--pf-hairline); }
+.mine-stat--link { cursor: pointer; transition: background var(--duration-fast) var(--ease-standard); }
+.mine-stat--link:hover { background: var(--pf-surface); }
+.mine-stat-v { font-size: var(--font-size-headline); font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.mine-stat-l { font-size: var(--font-size-caption2); color: var(--text-tertiary); display: inline-flex; align-items: center; }
+.mine-stat-arrow { margin-left: 3px; font-size: 8px; opacity: 0.65; }
 
 .mine-panel { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 /* 我的页：只用「一个」纵向滚动容器。
@@ -3153,22 +3485,69 @@ export default {
    「内层列 → 外层页」的链式滚动，表现为整页划不动（滑边缘却能动）。
    这里取消内层滚动、并显式把本层改回 auto 让手势可向父级传递。 */
 .mine-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior-y: auto; -webkit-overflow-scrolling: touch; }
-.mine-columns { display: flex; gap: 0; align-items: flex-start; }
-.mine-column { flex: 1; min-width: 0; overflow: visible; }
-.mine-column:first-child { border-right: 0.5px solid var(--separator-color); }
+.mine-columns { display: flex; gap: 14px; align-items: flex-start; padding: 0 16px 20px; }
+.mine-column {
+  flex: 1; min-width: 0; overflow: visible;
+  background: var(--pf-card-bg);
+  border: 0.5px solid var(--pf-hairline);
+  border-radius: var(--pf-radius);
+}
+.mine-section-head { padding: 12px 14px 10px; border-bottom: 0.5px solid var(--pf-hairline); }
+/* 社区全局 .section-title 自带下边框与下留白，放进卡片头里要收掉 */
+.mine-section-head .section-title { margin: 0; padding: 0; border-bottom: none; }
+.mine-section-icon { color: var(--accent-community); margin-right: 6px; }
+.mine-count { margin-left: 4px; font-weight: 400; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+.mine-filters { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.mine-filter {
+  height: 28px; padding: 0 12px;
+  border-radius: var(--radius-pill);
+  border: 0.5px solid var(--pf-hairline); background: transparent;
+  color: var(--text-secondary); font-size: var(--font-size-caption2); cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard);
+}
+.mine-filter:hover { background: var(--pf-surface); }
+.mine-filter.active { background: var(--pf-accent); border-color: var(--pf-accent); color: #fff; }
 
 /* 窄屏：两列改为上下堆叠，沿用同一个页面滚动容器 */
-@media (max-width: 768px) {
+@media (max-width: 900px) {
   .mine-columns { flex-direction: column; }
   .mine-column { flex: none; width: 100%; }
-  .mine-column:first-child { border-right: none; border-bottom: 0.5px solid var(--separator-color); }
 }
 
-.bookmarks-section { padding: 14px 16px; }
 .empty-state-sm { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px 16px; color: var(--text-secondary); gap: 6px; font-size: var(--font-size-sm); }
 .empty-state-sm i { font-size: var(--font-size-title1); opacity: 0.35; margin-bottom: 4px; }
 
-.my-posts-section { padding: 14px 16px; }
+.my-posts-section, .bookmarks-section { padding: 10px 8px 12px; }
+/* 列表项不再自带卡片边框：外层 .mine-column 已经是卡片，双层描边会显脏 */
+.my-posts-section .list-item.post-item,
+.bookmarks-section .list-item.post-item {
+  margin: 0 0 2px;
+  padding: 10px 8px;
+  border: none;
+  border-radius: var(--pf-radius-sm);
+  background: transparent;
+  box-shadow: none;
+}
+.my-posts-section .list-item.post-item:hover,
+.bookmarks-section .list-item.post-item:hover { background: var(--pf-surface); }
+/* 帖子卡片自带的「统计分隔线」在窄栏里偏重，收一收 */
+.my-posts-section .post-stats,
+.bookmarks-section .post-stats {
+  margin-top: 6px;
+  padding-top: 6px;
+  gap: 14px;
+  border-top-color: var(--pf-hairline);
+}
+.mine-loading { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 28px 12px; color: var(--text-secondary); font-size: var(--font-size-caption); }
+.mine-load-more {
+  display: block; width: calc(100% - 16px); margin: 6px auto 2px; height: 36px;
+  border-radius: var(--radius-pill);
+  border: 0.5px solid var(--pf-hairline); background: transparent;
+  color: var(--text-secondary); font-size: var(--font-size-caption); cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+.mine-load-more:hover { background: var(--pf-surface); }
+.mine-load-more:disabled { opacity: 0.5; cursor: default; }
 .my-post-item { cursor: pointer; }
 .btn-delete { width: 40px; height: 40px; border-radius: var(--radius-sm); border: none; background: transparent; color: var(--danger-color); display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: var(--font-size-sm); transition: background var(--duration-fast) var(--ease-standard); flex-shrink: 0; }
 .btn-delete:hover { background: rgba(var(--danger-rgb),0.08); }
@@ -3197,6 +3576,11 @@ export default {
 .sort-btn { padding: 7px 14px; border: none; background: transparent; color: var(--text-secondary); font-size: var(--font-size-sm); cursor: pointer; transition: background-color, border-color, color, transform, opacity, box-shadow var(--duration-normal) var(--ease-standard); font-weight: 400; min-height: 40px; border-radius: var(--radius-xs); }
 .sort-btn.active { background: var(--card-bg); color: var(--text-primary); font-weight: 500; box-shadow: var(--shadow-sm); }
 .sort-btn:hover:not(.active) { color: var(--text-primary); }
+/* 视图切换（瀑布流/列表）：与排序分段控件同语言，图标式 */
+.view-switch { display: flex; gap: 2px; border-radius: var(--radius-sm); overflow: hidden; background: rgba(118, 118, 128, 0.12); padding: 2px; flex-shrink: 0; }
+.view-switch-btn { padding: 0 12px; border: none; background: transparent; color: var(--text-secondary); font-size: 13px; cursor: pointer; min-height: 40px; border-radius: var(--radius-xs); transition: color var(--duration-normal) var(--ease-standard); }
+.view-switch-btn.active { background: var(--card-bg); color: var(--text-primary); box-shadow: var(--shadow-sm); }
+.view-switch-btn:hover:not(.active) { color: var(--text-primary); }
 .sort-btn:active { transform: scale(0.94); opacity: 0.7; }
 
 .comment-actions { display: flex; gap: 12px; margin-top: 4px; }
@@ -3245,20 +3629,6 @@ export default {
 .confirm-title { font-size: var(--font-size-callout); font-weight: 600; color: var(--text-primary); margin: 0 0 6px 0; }
 .confirm-message { font-size: var(--font-size-sm); color: var(--text-secondary); margin: 0 0 20px 0; line-height: 1.5; }
 .confirm-actions { display: flex; justify-content: center; gap: 10px; }
-
-.user-card-modal { width: 340px; background: var(--card-bg); border-radius: var(--radius-lg); padding: 24px; position: relative; box-shadow: var(--shadow-lg); }
-.user-card-modal .modal-close { position: absolute; top: 10px; right: 10px; }
-.user-card { display: flex; flex-direction: column; align-items: center; }
-.user-card-avatar { width: 56px; height: 56px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 600; margin-bottom: 10px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI Symbol', 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif; }
-.user-card-name { font-size: var(--font-size-subheadline); font-weight: 600; color: var(--text-primary); margin: 0 0 2px 0; }
-.user-card-realname { font-size: var(--font-size-caption); color: var(--text-secondary); margin-bottom: 4px; }
-.user-card-signature { font-size: var(--font-size-caption); color: var(--text-secondary); margin-bottom: 12px; text-align: center; max-width: 260px; }
-.user-card-stats { display: flex; gap: 20px; margin-bottom: 14px; }
-.user-card-info { width: 100%; margin-bottom: 16px; }
-.info-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: var(--font-size-sm); color: var(--text-primary); }
-.info-row i { color: var(--primary-color); width: 18px; text-align: center; }
-.btn-like-user { width: 100%; }
-.btn-like-user.liked { background: rgba(var(--danger-rgb),0.08); border: 1px solid var(--danger-color); color: var(--danger-color); }
 
 .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 20px; color: var(--text-secondary); gap: 8px; }
 .empty-illustration { width: 88px; height: 88px; border-radius: 50%; background: var(--bg-color); display: flex; align-items: center; justify-content: center; margin-bottom: 12px; border: 1px solid var(--border-color); }
@@ -3985,7 +4355,7 @@ export default {
   .content-list {
     padding: 4px var(--spacing-sm);
   }
-  .list-item.post-item {
+  .content-list .list-item.post-item {
     display: flex;
     flex-direction: column;
     align-items: stretch;
@@ -3995,7 +4365,7 @@ export default {
     overflow: hidden;
   }
   /* 瀑布流里不放头像（信息由底部作者行承担） */
-  .list-item.post-item >>> .user-avatar { display: none; }
+  .content-list .list-item.post-item >>> .user-avatar { display: none; }
   .post-cover {
     order: -1;
     width: calc(100% + 32px);
@@ -4036,7 +4406,7 @@ export default {
   .content-list {
     padding: 4px var(--spacing-sm);
   }
-  .list-item.post-item {
+  .content-list .list-item.post-item {
     display: flex;
     flex-direction: column;
     align-items: stretch;
@@ -4046,7 +4416,7 @@ export default {
     overflow: hidden;
   }
   /* 瀑布流里不放头像（信息由底部作者行承担） */
-  .list-item.post-item >>> .user-avatar { display: none; }
+  .content-list .list-item.post-item >>> .user-avatar { display: none; }
   .post-cover {
     order: -1;
     width: calc(100% + 32px);
@@ -4159,6 +4529,46 @@ export default {
 
   .post-cover-frame-auto { padding-top: 0; height: auto; overflow: visible; background: none; }
   .post-cover-portrait { position: static !important; width: 100% !important; height: auto !important; max-height: none !important; border-radius: var(--radius-md) !important; }
+
+/* ===== 列表视图（forumView='list'：恢复旧版贴吧/微博式单图右置行卡片） ===== */
+@media (min-width: 760px) and (orientation: landscape) {
+  .waterfall-grid.view-list { display: block; padding: 4px 0 0; }
+  .waterfall-grid.view-list .list-item.post-item {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    margin: 0 var(--spacing-sm) var(--spacing-sm);
+    overflow: visible;
+  }
+  /* 列表里恢复头像（瀑布流隐藏的是底部作者行之外的头像） */
+  .waterfall-grid.view-list .list-item.post-item >>> .user-avatar { display: flex; flex-shrink: 0; }
+  /* 图片帖：封面框退回 92px 右置方图（内部 post-cover 绝对填充，被框圆角裁切） */
+  .waterfall-grid.view-list .post-cover-frame {
+    order: 2;
+    position: relative;
+    padding-top: 0;
+    width: 92px;
+    height: 92px;
+    margin: 0 0 0 12px;
+    flex-shrink: 0;
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    background: var(--bg-color);
+  }
+  /* 文帖封面（Canvas 竖版卡）：列表里压成 92px 方瓦；!important 需压过全局竖版卡规则 */
+  .waterfall-grid.view-list .post-cover-portrait {
+    order: 2;
+    position: static !important;
+    width: 92px !important;
+    height: 92px !important;
+    max-height: none !important;
+    margin: 0 0 0 12px;
+    flex-shrink: 0;
+    object-fit: cover;
+    border-radius: var(--radius-lg) !important;
+    background: var(--bg-color);
+  }
+}
 
 .toolbar-btn-cover { width: auto; padding: 0 12px; gap: 5px; color: var(--primary-color); font-size: var(--font-size-caption1); font-weight: var(--font-weight-medium); }
 .toolbar-btn-cover span { line-height: 1; }

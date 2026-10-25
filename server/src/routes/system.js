@@ -234,7 +234,6 @@ router.get('/app-control', function(req, res) {
   });
 });
 
-// ============================================================
 // GET /api/system/network-info - 锁屏页脚用的动态网络名（免登录）
 // 浏览器读不到 SSID，故由服务端读本机当前关联的无线网络；实现见 utils/network-info.js。
 // 免登录的原因：锁屏在「未登录 + 已锁屏」时同样会展示，且返回值只有 SSID，无敏感信息。
@@ -243,6 +242,57 @@ router.get('/network-info', function(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   require('../utils/network-info').getNetworkInfo(function(err, data) {
     res.json({ code: 200, data: err ? { wifi: '', connected: false, state: 'unknown', source: 'error' } : data });
+  });
+});
+
+// ============================================================
+// GET /api/system/runtime-health - 运行时健康快照（仅管理员）
+// 进程/内存/数据库/生态模块的一站式只读聚合，线上排障第一入口。
+// ============================================================
+router.get('/runtime-health', function(req, res) {
+  var auth = require('../middleware/auth');
+  auth.requireAdmin(req, res, function() {
+    try {
+      var config = require('../config');
+      var mem = process.memoryUsage();
+      function fileSize(p) {
+        try { return require('fs').statSync(p).size; } catch (e) { return -1; }
+      }
+      var marketCounts = { apps: 0, themes: 0, plugins: 0 };
+      try {
+        var marketService = require('../core/market-service');
+        marketCounts.apps = marketService.listInstalled().length;
+        marketCounts.themes = marketService.listInstalledThemes().length;
+        marketCounts.plugins = marketService.listInstalledPlugins().length;
+      } catch (e) {}
+      var appControlCount = -1;
+      try {
+        appControlCount = db.prepare('SELECT COUNT(*) AS c FROM app_control').get().c;
+      } catch (e) {}
+      res.json({ code: 200, data: {
+        process: {
+          pid: process.pid,
+          node: process.version,
+          platform: process.platform,
+          uptimeSec: Math.round(process.uptime()),
+          rssMb: Math.round(mem.rss / 1048576),
+          heapUsedMb: Math.round(mem.heapUsed / 1048576),
+          heapTotalMb: Math.round(mem.heapTotal / 1048576)
+        },
+        database: {
+          path: config.dbPath,
+          sizeMb: +(fileSize(config.dbPath) / 1048576).toFixed(2),
+          walSizeMb: +(fileSize(config.dbPath + '-wal') / 1048576).toFixed(2),
+          journalMode: (function() { try { return db.pragma('journal_mode', { simple: true }); } catch (e) { return 'unknown'; } })()
+        },
+        ecosystem: {
+          market: marketCounts,
+          appControlRows: appControlCount
+        }
+      }});
+    } catch (e) {
+      res.status(500).json({ code: 500, message: e.message || '运行时健康查询失败' });
+    }
   });
 });
 

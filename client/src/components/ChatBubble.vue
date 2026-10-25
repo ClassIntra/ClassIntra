@@ -23,6 +23,17 @@
       @touchend="onTouchEnd"
       @touchmove="onTouchMove"
     >
+      <!-- QQ 式布局：头像贴在气泡外侧（对方在左、自己在右），点头像进个人主页。
+           同组连发时头像不重复渲染，但保留占位让气泡列对齐。 -->
+      <div class="bubble-avatar" :class="{ 'bubble-avatar--placeholder': groupedWithPrev }" @click.stop="onAvatarClick">
+        <UserAvatar
+          v-if="!groupedWithPrev"
+          :user-id="senderId"
+          :name="senderName"
+          :size="38"
+        />
+      </div>
+      <div class="bubble-main">
       <div v-if="!isOwn && message.recalled !== 1" class="bubble-sender">{{ message.sender_name }}<span v-if="senderRole === 'admin'" class="admin-badge-inline">管理</span><img v-if="showLevel && senderLevel >= 0" :src="'/resources/public/level/Lv' + senderLevel + '.svg'" class="level-icon-chat" /></div>
       <div v-if="message.recalled === 1" class="bubble-recalled">该消息已撤回</div>
       <div v-else-if="message.type === 'community_forward'" class="bubble-content bubble-forward" @click="onForwardClick">
@@ -47,21 +58,20 @@
         </div>
         <div class="forward-action">点击打开歌单 <i class="fa-solid fa-chevron-right"></i></div>
       </div>
-      <div v-else-if="message.type === 'ai_forward'" class="bubble-content bubble-forward bubble-ai" @click="onAiForwardClick">
+      <!-- AI 转发卡片（ai-chat 已下线，存量卡片仅作历史内容展示，不再跳转） -->
+      <div v-else-if="message.type === 'ai_forward'" class="bubble-content bubble-forward bubble-ai">
         <div class="forward-label"><i class="fa-solid fa-robot"></i> AI对话内容</div>
         <div class="forward-card forward-card-ai">
           <div class="forward-title">{{ aiForwardRoleLabel }}</div>
           <div class="forward-preview">{{ aiForwardPreviewText }}</div>
         </div>
-        <div class="forward-action">点击查看全文 <i class="fa-solid fa-chevron-right"></i></div>
       </div>
-      <div v-else-if="message.type === 'ai_batch'" class="bubble-content bubble-forward bubble-ai" @click="onAiBatchClick">
+      <div v-else-if="message.type === 'ai_batch'" class="bubble-content bubble-forward bubble-ai">
         <div class="forward-label"><i class="fa-solid fa-robot"></i> AI对话记录（{{ aiBatchCount }}条）</div>
         <div class="forward-card forward-card-ai">
           <div class="forward-title">对话记录</div>
           <div class="forward-preview">{{ aiBatchPreview }}</div>
         </div>
-        <div class="forward-action">点击查看全文 <i class="fa-solid fa-chevron-right"></i></div>
       </div>
       <!-- 五子棋对局邀请卡片：点击直达对局（满员时自动转观战） -->
       <div v-else-if="message.type === 'gomoku_invite'" class="bubble-content bubble-forward bubble-gomoku" @click="onGomokuInviteClick">
@@ -177,6 +187,7 @@
           <span v-else class="read-receipt-unread">&#10003;</span>
         </span>
       </div>
+      </div>
     </div>
   </div>
 </template>
@@ -184,9 +195,11 @@
 <script>
 import RichTextRenderer from '@/utils/rich-text-renderer';
 import AudioPlayerManager from '@/utils/audio-player-manager';
+import UserAvatar from '@/components/UserAvatar.vue';
 
 export default {
   name: 'ChatBubble',
+  components: { UserAvatar: UserAvatar },
   props: {
     message: {
       type: Object,
@@ -271,6 +284,13 @@ export default {
     };
   },
   computed: {
+    // 发送者身份：气泡头像与个人主页共用。群消息用 sender_id，私聊/自己的用 user_id
+    senderId: function() {
+      return this.message.sender_id || this.message.user_id || '';
+    },
+    senderName: function() {
+      return this.message.sender_name || '';
+    },
     // 纯媒体消息（除媒体标记外无正文）：气泡去衬底，媒体贴边无框呈现
     isMediaOnly: function() {
       var c = String(this.message.content || '');
@@ -425,6 +445,10 @@ export default {
     this.audioManager.cleanup();
   },
   methods: {
+    onAvatarClick: function() {
+      if (!this.senderId) return;
+      this.$emit('open-profile', this.senderId);
+    },
     onContentClick: function(e) {
       // 长按弹出菜单后的合成 click 不应触发媒体预览 / 链接跳转
       if (this._suppressClickAfterLongPress()) return;
@@ -476,21 +500,6 @@ export default {
       var data = this.playlistData;
       if (data.playlistId) {
         this.$router.push('/music?playlist=' + data.playlistId);
-      }
-    },
-    onAiForwardClick: function() {
-      if (this._suppressClickAfterLongPress()) return;
-      var data = this.aiForwardData;
-      if (data.content) {
-        // 跳转到AI聊天页面查看完整内容
-        this.$router.push('/ai-chat?view=' + encodeURIComponent(data.content));
-      }
-    },
-    onAiBatchClick: function() {
-      if (this._suppressClickAfterLongPress()) return;
-      var data = this.aiBatchData;
-      if (data.messages && data.messages.length) {
-        this.$router.push('/ai-chat?viewBatch=' + encodeURIComponent(JSON.stringify(data.messages)));
       }
     },
     // 五子棋邀请卡片：直达对局页面并携带房间码（房间满员时后端自动分配观战）
@@ -673,11 +682,16 @@ export default {
 
 /* QQ NT 版式：所有气泡统一 ~14px 垂直间距，不因同组缩紧（QQ 的疏朗感来源）；
    同组只省略重复昵称行，间距与普通消息一致 */
+/* QQ 式消息行：整行 100% 宽，内部 = 头像 + 气泡列。
+   max-width 从 .chat-bubble 移到 .bubble-main —— 否则 44px 头像会把气泡挤窄，
+   而且 own-bubble 靠右时头像会被顶出屏幕。 */
 .chat-bubble {
-  max-width: 65%;
+  width: 100%;
   margin-top: 14px;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 8px;
   position: relative;
   -webkit-touch-callout: none;
   -webkit-user-select: none;
@@ -689,18 +703,40 @@ export default {
   margin-top: 14px;
 }
 
+/* 自己的消息：头像在右（row-reverse），气泡列内容右对齐 */
+.chat-bubble.own-bubble {
+  flex-direction: row-reverse;
+}
+
 /* 暗色：对方气泡用 iOS dark 提亮档（#2C2C2E），与纯黑背景拉开层次 */
-[data-theme="dark"] .chat-bubble:not(.own-bubble) .bubble-content {
+[data-theme="dark"] .chat-bubble:not(.own-bubble) .bubble-main .bubble-content {
   background: #2C2C2E;
 }
 
-.chat-bubble.own-bubble {
-  align-self: flex-end;
+.bubble-avatar {
+  flex-shrink: 0;
+  width: 38px;
+  margin-top: 2px;   /* 与 sender 行/气泡首行视觉对齐 */
+}
+
+/* 同组连发：不重复画头像，但占位保留，气泡列才不会左右跳 */
+.bubble-avatar--placeholder {
+  width: 38px;
+  height: 38px;
+}
+
+.bubble-main {
+  max-width: 65%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-bubble.own-bubble .bubble-main {
   align-items: flex-end;
 }
 
-.chat-bubble:not(.own-bubble) {
-  align-self: flex-start;
+.chat-bubble:not(.own-bubble) .bubble-main {
   align-items: flex-start;
 }
 
@@ -931,7 +967,8 @@ export default {
   color: rgba(255, 255, 255, 0.7);
 }
 
-/* AI forward card */
+/* AI forward card（ai-chat 已下线：存量卡片仅展示，不可点击） */
+.bubble-ai { cursor: default; }
 .bubble-ai .forward-label {
   color: var(--accent-ai, #007aff);
 }

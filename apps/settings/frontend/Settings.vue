@@ -20,8 +20,8 @@
         <transition name="section-fade" mode="out-in">
           <!-- 个人信息 -->
           <div v-if="activeNav === 'profile'" key="profile" class="settings-section">
-            <h2 class="section-title"><i class="fa-solid fa-user section-title-icon"></i>个人信息</h2>
-            <div class="form-card">
+            <h2 class="section-title"><i class="fa-solid fa-user section-title-icon"></i>基本信息</h2>
+                        <div class="form-card">
               <div class="form-row">
                 <label class="form-label">网名</label>
                 <input v-model="profileForm.net_name" class="form-input" />
@@ -35,24 +35,6 @@
                 <input :value="user.user_id" class="form-input" disabled />
               </div>
               <div class="form-row">
-                <label class="form-label">头像颜色</label>
-                <div class="avatar-color-picker">
-                  <div
-                    v-for="color in avatarPresets"
-                    :key="color"
-                    class="color-swatch"
-                    :class="{ active: avatarColor === color }"
-                    :style="{ background: color }"
-                    @click="selectAvatarColor(color)"
-                  ></div>
-                  <label class="color-swatch custom-swatch" :class="{ active: avatarColor && avatarPresets.indexOf(avatarColor) === -1 }">
-                    <input type="color" :value="avatarColor || '#007AFF'" @input="selectAvatarColor($event.target.value)" class="color-input-hidden">
-                    <i class="fa-solid fa-palette"></i>
-                  </label>
-                  <button v-if="avatarColor" class="color-reset-btn" @click="resetAvatarColor" title="恢复默认"><i class="fa-solid fa-rotate-left"></i></button>
-                </div>
-              </div>
-              <div class="form-row">
                 <label class="form-label">性别</label>
                 <input :value="genderText" class="form-input" disabled />
               </div>
@@ -60,61 +42,25 @@
                 <label class="form-label">注册时间</label>
                 <input :value="formatDate(user.created_at)" class="form-input" disabled />
               </div>
-              <div class="form-divider"></div>
-              <div class="form-row">
-                <label class="form-label">生日</label>
-                <div class="form-input-group">
-                  <input v-model="profileForm.birthday" type="date" class="form-input" :disabled="birthdayChangedThisMonth" :title="birthdayChangedThisMonth ? '本月已修改过生日（' + lastBirthdayChangeText + '），请下个月再试' : ''" />
-                  <button class="privacy-toggle" :class="{ private: profileForm.birthday_private }" @click="togglePrivacy('birthday')" :title="profileForm.birthday_private ? '当前仅自己可见，点击公开' : '当前公开可见，点击设为私密'">
-                    <i :class="profileForm.birthday_private ? 'fa-solid fa-lock' : 'fa-solid fa-lock-open'"></i>
-                  </button>
-                </div>
-              </div>
-              <div class="form-row">
-                <label class="form-label">微信号</label>
-                <div class="form-input-group">
-                  <input v-model="profileForm.wechat" class="form-input" placeholder="请输入微信号" />
-                  <button class="privacy-toggle" :class="{ private: profileForm.wechat_private }" @click="togglePrivacy('wechat')" :title="profileForm.wechat_private ? '当前仅自己可见，点击公开' : '当前公开可见，点击设为私密'">
-                    <i :class="profileForm.wechat_private ? 'fa-solid fa-lock' : 'fa-solid fa-lock-open'"></i>
-                  </button>
-                </div>
-              </div>
-              <div class="form-row">
-                <label class="form-label">QQ号</label>
-                <div class="form-input-group">
-                  <input v-model="profileForm.qq" class="form-input" placeholder="请输入QQ号" />
-                  <button class="privacy-toggle" :class="{ private: profileForm.qq_private }" @click="togglePrivacy('qq')" :title="profileForm.qq_private ? '当前仅自己可见，点击公开' : '当前公开可见，点击设为私密'">
-                    <i :class="profileForm.qq_private ? 'fa-solid fa-lock' : 'fa-solid fa-lock-open'"></i>
-                  </button>
-                </div>
-              </div>
-              <div class="form-row">
-                <label class="form-label">手机号</label>
-                <div class="form-input-group">
-                  <input v-model="profileForm.phone" class="form-input" placeholder="请输入手机号" />
-                  <button class="privacy-toggle" :class="{ private: profileForm.phone_private }" @click="togglePrivacy('phone')" :title="profileForm.phone_private ? '当前仅自己可见，点击公开' : '当前公开可见，点击设为私密'">
-                    <i :class="profileForm.phone_private ? 'fa-solid fa-lock' : 'fa-solid fa-lock-open'"></i>
-                  </button>
-                </div>
-              </div>
-              <div class="form-row">
-                <label class="form-label">住址</label>
-                <div class="form-input-group">
-                  <input v-model="profileForm.address" class="form-input" placeholder="请输入住址" />
-                  <button class="privacy-toggle" :class="{ private: profileForm.address_private }" @click="togglePrivacy('address')" :title="profileForm.address_private ? '当前仅自己可见，点击公开' : '当前公开可见，点击设为私密'">
-                    <i :class="profileForm.address_private ? 'fa-solid fa-lock' : 'fa-solid fa-lock-open'"></i>
-                  </button>
-                </div>
-              </div>
-              <div class="form-row">
-                <label class="form-label">个人签名</label>
-                <input v-model="profileForm.signature" class="form-input" placeholder="请输入个人签名" />
-              </div>
               <div class="form-actions">
                 <button class="btn-primary" @click="saveProfile" :disabled="saving || profileLoading">
                   <i class="fa-solid fa-check btn-icon"></i>保存
                 </button>
               </div>
+            </div>
+
+            <!-- 个性化资料已迁到个人主页：设置页只留身份基础信息 -->
+            <div class="moved-card">
+              <div class="moved-card-main">
+                <i class="fa-solid fa-circle-info moved-card-icon"></i>
+                <div class="moved-card-text">
+                  <strong>头像、封面、签名、联系方式、隐私设置</strong>
+                  <p>这些属于「个人主页长什么样」，已经搬到主页里编辑，改完立刻能看到效果。</p>
+                </div>
+              </div>
+              <button class="moved-card-btn" @click="goMyProfile">
+                <i class="fa-solid fa-id-badge"></i> 去我的主页编辑
+              </button>
             </div>
           </div>
 
@@ -176,15 +122,6 @@
                 </label>
                 <label class="switch">
                   <input type="checkbox" v-model="notifications.broadcast" @change="saveNotifications" />
-                  <span class="switch-slider"></span>
-                </label>
-              </div>
-              <div class="form-row">
-                <label class="form-label">
-                  <i class="fa-solid fa-robot form-row-icon"></i>AI对话通知
-                </label>
-                <label class="switch">
-                  <input type="checkbox" v-model="notifications.aiChat" @change="saveNotifications" />
                   <span class="switch-slider"></span>
                 </label>
               </div>
@@ -285,15 +222,12 @@
                 <label class="form-label">主题</label>
                 <div class="toggle-group">
                   <button
+                    v-for="t in themeChoices"
+                    :key="t.id"
                     class="toggle-btn"
-                    :class="{ active: theme === 'light' }"
-                    @click="setTheme('light')"
-                  >浅色</button>
-                  <button
-                    class="toggle-btn"
-                    :class="{ active: theme === 'dark' }"
-                    @click="setTheme('dark')"
-                  >深色</button>
+                    :class="{ active: theme === t.id }"
+                    @click="setTheme(t.id)"
+                  >{{ t.name }}</button>
                 </div>
               </div>
               <div class="form-row">
@@ -482,56 +416,18 @@
       </div>
     </div>
 
-    <!-- 生日修改确认弹窗 -->
-    <transition name="modal-fade">
-      <div v-if="showBirthdayConfirm" class="modal-overlay" @click.self="cancelBirthdayConfirm">
-        <div class="modal-panel birthday-confirm-modal">
-          <div class="modal-header">
-            <h3 class="modal-title">
-              <i class="fa-solid fa-cake-candles"></i> 确认修改生日
-            </h3>
-            <button class="modal-close" @click="cancelBirthdayConfirm">
-              <i class="fa-solid fa-xmark"></i>
-            </button>
-          </div>
-          <div class="modal-body">
-            <div class="birthday-confirm-info">
-              <div class="birthday-confirm-row">
-                <span class="birthday-confirm-label">原生日</span>
-                <span class="birthday-confirm-value">{{ originalBirthday || '未设置' }}</span>
-              </div>
-              <div class="birthday-confirm-arrow">
-                <i class="fa-solid fa-arrow-down"></i>
-              </div>
-              <div class="birthday-confirm-row birthday-confirm-row--new">
-                <span class="birthday-confirm-label">新生日</span>
-                <span class="birthday-confirm-value">{{ profileForm.birthday || '未设置' }}</span>
-              </div>
-            </div>
-            <div class="birthday-confirm-warn">
-              <i class="fa-solid fa-triangle-exclamation"></i>
-              <span>确认后本月将无法再次修改生日，且将以此日期触发年度生日庆祝。</span>
-            </div>
-          </div>
-          <div class="modal-footer">
-            <button class="btn-secondary" @click="cancelBirthdayConfirm">取消</button>
-            <button class="btn-primary" @click="confirmBirthdaySave">
-              <i class="fa-solid fa-check"></i> 确认修改
-            </button>
-          </div>
-        </div>
-      </div>
-    </transition>
+
+    <ModalDialog ref="modalDialog" />
   </div>
 </template>
 
 <script>
 import api from '@/utils/api';
-import helpers from '@/utils/helpers';
 import updateChecker from '@/utils/update-checker';
 import AppNavBar from '@/components/AppNavBar.vue';
-import ConfirmDialog from '@/components/ConfirmDialog.vue';
+import ModalDialog from '@/components/ModalDialog.vue';
 import { APP_REGISTRY } from '@/store/modules/desktop.js';
+import { getThemeEngine } from '@/core/theme-engine';
 
 // 品牌标（关于系统页，浅底用彩色版）。运行时字符串，避免打包器把绝对路径解析成模块路径。
 var BRAND_MARK = '/resources/public/brand/logo-mark.png';
@@ -540,15 +436,13 @@ export default {
   name: 'Settings',
   components: {
     AppNavBar: AppNavBar,
-    ConfirmDialog: ConfirmDialog
+    ModalDialog: ModalDialog
   },
   data: function() {
     return {
       brandMark: BRAND_MARK,
       activeNav: 'profile',
       saving: false,
-      avatarColor: '',
-      avatarPresets: helpers.AVATAR_PRESETS,
       staticWallpapers: [],
       videoWallpapers: [],
       // 动态壁纸缩略图懒加载：filename -> true 表示已进入视口、可挂 src
@@ -565,26 +459,9 @@ export default {
       ],
       autoWallpaper: false,
       autoWallpaperTimer: null,
-      // 生日修改控制
-      originalBirthday: '',
-      birthdayChangedThisMonth: false,
-      lastBirthdayChangeText: '',
-      showBirthdayConfirm: false,
-      pendingProfileData: null,
-
+      // 设置页只剩身份基础信息；自定义资料在个人主页的编辑面板里
       profileForm: {
-        net_name: '',
-        birthday: '',
-        birthday_private: true,
-        wechat: '',
-        wechat_private: true,
-        qq: '',
-        qq_private: true,
-        phone: '',
-        phone_private: true,
-        address: '',
-        address_private: true,
-        signature: ''
+        net_name: ''
       },
       profileLoading: false,
       securityForm: {
@@ -593,7 +470,7 @@ export default {
         confirm_password: ''
       },
       navItems: [
-        { key: 'profile', icon: 'fa-solid fa-user-pen', label: '个人信息' },
+        { key: 'profile', icon: 'fa-solid fa-user-pen', label: '基本信息' },
         { key: 'security', icon: 'fa-solid fa-shield-halved', label: '账户安全' },
         { key: 'notifications', icon: 'fa-solid fa-bell', label: '通知设置' },
         { key: 'level', icon: 'fa-solid fa-star', label: '等级' },
@@ -631,6 +508,17 @@ export default {
   computed: {
     user: function() {
       return this.$store.state.auth.user || {};
+    },
+    // 全部可选主题（内置 + 扩展 + 市场主题）：与桌面长按设置面板同一数据源，
+    // 修复此前本页硬编码只有浅色/深色两个按钮、与桌面入口范围不一致的问题
+    themeChoices: function() {
+      try {
+        return getThemeEngine().listThemes().map(function(t) {
+          return { id: t.id, name: t.name };
+        });
+      } catch (e) {
+        return [{ id: 'light', name: '浅色' }, { id: 'dark', name: '深色' }];
+      }
     },
     isAdmin: function() {
       return this.$store.getters['auth/isAdmin'];
@@ -674,12 +562,6 @@ export default {
     }
     this.fetchVersionInfo();
     this.loadLevelInfo();
-    this.avatarColor = localStorage.getItem('avatar_color_' + (this.user && this.user.user_id)) || '';
-    // 从服务端恢复头像颜色（换设备/清缓存后自动恢复，同时更新响应式数据）
-    var self = this;
-    helpers.syncAvatarColorFromServer(this.user && this.user.user_id).then(function(color) {
-      if (color) self.avatarColor = color;
-    });
   },
   watch: {
     // 切到「动态」页签后才按视口懒加载缩略图（避免一进设置页就拉全部视频元数据）
@@ -728,99 +610,33 @@ export default {
         for (var c = 0; c < cards.length; c++) self._wpObserver.observe(cards[c]);
       });
     },
+    goMyProfile: function() {
+      var uid = this.user && this.user.user_id;
+      if (!uid) {
+        this.$store.commit('toast/SHOW_TOAST', { message: '登录信息未就绪，请稍后再试', type: 'error' });
+        return;
+      }
+      this.$router.push('/profile/' + uid);
+    },
     saveProfile: function() {
       var self = this;
-      if (!self.profileForm.net_name.trim()) {
+      var name = (self.profileForm.net_name || '').trim();
+      if (!name) {
         self.$store.commit('toast/SHOW_TOAST', { message: '网名不能为空', type: 'error' });
         return;
       }
-      // 生日变更检测：若与原始值不同，先弹出确认弹窗
-      if (self.profileForm.birthday !== self.originalBirthday && !self.birthdayChangedThisMonth) {
-        self._buildPendingProfileData();
-        self.showBirthdayConfirm = true;
-        return;
-      }
-      self._doSaveProfile();
-    },
-
-    _buildPendingProfileData: function() {
-      var self = this;
-      self.pendingProfileData = {
-        net_name: self.profileForm.net_name.trim(),
-        birthday: self.profileForm.birthday,
-        wechat: self.profileForm.wechat.trim(),
-        qq: self.profileForm.qq.trim(),
-        phone: self.profileForm.phone.trim(),
-        address: self.profileForm.address.trim(),
-        signature: self.profileForm.signature.trim(),
-        privacy_settings: {
-          birthday: self.profileForm.birthday_private,
-          wechat: self.profileForm.wechat_private,
-          qq: self.profileForm.qq_private,
-          phone: self.profileForm.phone_private,
-          address: self.profileForm.address_private
-        }
-      };
-    },
-
-    confirmBirthdaySave: function() {
-      var self = this;
-      self.showBirthdayConfirm = false;
-      self.originalBirthday = self.profileForm.birthday;
-      self.birthdayChangedThisMonth = true;
-      var now = new Date();
-      self.lastBirthdayChangeText = (now.getMonth() + 1) + '月' + now.getDate() + '日';
-      self._doSaveProfile();
-    },
-
-    cancelBirthdayConfirm: function() {
-      var self = this;
-      self.showBirthdayConfirm = false;
-      self.profileForm.birthday = self.originalBirthday;
-      self.pendingProfileData = null;
-    },
-
-    _doSaveProfile: function() {
-      var self = this;
-      var profileData = self.pendingProfileData || {
-        net_name: self.profileForm.net_name.trim(),
-        birthday: self.profileForm.birthday,
-        wechat: self.profileForm.wechat.trim(),
-        qq: self.profileForm.qq.trim(),
-        phone: self.profileForm.phone.trim(),
-        address: self.profileForm.address.trim(),
-        signature: self.profileForm.signature.trim(),
-        privacy_settings: {
-          birthday: self.profileForm.birthday_private,
-          wechat: self.profileForm.wechat_private,
-          qq: self.profileForm.qq_private,
-          phone: self.profileForm.phone_private,
-          address: self.profileForm.address_private
-        }
-      };
-      self.pendingProfileData = null;
       self.saving = true;
-      // 同时更新网名和完整资料，任一失败则回滚用户状态
-      var netNameUpdated = false;
-      api.patch('/user/profile', { net_name: profileData.net_name })
+      // 设置页现在只管身份基础信息，就只有网名需要落库；
+      // 其余资料由个人主页的「编辑资料」面板维护（client/src/components/ProfileEditor.vue）
+      api.patch('/user/profile', { net_name: name })
         .then(function() {
-          netNameUpdated = true;
-          var updatedUser = Object.assign({}, self.user, { net_name: profileData.net_name });
-          self.$store.commit('auth/SET_USER', updatedUser);
-          return api.put('/community/profile', profileData);
-        })
-        .then(function() {
-          self.$store.commit('toast/SHOW_TOAST', { message: '个人信息保存成功', type: 'success' });
+          var updated = Object.assign({}, self.user, { net_name: name });
+          self.$store.commit('auth/SET_USER', updated);
+          self.$store.commit('toast/SHOW_TOAST', { message: '已保存', type: 'success' });
         })
         .catch(function(err) {
-          // 回滚：如果网名已更新但后续失败，恢复原网名
-          if (netNameUpdated && self.user.net_name) {
-            var rollbackUser = Object.assign({}, self.user);
-            self.$store.commit('auth/SET_USER', rollbackUser);
-          }
           var resp = err.response && err.response.data;
-          var msg = (resp && resp.message) || '保存失败';
-          self.$store.commit('toast/SHOW_TOAST', { message: msg, type: 'error' });
+          self.$store.commit('toast/SHOW_TOAST', { message: (resp && resp.message) || '保存失败', type: 'error' });
         })
         .finally(function() {
           self.saving = false;
@@ -829,35 +645,13 @@ export default {
     loadProfile: function() {
       var self = this;
       self.profileLoading = true;
+      // 只取「在社区显示真实姓名」这一个还留在设置页的隐私开关；
+      // 其余资料交给个人主页的编辑面板自己拉，两边不重复请求
       api.get('/community/profile')
         .then(function(response) {
           var data = response.data && response.data.data;
           if (data) {
             var privacy = data.privacy_settings || {};
-            self.profileForm.birthday = data.birthday || '';
-            self.originalBirthday = data.birthday || '';
-            self.profileForm.birthday_private = privacy.birthday !== false;
-            // 检查本月是否已修改过生日
-            self.birthdayChangedThisMonth = false;
-            self.lastBirthdayChangeText = '';
-            if (data.last_birthday_change) {
-              var lcDate = new Date(data.last_birthday_change);
-              var now = new Date();
-              if (lcDate.getFullYear() === now.getFullYear() && lcDate.getMonth() === now.getMonth()) {
-                self.birthdayChangedThisMonth = true;
-                self.lastBirthdayChangeText = lcDate.getMonth() + 1 + '月' + lcDate.getDate() + '日';
-              }
-            }
-            self.profileForm.wechat = data.wechat || '';
-            self.profileForm.qq = data.qq || '';
-            self.profileForm.phone = data.phone || '';
-            self.profileForm.address = data.address || '';
-            self.profileForm.signature = data.signature || '';
-            self.profileForm.wechat_private = privacy.wechat !== false;
-            self.profileForm.qq_private = privacy.qq !== false;
-            self.profileForm.phone_private = privacy.phone !== false;
-            self.profileForm.address_private = privacy.address !== false;
-            // 真实姓名显示设置：hide_real_name=true 时关闭开关
             self.privacyCustomize.showRealName = !privacy.hide_real_name;
           }
         })
@@ -867,9 +661,6 @@ export default {
         .finally(function() {
           self.profileLoading = false;
         });
-    },
-    togglePrivacy: function(field) {
-      this.profileForm[field + '_private'] = !this.profileForm[field + '_private'];
     },
     changePassword: function() {
       var self = this;
@@ -910,7 +701,12 @@ export default {
     },
     setTheme: function(theme) {
       this.$store.commit('settings/SET_THEME', theme);
-      this.$store.commit('toast/SHOW_TOAST', { message: '主题已切换为' + (theme === 'dark' ? '深色' : '浅色'), type: 'success' });
+      var name = theme;
+      try {
+        var t = getThemeEngine().getTheme(theme);
+        if (t && t.name) name = t.name;
+      } catch (e) {}
+      this.$store.commit('toast/SHOW_TOAST', { message: '主题已切换为' + name, type: 'success' });
       api.post('/user/settings', { theme: theme }).catch(function() {});
     },
     setWallpaper: function(wallpaper) {
@@ -1225,20 +1021,6 @@ export default {
       }
       return 99;
     },
-    selectAvatarColor: function(color) {
-      var userId = this.user && this.user.user_id;
-      if (!userId) return;
-      this.avatarColor = color;
-      helpers.setAvatarColor(userId, color);
-      this.$store.commit('toast/SHOW_TOAST', { message: '头像颜色已更新', type: 'success' });
-    },
-    resetAvatarColor: function() {
-      var userId = this.user && this.user.user_id;
-      if (!userId) return;
-      this.avatarColor = '';
-      helpers.setAvatarColor(userId, '');
-      this.$store.commit('toast/SHOW_TOAST', { message: '已恢复默认颜色', type: 'success' });
-    }
   }
 };
 </script>
@@ -1349,6 +1131,68 @@ export default {
   margin: 0 var(--spacing-md) var(--spacing-lg);
   box-shadow: none;
 }
+
+/* 迁走项提示卡：告诉用户「头像/封面/签名…去哪儿了」，并给一个直达入口 */
+.moved-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: 0 var(--spacing-md) var(--spacing-lg);
+  padding: 14px var(--spacing-md);
+  border: 0.5px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--primary-lighter);
+}
+
+.moved-card-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex: 1;
+  min-width: 220px;
+}
+
+.moved-card-icon {
+  color: var(--primary-color);
+  font-size: 15px;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.moved-card-text strong {
+  display: block;
+  font-size: var(--font-size-footnote);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+  margin-bottom: 3px;
+}
+
+.moved-card-text p {
+  margin: 0;
+  font-size: var(--font-size-caption2);
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+.moved-card-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--primary-color);
+  color: #fff;
+  font-size: var(--font-size-footnote);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+.moved-card-btn:active { opacity: 0.85; }
 
 .form-row {
   display: flex;
@@ -2178,6 +2022,62 @@ export default {
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+}
+
+/* ========== 头像图片（云盘选取 + 缩放裁选） ========== */
+.avatar-image-picker {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.avatar-image-side {
+  flex: 1;
+  min-width: 0;
+}
+
+.avatar-image-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.avatar-image-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--radius-md, 10px);
+  background: var(--primary-color);
+  color: #fff;
+  font-size: var(--font-size-caption1);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: opacity var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
+}
+
+.avatar-image-btn:active { transform: scale(0.96); opacity: 0.85; }
+
+.avatar-image-btn--ghost {
+  background: var(--primary-lighter);
+  color: var(--danger-color);
+}
+
+.avatar-image-hint {
+  margin: 8px 0 0;
+  font-size: var(--font-size-caption2);
+  color: var(--text-tertiary);
+  line-height: 1.6;
+}
+
+/* 「我的主页」入口：按钮 + 说明，与头像图片行保持同一套排版 */
+.profile-entry {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
 }
 
 .color-swatch {

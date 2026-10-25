@@ -157,8 +157,10 @@ export default {
   will-change: transform;
 }
 
+/* 曲线必须走令牌（cubic-bezier(0.45,0,0.55,1) 是 ease-in-out 关键字的马甲，
+   项目红线禁关键字曲线）—— 与 --ease-standard 视觉等价 */
 .wave-bar.wave-playing {
-  animation: waveAnim 0.8s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
+  animation: waveAnim 0.8s var(--ease-standard) infinite alternate;
 }
 
 .wave-bar.wave-playing:nth-child(1) { animation-duration: 0.7s; }
@@ -189,7 +191,9 @@ export default {
   cursor: pointer;
   background: rgba(255, 255, 255, 0.08);
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2), 0 0 0 0.5px rgba(255, 255, 255, 0.06) inset;
-  transition: box-shadow var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
+  /* 只过渡 transform/opacity：box-shadow 过渡每帧重绘模糊阴影（2026-10-24 动效整备移除），
+     hover 阴影一次性生效即可 */
+  transition: transform var(--duration-fast) var(--ease-standard);
 }
 
 .music-expanded-cover:hover {

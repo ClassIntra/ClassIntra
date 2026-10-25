@@ -1,0 +1,20 @@
+{
+  "name": "profile",
+  "type": "app",
+  "version": "1.0.0",
+  "label": "个人主页",
+  "description": "统一的个人详情页：从聊天气泡头像、社区头像进入，取代原先散落各处的资料浮窗",
+  "icon": "/resources/public/icons/Settings.png",
+  "color": "#5856D6",
+  "category": "hidden",
+  "defaultEnabled": true,
+  "canDisable": false,
+  "frontend": {
+    "route": "/profile/:userId",
+    "routeName": "Profile",
+    "component": "./frontend/Profile.vue",
+    "meta": {
+      "requiresAuth": true
+    }
+  }
+}

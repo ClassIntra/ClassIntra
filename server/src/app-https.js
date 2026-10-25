@@ -81,7 +81,30 @@ if (corsOrigins) {
   corsOptions = { origin: false, credentials: false };
 }
 app.use(cors(corsOptions));
-app.use(morgan('dev'));
+
+// 请求观测：关联 ID + 慢请求告警。
+// ⚠️ 这段一直只存在于 app.js，https 镜像实例从未有过 —— 结果是在 9443 上出的问题
+//    既没有 X-Request-Id 也没有慢请求告警，日志里连时间戳之外的线索都拼不出来。
+//    两份入口的观测能力必须一致，改这里时请同步 app.js。
+app.use(function(req, res, next) {
+  try {
+    req.requestId = require('crypto').randomBytes(6).toString('hex');
+    res.setHeader('X-Request-Id', req.requestId);
+  } catch (e) {}
+  var t0 = Date.now();
+  res.on('finish', function() {
+    var dur = Date.now() - t0;
+    if (dur > 1500 && req.path.indexOf('/api/') === 0) {
+      console.warn('[Slow] ' + req.method + ' ' + req.originalUrl.split('?')[0] +
+        ' ' + res.statusCode + ' ' + dur + 'ms rid=' + (req.requestId || '-'));
+    }
+  });
+  next();
+});
+
+// 日志格式与 app.js 保持一致（字段顺序不变，末尾追加 rid）
+morgan.token('rid', function(req) { return (req && req.requestId) || '-'; });
+app.use(morgan(':method :url :status :response-time ms - :res[content-length] rid=:rid'));
 app.use(compression({
   level: 6,
   threshold: 1024,
@@ -183,6 +206,13 @@ app.use('/api/level', require('./routes/level'));
 app.use('/api/cdn', require('./routes/cdn-proxy'));
 app.use('/api/system', require('./routes/system'));
 app.use('/api/integrations', require('./routes/integrations'));
+
+// ZW 设备启动器：必须与 9001 主实例保持一致。
+// ⚠️ 历史坑：这里曾漏挂 /zxw，导致 https 入口访问 /zxw 直接落进下面的 SPA 回退、
+//    吐出 index.html —— 表现就是「从 https 进启动器和正常打开完全一样」，
+//    且拿不到任何 ZXW 事件（/zxw/log 永远空）。改动时请与 app.js 同步。
+app.use('/zxw', require('./routes/zxw'));
+app.use('/zx', function(req, res) { res.redirect(308, '/zxw' + req.url); });
 
 var routeAggregator = require('./core/route-aggregator');
 routeAggregator.mountAppRoutes(app);

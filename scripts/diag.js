@@ -5,6 +5,7 @@
 //   node scripts/diag.js plugin [plug-name] 校验全部/指定插件（backend 必有 + 挂载点冲突）
 //   node scripts/diag.js theme [theme-id]   校验全部/指定主题（manifest 契约 + tokens 冒烟）
 //   node scripts/diag.js compat [app-name]  Chrome 80 兼容性 lint（apps + market-apps 前端，all 时自动附带）
+//   node scripts/diag.js market [name]      市场应用预校验（market-apps/ 与 ../market/apps/，与安装时同一校验器）
 //   node scripts/diag.js all                全部
 // 校验项：
 //   - manifest 走 server/src/core/manifest-schema.js（与运行时同一校验器，errors 阻断 / warnings 提示）
@@ -259,9 +260,11 @@ function collectFrontendFiles(dir) {
 
 function diagCompat(onlyName) {
   // 扫描目标：apps/*（构建型，failRaw 豁免）+ market-apps/*（直出型，全严格）
+  //           + ../market/apps/*（市场源目录——装前预检也该能跑兼容 lint）
   var groups = [
     { dir: 'apps', raw: false },
-    { dir: 'market-apps', raw: true }
+    { dir: 'market-apps', raw: true },
+    { dir: path.join('..', 'market', 'apps'), raw: true }
   ].map(function (g) {
     var base = path.join(root, g.dir);
     var names = fs.existsSync(base)
@@ -358,17 +361,259 @@ function diagCompat(onlyName) {
   return allPass;
 }
 
+// ---------------- 市场应用预校验 ----------------
+// 与安装时同一份校验器（market-service.validateMarketManifest），把原本
+// "用户点安装才暴露" 的 manifest/文件问题提前到开发阶段。
+// 校验目标：market-apps/<name>（已安装目录）与本地市场源 ../market/apps/<name>（源码目录）。
+function diagMarket(onlyName) {
+  var marketService = require('../server/src/core/market-service');
+  var appsDir = path.join(root, 'apps');
+
+  // 官方应用已占用的 route / mountPath（冲突检测用）
+  var officialRoutes = {};
+  var officialMounts = {};
+  try {
+    fs.readdirSync(appsDir).forEach(function (n) {
+      var mp = path.join(appsDir, n, 'manifest.json');
+      if (!fs.existsSync(mp)) return;
+      try {
+        var m = JSON.parse(fs.readFileSync(mp, 'utf8'));
+        if (m.frontend && m.frontend.route) officialRoutes[m.frontend.route] = n;
+        if (m.backend && m.backend.mountPath) officialMounts[m.backend.mountPath] = n;
+      } catch (e) {}
+    });
+  } catch (e) {}
+
+  var roots = [
+    path.join(root, 'market-apps'),
+    path.resolve(root, '..', 'market', 'apps')
+  ];
+  var checkedAny = false;
+  var allPass = true;
+  var seenRoutes = {};
+  var seenMounts = {};
+
+  roots.forEach(function (rootsDir) {
+    if (!fs.existsSync(rootsDir)) return;
+    var names;
+    try {
+      names = fs.readdirSync(rootsDir).filter(function (n) {
+        return n.indexOf('.') !== 0 && fs.existsSync(path.join(rootsDir, n, 'manifest.json')) &&
+          (!onlyName || n === onlyName);
+      });
+    } catch (e) { return; }
+
+    names.forEach(function (name) {
+      checkedAny = true;
+      console.log('---- ' + name + '  (' + rootsDir + ') ----');
+      var m;
+      try {
+        m = JSON.parse(fs.readFileSync(path.join(rootsDir, name, 'manifest.json'), 'utf8'));
+      } catch (e) {
+        console.log(mark(false) + ' manifest.json 解析失败: ' + e.message);
+        allPass = false;
+        return;
+      }
+
+      // 1. 市场专属校验（与 server 安装时同一份）
+      var mErrors = marketService.validateMarketManifest(m, name);
+      if (mErrors.length) {
+        mErrors.forEach(function (er) { console.log(mark(false) + ' ' + er); });
+        allPass = false;
+      } else {
+        console.log(mark(true) + ' manifest 市场校验通过');
+      }
+
+      // 2. 通用 schema（与官方应用同一校验器）
+      var base = schema.validateManifest(m);
+      if (!base.valid) {
+        base.errors.forEach(function (er) { console.log(mark(false) + ' [schema] ' + er); });
+        allPass = false;
+      }
+
+      // 3. 文件完整性（entry/overlay/style/backend 入口必须真实存在）
+      [['frontend.entry', m.frontend && m.frontend.entry],
+       ['frontend.style', m.frontend && m.frontend.style],
+       ['frontend.overlay', m.frontend && m.frontend.overlay],
+       ['backend.entry', m.backend && m.backend.entry]].forEach(function (pair) {
+        if (!pair[1]) return;
+        var p = path.join(rootsDir, name, String(pair[1]).replace(/^\.\//, ''));
+        var exists = fs.existsSync(p);
+        console.log(mark(exists) + ' ' + pair[0] + ' → ' + pair[1]);
+        if (!exists) allPass = false;
+      });
+
+      // 4. cleanup 钩子建议（有后端的应用应提供，卸载才能无痕）
+      if (m.backend && !fs.existsSync(path.join(rootsDir, name, 'backend', 'cleanup.js'))) {
+        console.log(mark(true, true) + ' 未提供 backend/cleanup.js（建议提供：卸载时清理自建表与数据）');
+      }
+
+      // 5. route / mountPath 冲突（官方 + 同批市场应用）
+      if (m.frontend && m.frontend.route) {
+        if (officialRoutes[m.frontend.route]) {
+          console.log(mark(false) + ' frontend.route 与官方应用 "' + officialRoutes[m.frontend.route] + '" 冲突');
+          allPass = false;
+        } else if (seenRoutes[m.frontend.route] && seenRoutes[m.frontend.route] !== name) {
+          console.log(mark(false) + ' frontend.route 与市场应用 "' + seenRoutes[m.frontend.route] + '" 冲突');
+          allPass = false;
+        } else {
+          seenRoutes[m.frontend.route] = name;
+        }
+      }
+      if (m.backend && m.backend.mountPath) {
+        if (officialMounts[m.backend.mountPath]) {
+          console.log(mark(false) + ' backend.mountPath 与官方应用 "' + officialMounts[m.backend.mountPath] + '" 冲突');
+          allPass = false;
+        } else if (seenMounts[m.backend.mountPath] && seenMounts[m.backend.mountPath] !== name) {
+          console.log(mark(false) + ' backend.mountPath 与市场应用 "' + seenMounts[m.backend.mountPath] + '" 冲突');
+          allPass = false;
+        } else {
+          seenMounts[m.backend.mountPath] = name;
+        }
+      }
+
+      // 6. widget 声明提示（市场 widget 的渲染入口在 entry.js，不在 manifest）
+      if (m.frontend && Array.isArray(m.frontend.widgets)) {
+        m.frontend.widgets.forEach(function (w) {
+          if (w && w.component) {
+            console.log(mark(false) + ' widgets[' + (w.id || '?') + '].component 不适用于市场应用（渲染入口请在 entry.js 的 definition.widgets 提供）');
+            allPass = false;
+          }
+        });
+      }
+    });
+  });
+
+  if (onlyName && !checkedAny) {
+    console.log('[FAIL] 未找到市场应用: ' + onlyName + '（已查找 market-apps/ 与 ../market/apps/）');
+    return false;
+  }
+  if (!checkedAny) console.log(mark(true, true) + ' 没有找到任何市场应用（market-apps/ 与 ../market/apps/ 均为空）');
+  return allPass;
+}
+
+// ---------------- 动效令牌合规 lint ----------------
+// 依据 docs/ecosystem-design.md §5.5.1 的「动效时长与曲线映射（唯一权威表）」：
+//   transition/animation 的时长必须用 var(--duration-*) 令牌、曲线必须用 var(--ease-*) 令牌。
+// 硬编码时长/曲线是历史缺陷来源（第十二轮修过两波），此 lint 把规范变成可执行约束。
+// 豁免：linear（等速合法）、steps()（雪碧图帧动画的时长是帧率语义，硬编码合法）、
+//       var(--motion-none, 0s) 类显式归零。
+function diagMotion() {
+  // 带可选 fallback 的令牌匹配：var(--duration-fast) 与 var(--duration-fast, 0.15s) 都算合规
+  //（market 直出应用带 fallback 是宿主令牌未注入时的正确兜底，属最佳实践）
+  var VAR_DURATION_RE = /var\(--duration-[a-z-]+(?:\s*,\s*[^)]+)?\)/g;
+  var VAR_EASE_RE = /var\(--ease-[a-z-]+(?:\s*,\s*[^)]+)?\)/g;
+  var EASE_KEYWORD_RE = /\b(ease-in-out|ease-in|ease-out|ease)\b/;
+  var DURATION_LITERAL_RE = /(?:^|[\s,(])(\d+(?:\.\d+)?m?s)\b/;
+
+  var roots = [
+    { dir: path.join(root, 'client', 'src'), label: 'client' },
+    { dir: path.join(root, 'apps'), label: 'apps' },
+    { dir: path.join(root, 'market-apps'), label: 'market-apps' }
+  ];
+  var violations = 0;
+  var fileCount = 0;
+
+  function extractStyleBlocks(content) {
+    var blocks = [];
+    // .vue：<style ...>…</style>（可能多段）；.scss/.css：整文件
+    var re = /<style[^>]*>([\s\S]*?)<\/style>/g;
+    var m;
+    var isVue = false;
+    while ((m = re.exec(content)) !== null) { blocks.push(m[1]); isVue = true; }
+    if (!isVue) blocks.push(content);
+    return blocks;
+  }
+
+  function checkDeclaration(line, rel) {
+    var problems = [];
+    // 场景豁免：行内 /* motion:scene */ 显式声明"这是刻意的场景时长/节奏"
+    //（如天气背景 2s 氛围切换、投票条 0.7s 数据动画——不属于全局档位语义）
+    if (line.indexOf('motion:scene') !== -1) return problems;
+    var isAnimation = /\banimation\s*:/.test(line);
+    // 帧动画（steps）与无限循环动画的时长是帧率/周期语义，豁免令牌要求
+    var cycleExempt = /steps\(/.test(line) || /\binfinite\b/.test(line);
+    var lineWithoutVars = line.replace(VAR_DURATION_RE, '').replace(VAR_EASE_RE, '');
+    if (!cycleExempt) {
+      var durMatch = lineWithoutVars.match(DURATION_LITERAL_RE);
+      var literal = durMatch && durMatch[1];
+      if (literal && literal !== '0s' && literal !== '0ms') {
+        problems.push('硬编码时长 "' + literal + '"（应使用 var(--duration-*) 令牌）');
+      }
+    }
+    if (!isAnimation) {
+      // transition 曲线检查（animation 的曲线语义不同，仅查 transition；linear 等速豁免）
+      if (EASE_KEYWORD_RE.test(lineWithoutVars) || /cubic-bezier\(/.test(lineWithoutVars)) {
+        problems.push('硬编码缓动曲线（应使用 var(--ease-*) 令牌）');
+      }
+    }
+    return problems;
+  }
+
+  function scanFile(abs) {
+    var content;
+    try { content = fs.readFileSync(abs, 'utf8'); } catch (e) { return; }
+    fileCount++;
+    var rel = path.relative(root, abs);
+    var blocks = extractStyleBlocks(content);
+    var fileProblems = [];
+    blocks.forEach(function(block) {
+      var lines = block.split(/\r?\n/);
+      lines.forEach(function(line) {
+        if (!/\b(transition|animation)\s*:/.test(line)) return;
+        // @media (prefers-reduced-motion) 块内的显式归零常为 0s —— 已由 0s 豁免覆盖
+        checkDeclaration(line, rel).forEach(function(p) { fileProblems.push(p + '  ←  ' + line.trim().slice(0, 90)); });
+      });
+    });
+    if (fileProblems.length) {
+      violations += fileProblems.length;
+      console.log('---- ' + rel + '（' + fileProblems.length + ' 处）----');
+      fileProblems.slice(0, 5).forEach(function(p) { console.log('       ✗ ' + p); });
+      if (fileProblems.length > 5) console.log('       … 其余 ' + (fileProblems.length - 5) + ' 处');
+    }
+  }
+
+  function walk(dir) {
+    var entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return; }
+    entries.forEach(function(en) {
+      if (en.name.indexOf('.') === 0 || en.name === 'node_modules' || en.name === 'dist') return;
+      var abs = path.join(dir, en.name);
+      if (en.isDirectory()) {
+        walk(abs);
+        return;
+      }
+      if (!/\.(vue|scss|css)$/.test(en.name)) return;
+      var rel = path.relative(root, abs).replace(/\\/g, '/');
+      // apps/<name>/frontend/** 只扫 frontend 子树；client/src 与 market-apps 全扫
+      if (rel.indexOf('apps/') === 0 && rel.split('/').length > 2 && rel.split('/')[2] !== 'frontend') return;
+      scanFile(abs);
+    });
+  }
+
+  roots.forEach(function(r) { walk(r.dir); });
+  // 历史代码存留场景时长（97 处量级），默认警告不阻断——lint 的职责是阻止新增与渐进消化；
+  // --strict 模式（CI/发布前）才视为失败
+  var strict = process.argv.indexOf('--strict') !== -1;
+  var ok = strict ? violations === 0 : true;
+  console.log(mark(ok, !strict && violations > 0) + ' motion 动效令牌合规（' + fileCount + ' 个样式文件，' +
+    violations + ' 处违规' + (strict ? '' : '，警告级——用 --strict 视为失败') + '）');
+  return ok;
+}
+
 // ---------------- 入口 ----------------
 var kind = process.argv[2];
 var target = process.argv[3];
 var results = {};
 
-if (!kind || (kind !== 'app' && kind !== 'plugin' && kind !== 'theme' && kind !== 'compat' && kind !== 'all')) {
+if (!kind || (kind !== 'app' && kind !== 'plugin' && kind !== 'theme' && kind !== 'compat' && kind !== 'market' && kind !== 'motion' && kind !== 'all')) {
   console.log('ClassIntra 第三方模块校验诊断');
   console.log('  node scripts/diag.js app [app-name]     应用校验（含小组件/路由冲突）');
   console.log('  node scripts/diag.js plugin [plug-name] 插件校验（backend 必有/挂载点冲突）');
   console.log('  node scripts/diag.js theme [theme-id]   主题校验（含 tokens 冒烟）');
   console.log('  node scripts/diag.js compat [app-name]  Chrome 80 兼容性 lint（apps + market-apps）');
+  console.log('  node scripts/diag.js market [name]      市场应用预校验（与安装时同一校验器，装前暴露问题）');
+  console.log('  node scripts/diag.js motion             动效令牌合规 lint（时长/曲线必须用 --duration-*/--ease-*）');
   console.log('  node scripts/diag.js all                全部');
   process.exit(kind ? 1 : 0);
 }
@@ -378,6 +623,8 @@ if (kind === 'app' || kind === 'all') results.app = diagApp(kind === 'all' ? nul
 if (kind === 'plugin' || kind === 'all') results.plugin = diagPlugin(kind === 'all' ? null : target);
 if (kind === 'theme' || kind === 'all') results.theme = diagTheme(kind === 'all' ? null : target);
 if (kind === 'compat' || kind === 'all') results.compat = diagCompat(kind === 'all' ? null : target);
+if (kind === 'market' || kind === 'all') results.market = diagMarket(kind === 'all' ? null : target);
+if (kind === 'motion' || kind === 'all') results.motion = diagMotion();
 
 var failed = Object.keys(results).some(function (k) { return results[k] === false; });
 console.log(failed ? '== 存在阻断性问题 ==' : '== 全部通过 ==');

@@ -28,39 +28,6 @@
         "description": "一键封禁/启用本班所有用户（排除班管）",
         "permission": "manage_users",
         "configSchema": null
-      },
-      {
-        "id": "admin-ai-usage",
-        "name": "AI 用量",
-        "component": "./frontend/widgets/AiUsagePanel.vue",
-        "defaultSize": { "w": 3, "h": 2 },
-        "minSize": { "w": 2, "h": 2 },
-        "maxSize": { "w": 4, "h": 4 },
-        "description": "按账户统计 AI 对话用量与折算成本（近 1/7/30 天，仅管理员）",
-        "permission": null,
-        "configSchema": null
-      },
-      {
-        "id": "admin-ai-pricing",
-        "name": "AI 价格规则",
-        "component": "./frontend/widgets/AiPricingPanel.vue",
-        "defaultSize": { "w": 4, "h": 4 },
-        "minSize": { "w": 3, "h": 3 },
-        "maxSize": { "w": 4, "h": 6 },
-        "description": "峰谷价 / 限时折扣 / 限免规则管理与价格试算（仅管理员）",
-        "permission": null,
-        "configSchema": null
-      },
-      {
-        "id": "admin-ai-wallet",
-        "name": "AI 额度",
-        "component": "./frontend/widgets/AiWalletPanel.vue",
-        "defaultSize": { "w": 3, "h": 3 },
-        "minSize": { "w": 2, "h": 2 },
-        "maxSize": { "w": 4, "h": 6 },
-        "description": "按用户设定 AI 消费金额上限，超额返回 402（不设 = 不限额，仅管理员）",
-        "permission": null,
-        "configSchema": null
       }
     ]
   }

@@ -325,12 +325,17 @@ var stmtInsertChatMessage = db.prepare(
   'INSERT INTO chat_messages (room_id, sender_id, sender_name, content, type, extra_json) VALUES (?, ?, ?, ?, ?, ?)'
 );
 
+// 历史读取一律 COALESCE 当前 users.net_name：老消息可能在 poll 通道时期
+// 把 user_id 存进了 sender_name（脏数据），以用户当前名字覆盖显示；
+// 用户不在本机 users 表（跨班）时才回退消息里存的快照名。
 var stmtGetChatHistory = db.prepare(
-  'SELECT id, sender_id, sender_name, content, type, extra_json, created_at FROM chat_messages WHERE room_id = ? ORDER BY id DESC LIMIT ?'
+  'SELECT m.id, m.sender_id, COALESCE(u.net_name, m.sender_name) AS sender_name, m.content, m.type, m.extra_json, m.created_at ' +
+  'FROM chat_messages m LEFT JOIN users u ON u.user_id = m.sender_id WHERE m.room_id = ? ORDER BY m.id DESC LIMIT ?'
 );
 
 var stmtGetChatHistoryOffset = db.prepare(
-  'SELECT id, sender_id, sender_name, content, type, extra_json, created_at FROM chat_messages WHERE room_id = ? ORDER BY id DESC LIMIT ? OFFSET ?'
+  'SELECT m.id, m.sender_id, COALESCE(u.net_name, m.sender_name) AS sender_name, m.content, m.type, m.extra_json, m.created_at ' +
+  'FROM chat_messages m LEFT JOIN users u ON u.user_id = m.sender_id WHERE m.room_id = ? ORDER BY m.id DESC LIMIT ? OFFSET ?'
 );
 
 var stmtCountChatMessages = db.prepare(
@@ -408,11 +413,13 @@ var stmtGetGroupMessage = db.prepare(
 );
 
 var stmtGetGroupHistory = db.prepare(
-  'SELECT id, sender_id, sender_name, content, type, extra_json, recalled, created_at FROM group_messages WHERE group_id = ? ORDER BY id DESC LIMIT ?'
+  'SELECT m.id, m.sender_id, COALESCE(u.net_name, m.sender_name) AS sender_name, m.content, m.type, m.extra_json, m.recalled, m.created_at ' +
+  'FROM group_messages m LEFT JOIN users u ON u.user_id = m.sender_id WHERE m.group_id = ? ORDER BY m.id DESC LIMIT ?'
 );
 
 var stmtGetGroupHistoryOffset = db.prepare(
-  'SELECT id, sender_id, sender_name, content, type, extra_json, recalled, created_at FROM group_messages WHERE group_id = ? ORDER BY id DESC LIMIT ? OFFSET ?'
+  'SELECT m.id, m.sender_id, COALESCE(u.net_name, m.sender_name) AS sender_name, m.content, m.type, m.extra_json, m.recalled, m.created_at ' +
+  'FROM group_messages m LEFT JOIN users u ON u.user_id = m.sender_id WHERE m.group_id = ? ORDER BY m.id DESC LIMIT ? OFFSET ?'
 );
 
 var stmtCountGroupMessages = db.prepare(
@@ -1646,8 +1653,11 @@ function handleTextMessage(ws, data) {
   }
   trackClientMsg(userId, content);
 
-  var userInfo = onlineUsers[userId] || {};
-  var senderName = userInfo.net_name || userInfo.real_name || userId;
+  // ⚠️ 名字必须以 users 表为准：poll 通道（平板轮询）与断线重连瞬间的用户
+  //    不在内存 onlineUsers 里，走内存表会把 user_id（如 251800）当名字写进消息。
+  //    PK 点查是微秒级，换不来多少性能，换来的是名字永远正确。
+  var senderRow = stmtGetUserInfo.get(userId);
+  var senderName = (senderRow && (senderRow.net_name || senderRow.real_name)) || userId;
 
   var msgType = data.msg_type || 'text';
   //gomoku_invite / chess_invite：棋类对局邀请卡片（分享房间码，点击直达对局）
@@ -1709,8 +1719,11 @@ function handleEmojiMessage(ws, data) {
   }
   trackClientMsg(userId, content);
 
-  var userInfo = onlineUsers[userId] || {};
-  var senderName = userInfo.net_name || userInfo.real_name || userId;
+  // ⚠️ 名字必须以 users 表为准：poll 通道（平板轮询）与断线重连瞬间的用户
+  //    不在内存 onlineUsers 里，走内存表会把 user_id（如 251800）当名字写进消息。
+  //    PK 点查是微秒级，换不来多少性能，换来的是名字永远正确。
+  var senderRow = stmtGetUserInfo.get(userId);
+  var senderName = (senderRow && (senderRow.net_name || senderRow.real_name)) || userId;
 
   var result = stmtInsertChatMessage.run('public', userId, senderName, content, 'emoji', '{}');
 
@@ -1789,8 +1802,9 @@ function handlePrivateMessage(ws, data) {
 
   relaySync.updateWatermark('private_messages', result.lastInsertRowid);
 
-  var senderInfo = onlineUsers[userId] || {};
-  var senderName = senderInfo.net_name || senderInfo.real_name || userId;
+  // 同上：私聊发送者名字也以 users 表为准，不信内存在线表
+  var senderRow = stmtGetUserInfo.get(userId);
+  var senderName = (senderRow && (senderRow.net_name || senderRow.real_name)) || userId;
 
   var messageObj = {
     id: result.lastInsertRowid,
@@ -1967,8 +1981,11 @@ function handleGroupMessage(ws, data) {
     return;
   }
 
-  var userInfo = onlineUsers[userId] || {};
-  var senderName = userInfo.net_name || userInfo.real_name || userId;
+  // ⚠️ 名字必须以 users 表为准：poll 通道（平板轮询）与断线重连瞬间的用户
+  //    不在内存 onlineUsers 里，走内存表会把 user_id（如 251800）当名字写进消息。
+  //    PK 点查是微秒级，换不来多少性能，换来的是名字永远正确。
+  var senderRow = stmtGetUserInfo.get(userId);
+  var senderName = (senderRow && (senderRow.net_name || senderRow.real_name)) || userId;
 
   var msgType = data.msg_type || 'text';
   //gomoku_invite / chess_invite：棋类对局邀请卡片（分享房间码，点击直达对局）
