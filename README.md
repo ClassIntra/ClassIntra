@@ -261,13 +261,11 @@ ClassIntra/
 
 | 变量 | 说明 | 必填 |
 |------|------|:----:|
-| `JWT_SECRET` | JWT 签名密钥（≥32 字符随机串） | ✅ |
+| `JWT_PRIVATE_KEY` | JWT 签名私钥（PEM 文本或路径；留空则首次启动自动生成到 `server/keys/`） | — |
+| `JWT_SECRET` | 仅用于过渡期验证旧版 HS256 token | — |
 | `ADMIN_USER_IDS` | 班管 ID（逗号分隔，格式 YYCC00） | — |
 | `DEV_PASSWORD` | 开发者测试账号密码（ID: 999999） | — |
 | `QWEATHER_KEY` | 和风天气 API Key | — |
-| `AI_API_KEY` | AI 服务 API Key（OpenAI 兼容） | — |
-| `DEEPSEEK_API_KEY` | DeepSeek API Key | — |
-| `TAVILY_API_KEY` | Tavily 联网搜索 API Key | — |
 | `COHORT` | 届数（跨班级中继过滤） | — |
 | `TAILSCALE_ENABLED` | 启用 Tailscale 组网中继 | — |
 
@@ -278,9 +276,6 @@ ClassIntra/
 | 服务 | 用途 | 配置变量 |
 |------|------|----------|
 | [和风天气](https://dev.qweather.com/) | 天气数据 + 预警 | `QWEATHER_*` |
-| OpenAI 兼容 API | AI 对话（支持任意兼容提供商） | `AI_*` |
-| [DeepSeek](https://platform.deepseek.com/) | 国产 AI 对话 | `DEEPSEEK_*` |
-| [Tavily](https://tavily.com/) | AI 联网实时搜索 | `TAVILY_*` |
 | [Tailscale](https://tailscale.com/) | 跨教室 VPN 组网中继 | `TAILSCALE_*` |
 | [Syncthing](https://syncthing.net/) | Resources 文件跨机同步 | `SYNCTHING_*` |
 
