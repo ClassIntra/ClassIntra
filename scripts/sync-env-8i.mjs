@@ -35,9 +35,6 @@ const KEEP_LOCAL = [
   'RELAY_SERVERS',       // 互指对方
   'TAILSCALE_RELAY_IP',  // 互指对方
   'WS_PORT',
-  'AI_API_KEY',
-  'AI_API_URL',
-  'AI_MODEL',
   'AB_ONEBOT_DISABLED',  // 8i 特有
   'AB_ALLOWED_USERS',    // 8i 特有
 ];

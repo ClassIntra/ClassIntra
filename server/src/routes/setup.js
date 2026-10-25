@@ -134,7 +134,6 @@ router.post('/save', requireSetupAuth, function(req, res) {
     var adminIds = data.adminIds || [];
     var records = data.records || {}; // { 'class08': [...], 'class18': [...] }
     var weatherLocation = String(data.weatherLocation || '').trim();
-    var defaultAiModel = String(data.defaultAiModel || '').trim();
     // 社区食堂列表（美食推荐下拉）：数组提交时生效；未提交该字段则保持现有配置不变
     var canteens = Array.isArray(data.canteens) ? data.canteens : null;
     var cleanedCanteens = [];
@@ -169,14 +168,6 @@ router.post('/save', requireSetupAuth, function(req, res) {
 
     if (weatherLocation && !/^-?\d+(\.\d+)?,-?\d+(\.\d+)?$/.test(weatherLocation)) {
       return res.status(400).json({ code: 400, message: '天气地点格式应为经度,纬度，例如117.26,31.22' });
-    }
-    var configuredModels = String(process.env.AI_AVAILABLE_MODELS || '').split(',').map(function(model) { return model.trim(); }).filter(function(model) { return model; });
-    if (defaultAiModel && configuredModels.length > 0 && configuredModels.indexOf(defaultAiModel) === -1) {
-      return res.status(400).json({ code: 400, message: '默认 AI 模型必须属于 AI_AVAILABLE_MODELS' });
-    }
-    // 模型名会写入 .env（AI_MODEL=xxx），白名单字符防止换行/特殊符号注入环境变量
-    if (defaultAiModel && !/^[\w.\-:\/]+$/.test(defaultAiModel)) {
-      return res.status(400).json({ code: 400, message: '默认 AI 模型名称只能包含字母、数字、点、横线、冒号、斜杠' });
     }
     if (canteens) {
       for (var ck = 0; ck < canteens.length; ck++) {
@@ -361,7 +352,6 @@ router.post('/save', requireSetupAuth, function(req, res) {
 
     envMap['ADMIN_USER_IDS'] = adminIds.join(',');
     if (weatherLocation) envMap['QWEATHER_LOCATION'] = weatherLocation;
-    if (defaultAiModel) envMap['AI_MODEL'] = defaultAiModel;
     // 食堂列表：提交了该字段才写入（清空列表 = 恢复社区内置默认名）
     if (canteens !== null) envMap['CANTEEN_LIST'] = cleanedCanteens.join(',');
 

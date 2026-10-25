@@ -116,7 +116,9 @@ pnpm install
 ```env
 PORT=9001
 WS_PORT=10001
-JWT_SECRET=<替换为32位以上随机字符串>
+HTTPS_PORT=9443
+# JWT 默认 RS256：私钥首次启动自动生成到 server/keys/，无需手动配置
+# 需要指定自己的私钥时设 JWT_PRIVATE_KEY（PEM 文本或文件路径）
 JWT_EXPIRES_IN=7d
 ADMIN_USER_IDS=250100,250800
 # 班管不预创建账号 — 学生用预注册名单中的真实姓名注册后自动获得管理员权限
@@ -124,9 +126,6 @@ ADMIN_USER_IDS=250100,250800
 # DEV_PASSWORD=dev123456
 QWEATHER_KEY=<和风天气API密钥>
 QWEATHER_LOCATION=<经度,纬度，如 116.41,39.92>
-AI_API_KEY=<AI服务API密钥>
-AI_API_URL=https://api.openai.com/v1/chat/completions
-AI_MODEL=gpt-3.5-turbo
 ```
 
 > 完整环境变量说明见下方 [3.1 环境变量详解](#31-环境变量详解)
@@ -355,11 +354,11 @@ A: 检查是否已执行 `pnpm build`，确认 `client/dist/index.html` 存在�
 **Q: WebSocket 连接失败**
 A: 检查 `WS_PORT`（默认10001）是否被占用，确认防火墙允许该端口。
 
-**Q: 天气/AI功能不工作**
-A: 需要在 `.env` 中配置 `QWEATHER_KEY` 和 `AI_API_KEY`。
+**Q: 天气功能不工作**
+A: 需要在 `.env` 中配置 `QWEATHER_KEY`。
 
 **Q: 登录后提示"登录已过期"**
-A: 检查 `JWT_SECRET` 配置，确保服务器重启后 SECRET 未变化。
+A: 检查 `server/keys/` 下的 JWT 密钥文件是否丢失或被替换（密钥变了，旧 token 全部失效）。
 
 **Q: 资源仓库无法加载文件**
 A: 确认 `Resources` 目录存在且路径正确。默认路径为项目根目录下的 `Resources`。

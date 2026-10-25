@@ -41,27 +41,6 @@ module.exports = {
     sub: process.env.QWEATHER_SUB || '',
     privateKey: process.env.QWEATHER_PRIVATE_KEY || ''
   },
-  ai: (function() {
-    var availableModels = (process.env.AI_AVAILABLE_MODELS || 'gpt-4o-mini-2024-07-18,gpt-4o-mini').split(',').map(function(s) { return s.trim(); }).filter(function(s) { return s !== ''; });
-    var configuredModel = process.env.AI_MODEL || 'gpt-3.5-turbo';
-    return {
-      apiKey: process.env.AI_API_KEY || '',
-      apiUrl: process.env.AI_API_URL || '',
-      model: availableModels.indexOf(configuredModel) >= 0 ? configuredModel : (availableModels[0] || configuredModel),
-      availableModels: availableModels
-    };
-  })(),
-  deepseek: {
-    apiKey: process.env.DEEPSEEK_API_KEY || '',
-    apiUrl: process.env.DEEPSEEK_API_URL || 'https://api.deepseek.com/chat/completions',
-    model: process.env.DEEPSEEK_MODEL || 'deepseek-chat'
-  },
-  tavily: {
-    apiKey: process.env.TAVILY_API_KEY || '',
-    apiUrl: process.env.TAVILY_API_URL || 'https://api.tavily.com/search',
-    maxResults: 2,
-    searchDepth: 'basic'
-  },
   resourcesDir: path.resolve(process.env.RESOURCES_DIR || path.join(__dirname, '../../../Resources')),
   dbPath: path.resolve(process.env.DB_PATH || path.join(__dirname, '../../database/classintra.db')),
   relay: {
