@@ -344,6 +344,10 @@ export default {
   },
   mounted: function() {
     var self = this;
+    // 全局搜索里的「锁定屏幕」命令：isLocked 是组件内状态（不在 store），
+    // 命令侧通过自定义事件解耦，避免 search-sources 反向依赖 App 组件。
+    this._onLockRequest = function() { self.lockScreen(); };
+    window.addEventListener('classintra:lock', this._onLockRequest);
     self._unwatchToken = null;
     if (self.$modal && self.$refs.modalDialog) {
       self.$modal._setInstance(self.$refs.modalDialog);
@@ -658,6 +662,9 @@ export default {
   },
   beforeDestroy: function() {
     reminderChecker.stop();
+    if (this._onLockRequest) {
+      window.removeEventListener('classintra:lock', this._onLockRequest);
+    }
     if (this._onAccountDisabled) {
       window.removeEventListener('classintra-account-disabled', this._onAccountDisabled);
     }

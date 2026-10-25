@@ -90,12 +90,14 @@ import store from './store';
 import ModalDialog from './components/ModalDialog.vue';
 import LoadingSkeleton from './components/LoadingSkeleton.vue';
 import ErrorBoundary from './components/ErrorBoundary.vue';
+import EmptyState from './components/EmptyState.vue';
 import AppShell from './components/AppShell.vue';
 import { globalErrorHandler } from '@shared/errors';
 import { getServiceRegistry } from '@/core/service-registry';
 import { getEventBus } from '@/core/event-bus';
 import { getThemeEngine, loadThemeExtensions } from '@/core/theme-engine';
 import profileSkin from '@/core/profile-skin';
+import { installSearchSources } from '@/core/search-sources';
 import { getHotkeyManager } from '@/core/hotkey-manager';
 import { getSearchRegistry } from '@/core/search-registry';
 import { getIntegrationManager } from '@/integrations';
@@ -133,6 +135,7 @@ Vue.component('ModalDialog', ModalDialog);
 Vue.component('LoadingSkeleton', LoadingSkeleton);
 Vue.component('ErrorBoundary', ErrorBoundary);
 Vue.component('AppShell', AppShell);
+Vue.component('EmptyState', EmptyState);
 
 var ModalPlugin = {
   install: function(VueConstructor) {
@@ -248,6 +251,15 @@ boot.onStage('services', 'serviceRegistry', function() {
 boot.onStage('sdk', 'sdkExpose', function() {
   // 设置 window.__router 供 SearchRegistry 的应用搜索使用
   window.__router = router;
+
+  // 装配全局搜索的可搜内容（命令 + 社区帖子 + 班级资料）。
+  // 必须放在 __router 赋值之后 —— 命令的 action 依赖它跳转。
+  // 装配失败不影响启动：搜索是辅助功能，降级成「只能搜应用」也是可用的。
+  try {
+    installSearchSources();
+  } catch (e) {
+    console.error('[main] 搜索源装配失败:', e);
+  }
 
   var marketSdk = {
     version: '1',
