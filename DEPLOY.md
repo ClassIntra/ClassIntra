@@ -16,7 +16,7 @@
 - CPU: 2核心及以上
 - 内存: 2GB 及以上
 - 硬盘: 1GB 可用空间
-- 网络: 局域网环境，支持 TCP 9001/10001/10011 端口
+- 网络: 局域网环境，支持 TCP 9001/10001/10011/9443 端口
 
 ### 软件要求
 
@@ -61,7 +61,7 @@ ClassIntra/
 │   │   ├── routes/        # REST API 路由
 │   │   ├── core/          # 核心（manifest-loader, route-aggregator）
 │   │   ├── utils/         # 工具函数（数据库初始化、经验系统等）
-│   │   ├── services/      # 业务服务（天气、AI等）
+│   │   ├── services/      # 业务服务（天气、中继总线等）
 │   │   ├── config/        # 配置模块
 │   │   └── middleware/    # 中间件（认证、限流）
 │   ├── config/
@@ -213,7 +213,9 @@ app.js 直接从 `client/dist/` 提供前端产物（无需拷贝到 `server/pub
 |------|------|--------|------|
 | PORT | HTTP 服务端口 | 9001 | 否 |
 | WS_PORT | WebSocket 端口 | 10001 | 否 |
-| JWT_SECRET | JWT 签名密钥 | 无（必须设置，否则无法启动） | **是** |
+| HTTPS_PORT | HTTPS 服务端口 | 9443 | 否 |
+| JWT_PRIVATE_KEY | JWT 签名私钥（PEM 文本或路径） | 空（缺省时首次启动自动生成密钥对到 server/keys/） | 否 |
+| JWT_SECRET | JWT 过渡验签密钥（兼容旧版 HS256 token） | 空（私钥不可用且为空时拒绝签发） | 否 |
 | JWT_EXPIRES_IN | Token 有效期 | 7d | 否 |
 | ADMIN_USER_IDS | 班管ID（逗号分隔，格式YYCC00） | 无 | 否 |
 | DEV_PASSWORD | 开发者账号密码（ID: 999999） | 空 | 否 |
@@ -228,14 +230,6 @@ app.js 直接从 `client/dist/` 提供前端产物（无需拷贝到 `server/pub
 | QWEATHER_KID | 和风天气 JWT KID | 空 | 否 |
 | QWEATHER_SUB | 和风天气 JWT SUB | 空 | 否 |
 | QWEATHER_PRIVATE_KEY | 和风天气 JWT 私钥 | 空 | 否 |
-| AI_API_KEY | AI 服务 API Key | 空 | 否* |
-| AI_API_URL | AI 服务地址 | 空 | 否 |
-| AI_MODEL | AI 模型名称 | gpt-3.5-turbo | 否 |
-| DEEPSEEK_API_KEY | DeepSeek API Key | 空 | 否* |
-| DEEPSEEK_API_URL | DeepSeek API 地址 | https://api.deepseek.com/chat/completions | 否 |
-| DEEPSEEK_MODEL | DeepSeek 模型名称 | deepseek-chat | 否 |
-| TAVILY_API_KEY | Tavily 搜索 API Key | 空 | 否 |
-| TAVILY_API_URL | Tavily 搜索 API 地址 | https://api.tavily.com/search | 否 |
 | RESOURCES_DIR | 资源目录路径 | ../Resources | 否 |
 | DB_PATH | 数据库文件路径 | ./database/classintra.db | 否 |
 | RELAY_SERVERS | 中继服务器地址（逗号分隔） | 空 | 否 |
@@ -248,7 +242,9 @@ app.js 直接从 `client/dist/` 提供前端产物（无需拷贝到 `server/pub
 | TAILSCALE_ENABLED | 是否启用 Tailscale | false | 否 |
 | TAILSCALE_RELAY_IP | Tailscale 中继 IP | 空 | 否 |
 
-\*天气和AI功能需要配置对应API Key才能使用
+\*天气功能需要配置对应API Key才能使用
+
+HTTPS 服务由 PM2 进程 `classintra-https` 提供，默认监听 **9443**（不再占用 443，避免与机器上其他服务冲突；确需 443 时在 `.env` 显式设置 `HTTPS_PORT=443`）。证书配置详见 [docs/HTTPS-配置说明.md](docs/HTTPS-配置说明.md)。
 
 ### 3.2 管理员与班干配置
 

@@ -133,6 +133,14 @@
         </div>
       </div>
 
+      <!-- 加载失败：必须与「空」区分开，否则用户会以为文件没了 -->
+      <EmptyState
+        v-else-if="loadError"
+        variant="error"
+        description="文件列表没拉下来。文件还在，点重试再取一次。"
+        @action="loadFiles"
+      />
+
       <div v-else-if="files.length === 0" class="empty-state">
         <i class="fa-solid fa-cloud"></i>
         <p>{{ currentFolder && currentFolder !== '__root__' ? '此分组为空' : '云盘为空' }}</p>
@@ -422,6 +430,10 @@ export default {
       files: [],
       folders: [],
       loading: true,
+      // 加载失败必须与「真的为空」分开：
+      // catch 里如果只把 loading 关掉，files 仍是 []，模板就会渲染成「云盘为空」——
+      // 用户会以为自己的文件全没了，然后重复上传或去找管理员。
+      loadError: false,
       previewFile_data: null,
       // 上传码
       uploadCode: '',
@@ -681,6 +693,7 @@ export default {
     loadFiles: function() {
       var self = this;
       self.loading = true;
+      self.loadError = false;
       var params = {};
       if (self.currentFolder) params.folder = self.currentFolder;
       api.get('/cloud/files', { params: params }).then(function(res) {
@@ -688,6 +701,8 @@ export default {
         self.loading = false;
       }).catch(function() {
         self.loading = false;
+        // ⚠️ 不要在这里把 files 清空后当「空态」处理 —— 见 data 里 loadError 的注释
+        self.loadError = true;
       });
     },
     switchFolder: function(folder) {
