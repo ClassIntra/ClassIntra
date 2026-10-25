@@ -704,7 +704,7 @@ function _validateMarketManifest(m, expectedName) {
   }
   // ---- frontend.widgets：桌面小组件声明（可选）----
   // 市场应用的小组件没有独立 .vue 组件（component 字段会被忽略并告警），
-  // 渲染入口在 entry.js 的 definition.widgets[<id>] 契约上，见 docs/market-dev-guide.md
+  // 渲染入口在 entry.js 的 definition.widgets[<id>] 契约上，见 https://classintra.github.io/development/package-spec
   if (m.frontend && m.frontend.widgets !== undefined) {
     if (!Array.isArray(m.frontend.widgets)) {
       errors.push('frontend.widgets 应为数组类型');

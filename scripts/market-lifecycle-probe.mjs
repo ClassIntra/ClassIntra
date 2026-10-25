@@ -1,5 +1,5 @@
 // 验证：market 应用完整生命周期「安装 → 使用 → 卸载 → 重装 → 再卸载」全程无残留
-// （对应 docs/market-dev-guide.md 的"卸载即无痕"承诺，是生态质量的回归探针）
+// （对应 https://classintra.github.io/development/package-spec 的"卸载即无痕"承诺，是生态质量的回归探针）
 //
 // 流程：
 //   0. 在本地市场源写入一次性探针应用 zz-lifecycle-probe（自建表 + cleanup.js 钩子）

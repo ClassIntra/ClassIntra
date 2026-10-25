@@ -86,7 +86,7 @@ router.get('/health', requireAuth, function(req, res) {
   res.json({ code: 200, data: { ok: true, plugin: '${name}' } });
 });
 
-// TODO: 你的业务路由。自建表请提供 backend/cleanup.js（卸载即无痕，见 docs/market-dev-guide.md §6）
+// TODO: 你的业务路由。自建表请提供 backend/cleanup.js（卸载即无痕，见 https://classintra.github.io/development/package-spec §6）
 
 module.exports = router;
 `);
@@ -104,7 +104,7 @@ module.exports = function cleanup(ctx) {
 2. 装前预检：node scripts/diag.js plugin（或 market）
 3. 发布：市场源根目录跑 node scripts/market-index-gen.mjs && node scripts/market-sign.mjs 后推送
 
-完整契约：docs/market-dev-guide.md 与 plugins/README.md
+完整契约：https://classintra.github.io/development/package-spec 与 plugins/README.md
 `);
   console.log('已生成插件骨架: ' + dir);
   console.log('下一步: node scripts/diag.js plugin ' + name);
@@ -138,7 +138,7 @@ async function genTheme(id) {
 - 安装后出现在全班成员的主题选择里；卸载时使用中的用户自动回退浅色
 - 发布：市场源根目录 node scripts/market-index-gen.mjs && node scripts/market-sign.mjs 后推送
 
-完整契约：docs/market-dev-guide.md §9
+完整契约：https://classintra.github.io/development/package-spec §9
 `);
   console.log('已生成主题骨架: ' + dir + '（type=' + type + '，tokens 基于 ' + type + ' 副本）');
   console.log('下一步: 改 tokens.json → 管理端市场 → 主题 → 安装');
@@ -176,7 +176,7 @@ async function genSite(name) {
     button { padding: 10px 24px; border-radius: 10px; border: none; background: #007AFF; color: #fff; font-size: 14px; min-height: 44px; }
     pre { background: rgba(128,128,128,0.12); border-radius: 10px; padding: 12px; font-size: 12px; overflow: auto; }
   </style>
-  <!-- CI 适配器：获得用户信息/主题跟随/返回桌面/系统 toast（见 docs/migration-guide.md） -->
+  <!-- CI 适配器：获得用户信息/主题跟随/返回桌面/系统 toast（见 https://classintra.github.io/development/migration） -->
   <script src="/ci-adapter.js"></script>
 </head>
 <body>

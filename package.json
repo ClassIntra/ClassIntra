@@ -23,6 +23,6 @@
     "create:app": "node scripts/create-app.mjs"
   },
   "devDependencies": {
-    "sharp": "^0.35.2"
+    "sharp": "^0.35.5"
   }
 }

@@ -2,7 +2,7 @@
 // ============================================================
 // 让「已安装且启用」的市场应用能够在任意页面挂载全局悬浮 UI（如桌宠、倒计时浮窗）。
 //
-// 契约（详见 docs/market-dev-guide.md）：
+// 契约（详见 https://classintra.github.io/development/package-spec）：
 //   1. manifest 声明 frontend.overlay: "./frontend/overlay.js"（可选，缺省无悬浮层）
 //   2. overlay.js 与 entry.js 同构：IIFE + window.ClassIntraMarket.defineOverlay({ name, mount, unmount })
 //   3. mount(container, context) 收到的 container 满足：

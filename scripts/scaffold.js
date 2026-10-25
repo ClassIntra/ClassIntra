@@ -32,7 +32,7 @@ function mix(hex, other, ratio) {
 
 // 满铺应用图标模板（512 viewBox）：
 // 资产顶格画布、内容铺满 100%，圆角由 AppIcon 容器 CSS 统一裁切（60px + radius 20px + cover）——
-// 图标资产本身绝不留白（项目硬性规范，详见 docs/third-party-development.md 图标规范一节）
+// 图标资产本身绝不留白（项目硬性规范，详见 https://classintra.github.io/development/third-party）
 function iconSvg(label, color) {
   var light = mix(color, '#ffffff', 0.38);
   var dark = mix(color, '#000000', 0.28);

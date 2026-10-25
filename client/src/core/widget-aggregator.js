@@ -73,7 +73,7 @@ function unregisterWidget(id) {
 
 // ===== 市场应用小组件的运行时注册 =====
 // 市场应用的 widget 没有独立 .vue 组件文件（不参与构建），渲染入口在
-// entry.js 的 definition.widgets[<id>] 契约上（见 docs/market-dev-guide.md）。
+// entry.js 的 definition.widgets[<id>] 契约上（见 https://classintra.github.io/development/package-spec）。
 // 注册键统一加 'mw:' 前缀（market widget），避免与官方 widget id 冲突。
 // apps = marketRegistry.refresh() 的返回值（listInstalled 已透传 widgets 白名单字段）。
 import MarketWidgetHost from '@/components/MarketWidgetHost.vue';
