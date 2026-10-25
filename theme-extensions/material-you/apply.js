@@ -34,6 +34,16 @@ function buildTokens(manifest, isDark, seedColor) {
     shadow: _unflattenShadow(dynamicTokens),
     motion: TOKENS.motion
   };
+
+  // 「个人主页装扮」令牌（可选）：manifest.profile 由 schema 白名单校验后，
+  // 放进 tokens.profile → flattenTokens 落成 --ci-profile-*，与 --ci-color-*
+  // 一同写入、一同随主题切换清除。清单见 shared/src/theme-extension-schema.js
+  // 的 PROFILE_TOKENS；消费端是 client/src/core/profile-skin.js。
+  // 本扩展目前不声明 profile（M3 的 lg=20px 已经通过 --radius-lg 传导到主页），
+  // 这里保留透传是为了让后续扩展照抄即可生效，不用回来改引擎。
+  if (manifest && manifest.profile && typeof manifest.profile === 'object') {
+    structured.profile = manifest.profile;
+  }
   return structured;
 }
 

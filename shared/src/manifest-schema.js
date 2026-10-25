@@ -68,6 +68,8 @@ var KNOWN_CAPABILITIES = [
   'system.notification', 'system.clipboard', 'system.share', 'system.navigate',
   // 界面
   'ui.toast', 'ui.modal', 'ui.sheet',
+  // ui.overlay：声明 frontend.overlay 后可在任意页面挂载全局悬浮层（宿主 z-index 9400）
+  'ui.overlay',
   // 应用自身
   'app.config', 'app.storage',
   // 设备

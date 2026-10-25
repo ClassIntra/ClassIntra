@@ -62,6 +62,22 @@ var mutations = {
   SET_HOT_RANKING: function(state, ranking) { state.hotRanking = ranking; },
   SET_PROFILE: function(state, profile) { state.profile = profile; },
   SET_MY_POSTS: function(state, data) { state.myPosts = data.posts; state.myPostsTotal = data.total; },
+  // 「我的帖子」分页追加：翻页时不能覆盖已有列表，但 total 要跟最新一次返回
+  APPEND_MY_POSTS: function(state, data) {
+    var seen = {};
+    var merged = [];
+    var prev = state.myPosts || [];
+    for (var i = 0; i < prev.length; i++) {
+      seen[prev[i].id] = true;
+      merged.push(prev[i]);
+    }
+    var next = (data && data.posts) || [];
+    for (var j = 0; j < next.length; j++) {
+      if (!seen[next[j].id]) merged.push(next[j]);
+    }
+    state.myPosts = merged;
+    state.myPostsTotal = data.total;
+  },
   SET_GROUPS: function(state, groups) { state.groups = groups; },
   SET_SEARCH_RESULTS: function(state, data) { state.searchResults = data.posts; state.searchTotal = data.total; },
   SET_USER_STATS: function(state, data) {
@@ -198,8 +214,15 @@ var actions = {
     });
   },
   fetchMyPosts: function(context, params) {
+    params = params || {};
     return api.get('/community/my/posts', { params: params }).then(function(res) {
-      context.commit('SET_MY_POSTS', res.data.data);
+      var data = res.data.data;
+      if (params.append) {
+        context.commit('APPEND_MY_POSTS', data);
+      } else {
+        context.commit('SET_MY_POSTS', data);
+      }
+      return data;
     });
   },
   fetchGroups: function(context) {

@@ -72,6 +72,13 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         NODE_PATH: path.join(serverDir, 'node_modules'),
+        // 外部工具（WorkBuddy 等）会经 NODE_OPTIONS / PYTHONPATH 注入垫片。
+        // 这两个键必须显式清空：从被污染的 shell 里 start/restart 会把垫片继承进
+        // 常驻进程（2026-10-25 实测 classintra-server 的 NODE_OPTIONS 就带着
+        // node-language-shim.cjs，而 classintra-https 是干净的）。清空不影响
+        // better-sqlite3 —— ABI 只由 exec_interpreter 钉住的 Node 版本决定。
+        NODE_OPTIONS: '',
+        PYTHONPATH: '',
         PORT: envVars.PORT || '9001',
         WS_PORT: envVars.WS_PORT || '10001',
         RELAY_PORT: envVars.RELAY_PORT || '10011',

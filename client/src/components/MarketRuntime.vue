@@ -13,7 +13,18 @@
     @retry="retry"
     @back="onShellBack"
   >
-    <div ref="container" class="market-runtime-container"></div>
+    <div ref="container" class="market-runtime-container">
+      <!-- 静态站形态（frontend.static）：iframe 加载，零适配迁入。
+           同源（/market-static）→ 站内可直接读 localStorage('token') 调 /api，无需注入 -->
+      <iframe
+        v-if="staticUrl"
+        :src="staticUrl"
+        class="market-static-frame"
+        :title="effectiveTitle"
+        frameborder="0"
+        allow="fullscreen"
+      ></iframe>
+    </div>
   </AppShell>
 </template>
 
@@ -22,6 +33,7 @@ import AppShell from '@/components/AppShell.vue';
 import { marketRegistry } from '@/core/market-registry';
 import { getRuntimeKernel } from '@/core/runtime-kernel';
 import { getTokenInjector } from '@/core/token-injector';
+import { getThemeEngine } from '@/core/theme-engine';
 
 export default {
   name: 'MarketRuntime',
@@ -55,15 +67,27 @@ export default {
     },
     showNavbar: function() {
       return !this.hideNavbar;
+    },
+    // 静态站形态的 iframe 地址（manifest frontend.static 透传为 frontendStatic）
+    staticUrl: function() {
+      var app = marketRegistry.getInstalled(this.appName) || {};
+      if (!app.frontendStatic) return '';
+      return '/market-static/' + this.appName + '/' +
+        String(app.frontendStatic).replace(/^\.\//, '') + '?v=' + encodeURIComponent(app.version || '');
     }
   },
   mounted: function() {
     this.mountApp();
-    // 应用可见性变化时挂起/恢复（平板省电的关键）
+    // 静态站 RPC 桥：iframe 内 <script src="/ci-adapter.js"> 的调用代理到系统
+    //（校验来源：只信自己 iframe 的 contentWindow）
+    this._onFrameMessage = this.handleFrameMessage.bind(this);
+    window.addEventListener('message', this._onFrameMessage);
+    // 页面可见性变化时挂起/恢复（平板省电的关键）
     this._onVisibilityChange = this.handleVisibilityChange.bind(this);
     document.addEventListener('visibilitychange', this._onVisibilityChange);
   },
   beforeDestroy: function() {
+    window.removeEventListener('message', this._onFrameMessage);
     document.removeEventListener('visibilitychange', this._onVisibilityChange);
     this.unmountApp();
   },
@@ -94,6 +118,31 @@ export default {
       if (!self.$refs.container) return;
       self.error = '';
       self.loading = true;
+
+      // 静态站形态：iframe 渲染（不走 entry.js/生命周期装载，AppShell 照常提供导航）
+      if (self.staticUrl) {
+        self.loading = false;
+        self.lifecycleState = 'active';
+        self.appTitle = appName;
+        try {
+          var installed = marketRegistry.getInstalled(appName) || {};
+          self.appTitle = installed.label || appName;
+        } catch (e) {}
+        // 主题变化推送给 iframe（CI.onTheme 订阅方接收）
+        try {
+          var engine = getThemeEngine();
+          self._offTheme = engine.subscribe(function() {
+            var frame = self._frameEl();
+            if (!frame) return;
+            try {
+              var id2 = engine.getCurrentTheme ? engine.getCurrentTheme() : '';
+              var t = engine.getTheme(id2);
+              frame.contentWindow.postMessage({ __ci: 1, event: 'theme-changed', data: { id: id2, tokens: (t && t.tokens) || null } }, '*');
+            } catch (e2) {}
+          });
+        } catch (e) {}
+        return;
+      }
 
       // 通过内核创建生命周期机（含资源审计）
       var kernel = getRuntimeKernel();
@@ -157,6 +206,10 @@ export default {
     unmountApp: function() {
       this.mountToken++;
       var self = this;
+      if (self._offTheme) {
+        try { self._offTheme(); } catch (e) {}
+        self._offTheme = null;
+      }
       if (self._machine) {
         try { self._machine.unmount(); } catch (e) {}
         self.lifecycleState = 'idle';
@@ -169,7 +222,56 @@ export default {
       this.mountedDefinition = null;
     },
 
-    // 页面可见性变化：不可见时挂起（回收计时器省电），可见时恢复
+    // ===== 静态站 RPC 桥（协议见 client/public/ci-adapter.js）=====
+    _frameEl: function() {
+      var el = this.$refs.container;
+      return el ? el.querySelector('iframe.market-static-frame') : null;
+    },
+    handleFrameMessage: function(e) {
+      var d = e.data;
+      if (!d || d.__ci !== 1 || !d.method) return;
+      var frame = this._frameEl();
+      if (!frame || e.source !== frame.contentWindow) return; // 只信自己的 iframe
+      var self = this;
+      var reply = function(ok, result) {
+        try {
+          frame.contentWindow.postMessage({ __ci: 1, id: d.id, ok: !!ok, result: result }, '*');
+        } catch (err) {}
+      };
+      switch (d.method) {
+        case 'user': {
+          var u = (self.$store && self.$store.state.auth && self.$store.state.auth.user) || null;
+          if (!u) { reply(false, '未登录'); return; }
+          reply(true, {
+            user_id: u.user_id, net_name: u.net_name, real_name: u.real_name,
+            role: u.role, is_admin: u.is_admin, is_class_admin: u.is_class_admin
+          });
+          return;
+        }
+        case 'theme': {
+          try {
+            var engine = getThemeEngine();
+            var currentId = engine.getCurrentTheme ? engine.getCurrentTheme() : '';
+            var cur = engine.getTheme(currentId);
+            reply(true, { id: currentId, tokens: (cur && cur.tokens) || null });
+          } catch (err) { reply(false, '主题不可用'); }
+          return;
+        }
+        case 'back':
+          self.onShellBack();
+          self.goDesktop();
+          reply(true, true);
+          return;
+        case 'toast': {
+          var p = d.params || {};
+          self.$store.commit('toast/SHOW_TOAST', { message: String(p.message || ''), type: p.type || 'info' });
+          reply(true, true);
+          return;
+        }
+        default:
+          reply(false, '未知方法: ' + d.method);
+      }
+    },
     handleVisibilityChange: function() {
       var self = this;
       if (!self._machine || self.lifecycleState !== 'active') return;
@@ -219,5 +321,12 @@ export default {
 .market-runtime-container > * {
   height: 100%;
   min-height: 0;
+}
+.market-static-frame {
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
+  background: var(--bg-color, #fff);
 }
 </style>

@@ -53,8 +53,8 @@ var REQUIRED_MODULES = ['settings', 'admin'];
 
 // 可选业务模块（L2 中隐藏）
 var OPTIONAL_APPS = [
-  'ai-chat', 'calculator', 'calendar', 'chat', 'cloud',
-  'community', 'countdown', 'integration', 'market', 'music', 'notes',
+  'calculator', 'calendar', 'chat', 'cloud',
+  'community', 'countdown', 'integration', 'market', 'music',
   'resource', 'timetable', 'weather'
 ];
 

@@ -224,8 +224,6 @@ const TARGETS = [
   'apps/chat/frontend/Chat.vue',
   'apps/admin/frontend/Admin.vue',
   'apps/settings/frontend/Settings.vue',
-  'apps/ai-chat/frontend/AIChat.vue',
-  'apps/notes/frontend/Notes.vue',
   'apps/community/frontend/Community.vue',
   'apps/music/frontend/Music.vue',
   'apps/resource/frontend/Resource.vue',

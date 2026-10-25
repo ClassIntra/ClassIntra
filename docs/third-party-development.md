@@ -1,9 +1,23 @@
 # ClassIntra 第三方开发指南
 
-面向第三方开发者：如何在 ClassIntra 上开发**应用**、**桌面小组件**与**主题**。
-三类模块共用一套脚手架（`scripts/scaffold.js`）与校验器（`scripts/diag.js`），开发体验完全一致。
+面向第三方开发者：如何在 ClassIntra 上开发**应用**、**插件**、**主题**、**桌面小组件**。
 
-## 工具速查
+## 统一入口（从这里开始）
+
+所有骨架生成走同一个命令，模板即正确示例（Chrome 80 / 令牌 / 生命周期回收）：
+
+```bash
+node scripts/create.mjs app <name> [--label 显示名] [--with-backend]   # 市场应用（微前端，market-apps/）
+node scripts/create.mjs official-app <name>                            # 官方应用（.vue，随主仓构建）
+node scripts/create.mjs plugin <name>                                 # 市场插件（纯后端，市场源 plugins/）
+node scripts/create.mjs theme <id> [--type light|dark]                 # 市场主题（纯数据 JSON，市场源 themes/）
+node scripts/create.mjs widget <app> <widget-id>                       # 桌面小组件（官方应用内）
+```
+
+生成后固定三步：`diag` 装前预检 → 本地市场源安装调试 → `market-index-gen` + `market-sign` 发布。
+市场分发（应用/插件/主题）的完整契约见 **docs/market-dev-guide.md**。
+
+## 工具速查（细粒度命令，统一入口的底层）
 
 ```bash
 # 脚手架（30 秒生成骨架）
@@ -16,7 +30,20 @@ node scripts/diag.js app [name]     # manifest 规范 + 文件完整性 + 路由
 node scripts/diag.js plugin [name]  # 插件校验（backend 必有 + 挂载点跨类冲突）
 node scripts/diag.js theme [id]     # 主题契约 + tokens 冒烟
 node scripts/diag.js compat [name]  # Chrome 80 兼容性 lint（apps + market-apps）
+node scripts/diag.js market [name]  # 市场应用预校验（与安装时同一校验器，装前暴露问题）
+node scripts/diag.js motion         # 动效令牌合规 lint（时长/曲线须用 --duration-*/--ease-*；--strict 时视为失败）
 node scripts/diag.js all            # 全部
+
+# 动效约定（§5.5.1 唯一权威表的可执行形态）：
+#   - transition/animation 时长用 var(--duration-instant|fast|normal|slow|stagger)
+#   - transition 曲线用 var(--ease-*)；帧动画 steps() 与 infinite 循环周期豁免
+#   - 刻意的场景时长（氛围渐变等）行内注释 /* motion:scene <原因> */ 显式豁免
+#   - market 直出应用建议带 fallback：var(--duration-fast, 0.15s)（宿主令牌未注入时兜底）
+
+# 市场源索引（apps/plugins/themes 的 files 清单自动生成，手工运营字段保留）
+node scripts/market-index-gen.mjs [源目录] [--check]
+
+# 市场分发（应用/主题/插件）的完整契约见 docs/market-dev-guide.md
 
 # 构建与运行
 node scripts/build-app.js <name>     # 前端开发循环工具（lint + apps/ vite 构建 / market-apps/ 直出检查）

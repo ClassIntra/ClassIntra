@@ -55,7 +55,12 @@ router.get('/catalog', auth.requireAuth, function(req, res) {
   var sourceId = req.query.source || 'gitee';
   marketService.getCatalogWithFallback(sourceId).then(function(result) {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.json({ code: 200, data: { source: result.source.id, catalog: result.catalog } });
+    res.json({ code: 200, data: {
+      source: result.source.id,
+      // 目录验签状态：true=已验签 / 'unsigned'=未启用验签 / 'local'=本地源免验
+      verified: result.catalog._verified === undefined ? 'unsigned' : result.catalog._verified,
+      catalog: result.catalog
+    } });
   }).catch(function(e) {
     res.status(502).json({ code: 502, message: e.message || '获取市场目录失败' });
   });
@@ -163,6 +168,54 @@ router.post('/plugin-toggle', auth.requireAuth, auth.requireAdmin, function(req,
     res.json({ code: 200, data: result, message: enabled ? '插件已启用' : '插件已暂停' });
   }).catch(function(e) {
     res.status(400).json({ code: 400, message: e.message || '操作失败' });
+  });
+});
+
+// ========== 主题市场（纯数据 JSON 主题包，详见 docs/market-dev-guide.md） ==========
+
+function broadcastThemeChange(action, themeId, result) {
+  try {
+    var chatServer = require('../ws/chat-server');
+    chatServer.broadcast({
+      type: 'market_theme_changed',
+      action: action,
+      themeId: themeId,
+      version: result && result.version ? result.version : ''
+    });
+  } catch (e) {
+    console.error('[market] 广播主题变更失败:', e.message);
+  }
+}
+
+// 已安装主题列表（需登录：所有用户都要能取到，用于主题选择 UI）
+router.get('/themes-installed', auth.requireAuth, function(req, res) {
+  res.json({ code: 200, data: { themes: marketService.listInstalledThemes() } });
+});
+
+// 安装主题（管理员/班管）
+router.post('/install-theme', auth.requireAuth, auth.requireAdmin, function(req, res) {
+  var name = req.body && req.body.name;
+  var source = (req.body && req.body.source) || 'gitee';
+  if (!name) return res.status(400).json({ code: 400, message: '缺少主题 id' });
+  marketService.installTheme(name, source).then(function(result) {
+    broadcastThemeChange('installed', name, result);
+    res.json({ code: 200, data: result, message: '主题安装成功' });
+  }).catch(function(e) {
+    console.error('[market] 主题安装失败:', name, e.message);
+    res.status(400).json({ code: 400, message: e.message || '主题安装失败' });
+  });
+});
+
+// 卸载主题（管理员/班管）
+router.post('/uninstall-theme', auth.requireAuth, auth.requireAdmin, function(req, res) {
+  var name = req.body && req.body.name;
+  if (!name) return res.status(400).json({ code: 400, message: '缺少主题 id' });
+  marketService.uninstallTheme(name).then(function(result) {
+    broadcastThemeChange('uninstalled', name, result);
+    res.json({ code: 200, data: result, message: '主题已卸载' });
+  }).catch(function(e) {
+    console.error('[market] 主题卸载失败:', name, e.message);
+    res.status(400).json({ code: 400, message: e.message || '主题卸载失败' });
   });
 });
 

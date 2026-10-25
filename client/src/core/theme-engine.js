@@ -44,6 +44,15 @@ ThemeEngine.prototype.registerTheme = function(id, options) {
   };
 };
 
+// 注销主题（市场主题卸载时由 theme-market 调用）
+// 若正在使用该主题，回退到 light（setTheme 的未知主题兜底会接管持久化同步）
+ThemeEngine.prototype.unregisterTheme = function(id) {
+  if (!id || !this._themes[id]) return false;
+  delete this._themes[id];
+  if (this._currentTheme === id) this.setTheme('light');
+  return true;
+};
+
 // 设置当前主题
 // id: 主题 id
 // 1. 触发 CSS 切换（setAttribute('data-theme', id)）
@@ -104,6 +113,11 @@ ThemeEngine.prototype.toggleColorScheme = function() {
   var next = current === 'light' ? 'dark' : 'light';
   this.setTheme(next);
   return next;
+};
+
+// 当前主题 id（公开读接口；供市场应用 RPC 桥等消费）
+ThemeEngine.prototype.getCurrentTheme = function() {
+  return this._currentTheme || 'light';
 };
 
 // 订阅主题变化

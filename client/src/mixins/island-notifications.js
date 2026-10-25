@@ -16,7 +16,6 @@ import api from '@/utils/api';
 import readState from '@/utils/read-state';
 
 var NOTIFICATION_DURATION = 3000;
-var PROGRESS_INTERVAL = 30;
 
 export default {
   data: function() {
@@ -36,8 +35,6 @@ export default {
       notificationQueue: [],
       queueTimer: null,
       wsListeners: {},
-      progressWidth: 100,
-      progressTimer: null,
       // 在线用户
       onlineUserCount: 0
     };
@@ -47,33 +44,16 @@ export default {
     queueCount: function() {
       return this.notificationQueue.length;
     },
-    notifIconStyle: function() {
-      if (!this.notification || !this.notification.color) return {};
-      return { background: this.notification.color };
-    },
-    notifIconClasses: function() {
-      return {
-        'notif-icon-urgent': this.notificationPriority === 'urgent',
-        'notif-icon-pulse': this.isBouncing
-      };
-    },
-    queueBadgeStyle: function() {
-      var color = 'var(--primary-color)';
-      if (this.notification) {
-        if (this.notification.type === 'group_event') color = 'var(--warning-color)';
-        else if (this.notification.type === 'online') color = 'var(--success-color)';
-      }
-      return { background: color };
-    },
-    progressBarStyle: function() {
-      var color = 'var(--primary-color)';
-      if (this.notification) {
-        if (this.notification.type === 'group_event') color = 'var(--warning-color)';
-        else if (this.notification.type === 'online') color = 'var(--success-color)';
-      }
-      if (this.notificationPriority === 'urgent') color = 'var(--danger-color)';
-      else if (this.notificationPriority === 'low') color = 'var(--text-tertiary)';
-      return { transform: 'scaleX(' + (this.progressWidth / 100) + ')', background: color };
+    /**
+     * 当前通知的展示时长（ms）—— 唯一真相源。
+     * collapseTimer（何时撤）与进度条 CSS animation-duration（进度多快缩）
+     * 共用这一个值，避免两边各写一套优先级映射而漂移。
+     * 面板侧只消费 prop，不再自己推。
+     */
+    notificationDuration: function() {
+      if (this.notificationPriority === 'urgent') return 5000;
+      if (this.notificationPriority === 'low') return 2000;
+      return NOTIFICATION_DURATION;
     }
   },
 
@@ -416,39 +396,24 @@ export default {
       self.isDismissing = false;
       self.notificationAppearTime = Date.now();
       self.notificationTimestamp = '刚刚';
-      self.progressWidth = 100;
       self.showQuickCompose = false;
 
       self.isBouncing = true;
-      self._bounceTimer = setTimeout(function() { self.isBouncing = false; }, 420);
+      // 与 IslandNotificationPanel 的 notif-icon-pop（0.5s）对齐：
+      // 只驱动图标弹跳，不再给容器加 pop-in 动画（容器 transform 由 FLIP 独占，
+      // 两个动画同时控制 transform 会互相覆盖 —— 2026-10-24 动效整备）
+      self._bounceTimer = setTimeout(function() { self.isBouncing = false; }, 500);
 
-      self.startProgressBar();
       self.startTimestampUpdate();
 
-      var duration = NOTIFICATION_DURATION;
-      if (self.notificationPriority === 'urgent') duration = 5000;
-      else if (self.notificationPriority === 'low') duration = 2000;
+      // 进度条已改为 CSS animation 驱动（IslandNotificationPanel 的
+      // notif-progress-shrink，duration = 下面的值）—— 原来每 30ms 改一次
+      // progressWidth 触发 Vue 重渲染，平板上一整条通知生命周期都在掉帧。
+      var duration = self.notificationDuration;
       if (self.collapseTimer) clearTimeout(self.collapseTimer);
       self.collapseTimer = setTimeout(function() {
         self.dismissNotification();
       }, duration);
-    },
-
-    startProgressBar: function() {
-      var self = this;
-      if (self.progressTimer) clearInterval(self.progressTimer);
-      var duration = NOTIFICATION_DURATION;
-      if (self.notificationPriority === 'urgent') duration = 5000;
-      else if (self.notificationPriority === 'low') duration = 2000;
-      var elapsed = 0;
-      self.progressTimer = setInterval(function() {
-        elapsed += PROGRESS_INTERVAL;
-        self.progressWidth = Math.max(0, 100 - (elapsed / duration) * 100);
-        if (self.progressWidth <= 0) {
-          clearInterval(self.progressTimer);
-          self.progressTimer = null;
-        }
-      }, PROGRESS_INTERVAL);
     },
 
     startTimestampUpdate: function() {
@@ -467,7 +432,6 @@ export default {
       var self = this;
       if (self.isDismissing) return;
       self.isDismissing = true;
-      if (self.progressTimer) { clearInterval(self.progressTimer); self.progressTimer = null; }
       if (self.timestampTimer) { clearInterval(self.timestampTimer); self.timestampTimer = null; }
       if (self.collapseTimer) { clearTimeout(self.collapseTimer); self.collapseTimer = null; }
       if (self.prevMode && self.prevMode !== 'notification') {
@@ -482,7 +446,6 @@ export default {
         self.notificationPriority = 'normal';
         self.notificationAppearTime = null;
         self.notificationTimestamp = '';
-        self.progressWidth = 100;
         self.processQueue();
       }, 250);
     },
@@ -500,7 +463,6 @@ export default {
     cleanupNotificationTimers: function() {
       if (this.collapseTimer) clearTimeout(this.collapseTimer);
       if (this.queueTimer) clearTimeout(this.queueTimer);
-      if (this.progressTimer) clearInterval(this.progressTimer);
       if (this.timestampTimer) clearInterval(this.timestampTimer);
       if (this._bounceTimer) clearTimeout(this._bounceTimer);
       if (this._dismissTimer) clearTimeout(this._dismissTimer);

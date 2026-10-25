@@ -115,7 +115,8 @@ export default {
   align-items: center;
 }
 .compact-icon-pulse {
-  animation: pulse-play 1.5s ease-in-out infinite;
+  /* 曲线走令牌（原 ease-in-out 关键字违反项目红线） */
+  animation: pulse-play 1.5s var(--ease-standard) infinite;
 }
 @keyframes pulse-play {
   0%, 100% { opacity: 1; }

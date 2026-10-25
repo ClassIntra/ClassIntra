@@ -4,7 +4,8 @@ import { getThemeEngine, getTheme } from '@/core/theme-engine';
 var state = {
   theme: localStorage.getItem('theme') || 'light',
   wallpaper: localStorage.getItem('wallpaper') || 'default',
-  notifications: (function() { try { var saved = localStorage.getItem('notifications'); return saved ? JSON.parse(saved) : { chat: true, broadcast: true, aiChat: true, community: true, system: true }; } catch(e) { return { chat: true, broadcast: true, aiChat: true, community: true, system: true }; } })(),
+  // aiChat 通知已随 ai-chat 应用下线移除；旧 localStorage 里残留的 aiChat 键会被忽略
+  notifications: (function() { try { var saved = localStorage.getItem('notifications'); return saved ? JSON.parse(saved) : { chat: true, broadcast: true, community: true, system: true }; } catch(e) { return { chat: true, broadcast: true, community: true, system: true }; } })(),
   // 桌面布局模式：'grid'（iPad 桌面图标 + Dock）| 'dock'（仅 Dock）
   desktopLayout: localStorage.getItem('desktopLayout') || 'grid'
 };

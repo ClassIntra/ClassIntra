@@ -403,6 +403,7 @@ export default {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* motion:scene 天气卡片背景慢切换（2s 氛围节奏，非全局档位语义） */
   transition: background 2s var(--ease-standard);
   color: #fff;
   position: relative;

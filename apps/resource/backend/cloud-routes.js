@@ -8,6 +8,8 @@ var auth = require('../../../server/src/middleware/auth');
 var db = require('../../../server/src/utils/db');
 var transcoder = require('../../../server/src/services/stream-transcoder');
 var botTransfer = require('./bot-transfer');
+var http = require('http');
+var config = require('../../../server/src/config');
 
 // 图片实时缩放（可选依赖，未安装时回退到原图）
 var sharp = null;
@@ -39,6 +41,20 @@ function setCachedResize(cacheKey, data) {
     resizeCache.delete(oldestKey);
   }
   resizeCache.set(cacheKey, { data: data, time: Date.now() });
+}
+
+// If-None-Match 精确匹配（支持逗号分隔的多 etag 列表与 W/ 弱比较）。
+// express 的自动条件请求只走 res.send，流式/手动 send 的响应必须自己判。
+function etagFresh(req, etag) {
+  if (!etag) return false;
+  var inm = req.headers['if-none-match'];
+  if (!inm) return false;
+  if (inm.trim() === '*') return true;
+  var list = inm.split(',');
+  for (var i = 0; i < list.length; i++) {
+    if (list[i].trim() === etag) return true;
+  }
+  return false;
 }
 
 // 需要转码为 mp4 的视频扩展名（mp4 本身跳过）
@@ -167,13 +183,33 @@ function sendMediaFile(req, res, filePath) {
   var mimeType = MEDIA_MIME[ext] || 'application/octet-stream';
   var isVideo = mimeType.indexOf('video/') === 0;
   var isAudio = mimeType.indexOf('audio/') === 0;
+  var etag = 'W/"' + path.basename(filePath) + '-' + stat.mtimeMs + '-' + stat.size + '"';
 
-  // 覆盖全局 no-cache：媒体文件允许浏览器缓存和缓冲
+  // 覆盖全局 no-cache：媒体文件允许浏览器缓存和缓冲。
+  // 文件 URL 是内容寻址的（hash = sha256），同 hash 内容永不改变，过期后靠 ETag
+  // 做 304 协商即可 —— 弱网平板上反复进出页面不必重下同一张头像/封面。
+  // 下载模式（?download=1）是附件语义：浏览器不当展示资源缓存，直接 no-store。
+  //
+  // ⚠️ Pragma/Expires 必须一起摘掉：全局中间件给所有响应加了 `Pragma: no-cache`，
+  //    浏览器（及中间代理）会拿它当 HTTP/1.0 的 no-cache 用，max-age 再长也白搭 ——
+  //    表现为"每次进页面头像封面全部重下"。
   res.set('Content-Type', mimeType);
   res.set('Accept-Ranges', 'bytes');
-  res.set('Cache-Control', 'public, max-age=3600');
+  res.set('ETag', etag);
   res.removeHeader('Pragma');
   res.removeHeader('Expires');
+  if (req.query.download === '1') {
+    res.set('Cache-Control', 'no-store');
+  } else {
+    res.set('Cache-Control', 'public, max-age=86400');
+    // 手动 304：本函数是流式响应，不过 express 的 res.send，
+    // 它的自动条件请求逻辑在这里不生效，必须自己判 If-None-Match
+    if (etagFresh(req, etag)) {
+      res.removeHeader('Content-Type');
+      res.status(304).end();
+      return true;
+    }
+  }
 
   // 处理 Range 请求（视频/音频必需，浏览器用 206 分段加载实现 seek 和缓冲）
   var rangeHeader = req.get('Range');
@@ -220,6 +256,267 @@ function findSyncedFile(fileHash) {
     }
   } catch (e) { /* ignore */ }
   return null;
+}
+
+// ============ CC 按需回源（读路径跨节点兜底）============
+// 背景：cloud_files 元数据不走中继水位同步（relay-sync 只同步消息/帖子/用户等），
+// 文件二进制靠 Syncthing 落盘。同步延迟窗口内本地既无 DB 记录、磁盘也没有
+// （findSyncedFile 未命中）→ 读路径 404 → 头像/封面短暂回落成文字兜底，
+// 要等 Syncthing 追上才恢复（刷新即好）。
+// app.js 的 botMediaFallback 已对 botmedia 做了同一思路的回源；这里补云盘：
+// 404 时按需向 peer 的 /api/cloud/peer-fetch/:hash 拉取，sha256 验证后落盘
+// + 补记 cloud_files，再走本地服务路径，后续请求直接命中。
+//
+// 防护：
+//   - single-flight：同一 hash 的并发请求合并成一次回源，其余等它落盘后本地读
+//   - 负缓存 60s：文件哪台都没有时（已删/脏 hash），不打爆对端
+//   - 256MB 上限 + 流式写 .tmp 再改名：大文件不进内存，半途失败不留残file
+//   - 哈希校验：peer-fetch 是可信内网通道，但仍防传输损坏/错文件落盘
+var peerBackfillInflight = {};   // hash → Promise（single-flight）
+var peerBackfillMiss = {};       // hash → ts（负缓存）
+var PEER_BACKFILL_MISS_TTL = 60 * 1000;
+var PEER_BACKFILL_MAX_SIZE = 256 * 1024 * 1024;
+// 原图回源最多让读请求等这么久：等不到就先 404（前端文字兜底），回源转后台继续。
+// 两节点链路慢到 1~4KB/s，不能让一个头像请求把连接挂死几十秒。
+var PEER_BACKFILL_GRACE_MS = parseInt(process.env.PEER_BACKFILL_GRACE_MS, 10) || 2500;
+
+// 对端 HTTP 基址：优先 PEER_MEDIA_BASES（与 app.js botMediaFallback 同名同语义，
+// 联调时可显式指定），否则从中继 RELAY_SERVERS 的 ws://host:port 推导
+// http://host:<本服务端口>（生产两端同为 9001，与 relay-handlers 的推导一致）。
+function peerBackfillBases() {
+  var bases = [];
+  var env = String(process.env.PEER_MEDIA_BASES || '').trim();
+  if (env) {
+    env.split(',').forEach(function(x) {
+      x = x.trim().replace(/\/+$/, '');
+      if (x && bases.indexOf(x) === -1) bases.push(x);
+    });
+  }
+  if (!bases.length) {
+    var servers = (config.relay && config.relay.servers) || [];
+    for (var i = 0; i < servers.length; i++) {
+      try {
+        var u = new URL(servers[i]);
+        var b = 'http://' + u.hostname + ':' + (config.port || 9001);
+        if (bases.indexOf(b) === -1) bases.push(b);
+      } catch (e) { /* 忽略非法 URL */ }
+    }
+  }
+  return bases;
+}
+
+// 从单个 peer 拉取文件：流式落 .tmp → 验 sha256 → 进 shared/ → 补记 cloud_files。
+// 成功 resolve { storage_path, mime_type, original_name }，失败 reject（调用方换下一个 peer）。
+function fetchCloudFileFromPeer(base, fileHash) {
+  return new Promise(function(resolve, reject) {
+    var req = http.get(base + '/api/cloud/peer-fetch/' + fileHash, {
+      headers: { 'X-Relay-Secret': (config.relay && config.relay.secret) || '' },
+      timeout: 30000
+    }, function(resp) {
+      if (resp.statusCode !== 200) {
+        resp.resume();
+        return reject(new Error('HTTP ' + resp.statusCode));
+      }
+      var declared = parseInt(resp.headers['content-length'], 10) || 0;
+      if (declared > PEER_BACKFILL_MAX_SIZE) {
+        resp.resume();
+        return reject(new Error('file too large (' + declared + ')'));
+      }
+      var fileName = '';
+      try { fileName = decodeURIComponent(resp.headers['x-file-name'] || ''); } catch (e) { /* 脏文件名不阻塞回源 */ }
+      var mimeType = resp.headers['x-file-mime'] || 'application/octet-stream';
+      var hasher = crypto.createHash('sha256');
+      var received = 0;
+      ensureDir(tmpDir);
+      var tmpPath = path.join(tmpDir, 'backfill-' + fileHash + '-' + Date.now() + '.part');
+      var out = fs.createWriteStream(tmpPath);
+      var settled = false;
+      function fail(e) {
+        if (settled) return;
+        settled = true;
+        try { out.destroy(); } catch (e2) {}
+        try { fs.unlinkSync(tmpPath); } catch (e2) {}
+        reject(e);
+      }
+      resp.on('data', function(chunk) {
+        if (settled) return;
+        received += chunk.length;
+        if (received > PEER_BACKFILL_MAX_SIZE) {
+          fail(new Error('file too large'));
+          resp.destroy();
+          return;
+        }
+        hasher.update(chunk);
+      });
+      resp.on('error', fail);
+      out.on('error', fail);
+      out.on('finish', function() {
+        if (settled) return;
+        settled = true;
+        if (hasher.digest('hex') !== fileHash) {
+          try { fs.unlinkSync(tmpPath); } catch (e) {}
+          return reject(new Error('hash mismatch'));
+        }
+        try {
+          var ext = path.extname(fileName) || '.bin';
+          var prefix = fileHash.substring(0, 2);
+          ensureDir(path.join(sharedDir, prefix));
+          var storagePath = prefix + '/' + fileHash + ext;
+          fs.renameSync(tmpPath, path.join(sharedDir, storagePath));
+          // owner 标记 __relay__（与 preFetchCloudFiles 一致）；INSERT OR IGNORE 防竞态
+          db.prepare('INSERT OR IGNORE INTO cloud_files (hash, owner_user_id, original_name, size, mime_type, storage_path) VALUES (?, ?, ?, ?, ?, ?)')
+            .run(fileHash, '__relay__', fileName || fileHash, received, mimeType, storagePath);
+          resolve({ storage_path: storagePath, mime_type: mimeType, original_name: fileName || fileHash });
+        } catch (e) { fail(e); }
+      });
+      resp.pipe(out);
+    });
+    req.on('error', reject);
+    req.on('timeout', function() { req.destroy(new Error('timeout')); });
+  });
+}
+
+// 按需回源入口：single-flight + 负缓存 + 逐 peer 尝试。
+// 永远 resolve（成功给记录，失败给 null），不 reject —— 调用方只关心「有没有拿到」。
+function backfillFromPeers(fileHash) {
+  if (peerBackfillInflight[fileHash]) return peerBackfillInflight[fileHash];
+  var missAt = peerBackfillMiss[fileHash];
+  if (missAt && Date.now() - missAt < PEER_BACKFILL_MISS_TTL) return Promise.resolve(null);
+  var bases = peerBackfillBases();
+  if (!bases.length) return Promise.resolve(null);
+  var p = new Promise(function(resolve) {
+    var idx = 0;
+    (function tryNext() {
+      if (idx >= bases.length) {
+        // 所有 peer 都没有 → 负缓存，期间同类请求直接 404，不再打对端
+        peerBackfillMiss[fileHash] = Date.now();
+        if (Object.keys(peerBackfillMiss).length > 1000) {
+          var now = Date.now();
+          for (var k in peerBackfillMiss) {
+            if (now - peerBackfillMiss[k] > PEER_BACKFILL_MISS_TTL) delete peerBackfillMiss[k];
+          }
+        }
+        return resolve(null);
+      }
+      var base = bases[idx++];
+      fetchCloudFileFromPeer(base, fileHash).then(function(rec) {
+        delete peerBackfillMiss[fileHash];
+        console.log('[CloudSync] 按需回源成功:', fileHash, '←', base);
+        resolve(rec);
+      }).catch(function(e) {
+        console.warn('[CloudSync] 按需回源未命中:', fileHash, '←', base, '-', e.message);
+        tryNext();
+      });
+    })();
+  });
+  p.then(function() { delete peerBackfillInflight[fileHash]; }, function() { delete peerBackfillInflight[fileHash]; });
+  p.catch(function() {}); // 双保险：内部不 reject，防漏接导致 unhandledRejection
+  peerBackfillInflight[fileHash] = p;
+  return p;
+}
+
+// ============ 缩略图回源（慢链路上真正可用的那条路）============
+// 背景：两节点间实测 1~4KB/s（RTT 400ms、丢包 20%，LAN 的 TCP 还被防火墙挡死），
+// 拉几 MB 原图要几十分钟 —— 同步窗口内头像/封面必然回落成文字兜底。
+// 但前端请求头像/封面都带 ?w=48/96/...，真正需要的只是几 KB 的缩略图：
+// 让对端缩放后回传，1~2 秒即可到位。缩略图只进内存缓存，**绝不写进 shared/**
+// （shared 是内容寻址的原图区，写进去会被当成原图，sha256 也对不上）。
+var peerThumbCache = new Map();    // hash_w<w> → { data, mime }
+var peerThumbInflight = {};        // hash_w<w> → Promise（single-flight）
+var peerThumbMiss = {};            // hash_w<w> → ts（负缓存）
+var PEER_THUMB_MAX_SIZE = 1024 * 1024;
+var PEER_THUMB_CACHE_MAX = 200;
+var PEER_THUMB_MISS_TTL = 60 * 1000;
+
+function getPeerThumb(key) {
+  var entry = peerThumbCache.get(key);
+  if (!entry) return null;
+  peerThumbCache.delete(key);      // LRU：命中后移到最新
+  peerThumbCache.set(key, entry);
+  return entry;
+}
+
+function setPeerThumb(key, entry) {
+  if (peerThumbCache.size >= PEER_THUMB_CACHE_MAX) {
+    peerThumbCache.delete(peerThumbCache.keys().next().value);
+  }
+  peerThumbCache.set(key, entry);
+}
+
+// 从单个 peer 拉缩略图：整块进内存（已限 1MB），失败 resolve(null) 不 reject。
+function fetchThumbFromPeer(base, fileHash, width) {
+  return new Promise(function(resolve) {
+    var done = false;
+    function finish(v) { if (!done) { done = true; resolve(v); } }
+    var req = http.get(base + '/api/cloud/peer-fetch/' + fileHash + '?w=' + width, {
+      headers: { 'X-Relay-Secret': (config.relay && config.relay.secret) || '' },
+      timeout: 30000
+    }, function(resp) {
+      if (resp.statusCode !== 200) { resp.resume(); return finish(null); }
+      var declared = parseInt(resp.headers['content-length'], 10) || 0;
+      if (declared > PEER_THUMB_MAX_SIZE) { resp.destroy(); return finish(null); }
+      var chunks = [];
+      var received = 0;
+      resp.on('data', function(c) {
+        received += c.length;
+        if (received > PEER_THUMB_MAX_SIZE) { resp.destroy(); return finish(null); }
+        chunks.push(c);
+      });
+      resp.on('end', function() {
+        if (!chunks.length) return finish(null);
+        finish({ data: Buffer.concat(chunks), mime: resp.headers['x-file-mime'] || 'application/octet-stream' });
+      });
+      resp.on('error', function() { finish(null); });
+    });
+    req.on('error', function() { finish(null); });
+    req.on('timeout', function() { req.destroy(); finish(null); });
+  });
+}
+
+// 缩略图回源入口：single-flight + 负缓存 + 逐 peer 尝试。
+function backfillThumbFromPeers(fileHash, width) {
+  var key = fileHash + '_w' + width;
+  var cached = getPeerThumb(key);
+  // 命中内存缓存：标记 cached，调用方据此不再打 X-Backfilled（本次没走网络）
+  if (cached) return Promise.resolve({ data: cached.data, mime: cached.mime, cached: true });
+  if (peerThumbInflight[key]) return peerThumbInflight[key];
+  var missAt = peerThumbMiss[key];
+  if (missAt && Date.now() - missAt < PEER_THUMB_MISS_TTL) return Promise.resolve(null);
+  var bases = peerBackfillBases();
+  if (!bases.length) return Promise.resolve(null);
+  var p = new Promise(function(resolve) {
+    var idx = 0;
+    (function tryNext() {
+      if (idx >= bases.length) {
+        peerThumbMiss[key] = Date.now();
+        return resolve(null);
+      }
+      var base = bases[idx++];
+      fetchThumbFromPeer(base, fileHash, width).then(function(t) {
+        if (!t || !t.data || !t.data.length) return tryNext();
+        delete peerThumbMiss[key];
+        setPeerThumb(key, t);
+        console.log('[CloudSync] 缩略图回源成功:', fileHash, 'w=' + width, t.data.length + 'B', '←', base);
+        resolve(t);
+      });
+    })();
+  });
+  p.then(function() { delete peerThumbInflight[key]; }, function() { delete peerThumbInflight[key]; });
+  peerThumbInflight[key] = p;
+  return p;
+}
+
+// 发送回源到的缩略图（ETag/长缓存与本地缩放路径保持一致，便于前端复用缓存）
+function servePeerThumb(req, res, thumb, fileHash, width) {
+  var etag = 'W/"' + fileHash + '_w' + width + '-' + thumb.data.length + '"';
+  res.set('Content-Type', thumb.mime);
+  res.set('ETag', etag);
+  res.removeHeader('Pragma');
+  res.removeHeader('Expires');
+  res.set('Cache-Control', 'public, max-age=86400');
+  res.set('X-Resized', '1');
+  if (etagFresh(req, etag)) { res.removeHeader('Content-Type'); return res.status(304).end(); }
+  res.send(thumb.data);
 }
 
 // 发送"文件已删除"占位图
@@ -791,8 +1088,57 @@ router.get('/files/:param', auth.requireAuth, function(req, res) {
     file = findSyncedFile(fileHash);
   }
   if (!file) {
-    return res.status(404).json({ code: 404, message: '文件不存在' });
+    // 本地无记录且磁盘无文件 → 跨节点按需回源（中继/Syncthing 同步延迟兜底）。
+    // 两条路径：
+    //   ① 客户端要缩略图（?w=）→ 只回源几 KB 的缩略图（慢链路上的唯一可行解）；
+    //   ② 否则回源原图 —— 只等 PEER_BACKFILL_GRACE_MS，等不到先 404 让前端兜底，
+    //      后台继续拉，落盘后下次请求命中；绝不让读请求挂死几十秒。
+    var wantWidth = parseInt(req.query.w, 10);
+    if (wantWidth > 0 && req.query.download !== '1') {
+      // 同样只等宽限期：等不到先 404 兜底，回源转后台，落库后下次请求命中
+      var thumbTimer = setTimeout(function() {
+        if (!res.headersSent) res.status(404).json({ code: 404, message: '文件不存在' });
+      }, PEER_BACKFILL_GRACE_MS);
+      return backfillThumbFromPeers(fileHash, wantWidth).then(function(thumb) {
+        clearTimeout(thumbTimer);
+        if (!thumb) {
+          if (!res.headersSent) res.status(404).json({ code: 404, message: '文件不存在' });
+          return;
+        }
+        if (res.headersSent) return;   // 已超时响应过
+        if (!thumb.cached) res.set('X-Backfilled', '1');   // 缓存命中不再标记（本次未走网络）
+        servePeerThumb(req, res, thumb, fileHash, wantWidth);
+      }).catch(function(e) {
+        clearTimeout(thumbTimer);
+        console.error('[Cloud] 缩略图回源异常:', fileHash, e && e.message);
+        if (!res.headersSent) res.status(404).json({ code: 404, message: '文件不存在' });
+      });
+    }
+    var graceTimer = setTimeout(function() {
+      if (!res.headersSent) res.status(404).json({ code: 404, message: '文件不存在' });
+    }, PEER_BACKFILL_GRACE_MS);
+    return backfillFromPeers(fileHash).then(function(rec) {
+      clearTimeout(graceTimer);
+      if (!rec) {
+        if (!res.headersSent) res.status(404).json({ code: 404, message: '文件不存在' });
+        return;
+      }
+      if (res.headersSent) return;   // 已超时响应过，回源成果留给下次请求
+      res.set('X-Backfilled', '1');
+      var fresh = db.prepare('SELECT storage_path, deleted, mime_type, status, original_name FROM cloud_files WHERE hash = ?').get(fileHash) || rec;
+      serveCloudFile(req, res, fresh, fileHash);
+    }).catch(function(e) {
+      clearTimeout(graceTimer);
+      console.error('[Cloud] 按需回源异常:', fileHash, e && e.message);
+      if (!res.headersSent) res.status(404).json({ code: 404, message: '文件不存在' });
+    });
   }
+  serveCloudFile(req, res, file, fileHash);
+});
+
+// 哈希文件的本地服务路径（删除/审核占位、缩放、304、Range）。
+// 从 /files/:param 抽出，供「按需回源成功后重入」与常规命中共用。
+function serveCloudFile(req, res, file, fileHash) {
 
   if (file.deleted === 1) {
     return sendDeletedPlaceholder(res, file.mime_type);
@@ -822,9 +1168,14 @@ router.get('/files/:param', auth.requireAuth, function(req, res) {
     var cacheKey = fileHash + '_w' + targetWidth;
     var cached = getCachedResize(cacheKey);
     if (cached) {
+      var cEtag = 'W/"' + cacheKey + '-' + cached.length + '"';
       res.set('Content-Type', file.mime_type);
-      res.set('Cache-Control', 'public, max-age=300, must-revalidate');
+      res.set('ETag', cEtag);
+      res.removeHeader('Pragma');
+      res.removeHeader('Expires');
+      res.set('Cache-Control', 'public, max-age=86400');
       res.set('X-Resized', '1');
+      if (etagFresh(req, cEtag)) { res.removeHeader('Content-Type'); return res.status(304).end(); }
       return res.send(cached);
     }
 
@@ -835,9 +1186,14 @@ router.get('/files/:param', auth.requireAuth, function(req, res) {
       }
       return sharp(filePath).resize({ width: targetWidth, withoutEnlargement: true }).toBuffer().then(function(resized) {
         setCachedResize(cacheKey, resized);
+        var fEtag = 'W/"' + cacheKey + '-' + resized.length + '"';
         res.set('Content-Type', file.mime_type);
-        res.set('Cache-Control', 'public, max-age=300, must-revalidate');
+        res.set('ETag', fEtag);
+        res.removeHeader('Pragma');
+        res.removeHeader('Expires');
+        res.set('Cache-Control', 'public, max-age=86400');
         res.set('X-Resized', '1');
+        if (etagFresh(req, fEtag)) { res.removeHeader('Content-Type'); return res.status(304).end(); }
         res.send(resized);
       });
     }).catch(function(e) {
@@ -848,7 +1204,7 @@ router.get('/files/:param', auth.requireAuth, function(req, res) {
   }
 
   return sendMediaFile(req, res, filePath);
-});
+}
 
 // ============ CC 文件同步 ============
 
@@ -880,12 +1236,42 @@ router.get('/peer-fetch/:hash', function(req, res) {
     return res.status(404).json({ code: 404, message: '物理文件丢失' });
   }
 
+  // 元信息响应头（原图与缩略图共用；Content-Length 必须是实际要发的字节数）
+  function setFileMeta(len) {
+    res.set('Content-Type', file.mime_type || 'application/octet-stream');
+    res.set('Content-Length', len);
+    res.set('X-File-Hash', hash);
+    res.set('X-File-Name', encodeURIComponent(file.original_name));
+    res.set('X-File-Mime', file.mime_type || '');
+  }
+
+  // 慢链路优化：对端只要缩略图（?w=）时先缩放再回传 —— 几 KB 取代几 MB 原图。
+  // 两节点间实测只有 1~4KB/s，传原图要几十分钟，同步窗口内头像/封面必然回落。
+  var peerWidth = parseInt(req.query.w, 10);
+  if (peerWidth > 0 && sharp && (file.mime_type || '').indexOf('image/') === 0) {
+    sharp(filePath).metadata().then(function(meta) {
+      // 原图比目标还窄/取不到尺寸 → 直接发原图（对端按大小自行决定是否接收）
+      if (!meta || !meta.width || meta.width <= peerWidth) return null;
+      return sharp(filePath).resize({ width: peerWidth, withoutEnlargement: true }).toBuffer();
+    }).then(function(resized) {
+      if (!resized) {
+        setFileMeta(file.size);
+        fs.createReadStream(filePath).pipe(res);
+        return;
+      }
+      setFileMeta(resized.length);
+      res.set('X-File-Resized', '1');
+      res.end(resized);
+    }).catch(function(e) {
+      console.error('[Cloud] peer-fetch 缩放失败, 回退原图:', e && e.message);
+      setFileMeta(file.size);
+      fs.createReadStream(filePath).pipe(res);
+    });
+    return;
+  }
+
   // 流式传输原始文件 + 元信息响应头
-  res.set('Content-Type', file.mime_type || 'application/octet-stream');
-  res.set('Content-Length', file.size);
-  res.set('X-File-Hash', hash);
-  res.set('X-File-Name', encodeURIComponent(file.original_name));
-  res.set('X-File-Mime', file.mime_type || '');
+  setFileMeta(file.size);
   fs.createReadStream(filePath).pipe(res);
 });
 
@@ -1756,6 +2142,289 @@ router.use(function(err, req, res, next) {
     return res.status(500).json({ code: 500, message: '上传失败：' + err.message });
   }
   next();
+});
+
+// ============ Cluss 互通（云盘 ⇄ Cluss 导入导出）============
+//
+// 方向与通道：
+//   导出：学生在云盘勾选文件 → 本机 POST 到 Cluss 的 /api/cloud/upload（multipart）
+//   导入：勾选 Cluss 云盘文件 → 拉回字节 → 复用 processUploadedFile 入本盘
+//
+// 认证：直接转发学生请求里的 CI JWT（Authorization 头）。Cluss 侧用共享的
+// CI_JWT_SECRET 验签（与 iframe 免登同一条链路），首次访问会自动联邦落库，
+// 文件始终落在同一个学生名下，不会串号。上游地址与 cluss-proxy.js 同源同配置。
+//
+// 限制（Cluss 侧既定，硬编码对齐，改了要同步 Cluss 的 cloud.js / cloud-store.js）：
+//   · 单文件 10MB；每用户配额 200MB；上传限流 30 次/分钟/用户
+//   · 类型仅图片 + 纯文本（txt/md/json/csv）；html/svg/js 等可执行格式不收
+
+var http = require('http');
+
+var CLUSS_HOST = process.env.CLUSS_PROXY_HOST || '127.0.0.1';
+var CLUSS_PORT = parseInt(process.env.CLUSS_PROXY_PORT || '9003', 10);
+var CLUSS_MAX_FILE_BYTES = 10 * 1024 * 1024;
+var CLUSS_EXPORTABLE_EXTS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.heic', '.txt', '.md', '.json', '.csv'];
+var CLUSS_BATCH_MAX = 10;
+
+// 通用 HTTP 请求（服务端 → 本机 Cluss）。返回 { status, headers, buffer }。
+function clussRequest(method, urlPath, headers, body, timeoutMs) {
+  return new Promise(function(resolve, reject) {
+    var options = {
+      host: CLUSS_HOST,
+      port: CLUSS_PORT,
+      method: method,
+      path: urlPath,
+      headers: headers || {}
+    };
+    var upstream = http.request(options, function(res) {
+      var chunks = [];
+      var size = 0;
+      res.on('data', function(c) {
+        size += c.length;
+        if (size > 64 * 1024 * 1024) {
+          upstream.destroy();
+          reject(new Error('Cluss 响应过大'));
+          return;
+        }
+        chunks.push(c);
+      });
+      res.on('end', function() {
+        resolve({ status: res.statusCode, headers: res.headers, buffer: Buffer.concat(chunks) });
+      });
+      res.on('error', reject);
+    });
+    upstream.setTimeout(timeoutMs || 8000, function() {
+      upstream.destroy(new Error('Cluss 请求超时'));
+    });
+    upstream.on('error', reject);
+    if (body) upstream.write(body);
+    upstream.end();
+  });
+}
+
+function clussJson(buffer) {
+  try { return JSON.parse(buffer.toString('utf8')); } catch (e) { return null; }
+}
+
+// 转发学生的 CI JWT 给 Cluss（Cluss 凭共享密钥验签并自动联邦落库）
+function clussAuthHeaders(req, extra) {
+  var h = { Authorization: req.headers.authorization || '' };
+  if (extra) {
+    for (var k in extra) h[k] = extra[k];
+  }
+  return h;
+}
+
+function clussUnavailable(res, err) {
+  console.error('[Cloud] Cluss 不可达 (' + CLUSS_HOST + ':' + CLUSS_PORT + '):', err.message);
+  return res.status(502).json({ code: 502, message: 'Cluss 没有启动或暂时不可达' });
+}
+
+function clussExportableExt(name) {
+  var ext = path.extname(name || '').toLowerCase();
+  return CLUSS_EXPORTABLE_EXTS.indexOf(ext) !== -1;
+}
+
+// multipart 单文件体（Cluss 上传字段名固定为 file；multer 2.x 按 UTF-8 解析文件名）
+function clussMultipart(filename, mime, fileBuf) {
+  var boundary = '----ClassIntraCluss' + crypto.randomBytes(12).toString('hex');
+  var safeName = String(filename || 'file').replace(/[\"\r\n]/g, '').slice(0, 200) || 'file';
+  var head = '--' + boundary + '\r\n' +
+    'Content-Disposition: form-data; name="file"; filename="' + safeName + '"\r\n' +
+    'Content-Type: ' + (mime || 'application/octet-stream') + '\r\n\r\n';
+  return {
+    contentType: 'multipart/form-data; boundary=' + boundary,
+    body: Buffer.concat([Buffer.from(head, 'utf8'), fileBuf, Buffer.from('\r\n--' + boundary + '--\r\n', 'utf8')])
+  };
+}
+
+// Cluss 存活探测（/api/health 无需鉴权）
+router.get('/cluss/status', auth.requireAuth, function(req, res) {
+  clussRequest('GET', '/api/health', {}, null, 2000).then(function(r) {
+    var json = clussJson(r.buffer) || {};
+    res.json({
+      code: 200,
+      data: {
+        available: r.status === 200,
+        version: (json.data && json.data.version) || ''
+      }
+    });
+  }).catch(function(err) {
+    res.json({ code: 200, data: { available: false, version: '' } });
+  });
+});
+
+// Cluss 云盘概览：文件列表 + 配额（一次拉齐，导入弹窗用）
+router.get('/cluss/overview', auth.requireAuth, function(req, res) {
+  Promise.all([
+    clussRequest('GET', '/api/cloud/files?limit=200', clussAuthHeaders(req), null, 8000),
+    clussRequest('GET', '/api/cloud/quota', clussAuthHeaders(req), null, 8000)
+  ]).then(function(rs) {
+    var filesRes = clussJson(rs[0].buffer);
+    var quotaRes = clussJson(rs[1].buffer);
+    if (rs[0].status === 401 || rs[1].status === 401) {
+      return res.status(401).json({ code: 401, message: 'Cluss 登录态校验失败，请重新进入 Cluss 应用后再试' });
+    }
+    res.json({
+      code: 200,
+      data: {
+        files: (filesRes && filesRes.data && filesRes.data.files) || [],
+        quota: (quotaRes && quotaRes.data) || null
+      }
+    });
+  }).catch(function(err) {
+    clussUnavailable(res, err);
+  });
+});
+
+// Cluss 缩略图代理（导入弹窗里图片预览；?thumb=1 由 Cluss 磁盘缓存）
+router.get('/cluss/thumb/:hash', auth.requireAuth, function(req, res) {
+  var hash = String(req.params.hash || '');
+  if (!/^[a-f0-9]{64}$/.test(hash)) {
+    return res.status(400).json({ code: 400, message: 'hash 不合法' });
+  }
+  clussRequest('GET', '/api/cloud/files/' + hash + '?thumb=1', clussAuthHeaders(req), null, 8000).then(function(r) {
+    if (r.status !== 200) {
+      return res.status(404).end();
+    }
+    res.setHeader('Content-Type', r.headers['content-type'] || 'image/jpeg');
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.end(r.buffer);
+  }).catch(function() {
+    res.status(502).end();
+  });
+});
+
+// 导出到 Cluss：body { hashes: [本盘 hash] }，单次最多 10 个，顺序发送（Cluss 限流 30/分钟）
+router.post('/cluss/export', auth.requireAuth, function(req, res) {
+  var userId = req.user.user_id;
+  var hashes = Array.isArray(req.body.hashes) ? req.body.hashes.slice(0, CLUSS_BATCH_MAX) : [];
+  if (!hashes.length) {
+    return res.status(400).json({ code: 400, message: '没有要导出的文件' });
+  }
+
+  var results = [];
+  var chain = Promise.resolve();
+  hashes.forEach(function(hash) {
+    chain = chain.then(function() {
+      var itemHash = String(hash || '');
+      var row = db.prepare([
+        'SELECT cf.hash, cf.size, cf.mime_type, cf.storage_path, cf.status, cuf.display_name',
+        'FROM cloud_user_files cuf JOIN cloud_files cf ON cuf.file_hash = cf.hash',
+        'WHERE cuf.user_id = ? AND cuf.file_hash = ? AND cf.deleted = 0'
+      ].join('\n')).get(userId, itemHash);
+
+      if (!row) {
+        results.push({ hash: itemHash, name: '', ok: false, reason: '文件不存在或已删除' });
+        return;
+      }
+      if (row.status === 'hidden') {
+        results.push({ hash: itemHash, name: row.display_name, ok: false, reason: '文件已被班管下架' });
+        return;
+      }
+      if (!clussExportableExt(row.display_name)) {
+        results.push({ hash: itemHash, name: row.display_name, ok: false, reason: 'Cluss 仅支持图片与 txt/md/json/csv 文本' });
+        return;
+      }
+      if (row.size > CLUSS_MAX_FILE_BYTES) {
+        results.push({ hash: itemHash, name: row.display_name, ok: false, reason: '超过 Cluss 单文件 10MB 限制' });
+        return;
+      }
+
+      var filePath = path.join(sharedDir, row.storage_path);
+      var fileBuf;
+      try {
+        fileBuf = fs.readFileSync(filePath);
+      } catch (e) {
+        results.push({ hash: itemHash, name: row.display_name, ok: false, reason: '物理文件缺失' });
+        return;
+      }
+
+      var mp = clussMultipart(row.display_name, row.mime_type, fileBuf);
+      return clussRequest('POST', '/api/cloud/upload', clussAuthHeaders(req, {
+        'Content-Type': mp.contentType,
+        'Content-Length': mp.body.length
+      }), mp.body, 20000).then(function(r) {
+        var json = clussJson(r.buffer);
+        if (r.status === 200 && json && json.data && json.data.hash) {
+          results.push({ hash: itemHash, name: row.display_name, ok: true, cluss_hash: json.data.hash, duplicated: !!json.data.duplicated });
+          console.log('[Cloud] 导出到 Cluss: %s → %s (%s)', row.display_name, json.data.hash.slice(0, 12), userId);
+        } else {
+          results.push({ hash: itemHash, name: row.display_name, ok: false, reason: (json && json.message) || ('Cluss 返回 ' + r.status) });
+        }
+      }).catch(function(err) {
+        results.push({ hash: itemHash, name: row.display_name, ok: false, reason: err.message || '导出失败' });
+      });
+    });
+  });
+
+  chain.then(function() {
+    var okCount = 0;
+    for (var i = 0; i < results.length; i++) if (results[i].ok) okCount++;
+    res.json({ code: 200, data: { results: results, ok_count: okCount, total: hashes.length } });
+  }).catch(function(err) {
+    console.error('[Cloud] Cluss 导出异常:', err);
+    res.status(500).json({ code: 500, message: '导出失败：' + err.message });
+  });
+});
+
+// 从 Cluss 导入：body { items: [{ hash, name }] }，单次最多 10 个
+router.post('/cluss/import', auth.requireAuth, function(req, res) {
+  var userId = req.user.user_id;
+  var items = Array.isArray(req.body.items) ? req.body.items.slice(0, CLUSS_BATCH_MAX) : [];
+  if (!items.length) {
+    return res.status(400).json({ code: 400, message: '没有要导入的文件' });
+  }
+
+  ensureDir(tmpDir);
+  var results = [];
+  var chain = Promise.resolve();
+
+  items.forEach(function(it) {
+    chain = chain.then(function() {
+      var hash = String((it && it.hash) || '');
+      if (!/^[a-f0-9]{64}$/.test(hash)) {
+        results.push({ hash: hash, name: (it && it.name) || '', ok: false, reason: 'hash 不合法' });
+        return;
+      }
+      // 名字取自 Cluss 列表：剥路径、去控制字符、封顶（与 Cluss 侧 200 封顶一致）
+      var name = path.basename(String((it && it.name) || '')).replace(/[\x00-\x1f]/g, '').slice(0, 200) || hash;
+      if (!resolveUploadExt(name, '')) {
+        results.push({ hash: hash, name: name, ok: false, reason: '不支持的文件类型' });
+        return;
+      }
+
+      return clussRequest('GET', '/api/cloud/files/' + hash, clussAuthHeaders(req), null, 20000).then(function(r) {
+        if (r.status !== 200 || !r.buffer.length) {
+          var json = clussJson(r.buffer);
+          results.push({ hash: hash, name: name, ok: false, reason: (json && json.message) || ('Cluss 返回 ' + r.status) });
+          return;
+        }
+
+        // 落 .tmp 后走与普通上传完全相同的入库管道（哈希去重/引用登记）
+        var tmpPath = path.join(tmpDir, 'cluss_' + Date.now() + '_' + crypto.randomBytes(4).toString('hex') + path.extname(name).toLowerCase());
+        fs.writeFileSync(tmpPath, r.buffer);
+        return processUploadedFile(tmpPath, name, userId, '', 'app').then(function(saved) {
+          results.push({ hash: hash, name: name, ok: true, ci_hash: saved.hash, existed: !!saved.existed });
+          console.log('[Cloud] 从 Cluss 导入: %s → %s (%s)', name, saved.hash.slice(0, 12), userId);
+        }).catch(function(err) {
+          try { fs.unlinkSync(tmpPath); } catch (e2) {}
+          results.push({ hash: hash, name: name, ok: false, reason: err.message || '入库失败' });
+        });
+      }).catch(function(err) {
+        results.push({ hash: hash, name: name, ok: false, reason: err.message || '导入失败' });
+      });
+    });
+  });
+
+  chain.then(function() {
+    var okCount = 0;
+    for (var i = 0; i < results.length; i++) if (results[i].ok) okCount++;
+    res.json({ code: 200, data: { results: results, ok_count: okCount, total: items.length } });
+  }).catch(function(err) {
+    console.error('[Cloud] Cluss 导入异常:', err);
+    res.status(500).json({ code: 500, message: '导入失败：' + err.message });
+  });
 });
 
 module.exports = router;

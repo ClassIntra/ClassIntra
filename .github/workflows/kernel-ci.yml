@@ -1,0 +1,44 @@
+# 内核体检流水线
+#
+# 为什么只有这一条流水线、只跑纯 Node：
+#   1. 私有仓的 Actions 额度按分钟计费，本流水线目标 < 60s（实测本地 8s）；
+#   2. 不装任何依赖 —— ci-check 只用 node: 内置模块，省掉 install 的 30~60s；
+#   3. UI/真机类验证（CDP 探针那 73 个脚本）不进这里：它们需要 Chromium 与
+#      真实服务端数据，跑在 Actions 上既慢又假，留在本机按需执行。
+#
+# 这条流水线拦的是「只能靠人肉发现」的五类破坏：
+#   服务端语法 / 迁移撞号 / manifest 契约 / shared↔server 错误码 / 前端内核冒烟
+
+name: kernel-ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# 同一分支的新提交直接取消上一次，避免排队烧额度
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: 内核体检
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: 检出
+        uses: actions/checkout@v4
+
+      - name: 准备 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 运行体检
+        run: node scripts/ci-check.mjs

@@ -64,4 +64,70 @@ function registerWidget(manifest) {
   return true;
 }
 
-export { WIDGET_REGISTRY, getWidget, listWidgets, registerWidget };
+// 注销 widget（市场应用卸载/停用时摘除其小组件）
+function unregisterWidget(id) {
+  if (!id || !WIDGET_REGISTRY[id]) return false;
+  delete WIDGET_REGISTRY[id];
+  return true;
+}
+
+// ===== 市场应用小组件的运行时注册 =====
+// 市场应用的 widget 没有独立 .vue 组件文件（不参与构建），渲染入口在
+// entry.js 的 definition.widgets[<id>] 契约上（见 docs/market-dev-guide.md）。
+// 注册键统一加 'mw:' 前缀（market widget），避免与官方 widget id 冲突。
+// apps = marketRegistry.refresh() 的返回值（listInstalled 已透传 widgets 白名单字段）。
+import MarketWidgetHost from '@/components/MarketWidgetHost.vue';
+
+function makeMarketWidgetComponent(appName, widgetId) {
+  return {
+    name: 'MarketWidget_' + appName + '_' + widgetId,
+    functional: true,
+    props: { config: { type: Object, default: function() { return {}; } } },
+    render: function(h, ctx) {
+      return h(MarketWidgetHost, {
+        props: { appName: appName, widgetId: widgetId, config: (ctx.props && ctx.props.config) || {} }
+      });
+    }
+  };
+}
+
+function syncMarketWidgets(apps) {
+  var list = Array.isArray(apps) ? apps : [];
+  var wantedKeys = {};
+  list.forEach(function(app) {
+    if (!app || !app.name || !Array.isArray(app.widgets)) return;
+    var appLabel = app.label || app.name;
+    app.widgets.forEach(function(w) {
+      if (!w || !w.id || !w.name) return;
+      var key = 'mw:' + app.name + ':' + w.id;
+      wantedKeys[key] = true;
+      if (WIDGET_REGISTRY[key]) {
+        // 已注册（版本更新场景）：就地刷新元数据
+        WIDGET_REGISTRY[key].name = appLabel + ' · ' + w.name;
+        WIDGET_REGISTRY[key].description = w.description || '';
+        WIDGET_REGISTRY[key].configSchema = w.configSchema || null;
+        WIDGET_REGISTRY[key].permission = w.permission || null;
+        return;
+      }
+      registerWidget({
+        id: key,
+        name: appLabel + ' · ' + w.name,
+        component: makeMarketWidgetComponent(app.name, w.id),
+        defaultSize: w.defaultSize || { w: 2, h: 2 },
+        minSize: w.minSize || { w: 1, h: 1 },
+        maxSize: w.maxSize || { w: 4, h: 4 },
+        description: w.description || '',
+        configSchema: w.configSchema || null,
+        permission: w.permission || null,
+        // _app 记录来源应用：桌面布局清理（cleanLayoutApps）按 appName 摘除失效 widget
+        _app: app.name,
+        _market: true
+      });
+    });
+  });
+  Object.keys(WIDGET_REGISTRY).forEach(function(key) {
+    if (key.indexOf('mw:') === 0 && !wantedKeys[key]) unregisterWidget(key);
+  });
+}
+
+export { WIDGET_REGISTRY, getWidget, listWidgets, registerWidget, unregisterWidget, syncMarketWidgets };

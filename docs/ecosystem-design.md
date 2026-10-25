@@ -611,6 +611,21 @@ MarketRuntime 捕获（AppShell 展示错误态）
 
 `MarketRuntime.vue` 已实现此逻辑。需补充的是：**运行时**（非挂载期）抛出的异常。通过 `context.util.on(window, 'error', ...)` 与 `unhandledrejection` 监听，把第三方异步异常也归因到该应用，避免污染全局错误处理。
 
+### 5.4 运行时内核保证（内核 v2，2026-10 落地）
+
+内核层面对第三方模块与宿主 mutual 的硬保证，全部有冒烟测试背书（`node scripts/kernel-smoke.mjs`）：
+
+| 保证 | 实现 | 违反后果 |
+|---|---|---|
+| 全局包装器不残留 | ResourceAuditor 共享劫持（引用计数）：计时器归属栈顶审计器，最后一个 `end()` 才恢复原生 `setTimeout/addEventListener` 等 | 旧实现嵌套挂载（悬浮层+页面应用）乱序卸载会留下**永久死包装器**拦截全站定时器 |
+| 内核登记表不泄漏 | `kernel.detachLifecycle(name)`：应用整体卸载时摘除 `_machines/_auditors` 登记项 | 诊断面板永久显示已卸载应用、审计器闭包滞留 |
+| 订阅不泄漏 | EventBus owner 治理：`on(topic, fn, owner)` 登记、`offOwner(owner)` 批量退订；market-sdk 每个自动带 `market:<name>` 归属，dispose 兜底清理 | 第三方忘退订的总线订阅永久泄漏 |
+| 诊断可一键获取 | `window.__ciDiagnostics()`（boot 报告+内核+市场+订阅归属+性能档）· 服务端 `GET /api/system/runtime-health`（进程/内存/DB/生态计数） | 线上问题排障全靠猜 |
+| 请求可归因 | 服务端每请求 `X-Request-Id` 响应头 + >1.5s 慢请求告警（带 rid） | 慢请求无法定位 |
+| 关停不丢数据 | gracefulShutdown：广播 → WAL checkpoint(TRUNCATE) → WS 关闭 → HTTP close → db.close（10s 强杀兜底）；关停期 API 503、静态放行 | pm2 重启丢尾部写入、-wal 膨胀 |
+| 状态机历史有界 | LifecycleMachine history 封顶 64 条 | 长驻应用跃迁记录无限增长 |
+| 卸载即无痕 | 服务端 `backend/cleanup.js` 钩子 + require.cache 驱逐 + `_removedMountPaths` 封顶；客户端 `ci:app:<name>:*` 清除 | 见 market-dev-guide.md §7 |
+
 ---
 
 ## 5.5 体验品质规范（德芙般流畅 + 视觉一致）

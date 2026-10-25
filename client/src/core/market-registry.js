@@ -10,6 +10,9 @@ var loadedVersions = {};
 var mountedRuntimes = {};
 var loadGeneration = {};
 var listeners = [];
+// 曾出现在完整清单中的应用名（含停用者）——用于识别「卸载」：
+// 停用的应用仍在完整清单里（只是 enabled=false），卸载的则彻底消失。
+var knownNames = {};
 
 function getEntry(app) {
   return app.frontendEntry || 'frontend/entry.js';
@@ -89,14 +92,15 @@ function unmount(appName, container) {
   var runtime = mountedRuntimes[appName];
   if (!runtime || (container && runtime.container !== container)) return;
 
-  // 1. 先执行应用自身注册的清理函数（context.app.onDestroy 契约）
-  //    顺序：先让应用自己收尾（解绑自己的事件/计时器），再做容器级回收
+  // 1. 只销毁本页面容器自己的 context。
+  //    绝不能调宿主 disposeContext(appName) 全清——同名应用的悬浮层/小组件上下文
+  //    会被一并误杀（症状：从应用返回桌面后桌宠等 overlay 消失且不再复活）
   try {
-    if (window.ClassIntraMarket && typeof window.ClassIntraMarket.disposeContext === 'function') {
-      window.ClassIntraMarket.disposeContext(appName);
+    if (runtime.context && runtime.context.__internal && typeof runtime.context.__internal.dispose === 'function') {
+      runtime.context.__internal.dispose();
     }
   } catch (e) {
-    console.error('[market-registry] disposeContext 失败:', appName, e);
+    console.error('[market-registry] 页面 context 销毁失败:', appName, e);
   }
 
   // 2. 调用应用定义的 unmount
@@ -130,6 +134,36 @@ function unloadAssets(appName) {
   delete definitions[appName];
 }
 
+// 卸载（而非停用/更新）时的彻底清除：不留任何本地残留。
+// 停用与更新不走到这里 —— 重新启用/重装后数据仍在。
+function purgeAppData(appName) {
+  // 1. 命名空间 localStorage：ci:app:<name>:*（SDK storage 的强制前缀）
+  try {
+    var prefix = 'ci:app:' + appName + ':';
+    var doomed = [];
+    for (var i = 0; i < localStorage.length; i++) {
+      var k = localStorage.key(i);
+      if (k && k.indexOf(prefix) === 0) doomed.push(k);
+    }
+    doomed.forEach(function(k) { localStorage.removeItem(k); });
+  } catch (e) {}
+  // 2. SDK 全局登记表（definition 闭包滞留会占内存）
+  try {
+    if (window.ClassIntraMarket && window.ClassIntraMarket.apps) {
+      delete window.ClassIntraMarket.apps[appName];
+    }
+  } catch (e) {}
+  // 3. 统一模块注册表（否则诊断摘要里永久显示已卸载应用）
+  try {
+    var kernel = getRuntimeKernel();
+    // 3a. 生命周期机与审计器（内核 _machines/_auditors 登记项，含包装器栈出栈）
+    if (typeof kernel.detachLifecycle === 'function') kernel.detachLifecycle(appName);
+    if (kernel.modules && typeof kernel.modules.remove === 'function') {
+      kernel.modules.remove('app', appName);
+    }
+  } catch (e) {}
+}
+
 function reload(name) {
   var active = getInstalled(name);
   if (!active) return Promise.reject(new Error('应用未安装'));
@@ -138,12 +172,27 @@ function reload(name) {
 }
 
 function syncInstalled(apps) {
-  var next = (Array.isArray(apps) ? apps : []).filter(function(app) {
+  var raw = Array.isArray(apps) ? apps : [];
+  var next = raw.filter(function(app) {
     return app && app.name && app.enabled !== false;
   });
   var active = {};
   next.forEach(function(app) {
     if (app && app.name) active[app.name] = app;
+  });
+  var rawNames = {};
+  raw.forEach(function(app) {
+    if (app && app.name) rawNames[app.name] = true;
+  });
+  // 卸载识别：曾出现在完整清单、这次连完整清单都没有 → 彻底清除本地数据
+  //（停用者仍在完整清单中，只做资源卸载，不 purge —— 重新启用后数据还在）
+  var purged = [];
+  Object.keys(knownNames).forEach(function(name) {
+    if (!rawNames[name]) {
+      purgeAppData(name);
+      delete knownNames[name];
+      purged.push(name);
+    }
   });
   var resources = {};
   Object.keys(loadedScripts).forEach(function(name) { resources[name] = true; });
@@ -153,8 +202,12 @@ function syncInstalled(apps) {
   Object.keys(resources).forEach(function(name) {
     if (!active[name]) unloadAssets(name);
   });
+  raw.forEach(function(app) {
+    if (app && app.name) knownNames[app.name] = true;
+  });
   installedApps = next.slice();
   emit();
+  if (purged.length) console.log('[market-registry] 已彻底清除已卸载应用的本地数据:', purged.join(', '));
   return installedApps.slice();
 }
 
@@ -208,15 +261,15 @@ function mount(name, container, definition) {
     definition.mount(container, context);
   } catch (error) {
     console.error('[MarketRuntime] 应用挂载失败:', name, error);
-    // 挂载失败时释放已完成的部分（避免半初始化状态残留）
+    // 挂载失败时只释放页面自己刚建的 context（不能全清 appName——会误杀悬浮层等同名上下文）
     try {
-      if (typeof window.ClassIntraMarket.disposeContext === 'function') {
-        window.ClassIntraMarket.disposeContext(name);
+      if (context && context.__internal && typeof context.__internal.dispose === 'function') {
+        context.__internal.dispose();
       }
     } catch (e) {}
     throw error;
   }
-  mountedRuntimes[name] = { container: container, definition: definition };
+  mountedRuntimes[name] = { container: container, definition: definition, context: context };
   return true;
 }
 

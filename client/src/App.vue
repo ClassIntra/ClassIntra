@@ -1,8 +1,13 @@
 <template>
   <div id="app" :data-theme="theme" @click="handleGlobalTap">
     <SuperIsland ref="superIsland" v-show="!isLocked && !desktopSettingsPanelOpen" />
+    <!-- 页面切换：保持与原版完全一致的结构（本系统数月的稳定基线）。
+         应用打开动画不挂在这里 —— 由 appOpenTransition 在导航完成后以 WAAPI 播放
+         （后置动画不可能阻塞导航；此前挂在 transition 钩子上曾导致真机卡死） -->
     <transition name="page-fade" mode="out-in">
-      <ErrorBoundary><router-view></router-view></ErrorBoundary>
+      <ErrorBoundary>
+        <router-view></router-view>
+      </ErrorBoundary>
     </transition>
     <transition name="toast-fade">
       <div v-if="toast.show" class="global-toast" :class="toast.type" role="status" aria-live="polite">
@@ -15,6 +20,7 @@
     </transition>
     <ModalDialog ref="modalDialog" />
     <GlobalSearch ref="globalSearch" />
+    <BigTextOverlay ref="bigTextOverlay" />
     <transition name="lock-fade">
       <LockScreen v-if="isLocked" @unlock="unlockScreen" />
     </transition>
@@ -25,9 +31,11 @@
 import SuperIsland from '@/components/SuperIsland.vue';
 import LockScreen from '@/components/LockScreen.vue';
 import GlobalSearch from '@/components/GlobalSearch.vue';
+import BigTextOverlay from '@/components/BigTextOverlay.vue';
 import api from '@/utils/api';
 import updateChecker from '@/utils/update-checker';
 import wsManager from '@/utils/websocket';
+import commandInbox from '@/utils/command-inbox';
 import audioManager from '@/utils/audio-manager';
 import islandNotify from '@/utils/island-notify';
 import reminderChecker from '@/utils/reminder-checker';
@@ -35,13 +43,18 @@ import { getThemeEngine } from '@/core/theme-engine';
 import { getHotkeyManager } from '@/core/hotkey-manager';
 import router from '@/router';
 import { marketRegistry } from '@/core/market-registry';
+import { syncOverlays } from '@/core/market-overlay-host';
+import { syncMarketWidgets } from '@/core/widget-aggregator';
+import { syncMarketThemes } from '@/core/theme-market';
+import appOpenTransition from '@/core/app-open-transition';
 
 export default {
   name: 'App',
   components: {
     SuperIsland: SuperIsland,
     LockScreen: LockScreen,
-    GlobalSearch: GlobalSearch
+    GlobalSearch: GlobalSearch,
+    BigTextOverlay: BigTextOverlay
   },
   data: function() {
     return {
@@ -51,6 +64,34 @@ export default {
       marketSyncPromise: null,
       marketSyncEventKey: ''
     };
+  },
+  watch: {
+    // 应用打开动画（WAAPI 后置播放）：导航已完成才启动动画 —— 从结构上不可能阻塞导航。
+    // （此前把动画挂在 transition 钩子上，真机时序竞态导致"卡在应用界面"，已彻底移除）
+    '$route': function(to, from) {
+      var self = this;
+      if (!appOpenTransition.enabled()) return;
+      var fromDesktop = !!from && (from.name === 'Desktop' || from.path === '/');
+      var toDesktop = !to || to.name === 'Desktop' || to.path === '/';
+      if (fromDesktop && !toDesktop && appOpenTransition.hasPendingOrigin()) {
+        var o = appOpenTransition.consumeOrigin(to.fullPath);
+        if (!o) return;
+        this.$nextTick(function() {
+          // 动画目标：路由页根元素（ErrorBoundary 的 $el 即 slot 内容根）
+          var boundary = self.$refs.pageBoundary;
+          var pageEl = boundary && boundary.$el;
+          if (!pageEl || !pageEl.animate || !pageEl.getBoundingClientRect) return;
+          try {
+            var vw = window.innerWidth || 1;
+            var vh = window.innerHeight || 1;
+            pageEl.animate([
+              { transform: 'translate(' + o.x + 'px, ' + o.y + 'px) scale(' + (o.w / vw).toFixed(4) + ', ' + (o.h / vh).toFixed(4) + ')', borderRadius: '28px', opacity: 0.3 },
+              { transform: 'translate(0px, 0px) scale(1, 1)', borderRadius: '0px', opacity: 1 }
+            ], { duration: 320, easing: 'cubic-bezier(0, 0, 0.2, 1)' });
+          } catch (e) {}
+        });
+      }
+    }
   },
   computed: {
     theme: function() {
@@ -138,6 +179,9 @@ export default {
         self.$store.commit('desktop/SET_ENABLED_APPS', enabledApps);
         return marketRegistry.refresh().then(function(apps) {
           if (router.registerMarketApps) router.registerMarketApps(apps);
+          // 全局悬浮层 + 市场小组件随清单同步（安装/卸载/启停/更新都会走到这里）
+          syncOverlays(apps);
+          syncMarketWidgets(apps);
           return self.$store.dispatch('desktop/loadDesktopLayout', enabledApps).then(function() {
             var currentApp = self.$route.meta && self.$route.meta.appName;
             if ((!enabled || action === 'uninstalled') && currentApp === appName) {
@@ -203,11 +247,9 @@ export default {
         '.chat-page', '.chat-messages', '.message-list', '.message-item',
         '.community-page', '.post-list', '.post-content', '.post-card',
         '.comment-list', '.comment-item', '.comment-content',
-        '.notes-page', '.editor-area', '.preview-area',
         '.private-chat', '.group-chat',
         '.message-input', '.chat-input', '.chat-sidebar',
-        '.community-sidebar', '.user-profile', '.profile-info',
-        '.ai-chat', '.ai-messages', '.ai-input'
+        '.community-sidebar', '.user-profile', '.profile-info'
       ];
       for (var i = 0; i < sensitiveSelectors.length; i++) {
         var els = document.querySelectorAll(sensitiveSelectors[i]);
@@ -226,6 +268,78 @@ export default {
       if (isLow) return 'low';
       if (cores <= 4 && memory <= 4) return 'medium';
       return 'high';
+    },
+
+    /**
+     * 统一落地的账号状态变更（封禁/解封）。
+     * 三个来源共用：WS 实时消息、指令信箱补拉、check-status 的 403 响应。
+     * 幂等：重复调用只会重复 set 同一个状态，不会叠加副作用。
+     */
+    applyAccountStatus: function(status, reason, banExpiresAt) {
+      var self = this;
+      var user = null;
+      try { user = JSON.parse(localStorage.getItem('user') || 'null'); } catch (e) { user = null; }
+      if (!user) return;
+
+      if (status === 'disabled') {
+        self.$store.commit('auth/SET_USER', Object.assign({}, user, {
+          status: 'disabled',
+          ban_reason: reason || '',
+          ban_expires_at: banExpiresAt || null
+        }));
+        if (self.$route.name !== 'Banned') {
+          self.$router.push({ name: 'Banned' });
+        }
+      } else if (status === 'active') {
+        self.$store.commit('auth/SET_USER', Object.assign({}, user, {
+          status: 'active',
+          ban_reason: null,
+          ban_expires_at: null
+        }));
+        // 若当前停在小黑屋页面，通知 Banned 组件解封
+        if (self.$route.name === 'Banned') {
+          window.dispatchEvent(new CustomEvent('classintra-unban'));
+        }
+      }
+    },
+
+    /**
+     * 处理 /auth/check-status 的失败响应。
+     * ⚠️ 此前所有调用点的 catch 都是空的 —— 服务端在账号被封时返回
+     * code 403「该账号已被禁用」，axios 视为 error 走 catch，封禁信号被整个吞掉，
+     * 设备要等到下一次偶然的推送才知道自己被封了。这是「封禁不及时」的第二大成因。
+     */
+    handleStatusCheckError: function(err) {
+      // 服务端在账号被封时返回的是 **HTTP 200 + body.code 403**（见 routes/auth.js:230），
+      // 所以 axios 走的是 .then 而不是 .catch。这个函数两种形态都接：
+      // 既处理真正的网络错误（err.response.data），也处理 200 里的 403 body。
+      var body = null;
+      if (err && err.response && err.response.data) body = err.response.data;
+      else if (err && err.data) body = err.data;
+      else if (err && err.code !== undefined) body = err;
+      if (body && body.code === 403 && body.message === '该账号已被禁用') {
+        this.applyAccountStatus('disabled', body.ban_reason || '账号已被禁用', body.ban_expires_at || null);
+      }
+    },
+
+    /** 指令信箱：大字显示 / 撤回 */
+    handleBigTextCommand: function(payload) {
+      if (this.$refs.bigTextOverlay) {
+        this.$refs.bigTextOverlay.show(payload);
+      }
+    },
+
+    handleBigTextRecallCommand: function(payload) {
+      if (this.$refs.bigTextOverlay) {
+        this.$refs.bigTextOverlay.hide(payload && payload.id);
+      }
+    },
+
+    /** 指令信箱：账号状态（离线设备上线后补执行封禁/解封） */
+    handleAccountStatusCommand: function(payload) {
+      if (payload && payload.status) {
+        this.applyAccountStatus(payload.status, payload.reason || '', payload.ban_expires_at || null);
+      }
     }
   },
   mounted: function() {
@@ -253,7 +367,9 @@ export default {
             self.$store.commit('auth/SET_TOKEN', response.data.data.token);
           }
         }
-      }).catch(function() {});
+        // 封禁是 200 + body.code 403，必须在 then 里接（catch 永远等不到）
+        if (response.data.code === 403) self.handleStatusCheckError(response.data);
+      }).catch(function(err) { self.handleStatusCheckError(err); });
       api.get('/user/settings').then(function(response) {
         if (response.data.code === 200 && response.data.data) {
           var serverSettings = response.data.data;
@@ -285,17 +401,8 @@ export default {
         if (!user) return;
         // account_banned是直接发给本用户的，无需匹配user_id
         var isTargetUser = data.type === 'account_banned' || (data.user_id === user.user_id);
-        if (isTargetUser && data.status === 'disabled') {
-          var updatedUser = Object.assign({}, user, { status: 'disabled', ban_reason: data.reason || '', ban_expires_at: data.ban_expires_at || null });
-          self.$store.commit('auth/SET_USER', updatedUser);
-          self.$router.push({ name: 'Banned' });
-        } else if (isTargetUser && data.status === 'active') {
-          var activeUser = Object.assign({}, user, { status: 'active', ban_reason: null, ban_expires_at: null });
-          self.$store.commit('auth/SET_USER', activeUser);
-          // 如果当前在小黑屋页面，通过自定义事件通知Banned组件解封
-          if (self.$route.name === 'Banned') {
-            window.dispatchEvent(new CustomEvent('classintra-unban'));
-          }
+        if (isTargetUser) {
+          self.applyAccountStatus(data.status, data.reason || '', data.ban_expires_at || null);
         }
       }
       if (data.type === 'app_update_available') {
@@ -339,6 +446,10 @@ export default {
       }
       if (data.type === 'market_app_changed') {
         self.syncMarketAppControl(data.appName, true, data.action).catch(function() {});
+      }
+      if (data.type === 'market_theme_changed') {
+        // 市场主题安装/卸载：重同步主题注册（失败静默，仅影响新主题可见性）
+        syncMarketThemes().catch(function() {});
       }
       if (data.type === 'lock_screen_changed') {
         // 管理员切换锁屏开关，实时生效
@@ -406,15 +517,8 @@ export default {
           self.$store.commit('network/SET_ONLINE', true);
           self.restoreFromOffline();
         }
-        // 心跳同时检测封禁状态
-        if (res.data && res.data.code === 403) {
-          var user = (function() { try { return JSON.parse(localStorage.getItem('user') || 'null'); } catch(e) { return null; } })();
-          if (user) {
-            var banData = res.data || {};
-            self.$store.commit('auth/SET_USER', Object.assign({}, user, { status: 'disabled', ban_reason: banData.ban_reason || '', ban_expires_at: banData.ban_expires_at || null }));
-            self.$router.push({ name: 'Banned' });
-          }
-        }
+        // 心跳同时检测封禁状态（200 + body.code 403）
+        if (res.data && res.data.code === 403) self.handleStatusCheckError(res.data);
       }).catch(function(err) {
         self._heartbeatPending = false;
         if (!err.response) {
@@ -433,8 +537,14 @@ export default {
     }, 2000);
 
     // WebSocket重连后检查封禁状态
+    // ⚠️ 此前 catch 是空的：被封时服务端返回 403，信号被整个吞掉。
+    // 现在交给 handleStatusCheckError 识别并落地。
     self._onWsOpen = function() {
-      api.get('/auth/check-status', { timeout: 3000 }).catch(function() {});
+      api.get('/auth/check-status', { timeout: 3000 }).then(function(res) {
+        if (res.data && res.data.code === 403) self.handleStatusCheckError(res.data);
+      }).catch(function(err) {
+        self.handleStatusCheckError(err);
+      });
     };
     wsManager.on('_wsOpen', self._onWsOpen);
 
@@ -444,12 +554,16 @@ export default {
         // 延迟3秒验证，给WS重连时间
         setTimeout(function() {
           if (self.$store.state.network.online && !self._offlineLocked) {
-            api.get('/auth/check-status', { timeout: 3000 }).catch(function(err) {
+            api.get('/auth/check-status', { timeout: 3000 }).then(function(res) {
+              if (res.data && res.data.code === 403) self.handleStatusCheckError(res.data);
+            }).catch(function(err) {
               if (!err.response) {
                 self.$store.commit('network/SET_ONLINE', false);
                 self._offlineLocked = true;
                 self.lockForOffline();
+                return;
               }
+              self.handleStatusCheckError(err);
             });
           }
         }, 3000);
@@ -470,17 +584,23 @@ export default {
             self.$store.commit('network/SET_ONLINE', false);
             self._offlineLocked = true;
             self.lockForOffline();
+            return;
           }
+          self.handleStatusCheckError(err);
         });
       }, 2000);
     };
     self._onBrowserOnline = function() {
       // 浏览器报告在线时，验证服务器可达性
-      api.get('/auth/check-status', { timeout: 3000 }).then(function() {
+      api.get('/auth/check-status', { timeout: 3000 }).then(function(res) {
         self.$store.commit('network/SET_ONLINE', true);
         self.restoreFromOffline();
-      }).catch(function() {
-        // 浏览器说在线但服务器不可达，保持当前状态
+        // 恢复在线时若发现账号已被封，同样要落地
+        if (res.data && res.data.code === 403) self.handleStatusCheckError(res.data);
+      }).catch(function(err) {
+        // 浏览器说在线但服务器不可达，保持当前状态；
+        // 但若服务器明确返回 403（已被封禁），仍需落地封禁状态。
+        self.handleStatusCheckError(err);
       });
     };
     window.addEventListener('offline', self._onBrowserOffline);
@@ -488,6 +608,35 @@ export default {
     // 注入灵动岛桥接 + 启动提醒检查器
     islandNotify.setSuperIslandRef(self.$refs.superIsland);
     reminderChecker.start();
+
+    // ===== 设备指令信箱 =====
+    // 控制类指令（封禁/解封、大字广播）的必达通道：
+    // 在线走 WS 实时推送，离线则由上线/重连后的补拉兜底。
+    commandInbox.registerHandler('big_text', function(payload) {
+      self.handleBigTextCommand(payload);
+    });
+    commandInbox.registerHandler('big_text_recall', function(payload) {
+      self.handleBigTextRecallCommand(payload);
+    });
+    commandInbox.registerHandler('account_status', function(payload) {
+      self.handleAccountStatusCommand(payload);
+    });
+    commandInbox.start();
+    // 从后台切回前台时立刻补拉一次（移动端切后台会挂起定时器）
+    self._onVisibilityChange = function() {
+      if (document.visibilityState === 'visible') {
+        commandInbox.syncNow();
+      }
+    };
+    document.addEventListener('visibilitychange', self._onVisibilityChange);
+
+    // 任意接口返回「该账号已被禁用」时，api.js 会广播这个事件：
+    // 统一走 applyAccountStatus，避免各页面各自静默降级成空数据
+    self._onAccountDisabled = function(e) {
+      var d = (e && e.detail) || {};
+      self.applyAccountStatus('disabled', d.reason, d.expiresAt);
+    };
+    window.addEventListener('classintra-account-disabled', self._onAccountDisabled);
 
     // 阶段 5：注册 Ctrl+K 全局搜索快捷键（global: true，输入框中也触发）
     try {
@@ -509,6 +658,13 @@ export default {
   },
   beforeDestroy: function() {
     reminderChecker.stop();
+    if (this._onAccountDisabled) {
+      window.removeEventListener('classintra-account-disabled', this._onAccountDisabled);
+    }
+    commandInbox.stop();
+    if (this._onVisibilityChange) {
+      document.removeEventListener('visibilitychange', this._onVisibilityChange);
+    }
     if (this._banWsHandler) {
       wsManager.off('_message', this._banWsHandler);
     }
@@ -543,6 +699,47 @@ export default {
 </script>
 
 <style>
+/* ===== 应用打开/关闭过渡（安卓容器变换式，详见 core/app-open-transition.js）=====
+   展开：before-enter 把容器定到图标 rect，这里驱动它过渡回自然态（全屏）；
+   离开（app-open 的桌面退场）：桌面轻微缩小淡出，衬托新页展开。
+   全程 transform/opacity/border-radius，合成层动画，Chrome 80 平板流畅。 */
+.app-open-enter-active {
+  transition:
+    transform var(--duration-slow, 0.3s) var(--ease-decelerate, cubic-bezier(0, 0, 0.2, 1)),
+    opacity var(--duration-slow, 0.3s) var(--ease-decelerate, cubic-bezier(0, 0, 0.2, 1)),
+    border-radius var(--duration-slow, 0.3s) var(--ease-decelerate, cubic-bezier(0, 0, 0.2, 1));
+  will-change: transform;
+  z-index: 100;
+}
+.app-open-leave-active {
+  transition:
+    transform var(--duration-fast, 0.15s) var(--ease-accelerate, cubic-bezier(0.4, 0, 1, 1)),
+    opacity var(--duration-fast, 0.15s) var(--ease-accelerate, cubic-bezier(0.4, 0, 1, 1));
+  transform: scale(0.96);
+  opacity: 0.6;
+}
+.app-open-leave-to { opacity: 0; }
+/* 收缩（app-close）：before-leave 把图标 rect 写进 --ac-* 变量，纯 CSS 类驱动
+   （Vue 原生 CSS 过渡检测，无 JS done 竞态）；终点 = 图标位置与大小 */
+.app-close-leave-active {
+  transition:
+    transform var(--duration-slow, 0.3s) var(--ease-accelerate, cubic-bezier(0.4, 0, 1, 1)),
+    opacity var(--duration-slow, 0.3s) var(--ease-accelerate, cubic-bezier(0.4, 0, 1, 1)),
+    border-radius var(--duration-slow, 0.3s) var(--ease-accelerate, cubic-bezier(0.4, 0, 1, 1));
+  transform-origin: 0 0;
+  overflow: hidden;
+}
+.app-close-leave-to {
+  transform: translate(var(--ac-x, 0px), var(--ac-y, 0px)) scale(var(--ac-sx, 1), var(--ac-sy, 1));
+  opacity: 0;
+  border-radius: 28px;
+}
+/* 桌面回场快速淡入 */
+.app-close-enter-active {
+  transition: opacity var(--duration-fast, 0.15s) var(--ease-standard, ease);
+}
+.app-close-enter-from { opacity: 0; }
+</style>
 #app {
   width: 100%;
   height: 100%;
@@ -607,7 +804,11 @@ export default {
 
 .global-toast {
   position: fixed;
-  top: 80px;
+  /* 64px = 灵动岛常态（top 12 + 高 40）下方再留 12px 呼吸位。
+     早先是 80px，配合当时偏低的 z-index(9999) 会被岛/模态盖住；
+     现在层级提到 --z-toast(99997) 永不被挡，位置反而要贴着岛下沿，
+     免得浮在岛的标题栏上挡它的关闭按钮。 */
+  top: 64px;
   left: 50%;
   transform: translateX(-50%);
   padding: 12px 24px;
@@ -617,7 +818,7 @@ export default {
   display: flex;
   align-items: center;
   gap: 8px;
-  z-index: 9999;
+  z-index: var(--z-toast, 99997);
   box-shadow: var(--shadow-lg);
   -webkit-backdrop-filter: var(--glass-blur-thin);
   backdrop-filter: var(--glass-blur-thin);

@@ -42,17 +42,19 @@
           </div>
         </div>
 
-        <!-- Notification Mode -->
-        <IslandNotificationPanel
-          v-else-if="islandMode === 'notification'"
-          key="notification"
-          :notification="notification"
-          :priority="notificationPriority"
-          :timestamp="notificationTimestamp"
-          :queue-count="queueCount"
-          :is-bouncing="isBouncing"
-          :progress-width="progressWidth"
-        />
+      <!-- Notification Mode -->
+      <!-- key 带 notificationAppearTime：每条新通知强制重挂载面板，
+           进度条/入场动画自然重启（同 key 时 Vue transition 不会重跑） -->
+      <IslandNotificationPanel
+        v-else-if="islandMode === 'notification'"
+        :key="'notif-' + notificationAppearTime"
+        :notification="notification"
+        :priority="notificationPriority"
+        :timestamp="notificationTimestamp"
+        :queue-count="queueCount"
+        :is-bouncing="isBouncing"
+        :notif-duration="notificationDuration"
+      />
 
         <!-- Actions Mode -->
         <IslandActionsPanel
@@ -220,7 +222,10 @@ export default {
     islandClasses: function() {
       var cls = 'island-mode-' + this.islandMode;
       if (this.isDismissing) cls += ' island-dismissing';
-      if (this.isBouncing) cls += ' island-bouncing';
+      // 不给容器加 island-bouncing：容器 transform 由 FLIP morph 独占
+      // （WAAPI），CSS pop-in 动画会与其互相覆盖造成「跳一下再变形」。
+      // 新通知的灵动感由 island-content transition（内容入场）+ notif-icon-pop
+      // （图标弹跳，isBouncing 驱动）提供 —— 2026-10-24 动效整备。
       if (this.islandMode === 'notification') {
         if (this.notificationPriority === 'urgent') cls += ' island-urgent';
         else if (this.notificationPriority === 'normal') cls += ' island-normal';
@@ -346,10 +351,6 @@ export default {
     this.cleanupGestureTimers();
     this.cleanupWSListeners();
     document.removeEventListener('click', this.onDocumentClick);
-    if (this._shareBounceTimer) {
-      clearTimeout(this._shareBounceTimer);
-      this._shareBounceTimer = null;
-    }
   },
   methods: {
     goCompact: function() {
@@ -476,10 +477,7 @@ export default {
       };
       this.prevMode = this.islandMode;
       this.islandMode = 'share-capsule';
-      this.isBouncing = true;
-      var self = this;
-      if (self._shareBounceTimer) clearTimeout(self._shareBounceTimer);
-      self._shareBounceTimer = setTimeout(function() { self.isBouncing = false; }, 420);
+      // 入场反馈由 island-content transition（spring）负责，不再驱动容器 bounce
     },
 
     dismissShareCapsule: function() {
@@ -596,12 +594,13 @@ export default {
   -webkit-tap-highlight-color: transparent;
   user-select: none;
   -webkit-user-select: none;
-  /* apple-design §11: 只 transition 合成层属性（transform/opacity/box-shadow），
+  /* apple-design §11: 只 transition 合成层属性（transform/opacity），
      绝不 transition width/height/padding —— 那会每帧触发 layout 回流导致卡顿。
+     box-shadow 也不过渡：阴影变化（按压收紧/展开加深）一次性生效即可，
+     过渡它 = 每帧重绘模糊阴影，还和 FLIP morph 同窗叠加（2026-10-24 动效整备移除）。
      容器尺寸 morph 由 JS FLIP 用 transform scale 驱动（见 island-gestures.js）。 */
   transition:
     transform var(--duration-fast) var(--ease-emphasized),
-    box-shadow var(--duration-normal) var(--ease-standard),
     opacity var(--duration-fast) var(--ease-standard);
   transform-origin: top center;
   /* will-change 只用于合成层属性；FLIP 运行时由 JS 动态设置/清理 */
@@ -726,12 +725,35 @@ export default {
 }
 
 /* ===== Priority States ===== */
-/* 紧急通知：subtle 脉冲光晕（可中断 transition 而非 keyframe infinite） */
+/* 紧急通知：静态红色外阴影（切入时随 box-shadow transition 平滑加深）+
+   内描边呼吸层。呼吸只动 opacity（合成层）—— 原实现直接 infinite 动画
+   box-shadow，每帧重绘 32~40px 模糊阴影，平板掉帧；且 animation 会覆盖
+   .island 的 box-shadow transition，两套阴影互相打架。2026-10-24 重构。 */
 .island-urgent {
   box-shadow: 0 6px 32px rgba(var(--danger-rgb, 255, 59, 48), 0.45),
               0 2px 12px rgba(var(--danger-rgb, 255, 59, 48), 0.25),
               0 0 0 1px rgba(var(--danger-rgb, 255, 59, 48), 0.2) inset;
-  animation: island-urgent-glow 1.6s var(--ease-standard) infinite;
+}
+
+.island-urgent::after {
+  content: '';
+  position: absolute;
+  /* 不用 inset 简写（Chrome 87+，平板基线 Chrome 80 不识别） */
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  /* 规范例外：圆角跟随宿主岛体（notification 模式为 --radius-3xl），
+     写死具体档位会在 urgent 复用到其它模式时漂移 */
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px rgba(var(--danger-rgb, 255, 59, 48), 0.55);
+  pointer-events: none;
+  animation: island-urgent-breathe 1.6s var(--ease-standard) infinite;
+}
+
+@keyframes island-urgent-breathe {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 0.85; }
 }
 
 .island-normal {
@@ -743,34 +765,6 @@ export default {
 .island-low {
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.2),
               0 0 0 0.5px rgba(255, 255, 255, 0.04) inset;
-}
-
-@keyframes island-urgent-glow {
-  0%, 100% {
-    box-shadow: 0 6px 32px rgba(var(--danger-rgb, 255, 59, 48), 0.45),
-                0 2px 12px rgba(var(--danger-rgb, 255, 59, 48), 0.25),
-                0 0 0 1px rgba(var(--danger-rgb, 255, 59, 48), 0.2) inset;
-  }
-  50% {
-    box-shadow: 0 8px 40px rgba(var(--danger-rgb, 255, 59, 48), 0.6),
-                0 2px 16px rgba(var(--danger-rgb, 255, 59, 48), 0.35),
-                0 0 0 1.5px rgba(var(--danger-rgb, 255, 59, 48), 0.3) inset;
-  }
-}
-
-/**
- * 通知到达时的 pop-in 反馈
- * apple-design: 用 transition 实现可中断的 spring 入场，替代 keyframe bounce
- * emil-design: 从 scale(0.96) 起步，never from scale(0)
- */
-.island-bouncing {
-  animation: island-pop-in var(--duration-normal) var(--ease-spring) both;
-}
-
-@keyframes island-pop-in {
-  0%   { transform: translateY(-7px) scale(0.95); }
-  55%  { transform: translateY(1px) scale(1.02); }
-  100% { transform: translateY(0) scale(1); }
 }
 
 .island-dismissing {
@@ -871,7 +865,7 @@ export default {
   min-height: 44px;
   border-radius: var(--radius-pill);
   transition: background var(--duration-fast) var(--ease-standard),
-              transform 0.12s var(--ease-emphasized);
+              transform var(--duration-fast) var(--ease-emphasized);
   cursor: pointer;
 }
 
@@ -910,9 +904,8 @@ export default {
   .island {
     transition: opacity var(--duration-fast) var(--ease-standard) !important;
   }
-  .island-bouncing { animation: none !important; }
   .island-dismissing { transition: opacity var(--duration-fast) var(--ease-standard) !important; transform: none !important; }
-  .island-urgent { animation: none !important; }
+  .island-urgent::after { animation: none !important; }
   .compact-icon-pulse { animation: none !important; }
   .island-content-enter-active,
   .island-content-leave-active {

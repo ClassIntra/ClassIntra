@@ -402,7 +402,8 @@ router.get('/posts', function(req, res) {
   var limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 20));
   var offset = (page - 1) * limit;
 
-  if (!isValidType(type, VALID_POST_TYPES)) {
+  // type=all：个人主页要「TA 发过的全部帖子」，不分论坛/美食/热榜/投票
+  if (!isValidType(type, VALID_POST_TYPES) && type !== 'all') {
     type = 'forum';
   }
 
@@ -411,7 +412,9 @@ router.get('/posts', function(req, res) {
   var userGender = user ? user.gender : '';
 
   var types = [type];
-  if (type === 'forum') {
+  if (type === 'all') {
+    types = VALID_POST_TYPES.slice();
+  } else if (type === 'forum') {
     types = ['forum', 'poll', 'survey'];
   }
   var placeholders = types.map(function() { return '?'; }).join(',');
@@ -422,8 +425,22 @@ router.get('/posts', function(req, res) {
     featuredClause = ' AND featured = 1';
   }
 
-  var countStmt = db.prepare('SELECT COUNT(*) as total FROM community_posts WHERE type IN (' + placeholders + ')' + featuredClause);
-  var countParams = types.concat(featuredParams);
+  // 按作者过滤（个人主页「他的帖子」用）。匿名帖在别人眼里不算这个作者发的 ——
+  // 否则点进主页就能把匿名帖和作者对应上，匿名就白设了。自己看自己时保留，
+  // 与 /my/posts 的行为一致。
+  var authorClause = '';
+  var authorParams = [];
+  var authorId = String(req.query.author_id || '').trim();
+  if (authorId) {
+    authorClause = ' AND p.user_id = ?';
+    authorParams.push(authorId);
+    if (authorId !== String(userId)) authorClause += ' AND p.anonymous = 0';
+  }
+
+  // 注意表别名 p：authorClause 里用了 p.user_id / p.anonymous，
+  // 不给 count 查询起别名会直接 500（no such column: p.user_id）
+  var countStmt = db.prepare('SELECT COUNT(*) as total FROM community_posts p WHERE p.type IN (' + placeholders + ')' + featuredClause + authorClause);
+  var countParams = types.concat(featuredParams, authorParams);
   var totalResult = countStmt.get.apply(countStmt, countParams);
   var total = totalResult.total;
 
@@ -441,7 +458,7 @@ router.get('/posts', function(req, res) {
     'u.net_name as admin_net_name, ' +
     'u.real_name as admin_real_name ' +
     'FROM community_posts p LEFT JOIN users u ON p.user_id = u.user_id ' +
-    'WHERE p.type IN (' + placeholders + ')' + featuredClause + ' ' +
+    'WHERE p.type IN (' + placeholders + ')' + featuredClause + authorClause + ' ' +
     orderStr + ' LIMIT ? OFFSET ?'
   );
   var queryParams = countParams.concat([limit, offset]);
@@ -1097,8 +1114,19 @@ router.put('/profile', function(req, res) {
           sanitizedPs[allowedPsKeys[k]] = !!ps[allowedPsKeys[k]];
         }
       }
+      // ⚠️ 必须是 **merge** 而不是替换：
+      //   设置页的「在社区显示真实姓名」开关只会发 { hide_real_name }，
+      //   早期的整体替换语义会把它没带的 wechat/qq/phone/address 一起清空
+      //   —— 也就是「切一下真名开关，所有联系方式突然变公开」。
+      //   现在只覆盖调用方明确传了的键，其余保持原值。
+      var existingPs = {};
+      try {
+        var psRow = db.prepare('SELECT privacy_settings FROM users WHERE user_id = ?').get(userId);
+        existingPs = JSON.parse((psRow && psRow.privacy_settings) || '{}') || {};
+      } catch (e) { existingPs = {}; }
+      var mergedPs = Object.assign({}, existingPs, sanitizedPs);
       fields.push('privacy_settings = ?');
-      values.push(JSON.stringify(sanitizedPs));
+      values.push(JSON.stringify(mergedPs));
     } catch (e) { console.error('[Community] Operation failed:', e.message); }
   }
 
@@ -1133,16 +1161,14 @@ router.put('/profile', function(req, res) {
   res.json({ code: 200, message: 'ok' });
 });
 
-router.get('/profile/:userId', function(req, res) {
-  var currentUserId = req.user.user_id;
-  var targetUserId = req.params.userId;
+// 他人/自己的资料（含隐私过滤），/profile/:userId 与 /users/:userId/overview 共用
+// 返回 null 表示用户不存在
+function queryUserProfile(targetUserId, currentUserId) {
   var isSelf = String(currentUserId) === String(targetUserId);
 
   var stmt = db.prepare('SELECT id, user_id, net_name, real_name, gender, wechat, qq, phone, address, signature, privacy_settings, info_json FROM users WHERE user_id = ?');
   var user = stmt.get(targetUserId);
-  if (!user) {
-    return res.status(404).json({ code: 404, message: '用户不存在' });
-  }
+  if (!user) return null;
 
   // 提取生日
   var birthday = '';
@@ -1157,7 +1183,7 @@ router.get('/profile/:userId', function(req, res) {
     net_name: user.net_name,
     gender: user.gender,
     signature: user.signature,
-    // 暴露 hide_real_name 标记，供前端"我的"页条件显示 real_name
+    // 暴露 hide_real_name 标记，供"我的"页条件显示 real_name
     hide_real_name: !!privacySettings.hide_real_name
   };
 
@@ -1196,6 +1222,14 @@ router.get('/profile/:userId', function(req, res) {
   var likedByMe = db.prepare('SELECT id FROM community_likes WHERE user_id = ? AND target_type = \'user\' AND target_id = ?');
   result.liked_by_me = !!likedByMe.get(currentUserId, String(targetUserId));
 
+  return result;
+}
+
+router.get('/profile/:userId', function(req, res) {
+  var result = queryUserProfile(req.params.userId, req.user.user_id);
+  if (!result) {
+    return res.status(404).json({ code: 404, message: '用户不存在' });
+  }
   res.json({ code: 200, message: 'ok', data: result });
 });
 
@@ -1238,11 +1272,8 @@ router.post('/groups', function(req, res) {
 
 // ==================== 我的帖子 ====================
 
-router.get('/my/posts', function(req, res) {
-  var userId = req.user.user_id;
-  var type = req.query.type || '';
-  var page = Math.max(1, parseInt(req.query.page) || 1);
-  var limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 20));
+// 我的帖子查询（/my/posts 与 /mine/overview 共用一份 SQL，避免两处逻辑漂移）
+function queryMyPosts(userId, type, page, limit, reqUser) {
   var offset = (page - 1) * limit;
 
   var whereStr = 'WHERE p.user_id = ?';
@@ -1268,9 +1299,19 @@ router.get('/my/posts', function(req, res) {
   }
 
   convertTimesArray(posts);
-  stripAdminFields(posts, req.user);
+  stripAdminFields(posts, reqUser);
 
-  res.json({ code: 200, message: 'ok', data: { posts: posts, total: total, page: page } });
+  return { posts: posts, total: total, page: page };
+}
+
+router.get('/my/posts', function(req, res) {
+  var type = req.query.type || '';
+  var page = Math.max(1, parseInt(req.query.page) || 1);
+  var limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 20));
+  res.json({
+    code: 200, message: 'ok',
+    data: queryMyPosts(req.user.user_id, type, page, limit, req.user)
+  });
 });
 
 // ==================== 用户统计 ====================
@@ -1415,10 +1456,8 @@ router.delete('/bookmarks/:postId', function(req, res) {
   res.json({ code: 200, message: 'ok' });
 });
 
-router.get('/bookmarks', function(req, res) {
-  var userId = req.user.user_id;
-  var page = Math.max(1, parseInt(req.query.page) || 1);
-  var limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 20));
+// 收藏列表查询（/bookmarks 与 /mine/overview 共用）
+function queryBookmarks(userId, page, limit, reqUser) {
   var offset = (page - 1) * limit;
 
   var countStmt = db.prepare('SELECT COUNT(*) as total FROM community_bookmarks WHERE user_id = ?');
@@ -1445,9 +1484,106 @@ router.get('/bookmarks', function(req, res) {
   }
 
   convertTimesArray(posts);
-  stripAdminFields(posts, req.user);
+  stripAdminFields(posts, reqUser);
 
-  res.json({ code: 200, message: 'ok', data: { posts: posts, total: total, page: page } });
+  return { posts: posts, total: total, page: page };
+}
+
+router.get('/bookmarks', function(req, res) {
+  var page = Math.max(1, parseInt(req.query.page) || 1);
+  var limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 20));
+  res.json({
+    code: 200, message: 'ok',
+    data: queryBookmarks(req.user.user_id, page, limit, req.user)
+  });
+});
+
+// ==================== 首屏聚合 ====================
+// 「我的」页与个人主页原来各要打 5~7 个接口（profile / user-stats / follow / cover /
+// level / avatar / posts）。校园平板走 relay 时每个请求都带一次 RTT，串起来就是
+// 几百毫秒的空白 + 一堆 0 闪一下。这里把「首屏就要显示的小对象」合并成一次往返
+// （约 1~2KB）；帖子列表体积大（带正文），保持独立请求并行拉，避免把首屏拖成几十 KB。
+function queryUserOverview(targetUserId, currentUserId, reqUser) {
+  // 资料走同一套隐私过滤（自己看自己是完整版，看别人按 privacy_settings 裁剪）
+  var profile = queryUserProfile(targetUserId, currentUserId);
+  if (!profile) return null;
+
+  // 统计：与 /user-stats 同口径（获赞 = 收到的用户赞 + 帖子累计赞）
+  var postCount = db.prepare('SELECT COUNT(*) as cnt FROM community_posts WHERE user_id = ?').get(targetUserId).cnt;
+  var likeReceived = db.prepare(
+    "SELECT COUNT(*) as cnt FROM community_likes WHERE target_type = 'user' AND target_id = ?"
+  ).get(String(targetUserId)).cnt;
+  var postLikes = db.prepare('SELECT IFNULL(SUM(like_count), 0) as cnt FROM community_posts WHERE user_id = ?').get(targetUserId).cnt;
+  var commentCount = db.prepare('SELECT COUNT(*) as cnt FROM community_comments WHERE user_id = ?').get(targetUserId).cnt;
+
+  // 关注/粉丝
+  var followers = db.prepare('SELECT COUNT(*) AS cnt FROM user_follows WHERE followee_id = ?').get(targetUserId).cnt;
+  var followingCount = db.prepare('SELECT COUNT(*) AS cnt FROM user_follows WHERE follower_id = ?').get(targetUserId).cnt;
+
+  // 封面：与 /api/user/cover 同一个 payload 形状（前端可以直接复用同一套渲染）
+  var coverRow = db.prepare('SELECT cover_hash, cover_crop FROM users WHERE user_id = ?').get(targetUserId) || {};
+  var coverHash = coverRow.cover_hash || '';
+  var coverCrop = { zoom: 1, ox: 0, oy: 0 };
+  try {
+    if (coverRow.cover_crop) coverCrop = JSON.parse(coverRow.cover_crop) || coverCrop;
+  } catch (e) { /* 损坏的 JSON 用默认裁切 */ }
+
+  // 头像：一起下发，前端直接喂给 UserAvatar（省掉一次 avatar/batch 往返，
+  // 头像又是首屏最大的视觉元素，晚到会很显眼）
+  var avRow = db.prepare('SELECT avatar_hash, avatar_crop FROM users WHERE user_id = ?').get(targetUserId) || {};
+  var avHash = avRow.avatar_hash || '';
+  var avCrop = { zoom: 1, ox: 0, oy: 0 };
+  try {
+    if (avRow.avatar_crop) avCrop = JSON.parse(avRow.avatar_crop) || avCrop;
+  } catch (e) { /* 损坏的 JSON 用默认裁切 */ }
+
+  // 等级 + 职务：与 /level/batch-levels 同源，避免两套算法
+  var levelMap = exp.getBatchUserLevels([targetUserId]) || {};
+  var levelInfo = levelMap[targetUserId] || {};
+  var roleRow = db.prepare('SELECT role, officer_title FROM users WHERE user_id = ?').get(targetUserId) || {};
+  levelInfo.role = roleRow.role || '';
+  levelInfo.officer_title = roleRow.officer_title || '';
+
+  return {
+    profile: profile,
+    stats: { post_count: postCount, like_count: likeReceived + postLikes, comment_count: commentCount },
+    follow: { followers: followers, following_count: followingCount },
+    cover: {
+      has_cover: !!coverHash,
+      hash: coverHash,
+      crop: coverCrop,
+      url: coverHash ? '/api/cloud/files/' + coverHash + '?w=720' : '',
+      full_url: coverHash ? '/api/cloud/files/' + coverHash + '?w=900' : ''
+    },
+    avatar: { has_avatar: !!avHash, hash: avHash, crop: avCrop },
+    level: levelInfo
+  };
+}
+
+// 「我的」首屏（自己看自己）
+router.get('/mine/overview', function(req, res) {
+  try {
+    var userId = req.user.user_id;
+    var data = queryUserOverview(userId, userId, req.user);
+    if (!data) return res.status(404).json({ code: 404, message: '用户不存在' });
+    res.json({ code: 200, message: 'ok', data: data });
+  } catch (e) {
+    console.error('[Community] mine overview error:', e.message);
+    res.status(500).json({ code: 500, message: '服务器内部错误' });
+  }
+});
+
+// 任意用户的首屏聚合（个人主页用）。隐私过滤与 /profile/:userId 完全一致：
+// 拿别人的 overview 拿不到被设为私密的联系方式，也不会泄漏 privacy_settings 本体。
+router.get('/users/:userId/overview', function(req, res) {
+  try {
+    var data = queryUserOverview(req.params.userId, req.user.user_id, req.user);
+    if (!data) return res.status(404).json({ code: 404, message: '用户不存在' });
+    res.json({ code: 200, message: 'ok', data: data });
+  } catch (e) {
+    console.error('[Community] user overview error:', e.message);
+    res.status(500).json({ code: 500, message: '服务器内部错误' });
+  }
 });
 
 // ==================== 分享计数 ====================

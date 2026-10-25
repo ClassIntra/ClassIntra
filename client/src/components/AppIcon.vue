@@ -55,7 +55,8 @@ export default {
     onClick: function() {
       // 编辑态下点击图标不启动应用（仅 wiggle），符合 iPad 行为
       if (this.editing) return;
-      this.$emit('launch', this.app);
+      // 第二参传根元素：供应用打开过渡（容器变换）捕获图标位置
+      this.$emit('launch', this.app, this.$el);
     },
     onRemove: function() {
       this.$emit('remove', this.app);

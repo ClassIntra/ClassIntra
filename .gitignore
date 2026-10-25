@@ -155,3 +155,4 @@ mkcert.exe
 
 # Mimosa 工具本地状态
 .mimosa/
+.market-signing-key.pem

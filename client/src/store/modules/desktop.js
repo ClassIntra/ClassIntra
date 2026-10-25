@@ -867,6 +867,9 @@ var actions = {
     var widget = {
       id: 'w_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
       type: payload.type,
+      // 来源应用（官方/市场 widget 聚合时都带 _app）：cleanLayoutApps
+      // 据此在应用禁用/卸载后清掉布局里失效的 widget 引用
+      appName: (widgetDef && widgetDef._app) || '',
       slot: 0,
       w: payload.w || defaultSize.w,
       h: payload.h || defaultSize.h,

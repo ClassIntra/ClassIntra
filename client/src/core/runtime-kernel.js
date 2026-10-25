@@ -175,8 +175,11 @@ function LifecycleMachine(name, hooks) {
   this.name = name;
   this._state = 'idle';
   this._hooks = hooks || {};   // { onMount, onUnmount, onSuspend, onResume }
-  this._history = [];          // [ { from, to, at } ]
+  this._history = [];          // [ { from, to, at } ]（封顶 HISTORY_CAP，防长驻应用无限增长）
 }
+
+// 状态机历史封顶（诊断用途足够，长驻应用如悬浮层会持续产生跃迁）
+var HISTORY_CAP = 64;
 
 LifecycleMachine.prototype.getState = function() {
   return this._state;
@@ -197,6 +200,7 @@ LifecycleMachine.prototype._to = function(state) {
   var from = this._state;
   this._state = state;
   this._history.push({ from: from, to: state, at: Date.now() });
+  if (this._history.length > HISTORY_CAP) this._history.shift();
 };
 
 // 装载：idle → loading → active
@@ -290,10 +294,110 @@ function ResourceAuditor(name) {
   this._origClearInterval = null;
   this._origAddEventListener = null;
   this._origRemoveEventListener = null;
+  this._inHijack = false;          // 是否已登记进共享劫持栈
   this._storagePrefixes = [];      // 该应用使用的 storage 命名空间前缀
 }
 
-// 开始审计：劫持全局 API + 快照 window
+// ============================================================
+// 共享劫持（引用计数）
+// ------------------------------------------------------------
+// 旧实现每个审计器各自劫持并各自恢复 window.setTimeout —— 当两个应用
+// 同时挂载（如悬浮层应用 + 页面应用）时产生嵌套劫持，恢复顺序一旦交叉
+// （内层先结束、外层后结束），外层保存的「原始函数」其实是内层的包装器，
+// end() 后包装器永久残留，全站 setTimeout 从此经过死包装器。
+// 现改为全局唯一一份包装器：创建时归属栈顶审计器，清除时从全部审计器
+// 移除记录；最后一个审计器结束时才恢复原生函数。
+// ============================================================
+var _hijack = {
+  installed: false,
+  stack: [],                        // 活跃审计器栈（栈顶 = 最内层应用）
+  origSetTimeout: null,
+  origClearTimeout: null,
+  origSetInterval: null,
+  origClearInterval: null,
+  origAddEventListener: null,
+  origRemoveEventListener: null
+};
+
+function _installHijack() {
+  var h = _hijack;
+  if (h.installed || typeof window === 'undefined' ||
+      typeof window.setTimeout !== 'function' || typeof window.setInterval !== 'function') return;
+  h.origSetTimeout = window.setTimeout;
+  h.origClearTimeout = window.clearTimeout;
+  h.origSetInterval = window.setInterval;
+  h.origClearInterval = window.clearInterval;
+
+  // 定时器回调包装：报错时归因到创建时的审计器（应用名）再原样重抛，
+  // 不改变任何语义 —— 只是让"哪个应用的定时器炸了"在控制台可定位
+  function wrapCallback(fn, ownerName) {
+    if (typeof fn !== 'function' || !ownerName) return fn;
+    return function() {
+      try {
+        return fn.apply(this, arguments);
+      } catch (e) {
+        try { console.error('[app:' + ownerName + '] 定时器回调异常:', e); } catch (_) {}
+        throw e;
+      }
+    };
+  }
+
+  window.setTimeout = function(fn, delay) {
+    var args = Array.prototype.slice.call(arguments, 2);
+    var top = h.stack[h.stack.length - 1];
+    if (top) top._timers.push({ id: null, kind: 'pending' }); // 占位，下面回填真实 id
+    var pendingIdx = top ? top._timers.length - 1 : -1;
+    var id = h.origSetTimeout.apply(window, [wrapCallback(fn, top ? top.name : ''), delay].concat(args));
+    if (top && pendingIdx !== -1) top._timers[pendingIdx] = { id: id, kind: 'timeout' };
+    return id;
+  };
+  window.clearTimeout = function(id) {
+    for (var i = 0; i < h.stack.length; i++) h.stack[i]._removeTimer(id);
+    return h.origClearTimeout.call(window, id);
+  };
+  window.setInterval = function(fn, delay) {
+    var args = Array.prototype.slice.call(arguments, 2);
+    var top = h.stack[h.stack.length - 1];
+    if (top) top._timers.push({ id: null, kind: 'pending' });
+    var pendingIdx = top ? top._timers.length - 1 : -1;
+    var id = h.origSetInterval.apply(window, [wrapCallback(fn, top ? top.name : ''), delay].concat(args));
+    if (top && pendingIdx !== -1) top._timers[pendingIdx] = { id: id, kind: 'interval' };
+    return id;
+  };
+  window.clearInterval = function(id) {
+    for (var i2 = 0; i2 < h.stack.length; i2++) h.stack[i2]._removeTimer(id);
+    return h.origClearInterval.call(window, id);
+  };
+
+  if (typeof window.addEventListener === 'function' && typeof window.removeEventListener === 'function') {
+    h.origAddEventListener = window.addEventListener;
+    h.origRemoveEventListener = window.removeEventListener;
+    window.addEventListener = function(type, fn, options) {
+      var top = h.stack[h.stack.length - 1];
+      if (top) top._listeners.push({ target: 'window', type: type, fn: fn, options: options });
+      return h.origAddEventListener.call(window, type, fn, options);
+    };
+    window.removeEventListener = function(type, fn, options) {
+      for (var i3 = 0; i3 < h.stack.length; i3++) h.stack[i3]._removeListener('window', type, fn);
+      return h.origRemoveEventListener.call(window, type, fn, options);
+    };
+  }
+  h.installed = true;
+}
+
+function _uninstallHijack() {
+  var h = _hijack;
+  if (!h.installed) return;
+  window.setTimeout = h.origSetTimeout;
+  window.clearTimeout = h.origClearTimeout;
+  window.setInterval = h.origSetInterval;
+  window.clearInterval = h.origClearInterval;
+  if (h.origAddEventListener) window.addEventListener = h.origAddEventListener;
+  if (h.origRemoveEventListener) window.removeEventListener = h.origRemoveEventListener;
+  h.installed = false;
+}
+
+// 开始审计：登记进共享劫持栈 + 快照 window
 ResourceAuditor.prototype.begin = function() {
   if (this._active) return;
   this._active = true;
@@ -309,61 +413,17 @@ ResourceAuditor.prototype.begin = function() {
     self._windowSnapshot = {};
   }
 
-  // 2. 劫持 setTimeout / setInterval（记录句柄，卸载时可强制清理）
-  if (typeof window !== 'undefined' &&
-      typeof window.setTimeout === 'function' &&
-      typeof window.setInterval === 'function') {
-    var origSetTimeout = window.setTimeout;
-    var origClearTimeout = window.clearTimeout;
-    var origSetInterval = window.setInterval;
-    var origClearInterval = window.clearInterval;
-
-    self._origSetTimeout = origSetTimeout;
-    self._origClearTimeout = origClearTimeout;
-    self._origSetInterval = origSetInterval;
-    self._origClearInterval = origClearInterval;
-
-    window.setTimeout = function(fn, delay) {
-      var args = Array.prototype.slice.call(arguments, 2);
-      var id = origSetTimeout.apply(window, [fn, delay].concat(args));
-      self._timers.push({ id: id, kind: 'timeout' });
-      return id;
-    };
-
-    window.clearTimeout = function(id) {
-      self._removeTimer(id);
-      return origClearTimeout.call(window, id);
-    };
-
-    window.setInterval = function(fn, delay) {
-      var args = Array.prototype.slice.call(arguments, 2);
-      var id = origSetInterval.apply(window, [fn, delay].concat(args));
-      self._timers.push({ id: id, kind: 'interval' });
-      return id;
-    };
-
-    window.clearInterval = function(id) {
-      self._removeTimer(id);
-      return origClearInterval.call(window, id);
-    };
-
-    // 3. 劫持 addEventListener（仅记录挂在 window / document 上的监听器）
-    // 注意：非 DOM 环境（如 SSR / 单测）下可能不存在，需做存在性判断
-    if (typeof window.addEventListener === 'function' && typeof window.removeEventListener === 'function') {
-      var origAdd = window.addEventListener;
-      var origRemove = window.removeEventListener;
-      self._origAddEventListener = origAdd;
-      self._origRemoveEventListener = origRemove;
-
-      window.addEventListener = function(type, fn, options) {
-        self._listeners.push({ target: 'window', type: type, fn: fn, options: options });
-        return origAdd.call(window, type, fn, options);
-      };
-      window.removeEventListener = function(type, fn, options) {
-        self._removeListener('window', type, fn);
-        return origRemove.call(window, type, fn, options);
-      };
-    }
+  // 2. 登记进共享劫持栈（首个审计器负责安装包装器）
+  _installHijack();
+  if (_hijack.installed) {
+    self._origSetTimeout = _hijack.origSetTimeout;
+    self._origClearTimeout = _hijack.origClearTimeout;
+    self._origSetInterval = _hijack.origSetInterval;
+    self._origClearInterval = _hijack.origClearInterval;
+    self._origAddEventListener = _hijack.origAddEventListener;
+    self._origRemoveEventListener = _hijack.origRemoveEventListener;
+    self._inHijack = true;
+    _hijack.stack.push(self);
   }
 };
 
@@ -412,7 +472,7 @@ ResourceAuditor.prototype.noteStoragePrefix = function(prefix) {
   }
 };
 
-// 结束审计：恢复全局 API，回收全部资源。返回审计报告。
+// 结束审计：退出共享劫持栈，回收全部资源。返回审计报告。
 ResourceAuditor.prototype.end = function() {
   if (!this._active) {
     return { timersRecycled: 0, listenersRemoved: 0, windowLeaks: [], storagePrefixes: [] };
@@ -434,14 +494,13 @@ ResourceAuditor.prototype.end = function() {
   }
   self._listeners = [];
 
-  // 3. 恢复原始全局 API
-  if (typeof window !== 'undefined') {
-    if (self._origSetTimeout) window.setTimeout = self._origSetTimeout;
-    if (self._origClearTimeout) window.clearTimeout = self._origClearTimeout;
-    if (self._origSetInterval) window.setInterval = self._origSetInterval;
-    if (self._origClearInterval) window.clearInterval = self._origClearInterval;
-    if (self._origAddEventListener) window.addEventListener = self._origAddEventListener;
-    if (self._origRemoveEventListener) window.removeEventListener = self._origRemoveEventListener;
+  // 3. 退出共享劫持栈；最后一个审计器结束时恢复原生全局 API
+  //    （乱序结束安全：外层先走也只是出栈，包装器继续服务栈内审计器）
+  if (self._inHijack) {
+    var idx = _hijack.stack.indexOf(self);
+    if (idx !== -1) _hijack.stack.splice(idx, 1);
+    if (_hijack.stack.length === 0) _uninstallHijack();
+    self._inHijack = false;
   }
 
   // 4. 对比 window 键，找出新增的全局污染
@@ -584,12 +643,85 @@ ModuleRegistry.prototype._emit = function() {
 };
 
 // ============================================================
-// 五、RuntimeKernel —— 内核聚合入口
+// 五、ResourceGovernor —— 资源治理器
+// ============================================================
+// 操作系统的进程有资源上限（超出即 OOM-kill / cgroup 限流），Web 平台没有
+// 等价物——第三方应用泄漏计时器只会慢慢拖垮整站。治理器周期巡检各应用
+// 审计器的未回收资源数，超阈值即挂起该应用的生命周期机（回收计时器、
+// 保留 DOM），并记录动作供诊断。阈值刻意放宽（正常应用远达不到），
+// 只拦截明确的泄漏行为。
+function ResourceGovernor(kernel) {
+  this._kernel = kernel;
+  this._timerId = null;
+  this._actions = [];       // 最近动作（封顶 GOVERNOR_LOG_CAP）
+  this.thresholds = { timers: 120, listeners: 80 };
+}
+
+var GOVERNOR_LOG_CAP = 20;
+var GOVERNOR_INTERVAL_MS = 30000;
+
+ResourceGovernor.prototype.start = function(options) {
+  if (this._timerId) return;
+  var opts = options || {};
+  if (opts.timers) this.thresholds.timers = opts.timers;
+  if (opts.listeners) this.thresholds.listeners = opts.listeners;
+  var self = this;
+  this._timerId = setInterval(function() {
+    try { self.tick(); } catch (e) {}
+  }, GOVERNOR_INTERVAL_MS);
+};
+
+ResourceGovernor.prototype.stop = function() {
+  if (this._timerId) {
+    clearInterval(this._timerId);
+    this._timerId = null;
+  }
+};
+
+// 巡检一轮：超阈值且处于 active 态的应用 → 挂起（kernel.suspend 会回收计时器）。
+// 冒烟测试直接调用本方法（不依赖 setInterval）。
+ResourceGovernor.prototype.tick = function() {
+  var self = this;
+  var machines = this._kernel._machines;
+  Object.keys(machines).forEach(function(name) {
+    var machine = machines[name];
+    var auditor = self._kernel._auditors[name];
+    if (!auditor || !auditor._active) return;
+    if (machine.getState() !== 'active') return;
+    var status = auditor.getStatus();
+    var overTimers = status.pendingTimers > self.thresholds.timers;
+    var overListeners = status.pendingListeners > self.thresholds.listeners;
+    if (!overTimers && !overListeners) return;
+    try {
+      self._kernel.suspend(name);
+      self._actions.push({
+        name: name,
+        at: Date.now(),
+        action: 'suspend',
+        timers: status.pendingTimers,
+        listeners: status.pendingListeners
+      });
+      if (self._actions.length > GOVERNOR_LOG_CAP) self._actions.shift();
+      console.warn('[Governor] 应用 "' + name + '" 资源超阈（timers=' + status.pendingTimers +
+        ', listeners=' + status.pendingListeners + '），已挂起并回收计时器');
+    } catch (e) {
+      console.error('[Governor] 挂起 "' + name + '" 失败:', e);
+    }
+  });
+};
+
+ResourceGovernor.prototype.getRecentActions = function() {
+  return this._actions.slice();
+};
+
+// ============================================================
+// 六、RuntimeKernel —— 内核聚合入口
 // ============================================================
 
 function RuntimeKernel() {
   this.boot = new BootOrchestrator();
   this.modules = new ModuleRegistry();
+  this.governor = new ResourceGovernor(this); // 资源治理器（main.js sdk 阶段 start）
   this._machines = {};    // { '<kind>:<name>': LifecycleMachine }
   this._auditors = {};    // { '<kind>:<name>': ResourceAuditor }
   this._version = '1';
@@ -637,6 +769,31 @@ RuntimeKernel.prototype.getAuditor = function(name) {
   return this._auditors[name] || null;
 };
 
+// 摘除某个应用的生命周期机与审计器（应用整体卸载时调用）。
+// 若机器仍在运行态则先走 unmount（内含 auditor.end 回收），
+// 之后从内核登记表中删除 —— 否则 _machines/_auditors 永久泄漏，
+// diagnostics() 也会一直显示已卸载的应用。返回审计报告（无登记返回 null）。
+RuntimeKernel.prototype.detachLifecycle = function(name) {
+  var self = this;
+  var machine = self._machines[name];
+  var auditor = self._auditors[name];
+  if (!machine && !auditor) return null;
+  var report = null;
+  if (machine && machine.getState() !== 'idle') {
+    try { machine.unmount(); } catch (e) {
+      console.error('[RuntimeKernel] detachLifecycle unmount 失败:', name, e);
+    }
+  }
+  if (auditor && auditor._active) {
+    try { report = auditor.end(); } catch (e) {
+      console.error('[RuntimeKernel] detachLifecycle auditor.end 失败:', name, e);
+    }
+  }
+  delete self._machines[name];
+  delete self._auditors[name];
+  return report;
+};
+
 // 挂起指定应用（回收计时器但保留 DOM）
 RuntimeKernel.prototype.suspend = function(name) {
   var machine = this._machines[name];
@@ -673,7 +830,11 @@ RuntimeKernel.prototype.diagnostics = function() {
     bootErrors: self.boot.getErrors(),
     bootDuration: self.boot.getDuration(),
     modules: self.modules.summary(),
-    apps: apps
+    apps: apps,
+    governor: {
+      thresholds: self.governor.thresholds,
+      recentActions: self.governor.getRecentActions()
+    }
   };
 };
 
@@ -697,6 +858,7 @@ export {
   LifecycleMachine,
   ResourceAuditor,
   ModuleRegistry,
+  ResourceGovernor,
   RuntimeKernel,
   getRuntimeKernel
 };

@@ -341,6 +341,7 @@ import { APP_REGISTRY } from '@/store/modules/desktop.js';
 import { mergeMarketApps } from '@/core/app-registry';
 import { marketRegistry } from '@/core/market-registry';
 import { getWidget } from '@/core/widget-aggregator';
+import appOpenTransition from '@/core/app-open-transition';
 
 // 渐变壁纸预设：多层合成（主渐变 + radial 光晕），与 utils/wallpaper-bg.js
 // 的 GRADIENT_MAP 保持一致，两边若调整需同步。
@@ -1190,11 +1191,15 @@ export default {
       this.$store.dispatch('desktop/exitEditMode');
     },
     // ===== 启动应用 =====
-    launchApp: function(app) {
+    // sourceEl：被点击的图标元素（AppIcon 根 / dock 项），供容器变换过渡捕获起点
+    launchApp: function(app, sourceEl) {
       var self = this;
       if (!app) return;
       if (app.name === 'settings') {
         self.markVersionSeen();
+      }
+      if (sourceEl) {
+        appOpenTransition.captureOrigin(sourceEl);
       }
       self.launchingApp = app.name;
       setTimeout(function() {
@@ -1205,13 +1210,14 @@ export default {
     // Dock 图标点击：编辑态下不启动应用（与 AppIcon 一致），仅非编辑态启动
     onDockClick: function(e, name) {
       if (this.isEditMode) return;
-      this.launchApp(this.dockAppMeta(name));
+      var iconEl = e && e.currentTarget;
+      this.launchApp(this.dockAppMeta(name), iconEl);
     },
-    launchAppByName: function(name) {
+    launchAppByName: function(name, sourceEl) {
       var meta = this.appMeta(name);
       if (meta) {
         this.closeFolder();
-        this.launchApp(meta);
+        this.launchApp(meta, sourceEl);
       }
     },
     playVideoWallpaper: function() {
@@ -1680,8 +1686,7 @@ export default {
   transition: background var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
 }
 /* Chrome/Safari/Edge 隐藏滚动条 */
-.dock-bar::-webkit-scrollbar {
-  display: none;
+.dock-bar::-webkit-scrollbar {  display: none;
 }
 
 /* Dock 空状态提示 */

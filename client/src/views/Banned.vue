@@ -154,10 +154,14 @@ export default {
         }
       }).catch(function() {
         self.checking = false;
+        // 封禁期间 `/auth/ban-info` 自己也会被 403 拦掉（鉴权中间件对 disabled 一律拒绝），
+        // 但这不代表我们不知道原因：api.js 的 403 广播 → applyAccountStatus 已经把
+        // ban_reason / ban_expires_at 写进了登录态。这里读回来，别让管理员填的原因白填。
         self.banInfo = {
-          ban_reason: '无法获取封禁详情',
-          ban_expires_at: null
+          ban_reason: user.ban_reason || '账号已被管理员禁用',
+          ban_expires_at: user.ban_expires_at || null
         };
+        if (user.ban_expires_at) self.startCountdown(user.ban_expires_at);
       });
     },
     checkBanStatus: function() {

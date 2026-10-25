@@ -51,6 +51,8 @@ var KNOWN_CAPABILITIES = [
   'data.storage', 'data.realtime', 'data.http',
   'system.notification', 'system.clipboard', 'system.share', 'system.navigate',
   'ui.toast', 'ui.modal', 'ui.sheet',
+  // ui.overlay：声明 frontend.overlay 后可在任意页面挂载全局悬浮层（宿主 z-index 9400）
+  'ui.overlay',
   'app.config', 'app.storage',
   'device.info', 'device.filePicker', 'device.camera'
 ];

@@ -94,7 +94,8 @@ import AppShell from './components/AppShell.vue';
 import { globalErrorHandler } from '@shared/errors';
 import { getServiceRegistry } from '@/core/service-registry';
 import { getEventBus } from '@/core/event-bus';
-import { getThemeEngine } from '@/core/theme-engine';
+import { getThemeEngine, loadThemeExtensions } from '@/core/theme-engine';
+import profileSkin from '@/core/profile-skin';
 import { getHotkeyManager } from '@/core/hotkey-manager';
 import { getSearchRegistry } from '@/core/search-registry';
 import { getIntegrationManager } from '@/integrations';
@@ -105,6 +106,9 @@ import api from '@/utils/api';
 import wsManager from '@/utils/websocket';
 import realtime from '@/utils/realtime';
 import { marketRegistry, define } from '@/core/market-registry';
+import { registerOverlayDefinition, syncOverlays } from '@/core/market-overlay-host';
+import { syncMarketWidgets } from '@/core/widget-aggregator';
+import { syncMarketThemes } from '@/core/theme-market';
 import { ROUTE_APP_MAP } from '@/core/router-aggregator';
 import '@fortawesome/fontawesome-free/css/all.min.css';
 import './styles/global.scss';
@@ -190,7 +194,10 @@ router.replace = function(location) {
 var kernel = getRuntimeKernel();
 var boot = kernel.boot;
 
-// 收集第三方应用清理函数（供 MarketRegistry 卸载时调用）
+// 收集第三方应用清理函数（供 MarketRegistry 卸载时调用）。
+// 同一应用可能同时存在多个 context（页面 + 全局悬浮层 + 桌面小组件），
+// 全部登记于此、应用整体卸载时统一释放；单个场景销毁时应通过
+// context.__internal.dispose() 只释放自己的那一份。
 var _contextDisposers = {};
 
 // 内核诊断错误：打印一条汇总，便于排查
@@ -214,6 +221,15 @@ boot.onStage('services', 'serviceRegistry', function() {
   Vue.prototype.$services = serviceRegistry;
   // 让 AppShell / 第三方可通过全局访问主题引擎（订阅主题变化）
   window.__getThemeEngine = function() { return getThemeEngine(); };
+
+  // 个人主页装扮：恢复上次选择（令牌层见 core/profile-skin.js）。
+  // 放在 services 阶段是因为此时主题已定、视图未挂载 —— 不会出现"先默认色再闪成装扮色"。
+  try {
+    profileSkin.restore();
+    window.__profileSkin = profileSkin;
+  } catch (e) {
+    console.error('[main] 个人主页装扮恢复失败:', e);
+  }
 
   // 性能策略：设备能力探测 + 毛玻璃降级（§5.5.3）
   // 在 services 阶段初始化，早于任何视图挂载，避免首屏先渲染再降级导致的闪变
@@ -251,6 +267,13 @@ boot.onStage('sdk', 'sdkExpose', function() {
       return result;
     },
 
+    // 注册全局悬浮层定义：manifest 声明 frontend.overlay 的应用，其 overlay 脚本
+    // 加载后调用（契约见 client/src/core/market-overlay-host.js）。挂载/摘除由宿主
+    // 随市场清单同步，应用不自行管理生命周期。
+    defineOverlay: function(definition) {
+      return registerOverlayDefinition(definition);
+    },
+
     // 构造第三方应用上下文（五大命名空间，见 client/src/core/market-sdk.js）
     createContext: function(appName, appManifest) {
       var themeEngine = getThemeEngine();
@@ -271,13 +294,14 @@ boot.onStage('sdk', 'sdkExpose', function() {
         }
       });
 
-      // 注销登记：应用卸载时统一释放（幂等）
-      _contextDisposers[appName] = function() {
+      // 注销登记：应用卸载时统一释放（幂等，多 context 聚合）
+      if (!Array.isArray(_contextDisposers[appName])) _contextDisposers[appName] = [];
+      _contextDisposers[appName].push(function() {
         if (context && context.__internal && typeof context.__internal.dispose === 'function') {
           return context.__internal.dispose();
         }
         return 0;
-      };
+      });
 
       // 同步注册到生命周期机（若尚未创建）
       if (!kernel.getMachine(appName)) {
@@ -287,14 +311,17 @@ boot.onStage('sdk', 'sdkExpose', function() {
       return context;
     },
 
-    // 供运行时调用：释放指定应用的上下文（契约：先执行 onDestroy，再回收资源）
+    // 供运行时调用：释放指定应用的上下文（契约：先执行 onDestroy，再回收资源）。
+    // 释放该应用名下登记的全部 context（页面/悬浮层/小组件）。
     disposeContext: function(appName) {
-      var fn = _contextDisposers[appName];
-      if (typeof fn === 'function') {
-        delete _contextDisposers[appName];
-        return fn();
-      }
-      return 0;
+      var fns = _contextDisposers[appName];
+      if (!Array.isArray(fns) || !fns.length) return 0;
+      delete _contextDisposers[appName];
+      var total = 0;
+      fns.forEach(function(fn) {
+        try { total += fn() || 0; } catch (e) {}
+      });
+      return total;
     },
 
     // 内核诊断（开发调试用；第三方不应依赖）
@@ -310,6 +337,27 @@ boot.onStage('sdk', 'sdkExpose', function() {
 
   window.ClassIntraMarket = marketSdk;
   window.ClassIntra = window.ClassIntraMarket; // 别名（文档中的 window.ClassIntra 写法）
+});
+
+// ---------- 阶段：sdk（扩展主题注册） ----------
+// theme-extensions/*/ 此前从未被调用接线（死代码）；此处把扩展主题注册进引擎，
+// 使 listThemes() 的选择 UI 能发现它们。失败不阻断启动（可选功能）。
+boot.onStage('sdk', 'themeExtensions', function() {
+  return loadThemeExtensions().catch(function(err) {
+    console.warn('[Boot] 扩展主题加载失败（降级）:', err && err.message);
+    return null;
+  });
+});
+
+// ---------- 阶段：sdk（资源治理器） ----------
+// 周期巡检市场应用的未回收计时器/监听器，超阈自动挂起（web 平台的
+// "资源上限 + OOM 应对"类比）。阈值放宽，只拦截明确泄漏。
+boot.onStage('sdk', 'resourceGovernor', function() {
+  try {
+    kernel.governor.start();
+  } catch (e) {
+    console.warn('[Boot] 资源治理器启动失败（降级）:', e && e.message);
+  }
 });
 
 // ---------- 阶段：realtime ----------
@@ -328,6 +376,10 @@ boot.onStage('market', 'refreshApps', function() {
   var initialPath = window.location.pathname + window.location.search + window.location.hash;
   return marketRegistry.refresh().then(function(apps) {
     router.registerMarketApps(apps);
+    // 全局悬浮层 + 市场小组件 + 市场主题随清单同步（不阻断启动：失败只影响各自能力）
+    syncOverlays(apps);
+    syncMarketWidgets(apps);
+    syncMarketThemes().catch(function() {});
     if (initialPath !== '/' && router.currentRoute && router.currentRoute.path !== initialPath) {
       return router.replace(initialPath).catch(function() {});
     }
@@ -349,6 +401,44 @@ boot.onStage('mount', 'mountApp', function() {
 
 // ---------- 执行编排 ----------
 boot.run().then(function(result) {
+  // 启动可观测性：单行耗时摘要 + 完整报告挂 window（诊断用，非 API 承诺）
+  try {
+    window.__ciBootReport = {
+      errors: result.errors.map(function(e) {
+        return { stage: e.stage, name: e.name, message: e.error && e.error.message };
+      }),
+      duration: result.duration
+    };
+    var parts = Object.keys(result.duration).map(function(k) {
+      return k + ' ' + result.duration[k] + 'ms';
+    });
+    console.log('[Boot] 启动完成（' + parts.join(' · ') + '）');
+  } catch (e) {}
+  // 一站式诊断聚合（开发者排障控制台入口，非 API 承诺）：
+  // 启动报告 + 内核状态 + 市场模块 + 事件总线订阅归属 + 性能档位
+  try {
+    window.__ciDiagnostics = function() {
+      var out = {
+        boot: window.__ciBootReport || null,
+        kernel: null,
+        market: [],
+        eventBus: null,
+        perf: null
+      };
+      try { out.kernel = kernel.diagnostics(); } catch (e) {}
+      try {
+        out.market = marketRegistry.getInstalledApps().map(function(a) {
+          return { name: a.name, version: a.version, overlay: !!a.overlayEntry };
+        });
+      } catch (e) {}
+      try {
+        var bus = getEventBus();
+        if (typeof bus.ownerStats === 'function') out.eventBus = bus.ownerStats();
+      } catch (e) {}
+      try { out.perf = getPerfPolicy().getLevel(); } catch (e) {}
+      return out;
+    };
+  } catch (e) {}
   if (result.errors.length > 0) {
     try {
       console.warn('[Boot] 启动完成，但有 ' + result.errors.length + ' 个降级项:',

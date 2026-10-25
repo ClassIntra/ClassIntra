@@ -21,7 +21,58 @@
 var SCHEMA_VERSION = 'classintra-theme-extension/v1';
 
 // ========== 能力枚举 ==========
-var CAPABILITIES = ['dynamic-color', 'shape-shift', 'tonal-palette', 'motion-tuning'];
+var CAPABILITIES = ['dynamic-color', 'shape-shift', 'tonal-palette', 'motion-tuning', 'profile-skin'];
+
+// ========== 个人主页装扮令牌（唯一清单） ==========
+// manifest 的可选 `profile` 段只允许这些键；写入后由 flattenTokens 落成
+// `--ci-profile-<key>`，个人主页通过 global.scss 的 `--pf-*` 别名消费。
+// 键名即 CSS 变量后缀，**改成 kebab-case**（flattenTokens 会再转一次，已是短横线则不变）。
+var PROFILE_TOKENS = [
+  'accent',          // 主色：按钮/tab 下划线/chip/复制按钮
+  'surface',         // 浅色衬底：统计 hover、徽章底
+  'card-bg',         // 卡片/头像盘底色
+  'hairline',        // 发丝线与描边
+  'radius',          // 卡片圆角
+  'radius-sm',       // 小控件圆角
+  'avatar',          // 头像直径（px）
+  'cover-overlay'    // 封面蒙版（可放渐变/纹理，写在 background 上）
+];
+
+// 只接受「颜色或长度/阴影类」的简单值：挡掉 url() 之类会在样式层产生外部请求的写法。
+// 装扮包将来若要放图片，应走独立字段而不是塞进变量。
+var PROFILE_VALUE_RE = /^[#a-zA-Z0-9(),.%\s\/\-_]+$/;
+
+// 把任意来源（manifest / 装扮包 / 用户自建）的 profile 对象洗成可用令牌
+// 返回 { tokens, warnings }。schema 校验与运行时（core/profile-skin.js）共用同一套规则，
+// 避免「校验放行、运行时又拦」这种两边不一致的经典坑。
+function sanitizeProfileTokens(input) {
+  var tokens = {};
+  var warnings = [];
+  if (input === undefined || input === null) return { tokens: tokens, warnings: warnings };
+  if (typeof input !== 'object' || Array.isArray(input)) {
+    warnings.push('profile 字段应为对象（允许键：' + PROFILE_TOKENS.join(' / ') + '）');
+    return { tokens: tokens, warnings: warnings };
+  }
+  var keys = Object.keys(input);
+  for (var i = 0; i < keys.length; i++) {
+    var k = keys[i];
+    var v = input[k];
+    if (PROFILE_TOKENS.indexOf(k) === -1) {
+      warnings.push('profile.' + k + ' 不在可覆盖清单内，已忽略（允许：' + PROFILE_TOKENS.join(' / ') + '）');
+      continue;
+    }
+    if (typeof v !== 'string' || !v.replace(/\s/g, '')) {
+      warnings.push('profile.' + k + ' 应为非空字符串');
+      continue;
+    }
+    if (!PROFILE_VALUE_RE.test(v)) {
+      warnings.push('profile.' + k + ' 的值含不安全字符（不允许引号/反斜杠/url()），已忽略');
+      continue;
+    }
+    tokens[k] = v.trim();
+  }
+  return { tokens: tokens, warnings: warnings };
+}
 
 // ========== 简易 semver 校验 ==========
 var SEMVER_RE = /^v?\d+\.\d+\.\d+(?:-[a-zA-Z0-9.]+)?(?:\+[a-zA-Z0-9.]+)?$/;
@@ -172,6 +223,13 @@ function validateThemeExtensionManifest(m) {
     }
   }
 
+  // profile 字段（可选）：个人主页装扮令牌
+  // 校验只做「白名单 + 值类型」，具体视觉后果由个人主页负责；
+  // 未知键一律忽略而不是报错，保证旧版本端遇到新扩展不会整包失效。
+  var profileSanitized = sanitizeProfileTokens(m.profile);
+  (profileSanitized.warnings || []).forEach(function(w) { warnings.push(w); });
+  var profile = profileSanitized.tokens;
+
   // capabilities 字段（可选，数组，值必须在 CAPABILITIES 枚举内）
   if (m.capabilities !== undefined) {
     if (!Array.isArray(m.capabilities)) {
@@ -200,6 +258,12 @@ function validateThemeExtensionManifest(m) {
   if (type === 'dynamic' && defaultSeed) {
     normalized.defaultSeed = defaultSeed;
   }
+  // 只有真给了可用键才挂 profile，避免每份 manifest 都多一个空对象
+  if (Object.keys(profile).length > 0) {
+    normalized.profile = profile;
+  } else {
+    delete normalized.profile;
+  }
 
   return {
     valid: errors.length === 0,
@@ -212,7 +276,9 @@ function validateThemeExtensionManifest(m) {
 export {
   SCHEMA_VERSION,
   CAPABILITIES,
+  PROFILE_TOKENS,
   SEMVER_RE,
   HEX_RE,
+  sanitizeProfileTokens,
   validateThemeExtensionManifest
 };

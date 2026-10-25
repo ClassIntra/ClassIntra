@@ -46,7 +46,8 @@
                 @click="selectChat(group.group_id)"
               >
                 <div class="chat-item-avatar-wrap">
-                  <div class="chat-item-avatar" :style="{ background: getGroupColor(group.group_id) }">{{ firstChar(group.group_name) }}</div>
+                  <!-- 群头像永远没有图片版，lookup=false 免掉一次批量查询（颜色仍由 id 哈希保证稳定） -->
+                  <UserAvatar :user-id="group.group_id" :name="group.group_name" :size="44" :lookup="false" />
                 </div>
                 <div class="chat-item-info">
                   <div class="chat-item-name">
@@ -80,7 +81,8 @@
                 @click="selectChat(contact.user_id)"
               >
                 <div class="chat-item-avatar-wrap">
-                  <div class="chat-item-avatar" :style="{ background: getAvatarColor(contact.user_id) }">{{ firstChar(getContactDisplayName(contact)) }}</div>
+                  <!-- 收敛到统一头像组件：有图片头像就显示，没有就回落「首字符 + 哈希色」 -->
+                  <UserAvatar :user-id="contact.user_id" :name="getContactDisplayName(contact)" :size="44" />
                   <div v-if="isUserOnline(contact.user_id)" class="chat-item-online-dot"></div>
                 </div>
                 <div class="chat-item-info">
@@ -107,7 +109,8 @@
                 @click="selectChat(group.group_id)"
               >
                 <div class="chat-item-avatar-wrap">
-                  <div class="chat-item-avatar" :style="{ background: getGroupColor(group.group_id) }">{{ firstChar(group.group_name) }}</div>
+                  <!-- 群头像永远没有图片版，lookup=false 免掉一次批量查询（颜色仍由 id 哈希保证稳定） -->
+                  <UserAvatar :user-id="group.group_id" :name="group.group_name" :size="44" :lookup="false" />
                 </div>
                 <div class="chat-item-info">
                   <div class="chat-item-name">
@@ -225,6 +228,7 @@
               @preview-media="previewMedia"
               @toggle-reaction="toggleReaction"
               @scroll-to="scrollToMessage"
+              @open-profile="openUserProfile"
             />
           </transition-group>
         </div>
@@ -317,7 +321,7 @@
             <div class="member-select-list scrollbar-thin">
               <label v-for="contact in filteredCreateGroupContacts" :key="contact.user_id" class="member-select-item">
                 <input type="checkbox" :value="contact.user_id" v-model="newGroupMembers" />
-                <div class="member-select-avatar">{{ firstChar(contact.net_name) }}</div>
+                <UserAvatar :user-id="contact.user_id" :name="contact.net_name" :size="28" class="member-select-avatar" />
                 <span class="member-select-name">{{ contact.net_name }}</span>
               </label>
               <div v-if="contacts.length === 0" class="empty-hint">暂无联系人</div>
@@ -354,7 +358,7 @@
             <div class="member-list">
               <div v-for="member in currentGroupMembers" :key="member.user_id" class="member-item">
                 <div class="member-avatar-wrap">
-                  <div class="member-avatar">{{ firstChar(member.net_name || member.real_name) }}</div>
+                  <UserAvatar :user-id="member.user_id" :name="member.net_name || member.real_name" :size="36" />
                   <div v-if="isUserOnline(member.user_id)" class="member-online-dot"></div>
                 </div>
                 <span class="member-name">{{ member.net_name || member.real_name || member.user_id }}</span>
@@ -433,7 +437,7 @@
         <div class="settings-body">
           <div class="settings-section">
             <div class="settings-user-card" v-if="currentPrivateContact">
-              <div class="settings-user-avatar" :style="{ background: getAvatarColor(currentChat) }">{{ firstChar(getContactDisplayName(currentPrivateContact)) }}</div>
+              <UserAvatar :user-id="currentChat" :name="getContactDisplayName(currentPrivateContact)" :size="56" class="settings-user-avatar" />
               <div class="settings-user-info">
                 <div class="settings-user-name">
                   {{ getContactDisplayName(currentPrivateContact) }}
@@ -515,7 +519,7 @@
           <div class="member-select-list scrollbar-thin" style="max-height: 300px;">
             <label v-for="contact in filteredInviteContacts" :key="contact.user_id" class="member-select-item">
               <input type="checkbox" :value="contact.user_id" v-model="inviteUserIds" />
-              <div class="member-select-avatar">{{ firstChar(contact.net_name) }}</div>
+              <UserAvatar :user-id="contact.user_id" :name="contact.net_name" :size="28" class="member-select-avatar" />
               <span class="member-select-name">{{ contact.net_name }}</span>
             </label>
             <div v-if="availableInviteContacts.length === 0" class="empty-hint">没有可邀请的联系人</div>
@@ -542,7 +546,7 @@
               class="member-select-item member-select-item-clickable"
               @click="confirmTransfer(member.user_id)"
             >
-              <div class="member-select-avatar">{{ firstChar(member.net_name || member.real_name) }}</div>
+              <UserAvatar :user-id="member.user_id" :name="member.net_name || member.real_name" :size="28" class="member-select-avatar" />
               <span class="member-select-name">{{ member.net_name || member.real_name || member.user_id }}</span>
             </div>
             <div v-if="transferableMembers.length === 0" class="empty-hint">没有可转让的成员</div>
@@ -619,7 +623,7 @@
               </div>
             </div>
             <div v-for="group in filteredForwardClassGroups" :key="'fcg-' + group.group_id" class="forward-target-item" @click="sendForwardTo(group.group_id)">
-              <div class="forward-target-avatar" :style="{ background: getGroupColor(group.group_id) }">{{ firstChar(group.group_name) }}</div>
+              <UserAvatar :user-id="group.group_id" :name="group.group_name" :size="36" :lookup="false" class="forward-target-avatar" />
               <div class="forward-target-info">
                 <div class="forward-target-name">{{ group.group_name }}</div>
                 <div class="forward-target-desc">{{ group.member_count || 0 }} 人</div>
@@ -627,7 +631,7 @@
             </div>
             <div v-if="nonClassGroups.length > 0" class="forward-target-section">群聊</div>
             <div v-for="group in filteredForwardNonClassGroups" :key="'fg-' + group.group_id" class="forward-target-item" @click="sendForwardTo(group.group_id)">
-              <div class="forward-target-avatar" :style="{ background: getGroupColor(group.group_id) }">{{ firstChar(group.group_name) }}</div>
+              <UserAvatar :user-id="group.group_id" :name="group.group_name" :size="36" :lookup="false" class="forward-target-avatar" />
               <div class="forward-target-info">
                 <div class="forward-target-name">{{ group.group_name }}</div>
                 <div class="forward-target-desc">{{ group.member_count || 0 }} 人</div>
@@ -635,7 +639,7 @@
             </div>
             <div v-if="contacts.length > 0" class="forward-target-section">私聊</div>
             <div v-for="contact in filteredForwardContacts" :key="'fc-' + contact.user_id" class="forward-target-item" @click="sendForwardTo(contact.user_id)">
-              <div class="forward-target-avatar" :style="{ background: getAvatarColor(contact.user_id) }">{{ firstChar(getContactDisplayName(contact)) }}</div>
+              <UserAvatar :user-id="contact.user_id" :name="getContactDisplayName(contact)" :size="36" class="forward-target-avatar" />
               <div class="forward-target-info">
                 <div class="forward-target-name">{{ getContactDisplayName(contact) }}</div>
                 <div v-if="isUserOnline(contact.user_id)" class="forward-target-desc online-desc">在线</div>
@@ -680,6 +684,7 @@ import EmojiPicker from '@/components/EmojiPicker.vue';
 import AppNavBar from '@/components/AppNavBar.vue';
 import CloudImagePicker from '@/components/CloudImagePicker.vue';
 import ImagePreview from '@/components/ImagePreview.vue';
+import UserAvatar from '@/components/UserAvatar.vue';
 import helpers from '@/utils/helpers';
 import wsManager from '@/utils/websocket';
 import { autoConnect } from '@/utils/websocket';
@@ -697,7 +702,8 @@ export default {
     EmojiPicker: EmojiPicker,
     AppNavBar: AppNavBar,
     CloudImagePicker: CloudImagePicker,
-    ImagePreview: ImagePreview
+    ImagePreview: ImagePreview,
+    UserAvatar: UserAvatar
   },
   data: function() {
     return {
@@ -1888,6 +1894,11 @@ export default {
       if (chatId.indexOf('group_') === 0) return true;
       if (chatId.indexOf('class_') === 0) return true;
       return false;
+    },
+    // 点头像 → 统一个人主页（取代各处的资料浮窗）
+    openUserProfile: function(userId) {
+      if (!userId) return;
+      this.$router.push('/profile/' + userId);
     },
     getAvatarColor: function(userId) {
       return helpers.getAvatarColor(userId);

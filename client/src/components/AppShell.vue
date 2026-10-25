@@ -144,11 +144,10 @@ export default {
 
     goBack: function() {
       this.$emit('back');
-      if (window.history.length > 1) {
-        this.$router.go(-1);
-      } else {
-        this.$router.push({ name: 'Desktop' });
-      }
+      // 应用返回语义 = 回桌面（模态模型）：不依赖 history 栈——
+      // go(-1) 在历史上一条是其他应用路由时会把用户"跳进别的应用"。
+      // 应用内部的子导航返回由应用自身经 @back 拦截处理。
+      this.$router.push({ name: 'Desktop' });
     },
 
     // AppNavBar 的返回回调：沿用 goBack 的完整行为（含 back 事件）

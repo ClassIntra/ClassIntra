@@ -9,6 +9,9 @@
         <button class="nav-action-btn" @click="triggerUpload" title="上传">
           <i class="fa-solid fa-cloud-arrow-up"></i>
         </button>
+        <button class="nav-action-btn" @click="openClussImport" title="从 Cluss 导入">
+          <i class="fa-solid fa-cloud-arrow-down"></i>
+        </button>
         <button v-if="isAdmin" class="nav-action-btn" :class="{ 'review-active': reviewMode }" @click="toggleReviewMode" title="上传审核">
           <i class="fa-solid fa-shield-halved"></i>
         </button>
@@ -178,6 +181,7 @@
     <div v-if="selectMode && selectedHashes.length > 0" class="batch-bar">
       <span class="batch-count">已选 {{ selectedHashes.length }} 个</span>
       <div class="batch-actions">
+        <button @click="openClussExport"><i class="fa-solid fa-cloud-arrow-up"></i> 导出到 Cluss</button>
         <button @click="showBatchMove = true"><i class="fa-solid fa-folder-plus"></i> 移到分组</button>
         <button @click="createGroupFromSelection" v-if="currentFolder !== '__root__' || !currentFolder"><i class="fa-solid fa-layer-group"></i> 创建分组</button>
         <button class="danger" @click="batchDelete"><i class="fa-solid fa-trash"></i> 删除</button>
@@ -234,6 +238,63 @@
           <button class="btn-confirm" @click="refreshShareCode">刷新分享码</button>
           <button class="btn-cancel" @click="shareDialog = {}">关闭</button>
         </div>
+      </div>
+    </div>
+
+    <!-- 导出到 Cluss：先本地预检（类型/大小），确认后逐个推送 -->
+    <div v-if="clussModal === 'export'" class="modal-overlay" @click.self="closeClussModal">
+      <div class="modal-sheet cluss-sheet">
+        <h3>导出到 Cluss</h3>
+        <div v-if="clussBusy" class="cluss-loading"><i class="fa-solid fa-spinner fa-spin"></i> 正在导出...</div>
+        <template v-else>
+          <p class="cluss-hint">把选中的文件复制到本机 Cluss 云盘（同一账号自动免登）。Cluss 仅收图片与 txt/md/json/csv 文本，单个最大 10MB。</p>
+          <div class="cluss-file-list">
+            <div v-for="item in clussExportItems" :key="item.hash" class="cluss-file-row">
+              <i :class="item.ok ? 'fa-solid fa-circle-check cluss-ok' : 'fa-solid fa-circle-exclamation cluss-warn'"></i>
+              <span class="cluss-file-name">{{ item.name }}</span>
+              <span v-if="!item.ok" class="cluss-reason">{{ item.reason }}</span>
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button class="btn-cancel" @click="closeClussModal">取消</button>
+            <button class="btn-confirm" :disabled="clussExportOkCount === 0" @click="runClussExport">导出 {{ clussExportOkCount }} 个</button>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- 从 Cluss 导入：拉 Cluss 云盘列表勾选导入 -->
+    <div v-if="clussModal === 'import'" class="modal-overlay" @click.self="closeClussModal">
+      <div class="modal-sheet cluss-sheet cluss-sheet--tall">
+        <h3>从 Cluss 导入</h3>
+        <div v-if="clussLoading" class="cluss-loading"><i class="fa-solid fa-spinner fa-spin"></i> 正在读取 Cluss 云盘...</div>
+        <div v-else-if="clussLoadError" class="cluss-empty">{{ clussLoadError }}</div>
+        <div v-else-if="clussFiles.length === 0" class="cluss-empty">Cluss 云盘还没有文件</div>
+        <template v-else>
+          <p class="cluss-hint" v-if="clussQuota">Cluss 已用 {{ clussQuota.used_mb }}MB / {{ clussQuota.quota_mb }}MB · 勾选要复制到本盘的文件</p>
+          <div class="cluss-file-list cluss-file-list--scroll">
+            <label v-for="f in clussFiles" :key="f.hash" class="cluss-file-row cluss-check-row">
+              <input type="checkbox" :value="f.hash" v-model="clussSelected" />
+              <img v-if="f.kind === 'image'" class="cluss-thumb" :src="'/api/cloud/cluss/thumb/' + f.hash" alt="" loading="lazy" />
+              <i v-else class="cluss-file-icon" :class="f.kind === 'text' ? 'fa-solid fa-file-lines' : 'fa-solid fa-file'"></i>
+              <span class="cluss-file-name">{{ f.name }}</span>
+              <span class="cluss-file-size">{{ formatSize(f.size) }}</span>
+            </label>
+          </div>
+          <div v-if="clussImportResults.length" class="cluss-file-list cluss-results">
+            <div v-for="r in clussImportResults" :key="r.hash" class="cluss-file-row">
+              <i :class="r.ok ? 'fa-solid fa-circle-check cluss-ok' : 'fa-solid fa-circle-exclamation cluss-warn'"></i>
+              <span class="cluss-file-name">{{ r.name }}</span>
+              <span v-if="!r.ok" class="cluss-reason">{{ r.reason }}</span>
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button class="btn-cancel" @click="closeClussModal">关闭</button>
+            <button class="btn-confirm" :disabled="clussSelected.length === 0 || clussBusy" @click="runClussImport">
+              {{ clussBusy ? '导入中...' : '导入 ' + clussSelected.length + ' 个' }}
+            </button>
+          </div>
+        </template>
       </div>
     </div>
 
@@ -381,6 +442,16 @@ export default {
       importCode: '',
       importPreview: null,
       importing: false,
+      // Cluss 互通（云盘 ⇄ Cluss 导入导出）
+      clussModal: '',        // '' | 'export' | 'import'
+      clussLoading: false,
+      clussBusy: false,
+      clussLoadError: '',
+      clussFiles: [],
+      clussQuota: null,
+      clussExportItems: [],  // [{hash,name,ok,reason}] 预检结果
+      clussSelected: [],
+      clussImportResults: [],
       // 分组菜单
       folderMenu: { target: null, style: {} },
       // Toast
@@ -403,6 +474,13 @@ export default {
         try { u = JSON.parse(localStorage.getItem('user') || 'null'); } catch (e) { u = null; }
       }
       return !!(u && (u.is_admin === 1 || u.is_class_admin === true));
+    },
+    clussExportOkCount: function() {
+      var n = 0;
+      for (var i = 0; i < this.clussExportItems.length; i++) {
+        if (this.clussExportItems[i].ok) n++;
+      }
+      return n;
     }
   },
   mounted: function() {
@@ -417,6 +495,124 @@ export default {
       self.toastMsg = msg;
       clearTimeout(self.toastTimer);
       self.toastTimer = setTimeout(function() { self.toastMsg = ''; }, 2000);
+    },
+
+    // ====== Cluss 互通（云盘 ⇄ Cluss 导入导出）======
+    closeClussModal: function() {
+      this.clussModal = '';
+      this.clussExportItems = [];
+      this.clussFiles = [];
+      this.clussQuota = null;
+      this.clussSelected = [];
+      this.clussImportResults = [];
+      this.clussLoadError = '';
+      this.clussBusy = false;
+      this.clussLoading = false;
+    },
+    // 导出到 Cluss：先本地预检类型/大小，勾选项里不兼容的直接给出原因
+    openClussExport: function() {
+      var EXPORTABLE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'heic', 'txt', 'md', 'json', 'csv'];
+      var MAX_BYTES = 10 * 1024 * 1024;
+      var byHash = {};
+      for (var i = 0; i < this.files.length; i++) {
+        if (this.files[i].hash) byHash[this.files[i].hash] = this.files[i];
+      }
+      var items = [];
+      for (var j = 0; j < this.selectedHashes.length; j++) {
+        var f = byHash[this.selectedHashes[j]];
+        if (!f) continue;
+        var ext = (f.name || '').split('.').pop().toLowerCase();
+        var ok = EXPORTABLE_EXTS.indexOf(ext) !== -1 && f.size <= MAX_BYTES;
+        items.push({
+          hash: f.hash,
+          name: f.name || f.hash,
+          ok: ok,
+          reason: ok ? '' : (f.size > MAX_BYTES ? '超过 Cluss 单文件 10MB 限制' : 'Cluss 仅支持图片与 txt/md/json/csv 文本')
+        });
+      }
+      if (!items.length) {
+        this.showToast('选中的文件不支持导出');
+        return;
+      }
+      this.clussExportItems = items;
+      this.clussModal = 'export';
+    },
+    runClussExport: function() {
+      var self = this;
+      var hashes = [];
+      for (var i = 0; i < self.clussExportItems.length; i++) {
+        if (self.clussExportItems[i].ok) hashes.push(self.clussExportItems[i].hash);
+      }
+      if (!hashes.length) return;
+      self.clussBusy = true;
+      api.post('/cloud/cluss/export', { hashes: hashes }).then(function(res) {
+        self.clussBusy = false;
+        var data = (res.data && res.data.data) || {};
+        var results = data.results || [];
+        // 把每个文件的结果并回预检列表：成功项打勾，失败项标原因
+        for (var k = 0; k < results.length; k++) {
+          for (var m = 0; m < self.clussExportItems.length; m++) {
+            if (self.clussExportItems[m].hash === results[k].hash) {
+              self.clussExportItems[m].ok = !!results[k].ok;
+              self.clussExportItems[m].reason = results[k].ok ? '' : (results[k].reason || '导出失败');
+            }
+          }
+        }
+        if (data.ok_count === data.total) {
+          self.showToast('已导出 ' + data.ok_count + ' 个文件到 Cluss');
+          self.closeClussModal();
+          self.exitSelectMode();
+        } else {
+          self.showToast('已导出 ' + (data.ok_count || 0) + '/' + data.total + ' 个，其余见原因');
+        }
+      }).catch(function(err) {
+        self.clussBusy = false;
+        self.showToast((err.response && err.response.data && err.response.data.message) || '导出失败');
+      });
+    },
+    openClussImport: function() {
+      var self = this;
+      self.clussModal = 'import';
+      self.clussLoading = true;
+      self.clussLoadError = '';
+      self.clussFiles = [];
+      self.clussQuota = null;
+      self.clussSelected = [];
+      self.clussImportResults = [];
+      api.get('/cloud/cluss/overview').then(function(res) {
+        self.clussFiles = (res.data.data && res.data.data.files) || [];
+        self.clussQuota = (res.data.data && res.data.data.quota) || null;
+        self.clussLoading = false;
+      }).catch(function(err) {
+        self.clussLoading = false;
+        self.clussLoadError = (err.response && err.response.data && err.response.data.message) || 'Cluss 没有启动或暂时不可达';
+      });
+    },
+    runClussImport: function() {
+      var self = this;
+      if (!self.clussSelected.length || self.clussBusy) return;
+      var byHash = {};
+      for (var i = 0; i < self.clussFiles.length; i++) byHash[self.clussFiles[i].hash] = self.clussFiles[i];
+      var items = [];
+      for (var j = 0; j < self.clussSelected.length; j++) {
+        items.push({ hash: self.clussSelected[j], name: (byHash[self.clussSelected[j]] && byHash[self.clussSelected[j]].name) || self.clussSelected[j] });
+      }
+      self.clussBusy = true;
+      api.post('/cloud/cluss/import', { items: items }).then(function(res) {
+        self.clussBusy = false;
+        var data = (res.data && res.data.data) || {};
+        self.clussImportResults = data.results || [];
+        self.clussSelected = [];
+        if (data.ok_count > 0) {
+          self.loadFiles();
+          self.showToast('已导入 ' + data.ok_count + '/' + data.total + ' 个文件');
+        } else {
+          self.showToast('导入失败，请查看原因');
+        }
+      }).catch(function(err) {
+        self.clussBusy = false;
+        self.showToast((err.response && err.response.data && err.response.data.message) || '导入失败');
+      });
     },
 
     // ====== 失效资源检测（bot 删除/物理文件丢失）======
@@ -1606,4 +1802,25 @@ export default {
 .review-btn.restore { background: rgba(88, 86, 214, 0.12); color: #5856D6; }
 .review-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .nav-action-btn.review-active { color: #5856D6; }
+
+/* ===== Cluss 互通（导出/导入弹窗） ===== */
+.cluss-sheet { display: flex; flex-direction: column; }
+.cluss-sheet--tall { max-height: 78vh; }
+.cluss-hint { font-size: 12px; color: var(--text-secondary); margin: 0 0 10px; line-height: 1.6; }
+.cluss-loading { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 28px 0; color: var(--text-secondary); font-size: 13px; }
+.cluss-empty { text-align: center; padding: 28px 0; color: var(--text-secondary); font-size: 13px; }
+.cluss-file-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
+.cluss-file-list--scroll { max-height: 320px; overflow-y: auto; }
+.cluss-results { border-top: 0.5px solid var(--separator-color); padding-top: 8px; }
+.cluss-file-row { display: flex; align-items: center; gap: 8px; padding: 7px 6px; border-radius: var(--radius-md); min-height: 36px; }
+.cluss-check-row { cursor: pointer; }
+.cluss-check-row:hover { background: rgba(120, 120, 128, 0.08); }
+.cluss-check-row input[type="checkbox"] { flex-shrink: 0; width: 16px; height: 16px; accent-color: var(--primary-color, #007aff); }
+.cluss-ok { color: #34C759; flex-shrink: 0; }
+.cluss-warn { color: #FF9500; flex-shrink: 0; }
+.cluss-thumb { width: 34px; height: 34px; object-fit: cover; border-radius: var(--radius-sm); background: rgba(120, 120, 128, 0.12); flex-shrink: 0; }
+.cluss-file-icon { width: 34px; text-align: center; font-size: 18px; color: var(--text-secondary); flex-shrink: 0; }
+.cluss-file-name { flex: 1; min-width: 0; font-size: 13px; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cluss-file-size { flex-shrink: 0; font-size: 11px; color: var(--text-secondary); }
+.cluss-reason { flex-shrink: 0; max-width: 55%; font-size: 11px; color: #FF9500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

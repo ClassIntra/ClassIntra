@@ -45,7 +45,37 @@ if (corsOrigins) {
   corsOptions = { origin: false, credentials: false };
 }
 app.use(cors(corsOptions));
-app.use(morgan('dev'));
+// 请求观测：关联 ID（响应头 X-Request-Id，日志可归因）+ 慢请求告警（>1.5s 打 warn）
+// 放在 morgan 之前，保证 req.requestId 在一切日志/处理器中可用
+app.use(function(req, res, next) {
+  try {
+    req.requestId = require('crypto').randomBytes(6).toString('hex');
+    res.setHeader('X-Request-Id', req.requestId);
+  } catch (e) {}
+  var t0 = Date.now();
+  res.on('finish', function() {
+    var dur = Date.now() - t0;
+    if (dur > 1500 && req.path.indexOf('/api/') === 0) {
+      console.warn('[Slow] ' + req.method + ' ' + req.originalUrl.split('?')[0] +
+        ' ' + res.statusCode + ' ' + dur + 'ms rid=' + (req.requestId || '-'));
+    }
+  });
+  next();
+});
+// 日志格式：字段顺序与原来的 dev 格式一致，末尾追加 rid，
+// 使任意一行访问日志都能直接和响应头 X-Request-Id / [Slow] 告警对上。
+// ⚠️ 不要退回 morgan('dev')：dev 是预定义格式，无法插入自定义 token，
+//    那样每条普通请求就没有 rid，排障时只能靠时间戳猜。
+morgan.token('rid', function(req) { return (req && req.requestId) || '-'; });
+app.use(morgan(':method :url :status :response-time ms - :res[content-length] rid=:rid'));
+// 关停期拒新：gracefulShutdown 触发后新 API 请求返回 503（客户端重试语义），
+// 静态资源照常放行，让已打开的页面不至于白屏
+app.use(function(req, res, next) {
+  if (isShuttingDown && req.path.indexOf('/api/') === 0) {
+    return res.status(503).json({ code: 503, message: '服务器正在维护重启，请稍后重试' });
+  }
+  next();
+});
 // Gzip 压缩：SVG 是 XML 文本格式，压缩率极高（70-90%），显著减小图标传输体积
 app.use(compression({
   // 压缩级别 6：平衡 CPU 与压缩率
@@ -226,7 +256,19 @@ app.use(express.static(path.join(__dirname, '../../client/dist'), {
   index: false,
   maxAge: '0',
   immutable: false,
-  setHeaders: function(res) {
+  setHeaders: function(res, filePath) {
+    // Vite 产物按内容哈希命名（assets/index-<hash>.js）：index.html 仍要每次最新，
+    // 但哈希资产内容一年不变 → 长缓存 + immutable。弱网平板二次进入零 bundle 请求，
+    // 这是「整个系统打开慢」里最重的一刀。非 assets/ 的文件（index.html、
+    // public/ 拷贝进来的音视频等）保持 no-store，保证发版立即生效。
+    if (/[/\\]assets[/\\]/.test(filePath)) {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      // 全局 no-cache 中间件已把 Pragma/Expires 写到 res 上，不摘除的话
+      // 浏览器会拿 HTTP/1.0 头压制 max-age，immutable 完全失效（实测 C3 失败根因）
+      res.removeHeader('Pragma');
+      res.removeHeader('Expires');
+      return;
+    }
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
@@ -271,9 +313,30 @@ try {
   console.warn('[app] market-static 静态路由初始化失败:', e.message);
 }
 
+// 市场主题静态资源（manifest.json / tokens.json / pack.json / icon）
+// 访问路径：/market-theme-static/<themeId>/pack.json → market-themes/<themeId>/pack.json
+// pack.json 由安装时合成（manifest + tokens 内联），客户端 ThemeEngine.loadExternalTheme 一次取全
+try {
+  fs.mkdirSync(marketService.marketThemesDir, { recursive: true });
+  app.use('/market-theme-static', express.static(marketService.marketThemesDir, {
+      maxAge: '0',
+      immutable: false,
+      setHeaders: function(res) {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+      }
+    }));
+} catch (e) {
+  console.warn('[app] market-theme-static 静态路由初始化失败:', e.message);
+}
+
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/user', require('./routes/user'));
 app.use('/api/admin', require('./routes/admin'));
+// 大字广播（全屏强提示）：挂在 /api/admin 之下，与既有 broadcasts（超能岛快讯）无关
+app.use('/api/admin/big-text', require('./routes/big-text'));
 app.use('/api/assets', require('./routes/assets'));
 app.use('/api/setup', require('./routes/setup'));
 app.use('/api/level', require('./routes/level'));
@@ -282,6 +345,8 @@ app.use('/api/system', require('./routes/system'));
 app.use('/api/realtime', require('./routes/realtime'));
 app.use('/api/integrations', require('./routes/integrations'));
 app.use('/api/market', require('./routes/market'));
+// 设备指令信箱：控制类指令（封禁/解封、大字广播）的补拉 + 确认闭环
+app.use('/api/device-commands', require('./routes/device-commands'));
 // Cluss 联动桥（只读）：供 Cluss 校验 ClassIntra 账号，实现跨系统账号互通
 // 未配置 RELAY_SECRET 时该路由自身返回 503，不影响任何现有功能
 app.use('/api/cluss-bridge', require('./routes/cluss-bridge'));
@@ -406,15 +471,39 @@ function gracefulShutdown(signal) {
     }
   } catch (e) {}
 
+  // 数据库收尾：WAL 检查点落盘（防重启后 -wal 文件膨胀/恢复变慢）
+  // 放在关 HTTP 之前执行一次，使关停期间不再产生新写入后无需二次检查点
+  try {
+    var db = require('./utils/db');
+    db.pragma('wal_checkpoint(TRUNCATE)');
+    console.log('[Server] SQLite WAL checkpoint 完成');
+  } catch (e) {
+    console.warn('[Server] WAL checkpoint 失败（忽略，继续关停）:', e.message);
+  }
+
+  // 关闭 WebSocket 服务端（若模块提供 shutdown/close；不存在则跳过）
+  try {
+    var chatServer2 = require('./ws/chat-server');
+    if (typeof chatServer2.shutdown === 'function') chatServer2.shutdown();
+    else if (typeof chatServer2.close === 'function') chatServer2.close();
+  } catch (e) {}
+
   setTimeout(function() {
     server.close(function() {
       console.log('[Server] HTTP server closed');
+      try {
+        var db2 = require('./utils/db');
+        db2.close();
+      } catch (e) {}
       process.exit(0);
     });
   }, 1000);
 
   setTimeout(function() {
     console.error('[Server] Forced shutdown after timeout');
+    try {
+      require('./utils/db').close();
+    } catch (e) {}
     process.exit(1);
   }, 10000);
 }
@@ -423,6 +512,15 @@ process.on('SIGTERM', function() { gracefulShutdown('SIGTERM'); });
 process.on('SIGINT', function() { gracefulShutdown('SIGINT'); });
 
 require('./ws/chat-server');
+
+// ======== 设备指令信箱 ========
+// 启动过期/已投递指令的定期清理，保证 device_commands 表不会无限增长。
+// 指令本身无需常驻内存：落库即持久化，服务端重启后照样能补投。
+try {
+  require('./services/device-commands').start();
+} catch (e) {
+  console.error('[DeviceCmd] 启动失败:', e.message);
+}
 
 // ======== 天气提醒定时检查 ========
 // 模块化边界：weather 是可选项业务模块（apps/weather），核心不得静态 require 其路径。

@@ -9,9 +9,19 @@
             <p>浏览、安装和管理 ClassIntra 应用与插件</p>
           </div>
           <div class="market-toolbar-actions">
-            <select v-model="selectedSource" class="source-select" :disabled="loading || actionLoading">
-              <option v-for="source in sources" :key="source.id" :value="source.id">{{ source.label }}</option>
-            </select>
+            <!-- 源切换：按钮组（平板上原生 select 不显眼且体验差） -->
+            <div class="source-chips" role="tablist" aria-label="市场源">
+              <button
+                v-for="source in sources"
+                :key="source.id"
+                type="button"
+                class="source-chip"
+                :class="{ 'source-chip--active': selectedSource === source.id }"
+                role="tab"
+                :aria-selected="selectedSource === source.id ? 'true' : 'false'"
+                @click="selectedSource = source.id"
+              >{{ source.label }}</button>
+            </div>
             <button type="button" class="refresh-btn" :disabled="loading || actionLoading" @click="loadMarket">
               <i class="fa-solid fa-rotate" :class="{ spinning: loading }"></i>
               刷新
@@ -72,7 +82,12 @@
           <div class="section-heading">
             <div>
               <h2>可安装应用</h2>
-              <span v-if="catalogUpdatedAt" class="section-meta">更新于 {{ catalogUpdatedAt }}</span>
+              <span class="section-meta">
+                更新于 {{ catalogUpdatedAt }}
+                <span v-if="verifiedLabel" class="verify-badge" :class="{ ok: catalogVerified === true }">
+                  <i class="fa-solid" :class="catalogVerified === true ? 'fa-shield-halved' : 'fa-shield'"></i> {{ verifiedLabel }}
+                </span>
+              </span>
             </div>
             <span class="count-badge">{{ filteredCatalog.length }} 个应用</span>
           </div>
@@ -105,10 +120,13 @@
                   {{ app.author || 'ClassIntra 社区' }}
                   <span v-if="installedMap[app.name]" class="installed-flag"><i class="fa-solid fa-circle-check"></i> 已安装</span>
                 </span>
-                <button type="button" class="app-action" :disabled="actionLoading === app.name" @click="installApp(app)">
-                  <span v-if="actionLoading === app.name" class="mini-spinner"></span>
-                  <span v-else>{{ installedMap[app.name] ? '重新安装' : '安装' }}</span>
-                </button>
+                <span class="footer-actions">
+                  <button type="button" class="secondary-action" @click="openAppDetail(app)"><i class="fa-solid fa-circle-info"></i> 详情</button>
+                  <button type="button" class="app-action" :disabled="actionLoading === app.name" @click="installApp(app)">
+                    <span v-if="actionLoading === app.name" class="mini-spinner"></span>
+                    <span v-else>{{ installedMap[app.name] ? '重新安装' : '安装' }}</span>
+                  </button>
+                </span>
               </div>
             </article>
           </div>
@@ -118,7 +136,19 @@
         <section v-show="activeTab === 'apps' && showSection(filteredInstalledApps)" class="market-section installed-section">
           <div class="section-heading sub-heading">
             <h2>已安装应用</h2>
-            <span class="count-badge">{{ filteredInstalledApps.length }} 个应用</span>
+            <span class="installed-heading-actions">
+              <button
+                v-if="Object.keys(appUpdateMap).length"
+                type="button"
+                class="secondary-action"
+                :disabled="updateAllLoading"
+                @click="updateAllApps"
+              >
+                <span v-if="updateAllLoading" class="mini-spinner"></span>
+                <span v-else><i class="fa-solid fa-rotate"></i> 全部更新（{{ Object.keys(appUpdateMap).length }}）</span>
+              </button>
+              <span class="count-badge">{{ filteredInstalledApps.length }} 个应用</span>
+            </span>
           </div>
           <div v-if="filteredInstalledApps.length" class="installed-list">
             <article v-for="app in filteredInstalledApps" :key="app.name" class="installed-card">
@@ -258,6 +288,10 @@
                 <small v-else class="status-hint">插件接口对全班成员开放</small>
               </div>
               <div class="installed-actions">
+                <!-- 兼容模式使用管理：仅班管 / 管理员可见，只有插件启用时才有会话可管 -->
+                <button v-if="plugin.name === 'web-proxy' && plugin.enabled !== false && isManager" type="button" class="secondary-action" @click="openProxyPanel">
+                  <i class="fa-solid fa-users-viewfinder"></i> 管理
+                </button>
                 <button v-if="plugin.hasConfig" type="button" class="secondary-action" @click="openConfig(plugin)">
                   <i class="fa-solid fa-sliders"></i> 配置
                 </button>
@@ -307,7 +341,177 @@
           <div v-else class="empty-state"><i class="fa-solid fa-plug-circle-xmark"></i><p>暂无已安装的插件</p></div>
           </template>
         </section>
+
+        <!-- ===== 主题分区：市场分发的纯数据 JSON 主题包，安装后全班主题选择中立即可见 ===== -->
+        <section v-show="activeTab === 'themes' && showSection(filteredThemes)" class="market-section">
+          <div class="section-heading">
+            <div>
+              <h2>可安装主题</h2>
+              <span class="section-meta">安装后出现在全班成员的主题选择里；纯数据包，无脚本执行</span>
+            </div>
+            <span class="count-badge">{{ filteredThemes.length }} 个主题</span>
+          </div>
+          <div v-if="filteredThemes.length" class="app-grid">
+            <article v-for="theme in filteredThemes" :key="theme.name" class="app-card">
+              <div class="app-card-header">
+                <div class="app-icon" :style="{ background: theme.color || (theme.type === 'dark' ? '#1C1C1E' : '#E8E8ED') }">
+                  <i class="fa-solid fa-palette"></i>
+                </div>
+                <div class="app-title">
+                  <h3>{{ theme.label }}</h3>
+                  <span>{{ theme.name }} · v{{ theme.version || '0.0.0' }}</span>
+                </div>
+              </div>
+              <p class="app-description">{{ theme.description || '暂无主题描述' }}</p>
+              <div class="app-caps">
+                <span class="cap-chip">
+                  <i class="fa-solid" :class="theme.type === 'dark' ? 'fa-moon' : 'fa-sun'"></i>{{ theme.type === 'dark' ? '深色' : '浅色' }}
+                </span>
+                <span v-if="themeInstalledMap[theme.name]" class="cap-chip cap-chip-notice"><i class="fa-solid fa-circle-check"></i> 已安装</span>
+              </div>
+              <div class="app-card-footer">
+                <span class="app-author">{{ theme.author || 'ClassIntra 社区' }}</span>
+                <button type="button" class="app-action" :disabled="actionLoading === theme.name" @click="installTheme(theme)">
+                  <span v-if="actionLoading === theme.name" class="mini-spinner"></span>
+                  <span v-else>{{ themeInstalledMap[theme.name] ? '重新安装' : '安装' }}</span>
+                </button>
+              </div>
+            </article>
+          </div>
+          <div v-else class="empty-state"><i class="fa-solid fa-palette"></i><p>当前市场源暂无主题</p></div>
+        </section>
+
+        <section v-show="activeTab === 'themes' && showSection(filteredInstalledThemes)" class="market-section installed-section">
+          <div class="section-heading sub-heading">
+            <h2>已安装主题</h2>
+            <span class="count-badge">{{ filteredInstalledThemes.length }} 个主题</span>
+          </div>
+          <div v-if="filteredInstalledThemes.length" class="installed-list">
+            <article v-for="theme in filteredInstalledThemes" :key="theme.id" class="installed-card">
+              <div class="app-icon small" :style="{ background: theme.type === 'dark' ? '#1C1C1E' : '#E8E8ED' }">
+                <i class="fa-solid fa-palette"></i>
+              </div>
+              <div class="installed-info">
+                <div class="installed-title-row">
+                  <h3>{{ theme.name }}</h3>
+                  <span class="status-badge" :class="theme.type === 'dark' ? 'disabled' : 'enabled'">
+                    {{ theme.type === 'dark' ? '深色' : '浅色' }}
+                  </span>
+                </div>
+                <p>{{ theme.description || '暂无主题描述' }}</p>
+                <span>当前版本 v{{ theme.version || '0.0.0' }} · {{ theme.author || 'ClassIntra 社区' }}</span>
+                <small class="status-hint">全班成员的主题选择里可见</small>
+              </div>
+              <div class="installed-actions">
+                <button type="button" class="danger-action" :disabled="actionLoading === theme.id" @click="uninstallTheme(theme)">卸载</button>
+              </div>
+            </article>
+          </div>
+          <div v-else class="empty-state"><i class="fa-solid fa-palette"></i><p>暂无已安装的市场主题</p></div>
+        </section>
       </template>
+    </div>
+
+    <!-- 应用详情弹窗：截图 / 更新日志 / 完整描述 / 能力清单 -->
+    <div v-if="detailApp" class="proxy-overlay" @click.self="closeAppDetail">
+      <div class="proxy-panel app-detail-panel" role="dialog" aria-modal="true" :aria-label="'应用详情 ' + (detailApp.label || detailApp.name)">
+        <div class="proxy-head">
+          <div class="proxy-head-text">
+            <h3><i class="fa-solid fa-circle-info"></i> {{ detailApp.label || detailApp.name }}</h3>
+            <p>v{{ detailApp.version || '0.0.0' }} · {{ detailApp.author || 'ClassIntra 社区' }}</p>
+          </div>
+          <button type="button" class="proxy-close" @click="closeAppDetail"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="app-detail-body">
+          <div v-if="detailScreenshots.length" class="detail-screens">
+            <img v-for="(src, idx) in detailScreenshots" :key="idx" :src="src" :alt="'截图 ' + (idx + 1)" loading="lazy" />
+          </div>
+          <p class="detail-desc">{{ detailApp.description || '暂无应用描述' }}</p>
+          <div v-if="detailApp.capabilities && detailApp.capabilities.length" class="detail-caps">
+            <span v-for="cap in describeCaps(detailApp.capabilities)" :key="cap.name" class="cap-chip" :class="{ 'cap-chip-notice': cap.level === 'notice' }" :title="cap.description">
+              <i class="fa-solid" :class="cap.icon"></i>{{ cap.label }}
+            </span>
+          </div>
+          <div v-if="detailApp.changelog && detailApp.changelog.length" class="detail-changelog">
+            <h4><i class="fa-solid fa-list-check"></i> 更新日志</h4>
+            <div v-for="(entry, idx) in detailApp.changelog" :key="idx" class="changelog-entry">
+              <strong>v{{ entry.version }}</strong>
+              <span v-if="entry.date" class="changelog-date">{{ entry.date }}</span>
+              <p>{{ entry.notes }}</p>
+            </div>
+          </div>
+        </div>
+        <div class="app-detail-foot">
+          <button type="button" class="app-action" :disabled="actionLoading === detailApp.name" @click="installApp(detailApp)">
+            <span v-if="actionLoading === detailApp.name" class="mini-spinner"></span>
+            <span v-else>{{ installedMap[detailApp.name] ? '重新安装' : '安装' }}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 兼容模式使用管理浮窗：班管查看谁在用、可断开单个或全部会话 -->
+    <div v-if="proxyPanelOpen" class="proxy-overlay" @click.self="closeProxyPanel">
+      <div class="proxy-panel" role="dialog" aria-modal="true" aria-label="兼容模式使用管理">
+        <div class="proxy-head">
+          <div class="proxy-head-text">
+            <h3><i class="fa-solid fa-users-viewfinder"></i> 兼容模式使用管理</h3>
+            <p>查看谁正在使用兼容模式浏览，并可随时断开会话</p>
+          </div>
+          <button type="button" class="proxy-close" @click="closeProxyPanel"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+
+        <div class="proxy-meta">
+          <span class="proxy-meta-item" :class="{ ok: proxyInfo.running }">
+            <i class="fa-solid fa-signal"></i> 代理{{ proxyInfo.running ? '运行中' : '未运行' }}
+          </span>
+          <span class="proxy-meta-item">
+            <i class="fa-solid fa-users"></i> 会话 {{ proxySessions.length }} / {{ proxyInfo.maxSessions || 0 }}
+          </span>
+          <span class="proxy-meta-item" :class="{ ok: proxyInfo.available }">
+            <i class="fa-solid fa-desktop"></i> {{ proxyInfo.available ? '兼容浏览器可用' : '兼容浏览器不可用' }}
+          </span>
+        </div>
+
+        <div v-if="proxyError" class="proxy-error">
+          <i class="fa-solid fa-triangle-exclamation"></i> {{ proxyError }}
+        </div>
+
+        <div v-if="proxyLoading && !proxySessions.length" class="proxy-empty">
+          <span class="mini-spinner"></span> 正在读取使用情况…
+        </div>
+        <div v-else-if="!proxySessions.length" class="proxy-empty">
+          <i class="fa-solid fa-mug-hot"></i>
+          <p>当前没有人在使用兼容模式</p>
+          <small>普通浏览不占用兼容会话，只有成员点「兼容模式」打开站点时才会出现在这里</small>
+        </div>
+        <div v-else class="proxy-sessions">
+          <article v-for="sess in proxySessions" :key="sess.id" class="proxy-session">
+            <div class="proxy-session-main">
+              <div class="proxy-session-user">
+                <i class="fa-solid fa-user"></i>
+                <strong>{{ sess.user && sess.user.name ? sess.user.name : '未知用户' }}</strong>
+                <span class="proxy-duration">{{ formatDuration(sess.duration) }}</span>
+                <span v-if="sess.audioEnabled" class="proxy-chip audio"><i class="fa-solid fa-volume-high"></i> 声音开</span>
+                <span v-else class="proxy-chip"><i class="fa-solid fa-volume-xmark"></i> 声音关</span>
+              </div>
+              <div class="proxy-session-url" :title="sess.url">{{ sess.url }}</div>
+            </div>
+            <button type="button" class="danger-action" :disabled="proxyClosing === sess.id" @click="closeProxySession(sess)">
+              <span v-if="proxyClosing === sess.id" class="mini-spinner"></span>
+              <span v-else>断开</span>
+            </button>
+          </article>
+        </div>
+
+        <div class="proxy-foot">
+          <small>断开后对应成员需重新打开兼容模式；会话无操作 3 分钟会自动回收。</small>
+          <button type="button" class="danger-action" :disabled="proxyClosing === 'all' || !proxySessions.length" @click="closeAllProxySessions">
+            <span v-if="proxyClosing === 'all'" class="mini-spinner"></span>
+            <span v-else>全部断开</span>
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -326,12 +530,22 @@ export default {
   data: function() {
     return {
       sources: [],
-      selectedSource: 'gitee',
+      selectedSource: (function() {
+        try { return localStorage.getItem('ci:market-source') || 'gitee'; } catch (e) { return 'gitee'; }
+      })(),
       catalogApps: [],
       installedApps: [],
       searchQuery: '',
       catalogPlugins: [],
       installedPlugins: [],
+      catalogThemes: [],
+      installedThemes: [],
+      // 目录验签状态：true / 'unsigned' / 'local'
+      catalogVerified: 'unsigned',
+      // 应用详情弹窗（目录条目：截图/更新日志/完整描述/能力清单）
+      detailApp: null,
+      // 「全部更新」进行中标记
+      updateAllLoading: false,
       catalogUpdatedAt: '',
       activeSource: '',
       loading: true,
@@ -350,7 +564,15 @@ export default {
       // 图标加载失败记录（key: 应用名）→ 回落为占位图标
       iconErrors: {},
       actionStatus: '',
-      error: ''
+      error: '',
+      // 兼容模式使用管理浮窗（web-proxy）
+      proxyPanelOpen: false,
+      proxyLoading: false,
+      proxySessions: [],
+      proxyInfo: {},
+      proxyError: '',
+      proxyClosing: '',
+      proxyTimer: null
     };
   },
   computed: {
@@ -358,6 +580,7 @@ export default {
     tabs: function() {
       return [
         { id: 'apps', label: '应用', icon: 'fa-puzzle-piece', count: this.catalogApps.length + this.installedApps.length },
+        { id: 'themes', label: '主题', icon: 'fa-palette', count: this.catalogThemes.length + this.installedThemes.length },
         { id: 'plugins', label: '插件', icon: 'fa-plug', count: this.catalogPlugins.length + this.installedPlugins.length }
       ];
     },
@@ -389,9 +612,36 @@ export default {
     },
     // 当前分区在搜索命中的条目总数（用于判断整页是否无结果）
     activeTabMatchCount: function() {
-      return this.activeTab === 'plugins'
-        ? this.filteredPlugins.length + this.filteredInstalledPlugins.length
-        : this.filteredCatalog.length + this.filteredInstalledApps.length;
+      if (this.activeTab === 'plugins') return this.filteredPlugins.length + this.filteredInstalledPlugins.length;
+      if (this.activeTab === 'themes') return this.filteredThemes.length + this.filteredInstalledThemes.length;
+      return this.filteredCatalog.length + this.filteredInstalledApps.length;
+    },
+    // 目录验签徽章文案
+    verifiedLabel: function() {
+      if (this.catalogVerified === true) return '已验签';
+      if (this.catalogVerified === 'local') return '本地源';
+      return '未验签';
+    },
+    filteredThemes: function() {
+      return this.filterList(this.catalogThemes);
+    },
+    filteredInstalledThemes: function() {
+      return this.filterList(this.installedThemes);
+    },
+    themeInstalledMap: function() {
+      var result = {};
+      this.installedThemes.forEach(function(t) { result[t.id] = t; });
+      return result;
+    },
+    // 详情弹窗：目录条目里的截图走服务器中转代理（同 catalog 图标策略）
+    detailScreenshots: function() {
+      var app = this.detailApp;
+      if (!app || !Array.isArray(app.screenshots)) return [];
+      var self = this;
+      return app.screenshots.map(function(p) {
+        return '/api/market/asset?source=' + encodeURIComponent(self.activeSource || self.selectedSource || 'gitee') +
+          '&path=' + encodeURIComponent(p);
+      });
     },
     // 已安装应用 → 目录中可更新版本（仅在目录版本更高时记录）
     appUpdateMap: function() {
@@ -400,15 +650,29 @@ export default {
     // 已安装插件 → 目录中可更新版本
     pluginUpdateMap: function() {
       return this.buildUpdateMap(this.installedPlugins, this.catalogPlugins);
+    },
+    // 班管 / 管理员：兼容模式使用管理入口只对他们展示
+    isManager: function() {
+      var user = (this.$store && this.$store.state && this.$store.state.auth && this.$store.state.auth.user) || {};
+      return user.is_admin === 1 || user.is_admin === true
+        || user.is_class_admin === 1 || user.is_class_admin === true
+        || user.role === 'officer';
     }
   },
   watch: {
     selectedSource: function() {
-      if (!this.loading) this.loadCatalog();
+      // 切源立即重拉目录（不受页面加载态限制——目录请求可重入）；
+      // 失败必须显式提示，否则"切了没反应"会被当成切换失灵
+      this.loadCatalog().catch(this.handleCatalogError.bind(this));
+      try { localStorage.setItem('ci:market-source', this.selectedSource); } catch (e) {}
     }
   },
   mounted: function() {
     this.loadMarket();
+  },
+  beforeDestroy: function() {
+    // 页面切走后停止轮询，避免对已卸载的组件继续写状态
+    this.stopProxyPolling();
   },
   methods: {
     // 关键字过滤：按 label / name 匹配，空关键字返回原列表（应用与插件共用）
@@ -458,7 +722,7 @@ export default {
       var self = this;
       self.loading = true;
       self.error = '';
-      Promise.all([self.loadSources(), self.loadInstalled(), self.loadCatalog(), self.loadInstalledPlugins()]).catch(function(error) {
+      Promise.all([self.loadSources(), self.loadInstalled(), self.loadCatalog(), self.loadInstalledPlugins(), self.loadInstalledThemes()]).catch(function(error) {
         self.error = self.getErrorMessage(error, '市场数据加载失败');
       }).finally(function() {
         self.loading = false;
@@ -474,6 +738,10 @@ export default {
         }
       });
     },
+    // 目录加载失败的显式提示（含源名——切源失败与加载失败不再静默）
+    handleCatalogError: function(error) {
+      this.error = this.getErrorMessage(error, '市场目录加载失败') + '（源：' + (this.selectedSource || '?') + '）';
+    },
     loadCatalog: function() {
       var self = this;
       return api.get('/market/catalog?source=' + encodeURIComponent(self.selectedSource || 'local')).then(function(response) {
@@ -482,6 +750,8 @@ export default {
         self.activeSource = data && data.source ? data.source : self.selectedSource;
         self.catalogApps = catalog && Array.isArray(catalog.apps) ? catalog.apps : [];
         self.catalogPlugins = catalog && Array.isArray(catalog.plugins) ? catalog.plugins : [];
+        self.catalogThemes = catalog && Array.isArray(catalog.themes) ? catalog.themes : [];
+        self.catalogVerified = data && data.verified !== undefined ? data.verified : 'unsigned';
         self.catalogUpdatedAt = catalog && catalog.updated_at ? self.formatDate(catalog.updated_at) : '';
       });
     },
@@ -546,6 +816,102 @@ export default {
     },
     updateApp: function(app) {
       this.runAction('/market/update', app, '更新成功');
+    },
+    // ===== 全部更新：把「可更新」的应用逐个更新（顺序执行，避免并发挤压服务器） =====
+    updateAllApps: function() {
+      var self = this;
+      var names = Object.keys(this.appUpdateMap);
+      if (!names.length || self.updateAllLoading) return;
+      self.$modal.confirm({
+        title: '全部更新',
+        message: '将更新 ' + names.length + ' 个应用到最新版本（顺序执行，过程中请保持页面打开）。继续吗？',
+        confirmText: '开始更新',
+        cancelText: '取消'
+      }).then(function(confirmed) {
+        if (!confirmed) return;
+        self.updateAllLoading = true;
+        var done = 0;
+        var failed = 0;
+        function next() {
+          var name = names[done];
+          self.actionStatus = '正在更新 ' + name + '（' + (done + 1) + '/' + names.length + '）…';
+          return api.post('/market/update', { name: name, source: self.selectedSource || 'gitee' })
+            .then(function() {
+              done += 1;
+              if (done < names.length) return next();
+            })
+            .catch(function() {
+              failed += 1;
+              done += 1;
+              if (done < names.length) return next();
+            });
+        }
+        return next().finally(function() {
+          self.updateAllLoading = false;
+          self.actionStatus = '';
+          return Promise.all([self.loadInstalled(), self.refreshMarketRuntime()]).then(function() {
+            self.$store.commit('toast/SHOW_TOAST', {
+              message: failed ? ('全部更新完成，' + failed + ' 个失败，详情见页面提示') : ('已更新 ' + names.length + ' 个应用'),
+              type: failed ? 'error' : 'success'
+            });
+          });
+        });
+      }).catch(function() {});
+    },
+    // ===== 主题市场 =====
+    loadInstalledThemes: function() {
+      var self = this;
+      return api.get('/market/themes-installed').then(function(response) {
+        var data = response.data && response.data.data;
+        self.installedThemes = data && Array.isArray(data.themes) ? data.themes : [];
+      });
+    },
+    installTheme: function(theme) {
+      var self = this;
+      if (self.actionLoading) return;
+      self.actionLoading = theme.name;
+      self.error = '';
+      self.actionStatus = '正在下载并校验主题…';
+      api.post('/market/install-theme', { name: theme.name, source: self.selectedSource || 'gitee' }).then(function() {
+        return self.loadInstalledThemes();
+      }).then(function() {
+        self.$store.commit('toast/SHOW_TOAST', { message: '主题安装成功，全班成员的主题选择里立即可见', type: 'success' });
+      }).catch(function(error) {
+        self.error = self.getErrorMessage(error, '主题安装失败');
+      }).finally(function() {
+        self.actionLoading = '';
+        self.actionStatus = '';
+      });
+    },
+    uninstallTheme: function(theme) {
+      var self = this;
+      var using = self.$store.state.settings.theme === theme.id;
+      self.$modal.confirm({
+        title: '卸载主题「' + (theme.name || theme.id) + '」',
+        message: using ? '当前正在使用该主题，卸载后会回退到默认浅色主题。确定继续吗？' : '卸载后全班成员的主题选择中将不再出现该主题。确定继续吗？',
+        confirmText: '卸载',
+        cancelText: '取消'
+      }).then(function(confirmed) {
+        if (!confirmed || self.actionLoading) return;
+        self.actionLoading = theme.id;
+        self.error = '';
+        api.post('/market/uninstall-theme', { name: theme.id }).then(function() {
+          return self.loadInstalledThemes();
+        }).then(function() {
+          self.$store.commit('toast/SHOW_TOAST', { message: '主题已卸载', type: 'success' });
+        });
+      }).catch(function(error) {
+        if (error) self.error = self.getErrorMessage(error, '主题卸载失败');
+      }).finally(function() {
+        self.actionLoading = '';
+      });
+    },
+    // ===== 应用详情弹窗（截图 / 更新日志 / 完整描述 / 能力清单） =====
+    openAppDetail: function(app) {
+      this.detailApp = app;
+    },
+    closeAppDetail: function() {
+      this.detailApp = null;
     },
     toggleApp: function(app) {
       var self = this;
@@ -616,7 +982,7 @@ export default {
       var self = this;
       self.$modal.confirm({
         title: '安装插件「' + (plugin.label || plugin.name) + '」',
-        message: '插件将以服务端扩展方式安装并热挂载后端接口；含前端文件的插件需要重新构建客户端后才会生效。',
+        message: '插件将以服务端扩展方式安装并热挂载后端接口。注意：市场分发的插件暂不支持前端页面，插件清单中的 frontend 声明不会生效——如需前端集成请在主仓内完成（详见 docs/ecosystem-design.md 的四类模块定位）。',
         confirmText: '安装',
         cancelText: '取消'
       }).then(function(confirmed) {
@@ -641,7 +1007,7 @@ export default {
       self.error = '';
       api.post(endpoint, { name: plugin.name, source: self.selectedSource || 'gitee' }).then(function(response) {
         var result = response.data && response.data.data;
-        var note = result && result.requiresRebuild ? '（含前端文件，需重新构建客户端后生效）' : '';
+        var note = result && result.requiresRebuild ? '（含 frontend 声明：市场插件的前端暂不生效，需主仓集成）' : '';
         return Promise.all([self.loadInstalledPlugins(), self.loadCatalog()]).then(function() {
           self.$store.commit('toast/SHOW_TOAST', { message: successMessage + note, type: 'success' });
           self.promptMissingConfig(result);
@@ -799,6 +1165,88 @@ export default {
       }).finally(function() {
         self.configSaving = false;
       });
+    },
+    // ========== 兼容模式使用管理（web-proxy） ==========
+    openProxyPanel: function() {
+      var self = this;
+      self.proxyPanelOpen = true;
+      self.proxyError = '';
+      self.refreshProxySessions();
+      self.stopProxyPolling();
+      // 打开期间每 3 秒刷新：会话随时可能开始或结束
+      self.proxyTimer = setInterval(function() {
+        self.refreshProxySessions();
+      }, 3000);
+    },
+    closeProxyPanel: function() {
+      this.proxyPanelOpen = false;
+      this.stopProxyPolling();
+      this.proxySessions = [];
+      this.proxyError = '';
+      this.proxyClosing = '';
+    },
+    stopProxyPolling: function() {
+      if (this.proxyTimer) {
+        clearInterval(this.proxyTimer);
+        this.proxyTimer = null;
+      }
+    },
+    refreshProxySessions: function() {
+      var self = this;
+      if (!self.proxyPanelOpen || self.proxyLoading) return;
+      self.proxyLoading = true;
+      api.get('/web-proxy/sessions').then(function(response) {
+        var data = response.data && response.data.data;
+        if (!data) return;
+        self.proxyInfo = data;
+        self.proxySessions = Array.isArray(data.sessions) ? data.sessions : [];
+        self.proxyError = '';
+      }).catch(function(error) {
+        var status = error && error.response && error.response.status;
+        self.proxyError = (status === 401 || status === 403)
+          ? '仅班管 / 管理员可查看兼容模式使用情况'
+          : self.getErrorMessage(error, '读取使用情况失败');
+      }).finally(function() {
+        self.proxyLoading = false;
+      });
+    },
+    closeProxySession: function(sess) {
+      var self = this;
+      if (!sess || self.proxyClosing) return;
+      self.proxyClosing = sess.id;
+      api.post('/web-proxy/sessions/' + encodeURIComponent(sess.id) + '/close', {}).then(function() {
+        self.$store.commit('toast/SHOW_TOAST', { message: '已断开该成员的兼容模式会话', type: 'success' });
+        self.refreshProxySessions();
+      }).catch(function(error) {
+        self.proxyError = self.getErrorMessage(error, '断开失败');
+      }).finally(function() {
+        self.proxyClosing = '';
+      });
+    },
+    closeAllProxySessions: function() {
+      var self = this;
+      if (self.proxyClosing || !self.proxySessions.length) return;
+      self.proxyClosing = 'all';
+      api.post('/web-proxy/sessions/close-all', {}).then(function(response) {
+        var closed = (response.data && response.data.data && response.data.data.closed) || 0;
+        self.$store.commit('toast/SHOW_TOAST', { message: '已断开全部兼容模式会话（' + closed + ' 个）', type: 'success' });
+        self.proxySessions = [];
+        self.refreshProxySessions();
+      }).catch(function(error) {
+        self.proxyError = self.getErrorMessage(error, '断开失败');
+      }).finally(function() {
+        self.proxyClosing = '';
+      });
+    },
+    // 会话时长：mm:ss，超过 1 小时显示 hh:mm:ss
+    formatDuration: function(ms) {
+      var total = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+      var h = Math.floor(total / 3600);
+      var m = Math.floor((total % 3600) / 60);
+      var s = total % 60;
+      function pad(n) { return n < 10 ? '0' + n : String(n); }
+      if (h > 0) return h + ':' + pad(m) + ':' + pad(s);
+      return pad(m) + ':' + pad(s);
     }
   }
 };
@@ -900,7 +1348,16 @@ h3 { color: var(--text-primary); font-size: 16px; }
 .market-toolbar p, .app-description, .installed-info p { color: var(--text-secondary); }
 .market-toolbar p { margin-top: 6px; }
 .market-toolbar-actions, .installed-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.source-select, .refresh-btn, .app-action, .secondary-action, .danger-action, .market-error button { border: 1px solid var(--separator-color); border-radius: var(--radius-md); padding: 9px 14px; background: var(--card-bg); color: var(--text-primary); cursor: pointer; }
+.source-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.source-chip {
+  border: 1px solid var(--separator-color); border-radius: 999px;
+  padding: 8px 16px; background: var(--card-bg); color: var(--text-primary);
+  font-size: 13px; cursor: pointer; min-height: 36px;
+  transition: background var(--duration-fast, 0.15s) var(--ease-standard, ease), color var(--duration-fast, 0.15s) var(--ease-standard, ease);
+}
+.source-chip--active { background: var(--primary-color, #0A84FF); border-color: var(--primary-color, #0A84FF); color: #fff; font-weight: 600; }
+.source-chip:disabled { opacity: 0.5; }
+.refresh-btn, .app-action, .secondary-action, .danger-action, .market-error button { border: 1px solid var(--separator-color); border-radius: var(--radius-md); padding: 9px 14px; background: var(--card-bg); color: var(--text-primary); cursor: pointer; }
 .refresh-btn { background: var(--primary-color); color: #fff; border-color: var(--primary-color); }
 button:disabled { opacity: .55; cursor: not-allowed; }
 .market-error { display: flex; align-items: center; gap: 10px; padding: 14px 16px; margin-bottom: 24px; border-radius: var(--radius-md); background: rgba(255, 59, 48, .1); color: var(--danger-color); }
@@ -986,7 +1443,7 @@ button:disabled { opacity: .55; cursor: not-allowed; }
   .market-toolbar { padding: 16px; }
   .toolbar-row { gap: 12px; }
   .market-toolbar-actions { width: 100%; }
-  .source-select, .refresh-btn { flex: 1; }
+  .refresh-btn { flex: 1; }
   .installed-card { flex-wrap: wrap; }
   .installed-actions { width: 100%; justify-content: flex-end; margin-top: 10px; }
 }
@@ -1009,4 +1466,88 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .cfg-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .cfg-hint { color: var(--text-tertiary); font-size: var(--font-size-xs); }
 .cfg-loading { display: flex; align-items: center; gap: 8px; color: var(--text-tertiary); font-size: var(--font-size-sm); padding: 8px 0; }
+
+/* ===== 兼容模式使用管理浮窗（web-proxy） ===== */
+.proxy-overlay {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(2px);
+}
+.proxy-panel {
+  display: flex;
+  flex-direction: column;
+  width: min(560px, 100%);
+  max-height: min(78vh, 640px);
+  padding: 20px 22px;
+  background: var(--card-bg);
+  border: 1px solid var(--separator-color);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg, var(--shadow-md));
+}
+.proxy-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.proxy-head h3 { display: flex; align-items: center; gap: 8px; font-size: 17px; color: var(--text-primary); }
+.proxy-head p { margin-top: 4px; color: var(--text-secondary); font-size: 12px; }
+.proxy-close { border: none; background: transparent; color: var(--text-tertiary); cursor: pointer; padding: 4px 8px; border-radius: var(--radius-md); font-size: 16px; }
+.proxy-close:hover { background: rgba(120, 120, 128, 0.14); color: var(--text-primary); }
+.proxy-meta { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
+.proxy-meta-item { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: var(--radius-pill); background: rgba(120, 120, 128, 0.12); color: var(--text-secondary); font-size: 12px; }
+.proxy-meta-item.ok { color: var(--success-color); background: rgba(52, 199, 89, 0.12); }
+.proxy-error { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; padding: 9px 12px; border-radius: var(--radius-md); background: rgba(255, 59, 48, 0.12); color: var(--danger-color); font-size: 12px; }
+.proxy-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 180px; color: var(--text-secondary); text-align: center; }
+.proxy-empty i { font-size: 26px; color: var(--text-tertiary); }
+.proxy-empty p { color: var(--text-primary); font-size: 14px; }
+.proxy-empty small { max-width: 360px; color: var(--text-tertiary); font-size: 12px; line-height: 1.5; }
+.proxy-sessions { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; min-height: 0; margin: 0 -4px; padding: 0 4px; }
+.proxy-session { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--separator-color); border-radius: var(--radius-md); background: var(--bg-color); }
+.proxy-session-main { min-width: 0; flex: 1; }
+.proxy-session-user { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; color: var(--text-primary); }
+.proxy-session-user i { color: var(--primary-color); font-size: 12px; }
+.proxy-duration { padding: 1px 7px; border-radius: var(--radius-pill); background: rgba(120, 120, 128, 0.14); color: var(--text-secondary); font-size: 11px; font-variant-numeric: tabular-nums; }
+.proxy-chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px; border-radius: var(--radius-pill); background: rgba(120, 120, 128, 0.14); color: var(--text-secondary); font-size: 11px; }
+.proxy-chip.audio { color: var(--primary-color); background: var(--primary-light); }
+.proxy-session-url { margin-top: 4px; color: var(--text-secondary); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proxy-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--separator-color); }
+.proxy-foot small { color: var(--text-tertiary); font-size: 11px; line-height: 1.5; }
+@media (max-width: 700px) {
+  .proxy-overlay { align-items: flex-end; padding: 0; }
+  .proxy-panel { width: 100%; max-height: 82vh; border-radius: var(--radius-xl) var(--radius-xl) 0 0; padding: 18px 16px calc(18px + env(safe-area-inset-bottom, 0px)); }
+  .proxy-foot { flex-direction: column; align-items: stretch; gap: 10px; }
+  .proxy-foot button { width: 100%; }
+}
+
+/* ===== 应用详情弹窗 + 卡片操作区 ===== */
+.footer-actions { display: flex; align-items: center; gap: 8px; }
+.installed-heading-actions { display: flex; align-items: center; gap: 10px; }
+.verify-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  margin-left: 10px; padding: 1px 8px; border-radius: 999px;
+  font-size: 11px; color: var(--text-tertiary, #999);
+  background: var(--separator, rgba(0,0,0,0.08));
+}
+.verify-badge.ok { color: #34C759; background: rgba(52, 199, 89, 0.12); }
+.app-detail-panel { max-width: 560px; max-height: 84vh; overflow: hidden; display: flex; flex-direction: column; }
+.app-detail-body { overflow-y: auto; padding: 4px 2px; display: flex; flex-direction: column; gap: 14px; }
+.detail-screens { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; }
+.detail-screens img {
+  height: 150px; border-radius: var(--radius-lg, 12px);
+  border: 1px solid var(--separator, rgba(0,0,0,0.08)); background: var(--bg-secondary);
+  object-fit: cover; flex: 0 0 auto;
+}
+.detail-desc { color: var(--text-primary); font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+.detail-caps { display: flex; flex-wrap: wrap; gap: 6px; }
+.detail-changelog h4 { margin: 0 0 8px; font-size: 13px; color: var(--text-primary); }
+.changelog-entry { padding: 8px 0; border-top: 1px solid var(--separator, rgba(0,0,0,0.06)); }
+.changelog-entry strong { font-size: 12px; color: var(--text-primary); }
+.changelog-date { margin-left: 8px; font-size: 11px; color: var(--text-tertiary); }
+.changelog-entry p { margin: 4px 0 0; font-size: 12px; line-height: 1.6; color: var(--text-secondary); white-space: pre-wrap; }
+.app-detail-foot { padding-top: 10px; border-top: 1px solid var(--separator, rgba(0,0,0,0.06)); display: flex; justify-content: flex-end; }
 </style>
