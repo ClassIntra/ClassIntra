@@ -2,6 +2,47 @@
 
 ## [未发布]
 
+### 安全（依赖漏洞：51 条 → 11 条，critical 归零）
+
+GitHub Dependabot 报默认分支 43 项（`pnpm audit` 口径 51 项：critical 2 / high 23 /
+moderate 20 / low 6）。逐项核过可达性后修复，**critical 2 → 0，high 23 → 5**，
+服务端依赖链只剩 `basic-ftp`（经 `pm2 → proxy-agent`，本系统不走 FTP 代理）。
+
+**两个 critical 的实际结论（都不修代码、只封堵）**
+
+- `proxy-addr` IP 伪造（`GHSA-jqcg-44mw-7w3h`）—— 前提是开启 `trust proxy`，
+  而全仓**从未设置**，`req.ip` 取 socket 地址，不可伪造。已通过 overrides 强制
+  `>=2.0.8`，为将来做反代提前封堵（`rate-limit.js` 正是拿 `req.ip` 当限流 key）。
+- `dompurify` SAFE_FOR_TEMPLATES 绕过（`GHSA-cg2g-xh64-v4q7`）—— 前提是传
+  `SAFE_FOR_TEMPLATES` 选项 + shadow root，三处 `sanitize(html)` 均未传，当前不可利用。
+  按 patch 升到 3.4.17。
+
+**直接依赖**
+
+| 包 | 旧 → 新 | 修复 |
+| --- | --- | --- |
+| `dompurify` | 3.4.14 → 3.4.17 | XSS 净化绕过 |
+| `axios`（端+服） | 1.19.0 → 1.20.0 | fromDataURI ReDoS |
+| `multer` | 2.2.0 → 2.5.0 | multipart DoS（`/guest-upload` 免登录可达） |
+| `compression` | 1.8.1 → 1.8.2 | 内存泄漏 DoS |
+| `sharp` | 0.35.3 → 0.35.5 | libheif |
+| `morgan` | 1.11.0 → 1.12.1 | 日志注入 |
+
+**传递依赖（`pnpm-workspace.yaml` 的 overrides 追平新 CVE）**
+
+`qs >=6.16.0`、`js-yaml >=5.4.1`、`follow-redirects >=1.16.1`、`ip-address >=10.7.1`、
+`body-parser >=1.20.9`、`proxy-addr >=2.0.8`（新增）。
+
+**刻意未处理**
+
+- `basic-ftp`：经 `pm2 → proxy-agent → pac-proxy-agent`，只有走 FTP 代理才触发，不可达。
+- `vite` / `browserslist` / `source-map-js` / `baseline-browser-mapping`：仅本机构建期执行，不进产物。
+- `katex`（low）：需跨 minor 到 0.18，收益低于回归风险。
+
+**验证**：`better-sqlite3` ABI 正常；`sharp` libvips 8.18.7 产出缩略图 96×128（真实云盘图
+7.6MB → 21KB）；`express` 4.22.1 + `proxy-addr` 2.x 在 `trust proxy=false/true` 两种模式下
+`req.ip`/`req.ips` 行为均正确（伪造头被忽略 / 正常采信）；`scripts/ci-check.mjs` 5 项全绿。
+
 ### 变更（HTTPS 服务默认端口 443 → 9443，不再抢占 443）
 
 本机 443 归用户自己的其他服务使用，ecosystem 里 `classintra-https` 的默认端口
