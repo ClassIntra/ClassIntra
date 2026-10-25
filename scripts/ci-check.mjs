@@ -245,6 +245,28 @@ function walk(dir, out) {
 })();
 
 // ============================================================
+// 6. 版本一致性（version.json ↔ 5 个 package.json ↔ CHANGELOG）
+//    2026-10-25 实测过漂移：v1.6.0 发了 tag，五个 package.json 还停在 1.5.0，
+//    CHANGELOG 里也没有 [1.6.0] 条目 —— 因为那次发版没走 scripts/version.js。
+//    这类漂移不影响运行（运行时只读 version.json），但会让人看错版本、查错发版记录。
+// ============================================================
+(function checkVersionConsistency() {
+  let core;
+  try {
+    core = requireCJS(join(ROOT, 'scripts/version-core.js'));
+  } catch (e) {
+    warn('版本一致性', 'version-core 加载失败: ' + e.message);
+    return;
+  }
+  const r = core.checkConsistency();
+  if (r.ok) {
+    ok('版本一致性（' + r.version + '，5 个 package.json + CHANGELOG 对齐）');
+  } else {
+    bad('版本一致性', r.mismatches.slice(0, 3).join(' | '));
+  }
+})();
+
+// ============================================================
 // 汇总
 // ============================================================
 console.log('');
