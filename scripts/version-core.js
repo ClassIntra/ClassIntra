@@ -220,7 +220,24 @@ function checkConsistency() {
     if ((pkg.version || '') !== version) mismatches.push(PKG_FILES[i] + ' = ' + (pkg.version || '无') + ' ≠ ' + version);
   }
 
-  if (changelogTop !== version) mismatches.push('CHANGELOG.md 顶部 = ' + (changelogTop || '无') + ' ≠ ' + version);
+  // CHANGELOG 检查。
+  //
+  // 顶部是「未发布 / Unreleased」时**不判为不一致**：这是 Keep a Changelog 的正常常态
+  // （发版前所有改动攒在这一段，发版时才定版本号）。原实现要求「顶部必须等于当前版本」，
+  // 结果是只要攒了未发布内容，一致性检查就永远红，久而久之没人再信这个检查。
+  //
+  // 但也不能放着不管——真正会漏的是「发了版本却没写变更记录」。
+  // 所以顶部为未发布时，改为检查当前版本号**有没有自己的条目**（不要求它在顶部）。
+  var isUnreleased = /^(未发布|unreleased)$/i.test(changelogTop);
+  if (isUnreleased) {
+    var clContent = fs.existsSync(CHANGELOG_FILE) ? fs.readFileSync(CHANGELOG_FILE, 'utf8') : '';
+    var escVer = version.replace(/\./g, '\\.');
+    if (!new RegExp('## \\[' + escVer + '\\]', 'i').test(clContent)) {
+      mismatches.push('CHANGELOG.md 缺少 [' + version + '] 条目（顶部为「' + changelogTop + '」）');
+    }
+  } else if (changelogTop !== version) {
+    mismatches.push('CHANGELOG.md 顶部 = ' + (changelogTop || '无') + ' ≠ ' + version);
+  }
 
   return {
     ok: mismatches.length === 0,
