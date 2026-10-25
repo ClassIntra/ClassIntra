@@ -171,7 +171,7 @@ router.post('/plugin-toggle', auth.requireAuth, auth.requireAdmin, function(req,
   });
 });
 
-// ========== 主题市场（纯数据 JSON 主题包，详见 docs/market-dev-guide.md） ==========
+// ========== 主题市场（纯数据 JSON 主题包，详见 https://classintra.github.io/development/package-spec） ==========
 
 function broadcastThemeChange(action, themeId, result) {
   try {

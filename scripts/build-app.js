@@ -118,7 +118,7 @@ function buildApps() {
 // ---------------- 入口 ----------------
 runLint().then(function (ok) {
   if (!ok) {
-    console.error('兼容性 lint 未通过，请先修复上方 ✗ 项（详见 docs/third-party-development.md 兼容基线一节）');
+    console.error('兼容性 lint 未通过，请先修复上方 ✗ 项（详见 https://classintra.github.io/development/chrome-80-compat）');
     process.exit(1);
   }
   if (mode === 'market-apps') checkMarket();

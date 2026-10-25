@@ -3,7 +3,7 @@
 // 把 market-themes/ 下已安装的主题包（pack.json，安装时由服务端合成
 // manifest + tokens 内联）注册进 ThemeEngine，使其出现在所有主题选择 UI。
 //
-// 契约（详见 docs/market-dev-guide.md）：
+// 契约（详见 https://classintra.github.io/development/package-spec）：
 //   - 主题包为纯数据 JSON（无脚本），GET /market/themes-installed 拿清单，
 //     每个主题经 ThemeEngine.loadExternalTheme(packUrl) 一次取全并注册
 //   - 版本号作为加载缓存键：更新（版本变化）才重新 fetch（no-store）

@@ -624,7 +624,7 @@ MarketRuntime 捕获（AppShell 展示错误态）
 | 请求可归因 | 服务端每请求 `X-Request-Id` 响应头 + >1.5s 慢请求告警（带 rid） | 慢请求无法定位 |
 | 关停不丢数据 | gracefulShutdown：广播 → WAL checkpoint(TRUNCATE) → WS 关闭 → HTTP close → db.close（10s 强杀兜底）；关停期 API 503、静态放行 | pm2 重启丢尾部写入、-wal 膨胀 |
 | 状态机历史有界 | LifecycleMachine history 封顶 64 条 | 长驻应用跃迁记录无限增长 |
-| 卸载即无痕 | 服务端 `backend/cleanup.js` 钩子 + require.cache 驱逐 + `_removedMountPaths` 封顶；客户端 `ci:app:<name>:*` 清除 | 见 market-dev-guide.md §7 |
+| 卸载即无痕 | 服务端 `backend/cleanup.js` 钩子 + require.cache 驱逐 + `_removedMountPaths` 封顶；客户端 `ci:app:<name>:*` 清除 | 见应用包格式开放规范 §5 / 市场应用生命周期 |
 
 ---
 
@@ -1460,7 +1460,7 @@ if (this.islandMode === 'notification') {
 
 ### 9.9 第八轮实施记录（2026-09-10，生态一体化运行时内核 + 五子棋视觉改造）
 
-见上方内核资产清单与 `docs/third-party-development.md`。要点：
+见上方内核资产清单与 [第三方应用开发](https://classintra.github.io/development/third-party)。要点：
 
 - 运行时内核（`runtime-kernel.js` / `token-injector.js` / `market-sdk.js` / `market-sdk-ui.js` / `AppShell.vue`）
 - 五子棋从「零令牌、自建类名」改造为「14 种 `--ci-*`、消费 SDK UI 片段、深色模式跟随」
