@@ -477,6 +477,75 @@
           <i class="fa-solid fa-triangle-exclamation"></i> {{ proxyError }}
         </div>
 
+        <!-- 可使用者：全班可用 / 仅指定成员（管理员与班管始终可用） -->
+        <div class="proxy-access">
+          <div class="proxy-access-head">
+            <strong><i class="fa-solid fa-user-shield"></i> 可使用者</strong>
+            <small>{{ proxyAccessDraft.mode === 'allowlist' ? '仅选中的成员可使用兼容模式' : '全班成员都能使用兼容模式' }}</small>
+          </div>
+          <div class="proxy-access-modes">
+            <button
+              type="button"
+              class="proxy-mode-btn"
+              :class="{ active: proxyAccessDraft.mode === 'all' }"
+              @click="setProxyAccessMode('all')"
+            >全部成员</button>
+            <button
+              type="button"
+              class="proxy-mode-btn"
+              :class="{ active: proxyAccessDraft.mode === 'allowlist' }"
+              @click="setProxyAccessMode('allowlist')"
+            >仅指定成员</button>
+          </div>
+          <div v-if="proxyAccessDraft.mode === 'allowlist'" class="proxy-access-body">
+            <div class="proxy-user-search">
+              <i class="fa-solid fa-magnifying-glass"></i>
+              <input
+                v-model="proxyUserQuery"
+                type="text"
+                placeholder="搜索成员昵称 / 姓名 / 学号"
+                @input="onProxyUserQuery"
+              />
+              <span v-if="proxyUserSearching" class="mini-spinner"></span>
+            </div>
+            <div v-if="proxyUserResults.length" class="proxy-user-results">
+              <button
+                v-for="user in proxyUserResults"
+                :key="user.id"
+                type="button"
+                class="proxy-user-result"
+                :disabled="isProxyUserPicked(user.id)"
+                @click="addProxyUser(user)"
+              >
+                <span class="proxy-user-name">{{ user.name || user.id }}</span>
+                <small>{{ user.id }}</small>
+                <i class="fa-solid" :class="isProxyUserPicked(user.id) ? 'fa-check' : 'fa-plus'"></i>
+              </button>
+            </div>
+            <div class="proxy-picked">
+              <span v-for="user in proxyAccessDraft.users" :key="user.id" class="proxy-picked-chip">
+                {{ user.name || user.id }}
+                <button type="button" @click="removeProxyUser(user.id)" aria-label="移除"><i class="fa-solid fa-xmark"></i></button>
+              </span>
+              <small v-if="!proxyAccessDraft.users.length" class="proxy-picked-empty">
+                尚未选择成员；管理员与班管始终可用
+              </small>
+            </div>
+          </div>
+          <div class="proxy-access-foot">
+            <small>保存后立即生效，已在使用的成员不受影响。</small>
+            <button
+              type="button"
+              class="secondary-action"
+              :disabled="!proxyAccessDirty || proxyAccessSaving"
+              @click="saveProxyAccess"
+            >
+              <span v-if="proxyAccessSaving" class="mini-spinner"></span>
+              <span v-else>保存</span>
+            </button>
+          </div>
+        </div>
+
         <div v-if="proxyLoading && !proxySessions.length" class="proxy-empty">
           <span class="mini-spinner"></span> 正在读取使用情况…
         </div>
@@ -572,7 +641,16 @@ export default {
       proxyInfo: {},
       proxyError: '',
       proxyClosing: '',
-      proxyTimer: null
+      proxyTimer: null,
+      // 可使用者设置：服务端已保存值（proxyAccess）与编辑草稿（proxyAccessDraft）
+      proxyAccess: { mode: 'all', users: [] },
+      proxyAccessDraft: { mode: 'all', users: [] },
+      proxyAccessDirty: false,
+      proxyAccessSaving: false,
+      proxyUserQuery: '',
+      proxyUserResults: [],
+      proxyUserSearching: false,
+      proxyUserTimer: null
     };
   },
   computed: {
@@ -1171,6 +1249,9 @@ export default {
       var self = this;
       self.proxyPanelOpen = true;
       self.proxyError = '';
+      self.proxyAccessDirty = false;
+      self.proxyUserQuery = '';
+      self.proxyUserResults = [];
       self.refreshProxySessions();
       self.stopProxyPolling();
       // 打开期间每 3 秒刷新：会话随时可能开始或结束
@@ -1184,6 +1265,11 @@ export default {
       this.proxySessions = [];
       this.proxyError = '';
       this.proxyClosing = '';
+      this.proxyAccessDirty = false;
+      this.proxyUserQuery = '';
+      this.proxyUserResults = [];
+      clearTimeout(this.proxyUserTimer);
+      this.proxyUserTimer = null;
     },
     stopProxyPolling: function() {
       if (this.proxyTimer) {
@@ -1200,6 +1286,11 @@ export default {
         if (!data) return;
         self.proxyInfo = data;
         self.proxySessions = Array.isArray(data.sessions) ? data.sessions : [];
+        // 可使用者设置随会话列表一起下发；编辑中不覆盖用户未保存的改动
+        if (data.access) {
+          self.proxyAccess = data.access;
+          if (!self.proxyAccessDirty) self.syncProxyAccessDraft();
+        }
         self.proxyError = '';
       }).catch(function(error) {
         var status = error && error.response && error.response.status;
@@ -1238,7 +1329,84 @@ export default {
         self.proxyClosing = '';
       });
     },
-    // 会话时长：mm:ss，超过 1 小时显示 hh:mm:ss
+    // ===== 可使用者设置 =====
+    syncProxyAccessDraft: function() {
+      this.proxyAccessDraft = {
+        mode: this.proxyAccess.mode === 'allowlist' ? 'allowlist' : 'all',
+        users: (this.proxyAccess.users || []).map(function(user) {
+          return { id: user.id, name: user.name || '' };
+        })
+      };
+      this.proxyAccessDirty = false;
+    },
+    setProxyAccessMode: function(mode) {
+      if (this.proxyAccessDraft.mode === mode) return;
+      this.proxyAccessDraft.mode = mode === 'allowlist' ? 'allowlist' : 'all';
+      this.proxyAccessDirty = true;
+      if (this.proxyAccessDraft.mode === 'allowlist' && !this.proxyUserResults.length) {
+        this.searchProxyUsers();
+      }
+    },
+    onProxyUserQuery: function() {
+      var self = this;
+      clearTimeout(self.proxyUserTimer);
+      self.proxyUserTimer = setTimeout(function() {
+        self.proxyUserTimer = null;
+        self.searchProxyUsers();
+      }, 300);
+    },
+    searchProxyUsers: function() {
+      var self = this;
+      if (self.proxyUserSearching) return;
+      self.proxyUserSearching = true;
+      var q = (self.proxyUserQuery || '').trim();
+      api.get('/web-proxy/users?q=' + encodeURIComponent(q)).then(function(response) {
+        var data = response.data && response.data.data;
+        self.proxyUserResults = data && Array.isArray(data.users) ? data.users : [];
+      }).catch(function(error) {
+        self.proxyError = self.getErrorMessage(error, '搜索成员失败');
+      }).finally(function() {
+        self.proxyUserSearching = false;
+      });
+    },
+    isProxyUserPicked: function(id) {
+      return this.proxyAccessDraft.users.some(function(user) { return user.id === id; });
+    },
+    addProxyUser: function(user) {
+      if (!user || !user.id || this.isProxyUserPicked(user.id)) return;
+      this.proxyAccessDraft.users.push({ id: user.id, name: user.name || '' });
+      this.proxyAccessDirty = true;
+    },
+    removeProxyUser: function(id) {
+      this.proxyAccessDraft.users = this.proxyAccessDraft.users.filter(function(user) {
+        return user.id !== id;
+      });
+      this.proxyAccessDirty = true;
+    },
+    saveProxyAccess: function() {
+      var self = this;
+      if (self.proxyAccessSaving) return;
+      self.proxyAccessSaving = true;
+      api.post('/web-proxy/access', {
+        mode: self.proxyAccessDraft.mode,
+        users: self.proxyAccessDraft.users
+      }).then(function(response) {
+        var data = response.data && response.data.data;
+        if (data) {
+          self.proxyAccess = data;
+          self.syncProxyAccessDraft();
+        }
+        self.$store.commit('toast/SHOW_TOAST', {
+          message: data && data.mode === 'allowlist' ? '已保存：仅指定成员可使用兼容模式' : '已保存：全班成员可使用兼容模式',
+          type: 'success'
+        });
+      }).catch(function(error) {
+        self.proxyError = self.getErrorMessage(error, '保存可使用者设置失败');
+      }).finally(function() {
+        self.proxyAccessSaving = false;
+      });
+    },
+
     formatDuration: function(ms) {
       var total = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
       var h = Math.floor(total / 3600);
@@ -1517,11 +1685,46 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .proxy-session-url { margin-top: 4px; color: var(--text-secondary); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .proxy-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--separator-color); }
 .proxy-foot small { color: var(--text-tertiary); font-size: 11px; line-height: 1.5; }
+
+/* 可使用者（白名单）区域：高度受限，搜索结果与已选成员各自滚动，避免把面板撑出屏幕 */
+.proxy-access { flex: 0 0 auto; margin-bottom: 12px; padding: 12px; border: 1px solid var(--separator-color); border-radius: var(--radius-md); background: var(--bg-color); }
+.proxy-access-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.proxy-access-head strong { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-primary); }
+.proxy-access-head strong i { color: var(--primary-color); font-size: 12px; }
+.proxy-access-head small { color: var(--text-tertiary); font-size: 11px; }
+.proxy-access-modes { display: inline-flex; gap: 2px; margin-top: 10px; padding: 3px; border-radius: var(--radius-pill); background: rgba(120, 120, 128, 0.12); }
+.proxy-mode-btn { border: none; background: transparent; color: var(--text-secondary); font-size: 12px; padding: 5px 14px; border-radius: var(--radius-pill); cursor: pointer; transition: background 0.18s ease, color 0.18s ease; }
+.proxy-mode-btn:hover { color: var(--text-primary); }
+.proxy-mode-btn.active { background: var(--card-bg); color: var(--text-primary); box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.08)); }
+.proxy-access-body { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.proxy-user-search { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--card-bg); }
+.proxy-user-search:focus-within { border-color: var(--primary-color); }
+.proxy-user-search i { color: var(--text-tertiary); font-size: 12px; }
+.proxy-user-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; color: var(--text-primary); font-size: 13px; }
+.proxy-user-results { display: flex; flex-direction: column; gap: 4px; max-height: 148px; overflow-y: auto; }
+.proxy-user-result { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border: 1px solid var(--separator-color); border-radius: var(--radius-sm); background: var(--card-bg); color: var(--text-primary); font-size: 13px; text-align: left; cursor: pointer; }
+.proxy-user-result:hover:not(:disabled) { border-color: var(--primary-color); }
+.proxy-user-result:disabled { opacity: 0.55; cursor: default; }
+.proxy-user-result i { color: var(--primary-color); font-size: 11px; }
+.proxy-user-result:disabled i { color: var(--success-color); }
+.proxy-user-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proxy-user-result small { color: var(--text-tertiary); font-size: 11px; font-variant-numeric: tabular-nums; }
+.proxy-picked { display: flex; flex-wrap: wrap; gap: 6px; max-height: 86px; overflow-y: auto; }
+.proxy-picked-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 6px 3px 10px; border-radius: var(--radius-pill); background: var(--primary-light); color: var(--primary-color); font-size: 12px; }
+.proxy-picked-chip button { border: none; background: transparent; color: inherit; font-size: 10px; padding: 0 2px; cursor: pointer; opacity: 0.7; }
+.proxy-picked-chip button:hover { opacity: 1; }
+.proxy-picked-empty { color: var(--text-tertiary); font-size: 11px; }
+.proxy-access-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; }
+.proxy-access-foot small { color: var(--text-tertiary); font-size: 11px; }
+.proxy-access-foot button { min-width: 72px; }
+
 @media (max-width: 700px) {
   .proxy-overlay { align-items: flex-end; padding: 0; }
   .proxy-panel { width: 100%; max-height: 82vh; border-radius: var(--radius-xl) var(--radius-xl) 0 0; padding: 18px 16px calc(18px + env(safe-area-inset-bottom, 0px)); }
   .proxy-foot { flex-direction: column; align-items: stretch; gap: 10px; }
   .proxy-foot button { width: 100%; }
+  .proxy-access-foot { flex-direction: column; align-items: stretch; }
+  .proxy-access-foot button { width: 100%; }
 }
 
 /* ===== 应用详情弹窗 + 卡片操作区 ===== */

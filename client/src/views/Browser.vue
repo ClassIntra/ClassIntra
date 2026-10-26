@@ -56,6 +56,11 @@
       <button v-if="compatMode" class="icon-btn browser-btn browser-audio-btn" :class="{ active: compatAudio, pulsing: compatAudioActive }" :disabled="!compatAudioSupported" @click="toggleCompatAudio" :title="compatAudioSupported ? (compatAudio ? '关闭声音' : '开启声音') : '当前页面无法采集声音'" :aria-label="compatAudio ? '关闭声音' : '开启声音'" :aria-pressed="compatAudio ? 'true' : 'false'">
         <i :class="compatAudio ? 'fa-solid fa-volume-high' : 'fa-solid fa-volume-xmark'"></i>
       </button>
+      <!-- 云游戏画质：高分辨率 / 高码率 / 恒 60fps，适合串流游戏与视频。
+           默认关闭（编码 CPU 与带宽开销明显更大） -->
+      <button v-if="compatMode" class="icon-btn browser-btn browser-game-btn" :class="{ active: compatGame }" :disabled="compatGameBusy" @click="toggleCompatGame" :title="compatGame ? '退出云游戏画质' : '云游戏画质（高分辨率 / 高码率 / 60fps）'" :aria-label="compatGame ? '退出云游戏画质' : '云游戏画质'" :aria-pressed="compatGame ? 'true' : 'false'">
+        <i class="fa-solid fa-gauge-high"></i>
+      </button>
       <button class="icon-btn browser-btn" @click="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏'" :aria-label="isFullscreen ? '退出全屏' : '全屏'">
         <i :class="isFullscreen ? 'fa-solid fa-compress' : 'fa-solid fa-expand'"></i>
       </button>
@@ -270,10 +275,50 @@ import {
   WEB_PROXY_BRIDGE_AVAILABLE
 } from '@/integrations/web-proxy-client';
 
-var HISTORY_KEY = 'browser_history';
-var BOOKMARKS_KEY = 'browser_bookmarks';
-var HOMEPAGE_KEY = 'browser_homepage';
+// 旧版本把历史/收藏/主页存在全局键上，同一台设备切换账号后会互相看到记录。
+// 现改为按账号命名空间存储；旧数据在首次读取时迁移给当前登录账号后删除旧键。
+var LEGACY_HISTORY_KEY = 'browser_history';
+var LEGACY_BOOKMARKS_KEY = 'browser_bookmarks';
+var LEGACY_HOMEPAGE_KEY = 'browser_homepage';
 var MAX_HISTORY = 100;
+
+// 当前账号的存储前缀；未登录时统一落到 guest 命名空间
+function browserScope() {
+  var user = null;
+  try { user = JSON.parse(localStorage.getItem('user') || 'null'); } catch (e) { user = null; }
+  var uid = user && (user.user_id || user.id);
+  return uid ? 'browser:' + uid + ':' : 'browser:guest:';
+}
+
+function scopedKey(name) {
+  return browserScope() + name;
+}
+
+// 旧版全局数据迁移：仅当当前账号还没有对应数据时接管，随后删除旧键，避免继续共享
+function migrateLegacyData() {
+  var pairs = [
+    { legacy: LEGACY_HISTORY_KEY, name: 'history' },
+    { legacy: LEGACY_BOOKMARKS_KEY, name: 'bookmarks' }
+  ];
+  for (var i = 0; i < pairs.length; i++) {
+    try {
+      var target = scopedKey(pairs[i].name);
+      if (localStorage.getItem(target) !== null) continue;
+      var raw = localStorage.getItem(pairs[i].legacy);
+      if (raw === null) continue;
+      localStorage.setItem(target, raw);
+      localStorage.removeItem(pairs[i].legacy);
+    } catch (e) {}
+  }
+  try {
+    var hpTarget = scopedKey('homepage');
+    var hpLegacy = localStorage.getItem(LEGACY_HOMEPAGE_KEY);
+    if (localStorage.getItem(hpTarget) === null && hpLegacy !== null) {
+      localStorage.setItem(hpTarget, hpLegacy);
+      localStorage.removeItem(LEGACY_HOMEPAGE_KEY);
+    }
+  } catch (e) {}
+}
 
 // 读取网页代理状态（由 index.html 预取写入 window.__WEB_PROXY__）
 // 插件未安装 / 未就绪 → 返回 null，浏览行为保持不变（直连）
@@ -392,6 +437,9 @@ export default {
       // 兼容模式视口（CSS 像素）与触摸能力，由服务端 ready 消息下发
       compatViewW: 0,
       compatViewH: 0,
+      // 画布可用尺寸（CSS 像素）：云游戏下实际视口是它的放大值，判断是否要 resize 时用这个
+      compatBaseW: 0,
+      compatBaseH: 0,
       compatTouch: false,
       // 兼容模式页面自身的历史状态：决定顶部返回是「页内后退」还是「退出浏览」
       compatCanBack: false,
@@ -405,6 +453,10 @@ export default {
       compatAudioActive: false,
       // 服务端确认当前页面环境可用采集（false 时按钮禁用并给出提示）
       compatAudioSupported: true,
+      // 云游戏画质：高分辨率 / 高码率 / 恒 60fps（按账号记忆偏好）
+      compatGame: false,
+      // 切换请求已发出、等待服务端回执时禁用按钮，避免连点
+      compatGameBusy: false,
       // 移动端边缘滑动手势状态（左边缘右滑返回）
       swipeState: null
     };
@@ -468,13 +520,22 @@ export default {
           if (self.$refs.homepageInput) self.$refs.homepageInput.focus();
         });
       }
+    },
+    // 同一页面内切换账号（登出再登录）时，立即切到新账号的数据，避免残留上一个账号的记录
+    '$store.state.auth.user': function(nv, ov) {
+      var a = (nv && (nv.user_id || nv.id)) || '';
+      var b = (ov && (ov.user_id || ov.id)) || '';
+      if (String(a) !== String(b)) this.reloadBrowserData();
     }
   },
   created: function() {
     var self = this;
-    self.history = loadFromStorage(HISTORY_KEY);
-    self.bookmarks = loadFromStorage(BOOKMARKS_KEY);
-    self.homepage = localStorage.getItem(HOMEPAGE_KEY) || '';
+    migrateLegacyData();
+    self.history = loadFromStorage(scopedKey('history'));
+    self.bookmarks = loadFromStorage(scopedKey('bookmarks'));
+    self.homepage = localStorage.getItem(scopedKey('homepage')) || '';
+    // 云游戏画质偏好按账号记忆：同一台设备切号不会互相影响
+    try { self.compatGame = localStorage.getItem(scopedKey('compat-game')) === '1'; } catch (e) {}
     var url = self.$route.query.url || '';
     if (url) {
       self.navigateTo(url);
@@ -698,6 +759,24 @@ export default {
         self.connectCompat(self.currentUrl);
       });
     },
+    // 云游戏画质开关：运行中切换，不重建会话（保留页面与滚动位置）
+    toggleCompatGame: function() {
+      var self = this;
+      if (!self.compatMode || self.compatGameBusy) return;
+      var next = !self.compatGame;
+      self.compatGameBusy = true;
+      self.compatGame = next;
+      try { localStorage.setItem(scopedKey('compat-game'), next ? '1' : '0'); } catch (e) {}
+      // 云游戏的清晰度来自服务端放大视口（帧尺寸翻倍），dpr 只影响页面自身光栅化，上限 2
+      var dpr = Math.min(window.devicePixelRatio || 1, 2);
+      self.sendCompatInput({ type: 'mode', game: next, dpr: dpr });
+      // 回执迟迟不来时解除按钮禁用，避免一直卡在禁用态
+      clearTimeout(self._compatGameTimer);
+      self._compatGameTimer = setTimeout(function() {
+        self._compatGameTimer = null;
+        self.compatGameBusy = false;
+      }, 3000);
+    },
     exitCompat: function() {
       this.compatMode = false;
       // 先通知服务端停止采集，再断开通道
@@ -759,15 +838,22 @@ export default {
       var rect = box ? box.getBoundingClientRect() : null;
       var w = Math.round(rect && rect.width ? rect.width : window.innerWidth);
       var h = Math.round(rect && rect.height ? rect.height : window.innerHeight);
-      var dpr = Math.min(window.devicePixelRatio || 1, 2);
+      // 云游戏模式允许按设备真实像素密度渲染（上限 3），普通模式仍限制为 2
+      var dpr = Math.min(window.devicePixelRatio || 1, self.compatGame ? 3 : 2);
       var touch = isTouchDevice();
       // 带上使用者身份：班管在应用市场的兼容模式管理浮窗里需要知道是谁在用
       var user = (self.$store && self.$store.state && self.$store.state.auth && self.$store.state.auth.user) || {};
       var uname = user.nickname || user.username || user.name || '';
+      // 带上登录 token：服务端据此取真实 user_id 并校验「可使用者」白名单。
+      // 渲染通道在独立端口，浏览器不会自动带 cookie，只能放在 query 里。
+      var token = '';
+      try { token = localStorage.getItem('token') || ''; } catch (e) {}
       var wsUrl = 'ws://' + location.hostname + ':' + info.port + '/__render__?url=' + encodeURIComponent(url)
         + '&w=' + w + '&h=' + h + '&dpr=' + dpr + '&touch=' + (touch ? '1' : '0')
         + '&uid=' + encodeURIComponent(user.user_id || user.id || '')
-        + '&uname=' + encodeURIComponent(uname);
+        + '&uname=' + encodeURIComponent(uname)
+        + '&token=' + encodeURIComponent(token)
+        + '&mode=' + (self.compatGame ? 'game' : 'normal');
       var ws;
       try {
         ws = new WebSocket(wsUrl);
@@ -876,7 +962,10 @@ export default {
       if (!rect || !rect.width || !rect.height) return;
       var w = Math.round(rect.width);
       var h = Math.round(rect.height);
-      if (Math.abs(w - self.compatViewW) < 2 && Math.abs(h - self.compatViewH) < 2) return;
+      // 与服务端记录的「画布可用尺寸」比较：云游戏下实际视口是它的倍数，不能拿来对比
+      var baseW = self.compatBaseW || self.compatViewW;
+      var baseH = self.compatBaseH || self.compatViewH;
+      if (Math.abs(w - baseW) < 2 && Math.abs(h - baseH) < 2) return;
       self.sendCompatInput({ type: 'resize', width: w, height: h });
     },
     // 页面可见性变化：隐藏时通知服务端停掉帧流与声音采集，回到前台再恢复。
@@ -920,7 +1009,12 @@ export default {
         // 服务端确认的视口尺寸（CSS 像素）与触摸能力：坐标换算与键盘按钮都依赖它
         self.compatViewW = Number(msg.width) || 0;
         self.compatViewH = Number(msg.height) || 0;
+        self.compatBaseW = Number(msg.baseWidth) || self.compatViewW;
+        self.compatBaseH = Number(msg.baseHeight) || self.compatViewH;
         self.compatTouch = !!msg.touch;
+        // 服务端回传的画质模式：重连后与本地偏好对齐（避免显示与实际不一致）
+        if (typeof msg.game === 'boolean') self.compatGame = msg.game;
+        self.compatGameBusy = false;
         // 通道就绪后再挂视口监听：此时容器尺寸才是最终可用区域
         self.setupCompatResize();
         // 通道恢复正常：重置自动重连计数，下次异常断开重新从第一次开始
@@ -950,6 +1044,8 @@ export default {
         // 服务端已按新视口重设画面，后续帧按新尺寸下发
         self.compatViewW = Number(msg.width) || self.compatViewW;
         self.compatViewH = Number(msg.height) || self.compatViewH;
+        self.compatBaseW = Number(msg.baseWidth) || self.compatBaseW;
+        self.compatBaseH = Number(msg.baseHeight) || self.compatBaseH;
         return;
       }
       if (msg.type === 'audio') {
@@ -965,6 +1061,16 @@ export default {
         } else {
           self.compatAudioSupported = true;
         }
+        return;
+      }
+      if (msg.type === 'mode-state') {
+        // 服务端已按新模式重设视口与帧流：以回执为准更新开关、视口尺寸与坐标换算基准
+        self.compatGame = !!msg.game;
+        if (msg.width) self.compatViewW = Number(msg.width) || self.compatViewW;
+        if (msg.height) self.compatViewH = Number(msg.height) || self.compatViewH;
+        if (msg.baseWidth) self.compatBaseW = Number(msg.baseWidth) || self.compatBaseW;
+        if (msg.baseHeight) self.compatBaseH = Number(msg.baseHeight) || self.compatBaseH;
+        self.compatGameBusy = false;
         return;
       }
       if (msg.type === 'focus') {
@@ -1250,6 +1356,13 @@ export default {
         self._wheelDx = 0;
         self._wheelDy = 0;
         if (!p || !self.compatMode || (!dx && !dy)) return;
+        // 云游戏视口是画布的 2 倍：滚轮增量按视口/画布比例放大，滚动速度看起来才与手一致
+        var baseW = self.compatBaseW || self.compatViewW;
+        var ratio = baseW ? (self.compatViewW || baseW) / baseW : 1;
+        if (ratio > 1) {
+          dx = Math.round(dx * ratio);
+          dy = Math.round(dy * ratio);
+        }
         self.sendCompatInput({ type: 'wheel', x: p.x, y: p.y, deltaX: dx, deltaY: dy });
       });
     },
@@ -1519,15 +1632,22 @@ export default {
       self.history = self.history.filter(function(h) { return h.url !== url; });
       self.history.unshift({ url: url, title: '', time: Date.now() });
       if (self.history.length > MAX_HISTORY) self.history = self.history.slice(0, MAX_HISTORY);
-      saveToStorage(HISTORY_KEY, self.history);
+      saveToStorage(scopedKey('history'), self.history);
+    },
+    // 按当前账号重新载入历史 / 收藏 / 主页（账号切换时调用）
+    reloadBrowserData: function() {
+      migrateLegacyData();
+      this.history = loadFromStorage(scopedKey('history'));
+      this.bookmarks = loadFromStorage(scopedKey('bookmarks'));
+      this.homepage = localStorage.getItem(scopedKey('homepage')) || '';
     },
     removeHistory: function(idx) {
       this.history.splice(idx, 1);
-      saveToStorage(HISTORY_KEY, this.history);
+      saveToStorage(scopedKey('history'), this.history);
     },
     clearHistory: function() {
       this.history = [];
-      saveToStorage(HISTORY_KEY, []);
+      saveToStorage(scopedKey('history'), []);
     },
     toggleBookmark: function() {
       var self = this;
@@ -1541,11 +1661,11 @@ export default {
       } else {
         self.bookmarks.unshift({ url: self.currentUrl, title: '', time: Date.now() });
       }
-      saveToStorage(BOOKMARKS_KEY, self.bookmarks);
+      saveToStorage(scopedKey('bookmarks'), self.bookmarks);
     },
     removeBookmark: function(idx) {
       this.bookmarks.splice(idx, 1);
-      saveToStorage(BOOKMARKS_KEY, this.bookmarks);
+      saveToStorage(scopedKey('bookmarks'), this.bookmarks);
     },
     stopBrowsing: function() {
       this.stopLoading();
@@ -1578,13 +1698,13 @@ export default {
         url = 'https://' + url;
       }
       self.homepage = url;
-      localStorage.setItem(HOMEPAGE_KEY, url);
+      localStorage.setItem(scopedKey('homepage'), url);
       self.showHomepageInput = false;
     },
     clearHomepage: function() {
       this.homepage = '';
       this.homepageDraft = '';
-      localStorage.removeItem(HOMEPAGE_KEY);
+      localStorage.removeItem(scopedKey('homepage'));
       this.showHomepageInput = false;
     },
     toggleFullscreen: function() {
