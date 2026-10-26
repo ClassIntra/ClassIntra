@@ -44,12 +44,21 @@ export default {
     backText: {
       type: String,
       default: ''
+    },
+    // 宿主是否已接管返回导航（AppShell.goBack 会 push 桌面）。
+    // true 时本组件只发 back 事件，不再自己 go(-1)，避免双重导航互相打架。
+    managedBack: {
+      type: Boolean,
+      default: false
     }
   },
   methods: {
     goBack: function() {
-      // 通知宿主（如 AppShell 需要在返回前做清理），无监听时无副作用
+      // 先通知宿主（AppShell 负责「返回桌面」、页面可借此做退出前清理）
       this.$emit('back');
+      // 宿主已接管返回语义时不要重复导航：push(Desktop) 与 go(-1) 会在同一帧里
+      // 互相打架，最终落在谁身上不确定 —— 现象是「点了返回却又弹回原应用」。
+      if (this.managedBack) return;
       if (window.history.length > 1) {
         this.$router.go(-1);
       } else {
