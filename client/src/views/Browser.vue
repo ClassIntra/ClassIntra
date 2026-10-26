@@ -838,8 +838,8 @@ export default {
       var rect = box ? box.getBoundingClientRect() : null;
       var w = Math.round(rect && rect.width ? rect.width : window.innerWidth);
       var h = Math.round(rect && rect.height ? rect.height : window.innerHeight);
-      // 云游戏模式允许按设备真实像素密度渲染（上限 3），普通模式仍限制为 2
-      var dpr = Math.min(window.devicePixelRatio || 1, self.compatGame ? 3 : 2);
+      // 云游戏的清晰度来自服务端放大视口（帧尺寸翻倍），dpr 只影响页面自身光栅化，上限 2
+      var dpr = Math.min(window.devicePixelRatio || 1, 2);
       var touch = isTouchDevice();
       // 带上使用者身份：班管在应用市场的兼容模式管理浮窗里需要知道是谁在用
       var user = (self.$store && self.$store.state && self.$store.state.auth && self.$store.state.auth.user) || {};
@@ -921,6 +921,9 @@ export default {
       this._momentumTimer = null;
       this._compatTouch = null;
       this._compatPinch = null;
+      this._compatMulti = false;
+      this._compatTouchCount = 0;
+      this._compatTouchDown = false;
       this._compatBusyAt = 0;
       // 通道关闭后声音必然中断：停掉本地播放，但保留用户的开关偏好（重连时恢复）
       this.haltCompatAudio();
@@ -1366,31 +1369,63 @@ export default {
         self.sendCompatInput({ type: 'wheel', x: p.x, y: p.y, deltaX: dx, deltaY: dy });
       });
     },
-    // ===== 触摸：单指转发为 CDP 触摸序列，双指捏合转为浏览器原生缩放 =====
+    // ===== 触摸：1~2 指原样转发为 CDP 触摸序列，3 指及以上才转为浏览器原生缩放 =====
+    // 把当前手指集合换算成 CDP 触摸点列表。
+    // id 直接取 touch.identifier：同一根手指在整个按下期间保持不变，
+    // 服务端按 id 集合做差即可正确合成「各指独立移动 / 只抬起其中一根」。
+    compatTouchPoints: function(list) {
+      var pts = [];
+      if (!list) return pts;
+      for (var i = 0; i < list.length; i++) {
+        var t = list[i];
+        var p = this.compatPointFromClient(t.clientX, t.clientY);
+        // Chrome 的 touch.identifier 从 0 开始，而服务端会把 0 归一成 1，
+        // 与第一根手指撞号导致多指被当成同一指，所以统一 +1 得到 1..N
+        var id = (typeof t.identifier === 'number' ? t.identifier : i) + 1;
+        pts.push({ x: p.x, y: p.y, id: id });
+      }
+      return pts;
+    },
+    // 开始一段多指序列前，把单指状态清干净（惯性补间、采样都作废）
+    startCompatMultiTouch: function() {
+      this.cancelCompatMomentum();
+      this._compatTouch = null;
+      this._compatMulti = true;
+    },
     onCompatTouchStart: function(e) {
+      var self = this;
       if (!e.touches || !e.touches.length) return;
       // 点画面即收起输入条，避免系统键盘一直占着半屏
-      if (this.compatKeyboardOpen) this.compatKeyboardOpen = false;
-      // 上一次滑动的惯性补间还没跑完：先收尾，避免两段触摸序列在服务端重叠
-      this.cancelCompatMomentum();
-      // 第二根手指落下：先结束单指序列，再改走原生捏合。
-      // 否则单指移动会把双指手势拆成两次乱滑，页面无法进入缩放。
-      if (e.touches.length >= 2) {
-        if (this._compatTouch) {
-          this._compatTouch = null;
-          this.sendCompatInput({ type: 'touch', event: 'cancel', points: [] });
+      if (self.compatKeyboardOpen) self.compatKeyboardOpen = false;
+      // 上一段滑动的惯性补间还没跑完：先收尾，避免两段触摸序列在服务端重叠
+      self.cancelCompatMomentum();
+      self._compatTouchCount = e.touches.length;
+      self._compatTouchDown = true;
+      // 3 指及以上才是页面缩放。2 指以内必须原样转发：
+      // 云游戏要「左手摇杆 + 右手按键」同时按住，此前把双指直接吞成捏合，
+      // 页面从未收到第二根手指，表现就是「不支持多点触摸」。
+      if (e.touches.length >= 3) {
+        if (self._compatTouch || self._compatMulti) {
+          self.startCompatMultiTouch();
+          self.sendCompatInput({ type: 'touch', event: 'cancel', points: [] });
         }
-        this.startCompatPinch(e);
+        self.startCompatPinch(e);
         return;
       }
-      var t = e.touches[0];
-      var p = this.compatPointFromClient(t.clientX, t.clientY);
-      this._compatTouch = {
-        lastX: p.x,
-        lastY: p.y,
-        samples: [{ x: p.x, y: p.y, t: Date.now() }]
-      };
-      this.sendCompatInput({ type: 'touch', event: 'start', points: [{ x: p.x, y: p.y, id: 1 }] });
+      var pts = self.compatTouchPoints(e.touches);
+      if (pts.length === 1) {
+        self._compatMulti = false;
+        self._compatTouch = {
+          id: pts[0].id,
+          lastX: pts[0].x,
+          lastY: pts[0].y,
+          samples: [{ x: pts[0].x, y: pts[0].y, t: Date.now() }]
+        };
+      } else {
+        // 第二根手指落下：单指采样 / 惯性让位给多指直通
+        self.startCompatMultiTouch();
+      }
+      self.sendCompatInput({ type: 'touch', event: 'start', points: pts });
     },
     // 触摸移动必须逐条转发：合并到 requestAnimationFrame 后，
     // 重载页面上帧回调迟迟不来，慢速小位移就发不出去，表现就是「手指在滑、页面不动」。
@@ -1398,13 +1433,23 @@ export default {
       var self = this;
       if (!e.touches || !e.touches.length) return;
       if (self._compatPinch) {
-        if (e.touches.length >= 2) self.moveCompatPinch(e);
+        if (e.touches.length >= 3) self.moveCompatPinch(e);
         return;
       }
+      var pts = self.compatTouchPoints(e.touches);
+      self._compatTouchCount = pts.length;
+      // 多指：每帧上报全部点，任何一根移动都要带上其余点，否则服务端会漏合成其它手指
+      if (pts.length > 1) {
+        self.sendCompatInput({ type: 'touch', event: 'move', points: pts });
+        return;
+      }
+      var p = pts[0];
       var st = self._compatTouch;
-      if (!st) return;
-      var t = e.touches[0];
-      var p = self.compatPointFromClient(t.clientX, t.clientY);
+      // 状态丢失（例如另一根手指刚抬起）时按当前位置接续，别把这次滑动丢掉
+      if (!st || st.id !== p.id) {
+        st = { id: p.id, lastX: p.x, lastY: p.y, samples: [] };
+        self._compatTouch = st;
+      }
       var now = Date.now();
       st.samples.push({ x: p.x, y: p.y, t: now });
       if (st.samples.length > 8) st.samples.shift();
@@ -1412,9 +1457,9 @@ export default {
       if (Math.abs(p.x - st.lastX) < 1 && Math.abs(p.y - st.lastY) < 1) return;
       st.lastX = p.x;
       st.lastY = p.y;
-      self.sendCompatInput({ type: 'touch', event: 'move', points: [{ x: p.x, y: p.y, id: 1 }] });
+      self.sendCompatInput({ type: 'touch', event: 'move', points: [{ x: p.x, y: p.y, id: st.id }] });
     },
-    // 双指捏合：记录起始指距，之后按增量下发原生 pinch 手势（浏览器级缩放，非页面手势）
+    // 多指缩放：记录起始指距（取前两指），之后按增量下发原生 pinch 手势（浏览器级缩放，非页面手势）
     startCompatPinch: function(e) {
       var a = e.touches[0];
       var b = e.touches[1];
@@ -1449,7 +1494,8 @@ export default {
     // 抬手速度与方向（CSS 像素/毫秒）：只取最近 120ms 的采样，早期慢速拖动不参与
     compatTouchRelease: function(st) {
       var list = st && st.samples ? st.samples : [];
-      var res = { speed: 0, dx: 0, dy: 0, x: 0, y: 0 };
+      // 带上手指 id：惯性补间必须继续用同一根手指，否则服务端会把补间当成另一根手指按下
+      var res = { speed: 0, dx: 0, dy: 0, x: 0, y: 0, id: st && st.id ? st.id : 1 };
       if (list.length < 2) return res;
       var last = list[list.length - 1];
       var first = list[0];
@@ -1470,26 +1516,54 @@ export default {
     },
     onCompatTouchEnd: function(e) {
       var self = this;
-      // 捏合过程中：全部手指离开才算结束；若还剩一根，重置单指追踪让用户能接着滑
+      var left = e && e.touches ? e.touches.length : 0;
+      // 缩放过程中：仍有三指以上就继续；降到两指以内则结束缩放，剩下的手指接着用
       if (self._compatPinch) {
-        var left = e && e.touches ? e.touches.length : 0;
-        if (left >= 2) return;
+        if (left >= 3) return;
         self._compatPinch = null;
-        if (left === 1) {
-          var t = e.touches[0];
-          var pt = self.compatPointFromClient(t.clientX, t.clientY);
-          self._compatTouch = {
-            lastX: pt.x,
-            lastY: pt.y,
-            samples: [{ x: pt.x, y: pt.y, t: Date.now() }]
-          };
-          self.sendCompatInput({ type: 'touch', event: 'start', points: [{ x: pt.x, y: pt.y, id: 1 }] });
+        if (!left) {
+          self._compatTouchCount = 0;
+          self._compatTouchDown = false;
+          return;
         }
+        var rest = self.compatTouchPoints(e.touches);
+        self._compatTouchCount = rest.length;
+        self._compatMulti = rest.length > 1;
+        self._compatTouch = rest.length === 1 ? {
+          id: rest[0].id,
+          lastX: rest[0].x,
+          lastY: rest[0].y,
+          samples: [{ x: rest[0].x, y: rest[0].y, t: Date.now() }]
+        } : null;
+        self.sendCompatInput({ type: 'touch', event: 'start', points: rest });
         return;
       }
+      // 还有手指按着：只上报剩余点，服务端按 id 差集抬起离开的那一根
+      // （已用 CDP 实测：touchEnd 传剩余点时，浏览器只抬起缺少的那根，其余保持按住）
+      if (left > 0) {
+        var pts = self.compatTouchPoints(e.touches);
+        self._compatTouchCount = pts.length;
+        self._compatMulti = pts.length > 1;
+        self._compatTouch = pts.length === 1 ? {
+          id: pts[0].id,
+          lastX: pts[0].x,
+          lastY: pts[0].y,
+          samples: [{ x: pts[0].x, y: pts[0].y, t: Date.now() }]
+        } : null;
+        self.sendCompatInput({ type: 'touch', event: 'end', points: pts });
+        return;
+      }
+      self._compatTouchCount = 0;
+      self._compatTouchDown = false;
       var st = self._compatTouch;
-      if (!st) return;
+      var multi = self._compatMulti;
       self._compatTouch = null;
+      self._compatMulti = false;
+      // 多指序列不做甩动惯性：两根手指交替滑动时补间会把页面甩飞
+      if (!st || multi) {
+        self.sendCompatInput({ type: 'touch', event: 'end', points: [] });
+        return;
+      }
       var rel = self.compatTouchRelease(st);
       // 轻点 / 慢慢拖到位：直接收尾，保证 click 判定正常触发
       if (rel.speed < 0.45) {
@@ -1528,7 +1602,7 @@ export default {
         var d = total * (1 - Math.pow(1 - p, 2));
         var x = Math.max(0, Math.min(vw - 1, Math.round(rel.x + ux * d)));
         var y = Math.max(0, Math.min(vh - 1, Math.round(rel.y + uy * d)));
-        self.sendCompatInput({ type: 'touch', event: 'move', points: [{ x: x, y: y, id: 1 }] });
+        self.sendCompatInput({ type: 'touch', event: 'move', points: [{ x: x, y: y, id: rel.id }] });
         if (done >= steps) {
           self._compatMomentum = false;
           self._momentumTimer = null;
@@ -1553,8 +1627,14 @@ export default {
     onCompatTouchCancel: function() {
       this.cancelCompatMomentum();
       this._compatPinch = null;
-      if (!this._compatTouch) return;
+      // 多指序列没有 _compatTouch，必须靠计数判断是否需要通知服务端取消，
+      // 否则页面会以为手指还按着（摇杆卡死在推满状态）
+      var active = this._compatTouchDown || this._compatTouchCount > 0;
       this._compatTouch = null;
+      this._compatMulti = false;
+      this._compatTouchCount = 0;
+      this._compatTouchDown = false;
+      if (!active) return;
       this.sendCompatInput({ type: 'touch', event: 'cancel', points: [] });
     },
     // ===== 移动端文字输入：把输入条里的内容插入无头浏览器的焦点元素 =====
