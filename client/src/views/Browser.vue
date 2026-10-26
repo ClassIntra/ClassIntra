@@ -119,6 +119,12 @@
         <span>{{ compatError }}</span>
         <button class="capsule-btn browser-compat-exit" @click="exitCompat">退出兼容模式</button>
       </div>
+      <!-- 云游戏画质切换回执：点完按钮立刻显示实际编码尺寸 / 帧率，
+           避免「点了没反应」的错觉（服务端无响应时也会明确提示） -->
+      <div v-if="compatMode && compatGameTip" class="browser-compat-error browser-game-tip">
+        <i class="fa-solid fa-gauge-high"></i>
+        <span>{{ compatGameTip }}</span>
+      </div>
       <!-- 移动端文字输入：画面流无法唤起系统键盘，用悬浮按钮 + 输入条代劳 -->
       <template v-if="compatMode && compatTouch">
         <button
@@ -457,6 +463,8 @@ export default {
       compatGame: false,
       // 切换请求已发出、等待服务端回执时禁用按钮，避免连点
       compatGameBusy: false,
+      // 画质切换的临时回执（实际编码尺寸 / 帧率 / 失败提示），几秒后自动消失
+      compatGameTip: '',
       // 移动端边缘滑动手势状态（左边缘右滑返回）
       swipeState: null
     };
@@ -759,6 +767,17 @@ export default {
         self.connectCompat(self.currentUrl);
       });
     },
+    // 画质切换的临时回执：给出「确实变了」的可见反馈，几秒后自动收起
+    flashCompatGameTip: function(text, ms) {
+      var self = this;
+      self.compatGameTip = text || '';
+      clearTimeout(self._compatGameTipTimer);
+      if (!text) return;
+      self._compatGameTipTimer = setTimeout(function() {
+        self._compatGameTipTimer = null;
+        self.compatGameTip = '';
+      }, ms || 2600);
+    },
     // 云游戏画质开关：运行中切换，不重建会话（保留页面与滚动位置）
     toggleCompatGame: function() {
       var self = this;
@@ -769,12 +788,18 @@ export default {
       try { localStorage.setItem(scopedKey('compat-game'), next ? '1' : '0'); } catch (e) {}
       // 云游戏的清晰度来自服务端放大视口（帧尺寸翻倍），dpr 只影响页面自身光栅化，上限 2
       var dpr = Math.min(window.devicePixelRatio || 1, 2);
-      self.sendCompatInput({ type: 'mode', game: next, dpr: dpr });
+      // pd：设备真实像素密度，服务端按它决定云游戏放大倍数（手机 3 / 桌面 1~2）
+      var pd = Math.min(window.devicePixelRatio || 1, 3);
+      self.flashCompatGameTip(next ? '正在切换云游戏画质…' : '正在恢复普通画质…', 8000);
+      self.sendCompatInput({ type: 'mode', game: next, dpr: dpr, pd: pd });
       // 回执迟迟不来时解除按钮禁用，避免一直卡在禁用态
       clearTimeout(self._compatGameTimer);
       self._compatGameTimer = setTimeout(function() {
         self._compatGameTimer = null;
         self.compatGameBusy = false;
+        if (self.compatGameTip) {
+          self.flashCompatGameTip('画质切换无响应：插件后端需重启后生效', 4000);
+        }
       }, 3000);
     },
     exitCompat: function() {
@@ -840,6 +865,8 @@ export default {
       var h = Math.round(rect && rect.height ? rect.height : window.innerHeight);
       // 云游戏的清晰度来自服务端放大视口（帧尺寸翻倍），dpr 只影响页面自身光栅化，上限 2
       var dpr = Math.min(window.devicePixelRatio || 1, 2);
+      // pd：设备真实像素密度（上限 3）。云游戏按它放大编码视口，手机 dpr 3 时才真正点对点
+      var pd = Math.min(window.devicePixelRatio || 1, 3);
       var touch = isTouchDevice();
       // 带上使用者身份：班管在应用市场的兼容模式管理浮窗里需要知道是谁在用
       var user = (self.$store && self.$store.state && self.$store.state.auth && self.$store.state.auth.user) || {};
@@ -849,7 +876,7 @@ export default {
       var token = '';
       try { token = localStorage.getItem('token') || ''; } catch (e) {}
       var wsUrl = 'ws://' + location.hostname + ':' + info.port + '/__render__?url=' + encodeURIComponent(url)
-        + '&w=' + w + '&h=' + h + '&dpr=' + dpr + '&touch=' + (touch ? '1' : '0')
+        + '&w=' + w + '&h=' + h + '&dpr=' + dpr + '&pd=' + pd + '&touch=' + (touch ? '1' : '0')
         + '&uid=' + encodeURIComponent(user.user_id || user.id || '')
         + '&uname=' + encodeURIComponent(uname)
         + '&token=' + encodeURIComponent(token)
@@ -918,6 +945,10 @@ export default {
       // 惯性补间立即停：通道已废弃，继续发 move 没有意义
       this._compatMomentum = false;
       clearTimeout(this._momentumTimer);
+      // 画质回执只对当次切换有意义，断开时一并清掉
+      clearTimeout(this._compatGameTipTimer);
+      this._compatGameTipTimer = null;
+      this.compatGameTip = '';
       this._momentumTimer = null;
       this._compatTouch = null;
       this._compatPinch = null;
@@ -1074,6 +1105,11 @@ export default {
         if (msg.baseWidth) self.compatBaseW = Number(msg.baseWidth) || self.compatBaseW;
         if (msg.baseHeight) self.compatBaseH = Number(msg.baseHeight) || self.compatBaseH;
         self.compatGameBusy = false;
+        clearTimeout(self._compatGameTimer);
+        self._compatGameTimer = null;
+        self.flashCompatGameTip(msg.game
+          ? '云游戏画质已开启 · ' + self.compatViewW + '×' + self.compatViewH + ' · 60fps'
+          : '已恢复普通画质 · ' + self.compatViewW + '×' + self.compatViewH);
         return;
       }
       if (msg.type === 'focus') {
@@ -2096,6 +2132,14 @@ export default {
 }
 .browser-compat-error i {
   color: var(--warning-color);
+}
+/* 云游戏画质回执：非错误提示，用主色；不拦截触摸，避免挡住画面操作 */
+.browser-game-tip {
+  pointer-events: none;
+  z-index: 4;
+}
+.browser-game-tip i {
+  color: var(--primary-color);
 }
 .browser-compat-exit {
   flex-shrink: 0;
