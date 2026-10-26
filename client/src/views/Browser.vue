@@ -273,6 +273,7 @@
 
 <script>
 import islandNotify from '@/utils/island-notify';
+import api from '@/utils/api';
 import { mountBridge, unmountBridge, ACTIONS_CHILD_TO_PARENT } from '@/integrations/campusbili-bridge-client';
 import {
   mountBridge as mountWebProxyBridge,
@@ -405,6 +406,55 @@ function saveToStorage(key, data) {
   } catch (e) {}
 }
 
+// 服务端按账号保存浏览器数据（历史 / 收藏 / 首页）：同一账号在手机 / 平板 / 教室电脑
+// 登录后看到同一份记录。localStorage 仍保留作为本地缓存，断网或插件未安装时不丢数据。
+var SYNC_DEBOUNCE_MS = 1200;
+var MAX_BOOKMARKS = 200;
+
+// 当前登录账号 ID；未登录返回空串（此时只走本地存储，不参与同步）
+function currentAccountId() {
+  var user = null;
+  try { user = JSON.parse(localStorage.getItem('user') || 'null'); } catch (e) { user = null; }
+  return String((user && (user.user_id || user.id)) || '');
+}
+
+// 合并两组记录：按 url 去重。preferNewer=true 取较新的时间（历史），
+// false 取较早的时间（收藏，保留最初收藏时间），结果按时间倒序截断。
+function mergeBrowserEntries(local, remote, preferNewer, limit) {
+  var map = {};
+  var list = (Array.isArray(local) ? local : []).concat(Array.isArray(remote) ? remote : []);
+  for (var i = 0; i < list.length; i++) {
+    var e = list[i];
+    if (!e || !e.url) continue;
+    var item = { url: String(e.url), title: String(e.title || ''), time: Number(e.time) || 0 };
+    var prev = map[item.url];
+    if (!prev) { map[item.url] = item; continue; }
+    if (preferNewer) {
+      if (item.time > prev.time) map[item.url] = item;
+    } else if (item.time && (!prev.time || item.time < prev.time)) {
+      map[item.url] = item;
+    }
+  }
+  var out = [];
+  for (var k in map) {
+    if (Object.prototype.hasOwnProperty.call(map, k)) out.push(map[k]);
+  }
+  out.sort(function(x, y) { return (y.time || 0) - (x.time || 0); });
+  return out.slice(0, limit);
+}
+
+// 只保留某个时间点之后产生的记录：服务端在别的设备上被改过（可能删了条目）时，
+// 用这个过滤本机旧数据，避免把别处已删除的记录又合并回来。本机断网期间新产生的
+// 记录（时间更新）会被保留并补传，不会丢。
+function entriesAfter(list, time) {
+  var out = [];
+  for (var i = 0; i < list.length; i++) {
+    var e = list[i];
+    if (e && e.url && (Number(e.time) || 0) > time) out.push(e);
+  }
+  return out;
+}
+
 // 是否为触摸设备：决定兼容模式走触摸仿真（移动 UA + 窄视口）还是桌面鼠标键盘
 // 以「主指针是否为粗略指针」为准，避免带触屏的笔记本被误判成手机布局
 function isTouchDevice() {
@@ -533,7 +583,11 @@ export default {
     '$store.state.auth.user': function(nv, ov) {
       var a = (nv && (nv.user_id || nv.id)) || '';
       var b = (ov && (ov.user_id || ov.id)) || '';
-      if (String(a) !== String(b)) this.reloadBrowserData();
+      if (String(a) !== String(b)) {
+        this.reloadBrowserData();
+        // 换号后立刻拉取新账号在服务端的记录（同账号换设备登录时即为跨设备同步）
+        this.syncBrowserData();
+      }
     }
   },
   created: function() {
@@ -544,6 +598,8 @@ export default {
     self.homepage = localStorage.getItem(scopedKey('homepage')) || '';
     // 云游戏画质偏好按账号记忆：同一台设备切号不会互相影响
     try { self.compatGame = localStorage.getItem(scopedKey('compat-game')) === '1'; } catch (e) {}
+    // 登录账号：先渲染本地缓存，再异步拉服务端数据合并（同一账号跨设备同步）
+    self.syncBrowserData();
     var url = self.$route.query.url || '';
     if (url) {
       self.navigateTo(url);
@@ -567,6 +623,15 @@ export default {
     // 页面切后台 / 手机锁屏时暂停兼容模式的帧流与声音，回到前台再恢复
     self._onVisibilityChange = self.onCompatVisibility.bind(self);
     document.addEventListener('visibilitychange', self._onVisibilityChange);
+    // 从后台 / 其它标签页切回来时拉一次服务端数据：
+    // 另一台设备刚加的收藏 / 历史 / 首页会立即出现在当前设备（5 秒节流，避免频繁请求）
+    self._onWindowFocus = function() {
+      var now = Date.now();
+      if (now - (self._lastBrowserSync || 0) < 5000) return;
+      self._lastBrowserSync = now;
+      self.syncBrowserData();
+    };
+    window.addEventListener('focus', self._onWindowFocus);
   },
   beforeDestroy: function() {
     // 清理加载指示器定时器
@@ -599,6 +664,14 @@ export default {
       document.removeEventListener('visibilitychange', this._onVisibilityChange);
       this._onVisibilityChange = null;
     }
+    if (this._onWindowFocus) {
+      window.removeEventListener('focus', this._onWindowFocus);
+      this._onWindowFocus = null;
+    }
+    // 清理浏览器数据同步的待发送队列
+    clearTimeout(this._browserDataTimer);
+    this._browserDataTimer = null;
+    this._browserDataPatch = null;
     // 取消尚未发出的输入合并帧
     if (this._mouseRaf) { cancelAnimationFrame(this._mouseRaf); this._mouseRaf = 0; }
     if (this._wheelRaf) { cancelAnimationFrame(this._wheelRaf); this._wheelRaf = 0; }
@@ -1742,6 +1815,87 @@ export default {
         this.sendCompatInput({ type: 'text', text: key });
       }
     },
+    // 从服务端拉取当前账号的浏览器数据，与本地合并后写回（多设备同步的核心）。
+    // 本地还有未上传改动时跳过本次拉取，避免刚加的历史被远端旧数据覆盖。
+    syncBrowserData: function() {
+      var self = this;
+      if (self._browserDataPending) return;
+      if (!currentAccountId()) return;
+      api.get('/web-proxy/browser-data').then(function(response) {
+        var data = response && response.data && response.data.data;
+        if (!data) return;
+        var localHistory = loadFromStorage(scopedKey('history'));
+        var localBookmarks = loadFromStorage(scopedKey('bookmarks'));
+        var localHomepage = localStorage.getItem(scopedKey('homepage')) || '';
+        var remoteHistory = Array.isArray(data.history) ? data.history : [];
+        var remoteBookmarks = Array.isArray(data.bookmarks) ? data.bookmarks : [];
+        var serverAt = Number(data.updatedAt) || 0;
+        var lastSeen = Number(localStorage.getItem(scopedKey('serverAt'))) || 0;
+        // 服务端在别的设备上被改过（含删除）：以服务端为准，本机只保留那次改动之后
+        // 新产生的记录。否则本机缓存的旧条目会把别处刚删掉的记录又带回来。
+        var remoteChanged = lastSeen > 0 && serverAt > lastSeen;
+        var history = mergeBrowserEntries(
+          remoteChanged ? entriesAfter(localHistory, serverAt) : localHistory,
+          remoteHistory, true, MAX_HISTORY);
+        var bookmarks = mergeBrowserEntries(
+          remoteChanged ? entriesAfter(localBookmarks, serverAt) : localBookmarks,
+          remoteBookmarks, false, MAX_BOOKMARKS);
+        // 首页：服务端改过就以服务端为准（含被清空），否则本地有值时兜底
+        var homepage = remoteChanged ? (data.homepage || '') : (data.homepage || localHomepage);
+        self.history = history;
+        self.bookmarks = bookmarks;
+        self.homepage = homepage;
+        saveToStorage(scopedKey('history'), history);
+        saveToStorage(scopedKey('bookmarks'), bookmarks);
+        if (homepage) localStorage.setItem(scopedKey('homepage'), homepage);
+        else if (remoteChanged) localStorage.removeItem(scopedKey('homepage'));
+        localStorage.setItem(scopedKey('serverAt'), String(serverAt));
+        // 本机有、服务端还没有的记录（首次接管 / 断网期间的浏览）补传上去，
+        // 否则这些数据永远只留在本机，换设备看不到。
+        var seed = {};
+        if (history.length > remoteHistory.length) seed.history = history;
+        if (bookmarks.length > remoteBookmarks.length) seed.bookmarks = bookmarks;
+        if (homepage && homepage !== data.homepage) seed.homepage = homepage;
+        if (seed.history || seed.bookmarks || seed.homepage) self.pushBrowserData(seed);
+      }).catch(function() {
+        // 插件未安装 / 未登录 / 断网：保持本地数据，不影响正常浏览
+      });
+    },
+    // 本地变更后上传（防抖合并）：只提交本次变动的字段，服务端按 url 合并而不是整包覆盖
+    pushBrowserData: function(patch) {
+      var self = this;
+      if (!currentAccountId() || !patch) return;
+      var merged = {};
+      for (var k in patch) {
+        if (Object.prototype.hasOwnProperty.call(patch, k)) merged[k] = patch[k];
+      }
+      var prev = self._browserDataPatch || {};
+      for (var p in prev) {
+        if (Object.prototype.hasOwnProperty.call(prev, p) && !Object.prototype.hasOwnProperty.call(merged, p)) {
+          merged[p] = prev[p];
+        }
+      }
+      self._browserDataPatch = merged;
+      self._browserDataPending = true;
+      clearTimeout(self._browserDataTimer);
+      self._browserDataTimer = setTimeout(function() {
+        self._browserDataTimer = null;
+        var body = self._browserDataPatch || {};
+        self._browserDataPatch = null;
+        api.post('/web-proxy/browser-data', body).then(function(response) {
+          // 记下服务端本次的时间戳：下次拉取时用它判断「别处是否改过」，
+          // 避免本机旧缓存把别处已删除的记录合并回来。
+          var saved = response && response.data && response.data.data;
+          if (saved && saved.updatedAt) {
+            localStorage.setItem(scopedKey('serverAt'), String(saved.updatedAt));
+          }
+          self._browserDataPending = false;
+        }).catch(function() {
+          // 失败不重试轰炸：等下一次变更 / 回到前台再补传
+          self._browserDataPending = false;
+        });
+      }, SYNC_DEBOUNCE_MS);
+    },
     addHistory: function(url) {
       var self = this;
       // 去重：移除已存在的相同 URL
@@ -1749,6 +1903,7 @@ export default {
       self.history.unshift({ url: url, title: '', time: Date.now() });
       if (self.history.length > MAX_HISTORY) self.history = self.history.slice(0, MAX_HISTORY);
       saveToStorage(scopedKey('history'), self.history);
+      self.pushBrowserData({ history: self.history });
     },
     // 按当前账号重新载入历史 / 收藏 / 主页（账号切换时调用）
     reloadBrowserData: function() {
@@ -1760,10 +1915,14 @@ export default {
     removeHistory: function(idx) {
       this.history.splice(idx, 1);
       saveToStorage(scopedKey('history'), this.history);
+      // replaceHistory：删除提交的是「删后的完整列表」，语义是以这份为准，
+      // 否则服务端并集合并会把刚删掉的记录又合回来。
+      this.pushBrowserData({ history: this.history, replaceHistory: true });
     },
     clearHistory: function() {
       this.history = [];
       saveToStorage(scopedKey('history'), []);
+      this.pushBrowserData({ history: [], replaceHistory: true });
     },
     toggleBookmark: function() {
       var self = this;
@@ -1774,14 +1933,20 @@ export default {
       }
       if (idx > -1) {
         self.bookmarks.splice(idx, 1);
-      } else {
-        self.bookmarks.unshift({ url: self.currentUrl, title: '', time: Date.now() });
+        saveToStorage(scopedKey('bookmarks'), self.bookmarks);
+        // 取消收藏同删除：以「删后的完整列表」为准，避免被并集合并复活
+        self.pushBrowserData({ bookmarks: self.bookmarks, replaceBookmarks: true });
+        return;
       }
+      self.bookmarks.unshift({ url: self.currentUrl, title: '', time: Date.now() });
       saveToStorage(scopedKey('bookmarks'), self.bookmarks);
+      // 新增收藏走并集：本机还没同步到的其他设备收藏不会被覆盖
+      self.pushBrowserData({ bookmarks: self.bookmarks });
     },
     removeBookmark: function(idx) {
       this.bookmarks.splice(idx, 1);
       saveToStorage(scopedKey('bookmarks'), this.bookmarks);
+      this.pushBrowserData({ bookmarks: this.bookmarks, replaceBookmarks: true });
     },
     stopBrowsing: function() {
       this.stopLoading();
@@ -1815,12 +1980,14 @@ export default {
       }
       self.homepage = url;
       localStorage.setItem(scopedKey('homepage'), url);
+      self.pushBrowserData({ homepage: url });
       self.showHomepageInput = false;
     },
     clearHomepage: function() {
       this.homepage = '';
       this.homepageDraft = '';
       localStorage.removeItem(scopedKey('homepage'));
+      this.pushBrowserData({ homepage: '' });
       this.showHomepageInput = false;
     },
     toggleFullscreen: function() {
