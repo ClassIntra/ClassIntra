@@ -33,7 +33,7 @@ jobs:
 
     steps:
       - name: 检出
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: 准备 Node
         uses: actions/setup-node@v4
