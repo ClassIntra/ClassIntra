@@ -18,9 +18,11 @@
     <!-- 统一导航栏（可隐藏）：复用全局 AppNavBar，消除「标题居中 vs 左对齐」双导航栏分叉 -->
     <AppNavBar
       v-if="showNavbar"
+      class="app-shell-nav"
       :title="title"
       :show-back="true"
       back-text="返回"
+      :managed-back="true"
       @back="onNavBarBack"
     >
       <template #actions>
@@ -174,6 +176,16 @@ export default {
   background: var(--bg-color, #f2f2f7);
   color: var(--text-primary, #000);
   font-family: var(--font-family);
+}
+
+/* 导航栏必须压在悬浮层之上。
+   市场悬浮层宿主给容器的是 z-index 9400（见 core/market-overlay-host 契约），
+   桌宠这类悬浮 UI 游走到顶部时会整片盖住导航栏 —— 实测：桌宠停在左上角后
+   elementFromPoint(返回按钮中心) 命中的是 .ci-pet-body，应用彻底退不出去。
+   取值夹在悬浮层（容器 9400 / 子层 9500）与 SuperIsland(10000)/Modal(10001) 之间。 */
+.app-shell > .app-shell-nav {
+  position: relative;
+  z-index: 9600;
 }
 
 /* 内容区 */
