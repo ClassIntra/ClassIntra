@@ -493,9 +493,12 @@ export default {
       // 兼容模式视口（CSS 像素）与触摸能力，由服务端 ready 消息下发
       compatViewW: 0,
       compatViewH: 0,
-      // 画布可用尺寸（CSS 像素）：云游戏下实际视口是它的放大值，判断是否要 resize 时用这个
+      // 画布可用尺寸（CSS 像素）：它同时就是服务端的排版视口宽度（云游戏也不改排版）
       compatBaseW: 0,
       compatBaseH: 0,
+      // 帧的真实像素尺寸（云游戏为 2 倍）：仅用于画质提示，坐标换算一律以 compatViewW/H 为准
+      compatFrameW: 0,
+      compatFrameH: 0,
       compatTouch: false,
       // 兼容模式页面自身的历史状态：决定顶部返回是「页内后退」还是「退出浏览」
       compatCanBack: false,
@@ -859,12 +862,11 @@ export default {
       self.compatGameBusy = true;
       self.compatGame = next;
       try { localStorage.setItem(scopedKey('compat-game'), next ? '1' : '0'); } catch (e) {}
-      // 云游戏的清晰度来自服务端放大视口（帧尺寸翻倍），dpr 只影响页面自身光栅化，上限 2
+      // 云游戏的清晰度来自服务端 2 倍合成表面（帧像素翻倍），页面排版宽度保持不变；
+      // dpr 只影响站点是否用 2 倍图，上限 2
       var dpr = Math.min(window.devicePixelRatio || 1, 2);
-      // pd：设备真实像素密度，服务端按它决定云游戏放大倍数（手机 3 / 桌面 1~2）
-      var pd = Math.min(window.devicePixelRatio || 1, 3);
       self.flashCompatGameTip(next ? '正在切换云游戏画质…' : '正在恢复普通画质…', 8000);
-      self.sendCompatInput({ type: 'mode', game: next, dpr: dpr, pd: pd });
+      self.sendCompatInput({ type: 'mode', game: next, dpr: dpr });
       // 回执迟迟不来时解除按钮禁用，避免一直卡在禁用态
       clearTimeout(self._compatGameTimer);
       self._compatGameTimer = setTimeout(function() {
@@ -936,10 +938,9 @@ export default {
       var rect = box ? box.getBoundingClientRect() : null;
       var w = Math.round(rect && rect.width ? rect.width : window.innerWidth);
       var h = Math.round(rect && rect.height ? rect.height : window.innerHeight);
-      // 云游戏的清晰度来自服务端放大视口（帧尺寸翻倍），dpr 只影响页面自身光栅化，上限 2
+      // 云游戏的清晰度来自服务端 2 倍合成表面（帧像素翻倍），页面排版宽度保持不变；
+      // dpr 只影响站点是否用 2 倍图，上限 2
       var dpr = Math.min(window.devicePixelRatio || 1, 2);
-      // pd：设备真实像素密度（上限 3）。云游戏按它放大编码视口，手机 dpr 3 时才真正点对点
-      var pd = Math.min(window.devicePixelRatio || 1, 3);
       var touch = isTouchDevice();
       // 带上使用者身份：班管在应用市场的兼容模式管理浮窗里需要知道是谁在用
       var user = (self.$store && self.$store.state && self.$store.state.auth && self.$store.state.auth.user) || {};
@@ -949,7 +950,7 @@ export default {
       var token = '';
       try { token = localStorage.getItem('token') || ''; } catch (e) {}
       var wsUrl = 'ws://' + location.hostname + ':' + info.port + '/__render__?url=' + encodeURIComponent(url)
-        + '&w=' + w + '&h=' + h + '&dpr=' + dpr + '&pd=' + pd + '&touch=' + (touch ? '1' : '0')
+        + '&w=' + w + '&h=' + h + '&dpr=' + dpr + '&touch=' + (touch ? '1' : '0')
         + '&uid=' + encodeURIComponent(user.user_id || user.id || '')
         + '&uname=' + encodeURIComponent(uname)
         + '&token=' + encodeURIComponent(token)
@@ -1069,7 +1070,7 @@ export default {
       if (!rect || !rect.width || !rect.height) return;
       var w = Math.round(rect.width);
       var h = Math.round(rect.height);
-      // 与服务端记录的「画布可用尺寸」比较：云游戏下实际视口是它的倍数，不能拿来对比
+      // 与服务端记录的「画布可用尺寸」比较：它同时就是排版视口，云游戏不会改变它
       var baseW = self.compatBaseW || self.compatViewW;
       var baseH = self.compatBaseH || self.compatViewH;
       if (Math.abs(w - baseW) < 2 && Math.abs(h - baseH) < 2) return;
@@ -1118,6 +1119,8 @@ export default {
         self.compatViewH = Number(msg.height) || 0;
         self.compatBaseW = Number(msg.baseWidth) || self.compatViewW;
         self.compatBaseH = Number(msg.baseHeight) || self.compatViewH;
+        self.compatFrameW = Number(msg.frameWidth) || self.compatViewW;
+        self.compatFrameH = Number(msg.frameHeight) || self.compatViewH;
         self.compatTouch = !!msg.touch;
         // 服务端回传的画质模式：重连后与本地偏好对齐（避免显示与实际不一致）
         if (typeof msg.game === 'boolean') self.compatGame = msg.game;
@@ -1153,6 +1156,8 @@ export default {
         self.compatViewH = Number(msg.height) || self.compatViewH;
         self.compatBaseW = Number(msg.baseWidth) || self.compatBaseW;
         self.compatBaseH = Number(msg.baseHeight) || self.compatBaseH;
+        if (msg.frameWidth) self.compatFrameW = Number(msg.frameWidth) || self.compatFrameW;
+        if (msg.frameHeight) self.compatFrameH = Number(msg.frameHeight) || self.compatFrameH;
         return;
       }
       if (msg.type === 'audio') {
@@ -1171,18 +1176,22 @@ export default {
         return;
       }
       if (msg.type === 'mode-state') {
-        // 服务端已按新模式重设视口与帧流：以回执为准更新开关、视口尺寸与坐标换算基准
+        // 服务端已按新模式重设帧流：以回执为准更新开关、视口尺寸与坐标换算基准
         self.compatGame = !!msg.game;
         if (msg.width) self.compatViewW = Number(msg.width) || self.compatViewW;
         if (msg.height) self.compatViewH = Number(msg.height) || self.compatViewH;
         if (msg.baseWidth) self.compatBaseW = Number(msg.baseWidth) || self.compatBaseW;
         if (msg.baseHeight) self.compatBaseH = Number(msg.baseHeight) || self.compatBaseH;
+        if (msg.frameWidth) self.compatFrameW = Number(msg.frameWidth) || self.compatFrameW;
+        if (msg.frameHeight) self.compatFrameH = Number(msg.frameHeight) || self.compatFrameH;
         self.compatGameBusy = false;
         clearTimeout(self._compatGameTimer);
         self._compatGameTimer = null;
+        var fw = self.compatFrameW || self.compatViewW;
+        var fh = self.compatFrameH || self.compatViewH;
         self.flashCompatGameTip(msg.game
-          ? '云游戏画质已开启 · ' + self.compatViewW + '×' + self.compatViewH + ' · 60fps'
-          : '已恢复普通画质 · ' + self.compatViewW + '×' + self.compatViewH);
+          ? '云游戏画质已开启 · 帧 ' + fw + '×' + fh + ' · 60fps'
+          : '已恢复普通画质 · 帧 ' + fw + '×' + fh);
         return;
       }
       if (msg.type === 'focus') {
@@ -1468,13 +1477,7 @@ export default {
         self._wheelDx = 0;
         self._wheelDy = 0;
         if (!p || !self.compatMode || (!dx && !dy)) return;
-        // 云游戏视口是画布的 2 倍：滚轮增量按视口/画布比例放大，滚动速度看起来才与手一致
-        var baseW = self.compatBaseW || self.compatViewW;
-        var ratio = baseW ? (self.compatViewW || baseW) / baseW : 1;
-        if (ratio > 1) {
-          dx = Math.round(dx * ratio);
-          dy = Math.round(dy * ratio);
-        }
+        // 云游戏只提高帧像素、不改排版视口，滚轮增量（CSS 像素）无需换算
         self.sendCompatInput({ type: 'wheel', x: p.x, y: p.y, deltaX: dx, deltaY: dy });
       });
     },
