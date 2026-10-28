@@ -1562,6 +1562,10 @@ export default {
     // 开始一段多指序列前，把单指状态清干净（长按计时、采样都作废）
     startCompatMultiTouch: function() {
       this.clearCompatLongPress();
+      // 长按状态必须一并复位：长按触发后第二根手指落下时，若还留着 _compatHoldPending，
+      // 后续所有移动都会被吞掉（表现就是加了第二根手指后页面完全不动）
+      this._compatHoldPending = false;
+      this._compatHoldFired = false;
       this._compatTouch = null;
       this._compatMulti = true;
     },
@@ -1573,6 +1577,9 @@ export default {
       self.clearCompatLongPress();
       self._compatHoldPending = false;
       self._compatHoldFired = false;
+      // 云游戏模式不参与长按：那里长按就是按住开火 / 蓄力键，按住不动 600ms
+      // 会先冻结一段移动转发，摇杆/视角就会出现「黏一下」的顿感（服务端也有同样兜底）
+      if (self.compatGame) return;
       self._compatHoldTimer = setTimeout(function() {
         self._compatHoldTimer = null;
         if (!self._compatTouchDown || self._compatMulti || self._compatPinch) return;
@@ -1580,6 +1587,10 @@ export default {
         // 按住期间不再转发移动：否则菜单刚弹出就被后续 move 拖走
         self._compatHoldPending = true;
         self.sendCompatInput({ type: 'longpress', x: p.x, y: p.y });
+        // 轻微触觉反馈，让「长按已生效」可被感知；不支持的设备静默跳过
+        try {
+          if (navigator.vibrate) navigator.vibrate(15);
+        } catch (e) {}
       }, 600);
     },
     clearCompatLongPress: function() {
@@ -1652,8 +1663,13 @@ export default {
           (Math.abs(p.x - st.originX) > 8 || Math.abs(p.y - st.originY) > 8)) {
         self.clearCompatLongPress();
       }
-      // 长按已触发：这一段手势的移动不再转发，否则会把弹出的菜单 / 选中状态拖掉
-      if (self._compatHoldPending) return;
+      // 长按已触发：先冻结移动，避免刚弹出的菜单被后续 move 直接拖走；
+      // 但手指继续移动超过 24px 时说明用户其实想拖（原生也是长按后继续派发 move），
+      // 此时解除冻结恢复转发，否则页面会一直「卡住」到抬手。
+      if (self._compatHoldPending) {
+        if (Math.abs(p.x - st.originX) <= 24 && Math.abs(p.y - st.originY) <= 24) return;
+        self._compatHoldPending = false;
+      }
       // 阈值只用来过滤原地抖动：宁可多转发，也不能吞掉慢速滑动
       if (Math.abs(p.x - st.lastX) < 1 && Math.abs(p.y - st.lastY) < 1) return;
       st.lastX = p.x;
@@ -1726,7 +1742,8 @@ export default {
       if (left > 0) {
         self.clearCompatLongPress();
         self._compatHoldPending = false;
-        self._compatHoldFired = false;
+        // 注意：这里不清 _compatHoldFired。长按菜单已弹出时，剩下的手指最后抬起
+        // 仍要用 cancel 收尾，否则合成的 clicked 会把菜单点掉。
         var released = self.compatTouchPoints(e.changedTouches);
         var pts = self.compatTouchPoints(e.touches);
         self._compatTouchCount = pts.length;
