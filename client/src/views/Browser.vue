@@ -274,7 +274,7 @@
 <script>
 import islandNotify from '@/utils/island-notify';
 import api from '@/utils/api';
-import { mountBridge, unmountBridge, ACTIONS_CHILD_TO_PARENT } from '@/integrations/campusbili-bridge-client';
+import { mountBridge, unmountBridge, ACTIONS_CHILD_TO_PARENT, CAMPUSBILI_BRIDGE_AVAILABLE } from '@/integrations/campusbili-bridge-client';
 import {
   mountBridge as mountWebProxyBridge,
   unmountBridge as unmountWebProxyBridge,
@@ -626,6 +626,10 @@ export default {
     // 页面切后台 / 手机锁屏时暂停兼容模式的帧流与声音，回到前台再恢复
     self._onVisibilityChange = self.onCompatVisibility.bind(self);
     document.addEventListener('visibilitychange', self._onVisibilityChange);
+    // 核心兜底：CampusBili 主动联动不要求安装桥接插件。
+    // 未装插件时，「返回 ClassIntra」由这里直接接管；装了插件则交给桥接处理，避免重复导航。
+    self._onCampusBiliCoreMessage = self.onCampusBiliCoreMessage.bind(self);
+    window.addEventListener('message', self._onCampusBiliCoreMessage);
     // 从后台 / 其它标签页切回来时拉一次服务端数据：
     // 另一台设备刚加的收藏 / 历史 / 首页会立即出现在当前设备（5 秒节流，避免频繁请求）
     self._onWindowFocus = function() {
@@ -647,6 +651,9 @@ export default {
     if (this._audioCtx) {
       try { this._audioCtx.close(); } catch (e) {}
       this._audioCtx = null;
+      // 上下文关闭后主增益节点随之失效，必须清空引用，下次进入重新创建
+      this._audioGain = null;
+      this._audioSrcs = [];
     }
     // 卸载桥接实例，移除 message 监听
     unmountBridge();
@@ -666,6 +673,10 @@ export default {
     if (this._onVisibilityChange) {
       document.removeEventListener('visibilitychange', this._onVisibilityChange);
       this._onVisibilityChange = null;
+    }
+    if (this._onCampusBiliCoreMessage) {
+      window.removeEventListener('message', this._onCampusBiliCoreMessage);
+      this._onCampusBiliCoreMessage = null;
     }
     if (this._onWindowFocus) {
       window.removeEventListener('focus', this._onWindowFocus);
@@ -707,6 +718,18 @@ export default {
       this.iframeLoading = false;
       this.iframeSlow = false;
       this.loadSeconds = 0;
+    },
+    // 无插件时的核心兜底：CampusBili 主动发来的「返回 ClassIntra」信号。
+    // 只接受当前 iframe 发出的消息（按 event.source 精确比对），防止页面内其它窗口伪造。
+    // 插件存在时交给桥接实例处理，这里直接跳过，避免同一次点击触发两次导航。
+    onCampusBiliCoreMessage: function(event) {
+      if (CAMPUSBILI_BRIDGE_AVAILABLE) return;
+      var frame = this.$refs.browserFrame;
+      if (!frame || !frame.contentWindow || event.source !== frame.contentWindow) return;
+      var data = event.data;
+      if (!data || typeof data !== 'object') return;
+      if (data.action !== 'classintra-back') return;
+      this.$router.push({ name: 'Desktop' }).catch(function() {});
     },
     // ===== CampusBili 桥接：通过插件桥接模块统一收发消息 =====
     // iframe 加载完成时挂载桥接实例并注册订阅
@@ -1016,14 +1039,14 @@ export default {
       // 取消尚未发出的输入合并帧，避免断开后还往废弃通道发消息
       if (this._mouseRaf) { cancelAnimationFrame(this._mouseRaf); this._mouseRaf = 0; }
       if (this._wheelRaf) { cancelAnimationFrame(this._wheelRaf); this._wheelRaf = 0; }
-      // 惯性补间立即停：通道已废弃，继续发 move 没有意义
-      this._compatMomentum = false;
-      clearTimeout(this._momentumTimer);
+      // 长按计时器与触摸状态一并清空：通道已废弃，继续发消息没有意义
+      this.clearCompatLongPress();
+      this._compatHoldPending = false;
+      this._compatHoldFired = false;
       // 画质回执只对当次切换有意义，断开时一并清掉
       clearTimeout(this._compatGameTipTimer);
       this._compatGameTipTimer = null;
       this.compatGameTip = '';
-      this._momentumTimer = null;
       this._compatTouch = null;
       this._compatPinch = null;
       this._compatMulti = false;
@@ -1204,6 +1227,16 @@ export default {
         }
         return;
       }
+      if (msg.type === 'longpress-state') {
+        // 服务端回执：真的补出了右键菜单，后续 touchend 用 cancel 收尾，
+        // 否则合成的点击会落在菜单上把它关掉；没补则恢复移动转发，手指仍是自由拖动。
+        if (msg.fired) {
+          self._compatHoldFired = true;
+        } else {
+          self._compatHoldPending = false;
+        }
+        return;
+      }
       if (msg.type === 'frame') {
         this.drawCompatFrame(msg);
         return;
@@ -1361,6 +1394,13 @@ export default {
           var AC = window.AudioContext || window.webkitAudioContext;
           if (AC) self._audioCtx = new AC();
         }
+        // 主音量节点：静音时把增益压到 0。只靠 ctx.suspend() 在部分 WebView / iOS 内核上
+        // 对已排期的 buffer 不立即生效，用户感受就是「点了静音还有声音」。
+        if (self._audioCtx && !self._audioGain) {
+          self._audioGain = self._audioCtx.createGain();
+          self._audioGain.connect(self._audioCtx.destination);
+        }
+        if (self._audioGain) self._audioGain.gain.value = 1;
         if (self._audioCtx && self._audioCtx.state === 'suspended') self._audioCtx.resume();
       } catch (e) {}
       self._audioNext = 0;
@@ -1373,11 +1413,23 @@ export default {
     },
     // 只停播放（通道重建 / 退出时用），不改变用户的声音偏好
     haltCompatAudio: function() {
-      this.compatAudioActive = false;
-      clearTimeout(this._audioPulseTimer);
-      this._audioNext = 0;
-      if (this._audioCtx) {
-        try { this._audioCtx.suspend(); } catch (e) {}
+      var self = this;
+      self.compatAudioActive = false;
+      clearTimeout(self._audioPulseTimer);
+      self._audioNext = 0;
+      // 双保险：先把主增益压到 0，并逐个 stop() 已排期的音源。
+      // 某些内核 suspend() 是异步的，已经排进音频线程的 buffer 还会响一小段，
+      // 必须显式静音，否则「点了静音还能听到声音」。
+      if (self._audioGain) {
+        try { self._audioGain.gain.value = 0; } catch (e) {}
+      }
+      var srcs = self._audioSrcs || [];
+      for (var i = 0; i < srcs.length; i++) {
+        try { srcs[i].stop(); } catch (e) {}
+      }
+      self._audioSrcs = [];
+      if (self._audioCtx) {
+        try { self._audioCtx.suspend(); } catch (e) {}
       }
     },
     // PCM 分片（16 位小端单声道）→ AudioBuffer 排期播放；断档落后时直接对齐到当前时刻
@@ -1401,13 +1453,21 @@ export default {
       }
       var src = ctx.createBufferSource();
       src.buffer = buf;
-      src.connect(ctx.destination);
+      // 统一经主增益节点出声：静音时只需把增益压到 0，无需依赖内核 suspend() 的时效
+      try { src.connect(self._audioGain || ctx.destination); } catch (e) { return; }
       var now = ctx.currentTime;
       // 缓冲区断档（页面静音 / 切后台 / 网络抖动）后重新对齐，避免声音越拖越晚
       if (!self._audioNext || self._audioNext < now - 0.1 || self._audioNext > now + 1.2) {
         self._audioNext = now + 0.06;
       }
       try { src.start(self._audioNext); } catch (e) { return; }
+      // 记录在播音源：静音时逐个 stop()，保证已排期的声音立刻中断
+      if (!self._audioSrcs) self._audioSrcs = [];
+      self._audioSrcs.push(src);
+      src.onended = function() {
+        var k = self._audioSrcs ? self._audioSrcs.indexOf(src) : -1;
+        if (k >= 0) self._audioSrcs.splice(k, 1);
+      };
       self._audioNext += buf.duration;
       self.compatAudioActive = true;
       clearTimeout(self._audioPulseTimer);
@@ -1483,8 +1543,9 @@ export default {
     },
     // ===== 触摸：1~2 指原样转发为 CDP 触摸序列，3 指及以上才转为浏览器原生缩放 =====
     // 把当前手指集合换算成 CDP 触摸点列表。
-    // id 直接取 touch.identifier：同一根手指在整个按下期间保持不变，
-    // 服务端按 id 集合做差即可正确合成「各指独立移动 / 只抬起其中一根」。
+    // id 直接取 touch.identifier：同一根手指在整个按下期间保持不变。
+    // 注意抬起时要用 touchend 的 changedTouches 指明「哪一根被抬起」——
+    // CDP 的 touchEnd 语义是 touchPoints 即本次抬起的触点，传剩余点会抬错手指。
     compatTouchPoints: function(list) {
       var pts = [];
       if (!list) return pts;
@@ -1498,19 +1559,40 @@ export default {
       }
       return pts;
     },
-    // 开始一段多指序列前，把单指状态清干净（惯性补间、采样都作废）
+    // 开始一段多指序列前，把单指状态清干净（长按计时、采样都作废）
     startCompatMultiTouch: function() {
-      this.cancelCompatMomentum();
+      this.clearCompatLongPress();
       this._compatTouch = null;
       this._compatMulti = true;
+    },
+    // 长按兜底：单指按住 600ms 且位移不超过原生 touch slop（8 px）才算长按。
+    // 无头浏览器不一定把合成触摸识别成 GestureLongPress，页面就收不到 contextmenu；
+    // 这里主动把长按上报给服务端，由服务端补一次右键（页面已自己响应过则不会重复发）。
+    armCompatLongPress: function(p) {
+      var self = this;
+      self.clearCompatLongPress();
+      self._compatHoldPending = false;
+      self._compatHoldFired = false;
+      self._compatHoldTimer = setTimeout(function() {
+        self._compatHoldTimer = null;
+        if (!self._compatTouchDown || self._compatMulti || self._compatPinch) return;
+        if (!self._compatTouch || self._compatTouch.id !== p.id) return;
+        // 按住期间不再转发移动：否则菜单刚弹出就被后续 move 拖走
+        self._compatHoldPending = true;
+        self.sendCompatInput({ type: 'longpress', x: p.x, y: p.y });
+      }, 600);
+    },
+    clearCompatLongPress: function() {
+      if (this._compatHoldTimer) {
+        clearTimeout(this._compatHoldTimer);
+        this._compatHoldTimer = null;
+      }
     },
     onCompatTouchStart: function(e) {
       var self = this;
       if (!e.touches || !e.touches.length) return;
       // 点画面即收起输入条，避免系统键盘一直占着半屏
       if (self.compatKeyboardOpen) self.compatKeyboardOpen = false;
-      // 上一段滑动的惯性补间还没跑完：先收尾，避免两段触摸序列在服务端重叠
-      self.cancelCompatMomentum();
       self._compatTouchCount = e.touches.length;
       self._compatTouchDown = true;
       // 3 指及以上才是页面缩放。2 指以内必须原样转发：
@@ -1531,10 +1613,13 @@ export default {
           id: pts[0].id,
           lastX: pts[0].x,
           lastY: pts[0].y,
-          samples: [{ x: pts[0].x, y: pts[0].y, t: Date.now() }]
+          // 手势起点：长按判定只用「按下点 → 当前点」的位移，避免抖动累积误判
+          originX: pts[0].x,
+          originY: pts[0].y
         };
+        self.armCompatLongPress(pts[0]);
       } else {
-        // 第二根手指落下：单指采样 / 惯性让位给多指直通
+        // 第二根手指落下：单指采样 / 长按计时让位给多指直通
         self.startCompatMultiTouch();
       }
       self.sendCompatInput({ type: 'touch', event: 'start', points: pts });
@@ -1559,12 +1644,16 @@ export default {
       var st = self._compatTouch;
       // 状态丢失（例如另一根手指刚抬起）时按当前位置接续，别把这次滑动丢掉
       if (!st || st.id !== p.id) {
-        st = { id: p.id, lastX: p.x, lastY: p.y, samples: [] };
+        st = { id: p.id, lastX: p.x, lastY: p.y, originX: p.x, originY: p.y };
         self._compatTouch = st;
       }
-      var now = Date.now();
-      st.samples.push({ x: p.x, y: p.y, t: now });
-      if (st.samples.length > 8) st.samples.shift();
+      // 位移超过原生 touch slop 就说明用户是在拖，不是在长按
+      if (self._compatHoldTimer &&
+          (Math.abs(p.x - st.originX) > 8 || Math.abs(p.y - st.originY) > 8)) {
+        self.clearCompatLongPress();
+      }
+      // 长按已触发：这一段手势的移动不再转发，否则会把弹出的菜单 / 选中状态拖掉
+      if (self._compatHoldPending) return;
       // 阈值只用来过滤原地抖动：宁可多转发，也不能吞掉慢速滑动
       if (Math.abs(p.x - st.lastX) < 1 && Math.abs(p.y - st.lastY) < 1) return;
       st.lastX = p.x;
@@ -1603,29 +1692,6 @@ export default {
         scaleFactor: inc
       });
     },
-    // 抬手速度与方向（CSS 像素/毫秒）：只取最近 120ms 的采样，早期慢速拖动不参与
-    compatTouchRelease: function(st) {
-      var list = st && st.samples ? st.samples : [];
-      // 带上手指 id：惯性补间必须继续用同一根手指，否则服务端会把补间当成另一根手指按下
-      var res = { speed: 0, dx: 0, dy: 0, x: 0, y: 0, id: st && st.id ? st.id : 1 };
-      if (list.length < 2) return res;
-      var last = list[list.length - 1];
-      var first = list[0];
-      for (var i = list.length - 2; i >= 0; i--) {
-        first = list[i];
-        if (last.t - first.t >= 120) break;
-      }
-      res.x = last.x;
-      res.y = last.y;
-      var dt = last.t - first.t;
-      if (dt < 1) return res;
-      res.dx = (last.x - first.x) / dt;
-      res.dy = (last.y - first.y) / dt;
-      res.speed = Math.sqrt(res.dx * res.dx + res.dy * res.dy);
-      // 手指已经停稳再抬起不算甩动
-      if (Date.now() - last.t > 120) res.speed = 0;
-      return res;
-    },
     onCompatTouchEnd: function(e) {
       var self = this;
       var left = e && e.touches ? e.touches.length : 0;
@@ -1633,6 +1699,9 @@ export default {
       if (self._compatPinch) {
         if (left >= 3) return;
         self._compatPinch = null;
+        self.clearCompatLongPress();
+        self._compatHoldPending = false;
+        self._compatHoldFired = false;
         if (!left) {
           self._compatTouchCount = 0;
           self._compatTouchDown = false;
@@ -1645,14 +1714,20 @@ export default {
           id: rest[0].id,
           lastX: rest[0].x,
           lastY: rest[0].y,
-          samples: [{ x: rest[0].x, y: rest[0].y, t: Date.now() }]
+          originX: rest[0].x,
+          originY: rest[0].y
         } : null;
         self.sendCompatInput({ type: 'touch', event: 'start', points: rest });
         return;
       }
-      // 还有手指按着：只上报剩余点，服务端按 id 差集抬起离开的那一根
-      // （已用 CDP 实测：touchEnd 传剩余点时，浏览器只抬起缺少的那根，其余保持按住）
+      // 还有手指按着：只上报本次被抬起的那几根（取 changedTouches）。
+      // 实测：CDP touchEnd 的 touchPoints 就是「要抬起的点」，传剩余点会抬错手指——
+      // 按住摇杆再点攻击键时反而会松开摇杆，这正是「不能同时按攻击键和方向键」的原因。
       if (left > 0) {
+        self.clearCompatLongPress();
+        self._compatHoldPending = false;
+        self._compatHoldFired = false;
+        var released = self.compatTouchPoints(e.changedTouches);
         var pts = self.compatTouchPoints(e.touches);
         self._compatTouchCount = pts.length;
         self._compatMulti = pts.length > 1;
@@ -1660,84 +1735,32 @@ export default {
           id: pts[0].id,
           lastX: pts[0].x,
           lastY: pts[0].y,
-          samples: [{ x: pts[0].x, y: pts[0].y, t: Date.now() }]
+          originX: pts[0].x,
+          originY: pts[0].y
         } : null;
-        self.sendCompatInput({ type: 'touch', event: 'end', points: pts });
+        // changedTouches 为空属于异常事件，宁可不下发也不能误抬全部手指
+        if (released.length) {
+          self.sendCompatInput({ type: 'touch', event: 'end', points: released });
+        }
         return;
       }
+      self.clearCompatLongPress();
       self._compatTouchCount = 0;
       self._compatTouchDown = false;
-      var st = self._compatTouch;
-      var multi = self._compatMulti;
+      var fired = self._compatHoldFired;
+      self._compatHoldPending = false;
+      self._compatHoldFired = false;
       self._compatTouch = null;
       self._compatMulti = false;
-      // 多指序列不做甩动惯性：两根手指交替滑动时补间会把页面甩飞
-      if (!st || multi) {
-        self.sendCompatInput({ type: 'touch', event: 'end', points: [] });
-        return;
-      }
-      var rel = self.compatTouchRelease(st);
-      // 轻点 / 慢慢拖到位：直接收尾，保证 click 判定正常触发
-      if (rel.speed < 0.45) {
-        self.sendCompatInput({ type: 'touch', event: 'end', points: [] });
-        return;
-      }
-      self.startCompatMomentum(rel);
-    },
-    // 补一段衰减位移模拟甩动惯性：CDP 触摸序列抬手即停，没有原生惯性，
-    // 快速滑到底会「戛然而止」，体感很像滑不动。
-    startCompatMomentum: function(rel) {
-      var self = this;
-      var vw = self.compatViewW || 1280;
-      var vh = self.compatViewH || 800;
-      var len = Math.sqrt(rel.dx * rel.dx + rel.dy * rel.dy) || 1;
-      var ux = rel.dx / len;
-      var uy = rel.dy / len;
-      // 惯性距离 ≈ 速度 × 180ms，并限制上限，避免极端甩动把页面甩飞
-      var total = Math.min(rel.speed * 180, 520);
-      // 手指若已贴近视口边缘，按剩余空间收缩，避免补间被边界夹死
-      var roomX = ux >= 0 ? (vw - 1 - rel.x) : rel.x;
-      var roomY = uy >= 0 ? (vh - 1 - rel.y) : rel.y;
-      if (Math.abs(ux) > 0.001) total = Math.min(total, roomX / Math.abs(ux));
-      if (Math.abs(uy) > 0.001) total = Math.min(total, roomY / Math.abs(uy));
-      if (total < 6) {
-        self.sendCompatInput({ type: 'touch', event: 'end', points: [] });
-        return;
-      }
-      var steps = 6;
-      var done = 0;
-      var tick = function() {
-        if (!self._compatMomentum) return;
-        done++;
-        // 先快后慢：位移按 1-(1-p)^2 收敛，接近真实惯性手感
-        var p = done / steps;
-        var d = total * (1 - Math.pow(1 - p, 2));
-        var x = Math.max(0, Math.min(vw - 1, Math.round(rel.x + ux * d)));
-        var y = Math.max(0, Math.min(vh - 1, Math.round(rel.y + uy * d)));
-        self.sendCompatInput({ type: 'touch', event: 'move', points: [{ x: x, y: y, id: rel.id }] });
-        if (done >= steps) {
-          self._compatMomentum = false;
-          self._momentumTimer = null;
-          self.sendCompatInput({ type: 'touch', event: 'end', points: [] });
-          return;
-        }
-        // 34ms 一步 ≈ 30Hz：够顺滑，也不会把服务端输入队列打满
-        self._momentumTimer = setTimeout(tick, 34);
-      };
-      self._compatMomentum = true;
-      self._momentumTimer = setTimeout(tick, 16);
-    },
-    // 中止未完成的惯性补间：新触摸或通道断开时调用，避免两段触摸序列重叠
-    cancelCompatMomentum: function() {
-      if (!this._compatMomentum) return;
-      this._compatMomentum = false;
-      clearTimeout(this._momentumTimer);
-      this._momentumTimer = null;
-      // 惯性序列已经发过 move，必须补一个 end 收尾，否则下一次 touchStart 会被当成第二根手指
-      this.sendCompatInput({ type: 'touch', event: 'end', points: [] });
+      // 不要在前端补「甩动惯性」：CDP 触摸序列在页面里会由浏览器自己算出惯性，
+      // 前端再补一段 6 步补间就会叠加成「划一点却滑出去很远」的飘移感。
+      // 长按已触发（服务端补了右键）时用 cancel 收尾，避免 touchend 再合成一次点击把菜单点掉。
+      self.sendCompatInput({ type: 'touch', event: fired ? 'cancel' : 'end', points: [] });
     },
     onCompatTouchCancel: function() {
-      this.cancelCompatMomentum();
+      this.clearCompatLongPress();
+      this._compatHoldPending = false;
+      this._compatHoldFired = false;
       this._compatPinch = null;
       // 多指序列没有 _compatTouch，必须靠计数判断是否需要通知服务端取消，
       // 否则页面会以为手指还按着（摇杆卡死在推满状态）
