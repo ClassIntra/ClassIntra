@@ -5,16 +5,19 @@
       <button class="icon-btn browser-btn" @click="goBack" title="返回" aria-label="返回">
         <i class="fa-solid fa-chevron-left"></i>
       </button>
-      <!-- 代理状态提示：当前页面经网页代理转发加速时给出明确标识，
-           避免用户无法判断代理是否生效（此前提到的「看不出网址有没有变」） -->
-      <span
-        v-if="isProxied"
-        class="browser-proxy-chip"
-        title="该页面经网页代理转发：已透传压缩、复用上游连接并支持条件缓存"
+      <!-- 网页代理开关（手动）：默认直连，点一下才让站点经代理转发加速。
+           不再自动代理——是否多绕一层由使用者自己决定，局域网 / 内网地址也可手动开启 -->
+      <button
+        v-if="proxyAvailable && !compatMode"
+        class="icon-btn browser-btn browser-proxy-btn"
+        :class="{ active: proxyEnabled }"
+        @click="toggleProxy"
+        :title="proxyEnabled ? '网页代理已开启（点击改为直连）' : '网页代理未开启（点击开启加速）'"
+        :aria-label="proxyEnabled ? '关闭网页代理' : '开启网页代理'"
+        :aria-pressed="proxyEnabled ? 'true' : 'false'"
       >
         <i class="fa-solid fa-bolt"></i>
-        <span>加速</span>
-      </span>
+      </button>
       <!-- 兼容模式标识：由服务器端真实浏览器渲染后以画面流回传 -->
       <span
         v-if="compatMode"
@@ -335,38 +338,11 @@ function getWebProxyInfo() {
   return info;
 }
 
-// 判断是否局域网 / 本机 / 内网短主机名 —— 这类地址应当直连，不要绕代理。
-// 原因：一是局域网地址经代理转发时，实际由服务器所在网络去访问，
-// 可能指向学生自己的设备（如 192.168.x 的打印机、投屏）而无法到达；
-// 二是直连明显更快，绕一层纯属浪费。
-function isLanHost(hostname) {
-  var h = String(hostname || '').toLowerCase();
-  if (!h) return true;
-  if (h === 'localhost' || /\.localhost$/.test(h)) return true;
-  // IPv6：环回、链路本地 fe80::、唯一本地 fc00::/7
-  if (h === '[::1]' || h === '::1') return true;
-  if (/^\[?fe80:/i.test(h) || /^\[?f[cd][0-9a-f]{2}:/i.test(h)) return true;
-  // 单标签主机名（无点）通常是内网主机名，如 nas、server、print
-  if (h.indexOf('.') < 0 && h.indexOf(':') < 0) return true;
-  // 内网保留域名后缀
-  if (/(\.local|\.lan|\.internal|\.home|\.corp|\.intranet|\.localdomain|\.home\.arpa)$/.test(h)) return true;
-  // IPv4 私有 / 环回 / 链路本地 / 运营商级 NAT
-  var m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
-  if (!m) return false;
-  var a = parseInt(m[1], 10);
-  var b = parseInt(m[2], 10);
-  if (a === 10 || a === 127 || a === 0) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 100 && b >= 64 && b <= 127) return true;
-  return false;
-}
-
-// 判断某个绝对 URL 是否需要改走网页代理
-// 规则（与插件 README 一致）：仅 http/https 外网站点走代理；
-// CampusBili（含 9002 端口）、与 ClassIntra 同主机名的内网页面、已是代理地址 → 均直连
-function shouldProxyUrl(url) {
+// 判断某个绝对 URL 是否「可以」走网页代理。
+// 是否真的走由使用者手动开关决定（见 toggleProxy）；这里只排除不该代理的地址：
+// CampusBili（含 9002 端口，有桥接联动）、与 ClassIntra 同主机名的页面、已是代理地址。
+// 局域网 / 本机地址不再强制直连——是否绕代理由使用者自己选。
+function canProxyUrl(url) {
   var info = getWebProxyInfo();
   if (!info) return false;
   if (!/^https?:\/\//i.test(url || '')) return false;
@@ -374,8 +350,6 @@ function shouldProxyUrl(url) {
   try { parsed = new URL(url); } catch (e) { return false; }
   if (/campusbili/i.test(parsed.hostname) || parsed.port === '9002') return false;
   if (typeof location !== 'undefined' && location.hostname && parsed.hostname === location.hostname) return false;
-  // 局域网 / 本机 / 内网主机名一律直连（代理反而是绕远路，且可能根本到不了）
-  if (isLanHost(parsed.hostname)) return false;
   if (url.indexOf(info.base + '/') === 0) return false;
   return true;
 }
@@ -480,6 +454,9 @@ export default {
       showHomepageInput: false,
       isFullscreen: false,
       showShareCapsule: false,
+      // 网页代理：改为手动开关（默认直连），按账号记忆偏好；
+      // 是否多绕一层由使用者决定，局域网 / 内网地址也可手动开启
+      proxyEnabled: false,
       // 当前 iframe 页面标题（同源时可读取，跨域时为空）
       pageTitle: '',
       // 页面加载指示器状态
@@ -532,13 +509,9 @@ export default {
     hideAddressBar: function() {
       return !!(this.$route && this.$route.query && this.$route.query.noaddr === '1');
     },
-    // 当前页面是否经网页代理转发（frameSrc 与原始 URL 不同即已改走代理）
-    // 兼容模式下页面由服务端浏览器渲染，不走代理改写，因此不显示「加速」标识
-    isProxied: function() {
-      var self = this;
-      if (self.compatMode) return false;
-      if (!self.currentUrl || self.frameSrc === self.currentUrl) return false;
-      return shouldProxyUrl(self.currentUrl);
+    // 服务端是否提供网页代理：插件就绪才显示手动开关按钮
+    proxyAvailable: function() {
+      return !!getWebProxyInfo();
     },
     // 兼容模式下地址栏地址未变化时，「转到」按钮转为「刷新」，避免额外占用工具栏
     compatReloadMode: function() {
@@ -559,14 +532,13 @@ export default {
       var info = getWebProxyInfo();
       return !!(info && info.render && info.render.available);
     },
-    // 是否允许对当前页面启用兼容模式：外网 http(s) 站点才需要（局域网/本机直连即可）
+    // 是否允许对当前页面启用兼容模式：仅要求 http(s) 与渲染能力。
+    // 局域网 / 内网地址同样显示入口——渲染浏览器运行在服务器侧，通常就在同一内网
     compatCapable: function() {
       if (!this.renderAvailable || !this.currentUrl) return false;
       try {
         var u = new URL(this.currentUrl);
-        if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
-        if (isLanHost(u.hostname)) return false;
-        return true;
+        return u.protocol === 'http:' || u.protocol === 'https:';
       } catch (e) {
         return false;
       }
@@ -601,6 +573,8 @@ export default {
     self.homepage = localStorage.getItem(scopedKey('homepage')) || '';
     // 云游戏画质偏好按账号记忆：同一台设备切号不会互相影响
     try { self.compatGame = localStorage.getItem(scopedKey('compat-game')) === '1'; } catch (e) {}
+    // 网页代理偏好按账号记忆：默认直连，需要时在工具栏手动开启
+    try { self.proxyEnabled = localStorage.getItem(scopedKey('proxy-enabled')) === '1'; } catch (e) {}
     // 登录账号：先渲染本地缓存，再异步拉服务端数据合并（同一账号跨设备同步）
     self.syncBrowserData();
     var url = self.$route.query.url || '';
@@ -836,8 +810,8 @@ export default {
         }
         return;
       }
-      // 外网站点改走网页代理（插件就绪时）；内网 / CampusBili / 已是代理地址均直连
-      var nextFrameSrc = shouldProxyUrl(raw) ? buildProxyUrl(raw) : raw;
+      // 外网站点改走网页代理（插件就绪且使用者手动开启时）；内网 / CampusBili / 已是代理地址均直连
+      var nextFrameSrc = (self.proxyEnabled && canProxyUrl(raw)) ? buildProxyUrl(raw) : raw;
       // 重复导航到同一地址时 iframe 不会重新加载（也就不会触发 load），此时不显示指示器
       if (nextFrameSrc !== self.frameSrc || raw !== self.currentUrl) {
         self.startLoading();
@@ -865,6 +839,21 @@ export default {
       self.$nextTick(function() {
         self.connectCompat(self.currentUrl);
       });
+    },
+    // 网页代理手动开关：默认直连，开启后当前页面与后续导航都改走代理；
+    // 兼容模式本身不经代理改写，因此该按钮在兼容模式下隐藏
+    toggleProxy: function() {
+      var self = this;
+      if (self.compatMode) return;
+      self.proxyEnabled = !self.proxyEnabled;
+      try { localStorage.setItem(scopedKey('proxy-enabled'), self.proxyEnabled ? '1' : '0'); } catch (e) {}
+      var url = self.currentUrl;
+      if (!url) return;
+      var next = (self.proxyEnabled && canProxyUrl(url)) ? buildProxyUrl(url) : url;
+      if (next === self.frameSrc) return;
+      // 切换后立刻用新地址重载当前页，避免「点了按钮但画面没变」
+      self.startLoading();
+      self.frameSrc = next;
     },
     // 画质切换的临时回执：给出「确实变了」的可见反馈，几秒后自动收起
     flashCompatGameTip: function(text, ms) {
@@ -906,9 +895,9 @@ export default {
       this.stopCompatAudio();
       this.disconnectCompat();
       this.stopLoading();
-      // 退出兼容模式后回到普通 iframe：按原规则重新计算 frameSrc
+      // 退出兼容模式后回到普通 iframe：按当前代理开关重新计算 frameSrc
       var url = this.currentUrl;
-      if (url) this.frameSrc = shouldProxyUrl(url) ? buildProxyUrl(url) : url;
+      if (url) this.frameSrc = (this.proxyEnabled && canProxyUrl(url)) ? buildProxyUrl(url) : url;
     },
     // 地址栏按钮：兼容模式下地址未变即刷新，否则按新地址跳转
     onCompatGo: function() {
@@ -1954,6 +1943,8 @@ export default {
       this.history = loadFromStorage(scopedKey('history'));
       this.bookmarks = loadFromStorage(scopedKey('bookmarks'));
       this.homepage = localStorage.getItem(scopedKey('homepage')) || '';
+      // 代理偏好也按账号读取，避免切换账号后沿用上一个账号的代理开关
+      try { this.proxyEnabled = localStorage.getItem(scopedKey('proxy-enabled')) === '1'; } catch (e) {}
     },
     removeHistory: function(idx) {
       this.history.splice(idx, 1);
@@ -2167,6 +2158,13 @@ export default {
 /* 兼容模式开关按钮 */
 .browser-compat-btn.active {
   color: var(--warning-color);
+}
+/* 网页代理开关按钮：未开启用次级色，开启用主色（一眼看出是否正在走代理） */
+.browser-proxy-btn {
+  color: var(--text-tertiary);
+}
+.browser-proxy-btn.active {
+  color: var(--primary-color);
 }
 /* 兼容模式声音按钮：开启为主色；有声音在播时轻微脉动，给「确实出声」的可见反馈 */
 .browser-audio-btn {
