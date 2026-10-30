@@ -339,18 +339,17 @@ function getWebProxyInfo() {
 }
 
 // 判断某个绝对 URL 是否「可以」走网页代理。
-// 是否真的走由使用者手动开关决定（见 toggleProxy）；这里只排除不该代理的地址：
-// CampusBili（含 9002 端口，有桥接联动）、与 ClassIntra 同主机名的页面、已是代理地址。
-// 局域网 / 本机地址不再强制直连——是否绕代理由使用者自己选。
+// 是否真的走由使用者手动开关决定（见 toggleProxy）；这里只排除端口 9000–9999 的地址——
+// 那是 ClassIntra 自研主服务段（CampusBili 9002 桥接、代理自身 9101 都在其中，绕代理会破坏联动 / 二次包装）。
+// 其余地址（含局域网 / 本机）都不再强制直连——是否绕代理由使用者自己选。
 function canProxyUrl(url) {
   var info = getWebProxyInfo();
   if (!info) return false;
   if (!/^https?:\/\//i.test(url || '')) return false;
   var parsed;
   try { parsed = new URL(url); } catch (e) { return false; }
-  if (/campusbili/i.test(parsed.hostname) || parsed.port === '9002') return false;
-  if (typeof location !== 'undefined' && location.hostname && parsed.hostname === location.hostname) return false;
-  if (url.indexOf(info.base + '/') === 0) return false;
+  var port = parsed.port ? Number(parsed.port) : 0;
+  if (port >= 9000 && port <= 9999) return false;
   return true;
 }
 
