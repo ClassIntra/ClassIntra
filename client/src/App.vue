@@ -746,7 +746,7 @@ export default {
   transition: opacity var(--duration-fast, 0.15s) var(--ease-standard, ease);
 }
 .app-close-enter-from { opacity: 0; }
-</style>
+
 #app {
   width: 100%;
   height: 100%;
