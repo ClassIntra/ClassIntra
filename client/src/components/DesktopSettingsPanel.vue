@@ -82,7 +82,7 @@
                   <div v-if="theme.id !== availableThemes[availableThemes.length - 1].id" class="settings-action-divider"></div>
                 </div>
               </div>
-              <p class="settings-section-tip">主题系统架构预留，后续支持主题包导入。</p>
+              <p class="settings-section-tip">主题选择即时生效；应用市场安装的主题包也会出现在这里。</p>
             </div>
 
             <!-- 危险操作分组 -->

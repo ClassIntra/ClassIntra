@@ -5,7 +5,7 @@
          应用打开动画不挂在这里 —— 由 appOpenTransition 在导航完成后以 WAAPI 播放
          （后置动画不可能阻塞导航；此前挂在 transition 钩子上曾导致真机卡死） -->
     <transition name="page-fade" mode="out-in">
-      <ErrorBoundary>
+      <ErrorBoundary ref="pageBoundary">
         <router-view></router-view>
       </ErrorBoundary>
     </transition>
@@ -66,7 +66,7 @@ export default {
     };
   },
   watch: {
-    // 应用打开动画（WAAPI 后置播放）：导航已完成才启动动画 —— 从结构上不可能阻塞导航。
+    // 应用打开/返回动画（WAAPI 后置播放）：导航已完成才启动动画 —— 从结构上不可能阻塞导航。
     // （此前把动画挂在 transition 钩子上，真机时序竞态导致"卡在应用界面"，已彻底移除）
     '$route': function(to, from) {
       var self = this;
@@ -74,7 +74,7 @@ export default {
       var fromDesktop = !!from && (from.name === 'Desktop' || from.path === '/');
       var toDesktop = !to || to.name === 'Desktop' || to.path === '/';
       if (fromDesktop && !toDesktop && appOpenTransition.hasPendingOrigin()) {
-        var o = appOpenTransition.consumeOrigin(to.fullPath);
+        var o = appOpenTransition.consumeOrigin(to.path);
         if (!o) return;
         this.$nextTick(function() {
           // 动画目标：路由页根元素（ErrorBoundary 的 $el 即 slot 内容根）
@@ -86,6 +86,25 @@ export default {
             var vh = window.innerHeight || 1;
             pageEl.animate([
               { transform: 'translate(' + o.x + 'px, ' + o.y + 'px) scale(' + (o.w / vw).toFixed(4) + ', ' + (o.h / vh).toFixed(4) + ')', borderRadius: '28px', opacity: 0.3 },
+              { transform: 'translate(0px, 0px) scale(1, 1)', borderRadius: '0px', opacity: 1 }
+            ], { duration: 320, easing: 'cubic-bezier(0, 0, 0.2, 1)' });
+          } catch (e) {}
+        });
+      } else if (!fromDesktop && toDesktop && appOpenTransition.canCollapse(from && from.path)) {
+        // 返回收缩（与打开动画镜像）：桌面从最近展开的图标 rect 弹回全屏。
+        // 取后即清；应用与打开时不一致（深链/管控重定向到别的应用）由 canCollapse 拦下走普通 fade
+        var origin = appOpenTransition.getLastOrigin();
+        appOpenTransition.clearLast();
+        if (!origin) return;
+        this.$nextTick(function() {
+          var boundary = self.$refs.pageBoundary;
+          var pageEl = boundary && boundary.$el;
+          if (!pageEl || !pageEl.animate || !pageEl.getBoundingClientRect) return;
+          try {
+            var vw = window.innerWidth || 1;
+            var vh = window.innerHeight || 1;
+            pageEl.animate([
+              { transform: 'translate(' + origin.x + 'px, ' + origin.y + 'px) scale(' + (origin.w / vw).toFixed(4) + ', ' + (origin.h / vh).toFixed(4) + ')', borderRadius: '28px', opacity: 0.3 },
               { transform: 'translate(0px, 0px) scale(1, 1)', borderRadius: '0px', opacity: 1 }
             ], { duration: 320, easing: 'cubic-bezier(0, 0, 0.2, 1)' });
           } catch (e) {}

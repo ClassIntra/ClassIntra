@@ -70,12 +70,13 @@ var actions = {
       context.commit('SET_USER', data.user_info);
       realtime.connect();
       // 跨班登录提示：明确告知当前登录的是他班账号，避免与自己的账号混淆
+      // （本模块 namespaced，跨模块 commit 必须 { root: true }，否则静默无效）
       if (data.cross_class) {
         try {
           context.commit('toast/SHOW_TOAST', {
             message: '当前为跨班登录：' + (data.user_info.real_name || data.user_info.net_name || data.user_info.user_id) + '（' + String(data.user_info.user_id).substring(2, 4) + '班）',
             type: 'info'
-          });
+          }, { root: true });
         } catch (e) {}
       }
       return data;

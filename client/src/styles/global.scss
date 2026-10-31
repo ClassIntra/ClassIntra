@@ -663,6 +663,13 @@ a:focus-visible {
   100% { background-position: -200% 0; }
 }
 
+// 编辑态控件（删除徽章/widget 控制钮等）统一进场：scale 0.5→1 + fade。
+// keyframes 在 Vue2 scoped 样式里不按组件隔离（全局命名空间），故统一定义在此供各组件引用
+@keyframes ctrlPopIn {
+  0% { transform: scale(0.5); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
 .fade-up-enter-active,
 .fade-up-leave-active {
   transition: opacity var(--duration-normal) var(--ease-emphasized), transform var(--duration-normal) var(--ease-emphasized);
@@ -1534,6 +1541,16 @@ input[type="radio"]:checked::after {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+// widget 拖拽 ghost：与 app ghost 统一"悬浮"语言（投影/半透明/圆角），
+// 类名由 desktop-drag.js 克隆 widget DOM 时附加
+.desktop-drag-ghost-widget {
+  border-radius: var(--radius-2xl);
+  -webkit-box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+  opacity: 0.9;
+  overflow: hidden;
 }
 
 // folder 拖拽 ghost：3×3 网格缩略图（与 DesktopFolder 槽位形态视觉一致）

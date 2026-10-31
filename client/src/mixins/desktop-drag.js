@@ -235,6 +235,19 @@ export default {
       document.body.appendChild(ghost);
       this.dragState.ghostEl = ghost;
 
+      // 拿起弹起：ghost 内层从缩小态弹性放大（外层 transform 由跟手位移驱动，不能参与动画），
+      // 配合拿起即震（iPad 语义：拾起有确认感）
+      var inner = ghost.firstElementChild;
+      if (inner && inner.animate) {
+        try {
+          inner.animate([
+            { transform: 'scale(0.86)', opacity: 0.6 },
+            { transform: 'scale(1)', opacity: 1 }
+          ], { duration: 150, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' });
+        } catch (e) {}
+      }
+      if (navigator.vibrate) navigator.vibrate(8);
+
       this.$store.commit('desktop/SET_DRAGGING', this.dragState.source);
     },
 
@@ -270,11 +283,14 @@ export default {
         if (widgetEl) {
           var rect = widgetEl.getBoundingClientRect();
           var clone = widgetEl.cloneNode(true);
-          // 移除编辑态控制按钮，避免 ghost 上显示按钮
+          // 移除编辑态类与控制按钮：ghost 不带 wiggle 动画/按钮
+          if (clone.classList) clone.classList.remove('widget-editing');
           var btns = clone.querySelectorAll('.widget-remove-btn, .widget-ctrl-btn');
           for (var j = 0; j < btns.length; j++) {
             if (btns[j].parentNode) btns[j].parentNode.removeChild(btns[j]);
           }
+          // 与 app ghost 统一"悬浮"语言（投影/半透明，样式见 global.scss）
+          if (clone.classList) clone.classList.add('desktop-drag-ghost-widget');
           // 清除可能继承的样式，用固定宽高
           clone.style.visibility = '';
           clone.style.opacity = '';
@@ -602,6 +618,8 @@ export default {
 
       // 记录 FLIP 前位置
       var oldRects = this._captureIconRects();
+      // 落点 settle 回弹目标：被拖图标落位后的 flip key（在 MOVE_APP 提交前按当前内容判定）
+      var settleKey = this._dropFlipKey(source, target);
 
       if (target) {
         // 提交 MOVE_APP
@@ -614,7 +632,7 @@ export default {
       this.$store.dispatch('desktop/saveDesktopLayout');
 
       // FLIP 动画
-      this._runFlipAnimation(oldRects);
+      this._runFlipAnimation(oldRects, settleKey);
 
       // 触觉反馈
       if (navigator.vibrate) navigator.vibrate(10);
@@ -792,7 +810,8 @@ export default {
     },
 
     // FLIP 动画：DOM 更新后，从旧位置过渡到新位置
-    _runFlipAnimation: function(oldRects) {
+    // settleKey：被拖图标落位后的 flip key——FLIP 结束后播 1.05→1 的 settle 回弹，与拿起 1.08 呼应
+    _runFlipAnimation: function(oldRects, settleKey) {
       var self = this;
       this.$nextTick(function() {
         var icons = document.querySelectorAll('[data-flip-key]');
@@ -815,7 +834,47 @@ export default {
             anim.onfinish = function() { elRef.style.willChange = ''; };
           })(el);
         }
+        // settle 回弹：等 FLIP 落位后播放（瞬时缩放不改位置，不影响 FLIP）
+        if (settleKey) {
+          var settleEl = document.querySelector('[data-flip-key="' + settleKey + '"]');
+          if (settleEl && settleEl.animate) {
+            setTimeout(function() {
+              try {
+                settleEl.animate([
+                  { transform: 'scale(1.05)' },
+                  { transform: 'scale(1)' }
+                ], { duration: 200, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' });
+              } catch (e) {}
+            }, FLIP_DURATION);
+          }
+        }
       });
+    },
+
+    // 计算被拖图标落位后的 flip key（settle 回弹目标）
+    // 文件夹源拖的是整个文件夹 tile；app 源按落点类型对应 page/dock/folder 的 key
+    _dropFlipKey: function(source, target) {
+      if (!target) return null;
+      var self = this;
+      // 判定源的实际内容（page 源可能是 app 也可能是文件夹 tile）
+      var isFolderSource = false;
+      var folderId = null;
+      if (source.type === 'page') {
+        var layout = this.$store.state.desktop.layout;
+        var slot = layout && layout.pages[source.pageIndex] ? layout.pages[source.pageIndex].slots[source.index] : null;
+        if (slot && slot.type === 'folder') {
+          isFolderSource = true;
+          folderId = slot.id;
+        }
+      }
+      if (isFolderSource) {
+        return target.type === 'page' ? 'page-folder-' + folderId : null;
+      }
+      if (!source.appName) return null;
+      if (target.type === 'page') return 'page-app-' + source.appName;
+      if (target.type === 'dock') return 'dock-' + source.appName;
+      if (target.type === 'folder') return 'page-folder-' + target.folderId;
+      return null;
     },
 
     // 供模板调用：判断某槽位是否为当前拖拽目标（用于额外高亮）

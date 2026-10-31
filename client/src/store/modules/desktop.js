@@ -165,6 +165,26 @@ function normalizeLayout(serverLayout, enabledAppNames) {
   };
 }
 
+// 应用角标（对应 iOS badge / Android BadgeDrawable）：
+// 第三方应用通过 context.system.setBadge(n) 写入，桌面图标与 Dock 同步显示。
+// 持久化在 localStorage（键 ci:app-badge:<name>），刷新后仍在；应用写空字符串即清除。
+var BADGE_PREFIX = 'ci:app-badge:';
+
+function loadAppBadges() {
+  var out = {};
+  try {
+    for (var i = 0; i < localStorage.length; i++) {
+      var key = localStorage.key(i);
+      if (key && key.indexOf(BADGE_PREFIX) === 0) {
+        var name = key.slice(BADGE_PREFIX.length);
+        var value = localStorage.getItem(key);
+        if (name && value) out[name] = value;
+      }
+    }
+  } catch (e) {}
+  return out;
+}
+
 var state = {
   layout: null,             // null=未加载，对象=已加载
   currentPage: 0,          // 当前页索引
@@ -174,7 +194,8 @@ var state = {
   openFolderId: null,       // 当前打开的文件夹 id
   settingsPanelOpen: false,  // 捏合调出的桌面设置面板
   enabledApps: null,         // 应用管控：null=未加载（全部启用），数组=已启用的应用名列表
-  widgetRefreshKey: 0        // 自增 key，watch 此值的 widget 重新加载数据
+  widgetRefreshKey: 0,       // 自增 key，watch 此值的 widget 重新加载数据
+  appBadges: loadAppBadges() // { appName: '3' | '99+' | '●' }
 };
 
 var getters = {
@@ -248,6 +269,28 @@ var getters = {
 };
 
 var mutations = {
+  // 设置/清除应用角标。用「整体替换对象」而不是逐键赋值，保证 Vue 2 能感知新增键。
+  SET_APP_BADGE: function(state, payload) {
+    var name = payload && payload.name;
+    if (!name) return;
+    var raw = payload.value;
+    var value = (raw === null || raw === undefined || raw === 0 || raw === '' || raw === false)
+      ? ''
+      : String(raw).slice(0, 4);
+
+    var next = {};
+    var keys = Object.keys(state.appBadges || {});
+    for (var i = 0; i < keys.length; i++) {
+      if (keys[i] !== name) next[keys[i]] = state.appBadges[keys[i]];
+    }
+    if (value) next[name] = value;
+    state.appBadges = next;
+
+    try {
+      if (value) localStorage.setItem(BADGE_PREFIX + name, value);
+      else localStorage.removeItem(BADGE_PREFIX + name);
+    } catch (e) {}
+  },
   SET_LAYOUT: function(state, layout) {
     state.layout = layout;
   },
@@ -569,7 +612,7 @@ var mutations = {
     }
   },
 
-  // ===== 小组件系统（预留，供后续实现调用）=====
+  // ===== 小组件系统（桌面端由 Desktop.vue 模板 + desktop-drag.js 拖拽引擎消费）=====
   // 添加小组件到指定页
   // payload: { pageId, widget: { id, type, slot, w, h, config } }
   ADD_WIDGET: function(state, payload) {
@@ -799,6 +842,49 @@ function placeAppAnywhere(layout, item, preferPageIndex) {
 // 模块级 debounce 定时器
 var _saveTimer = null;
 
+// 布局保存失败重试（指数退避 2s → 8s，最多 2 次；成功清零，最终失败仅 toast 一次）
+var _saveRetryCount = 0;
+var _saveRetryTimer = null;
+var _saveFailureNotified = false;
+
+// 实际提交：始终 POST 最新 state.layout（重试时拿到的是当前布局而非过期快照）
+function postLayoutSave(context) {
+  var layout = context.state.layout;
+  if (!layout) return;
+  // 写 localStorage 缓存（服务端失败时的本地兜底，加载端有对应降级读取）
+  try { localStorage.setItem(LS_CACHE_KEY, JSON.stringify(layout)); } catch (e) {}
+  api.post('/user/settings', { desktop_layout: layout }).then(function() {
+    _saveRetryCount = 0;
+    _saveFailureNotified = false;
+  }).catch(function(e) {
+    console.error('[desktop] 保存布局失败:', e);
+    scheduleLayoutSaveRetry(context);
+  });
+}
+
+function scheduleLayoutSaveRetry(context) {
+  if (_saveRetryCount >= 2) {
+    // 重试耗尽：仅在本轮失败周期内提示一次，避免连续操作连环弹 toast
+    if (!_saveFailureNotified) {
+      _saveFailureNotified = true;
+      try {
+        context.commit('toast/SHOW_TOAST', {
+          message: '桌面布局暂时未能同步到服务器，已在本机保存',
+          type: 'info'
+        }, { root: true });
+      } catch (e) {}
+    }
+    return;
+  }
+  if (_saveRetryTimer) clearTimeout(_saveRetryTimer);
+  var delay = _saveRetryCount === 0 ? 2000 : 8000;
+  _saveRetryCount++;
+  _saveRetryTimer = setTimeout(function() {
+    _saveRetryTimer = null;
+    postLayoutSave(context);
+  }, delay);
+}
+
 var actions = {
   // 加载桌面布局：优先服务端，降级 localStorage，再降级默认
   loadDesktopLayout: function(context, enabledAppNames) {
@@ -824,18 +910,12 @@ var actions = {
     });
   },
 
-  // 保存桌面布局到服务端（debounce 500ms）
+  // 保存桌面布局到服务端（debounce 500ms；失败走重试队列，见 postLayoutSave）
   saveDesktopLayout: function(context) {
     if (_saveTimer) clearTimeout(_saveTimer);
     _saveTimer = setTimeout(function() {
-      var layout = context.state.layout;
-      if (!layout) return;
-      // 写 localStorage 缓存
-      try { localStorage.setItem(LS_CACHE_KEY, JSON.stringify(layout)); } catch (e) {}
-      // POST 到服务端
-      api.post('/user/settings', { desktop_layout: layout }).catch(function(e) {
-        console.error('[desktop] 保存布局失败:', e);
-      });
+      _saveTimer = null;
+      postLayoutSave(context);
     }, 500);
   },
 

@@ -1,43 +1,7 @@
 <template>
-  <!-- 槽位形态：在网格中显示为文件夹图标 -->
-  <button
-    v-if="!expanded"
-    class="desktop-folder-tile desktop-folder"
-    :class="{ 'desktop-folder-tile--editing': editing }"
-    @click="onTileClick"
-  >
-    <div class="folder-tile-icon" :data-src-type="null">
-      <div class="folder-tile-grid">
-        <div
-          v-for="(name, i) in displayApps"
-          :key="name"
-          class="folder-tile-app"
-          :style="tileAppStyle(i)"
-        >
-          <img :src="appMeta(name).icon" :alt="appMeta(name).label" draggable="false" />
-        </div>
-        <!-- 空位占位 -->
-        <div v-for="n in emptySlots" :key="'empty-' + n" class="folder-tile-app folder-tile-app--empty"></div>
-      </div>
-    </div>
-    <!-- 文件夹名标签已移除：仅保留纯图标展示，展开态头部仍可重命名 -->
-    <!-- 编辑态删除按钮（解散文件夹） -->
-    <button
-      v-if="editing"
-      class="folder-tile-remove"
-      @click.stop="onRemove"
-      aria-label="解散文件夹"
-    >
-      <i class="fa-solid fa-xmark"></i>
-    </button>
-  </button>
-
-  <!-- 展开形态：全屏遮罩 + 卡片 -->
-  <div
-    v-else
-    class="folder-expanded-overlay desktop-folder"
-    @click.self="onClose"
-  >
+  <!-- 文件夹展开形态：全屏遮罩 + 卡片（槽位形态见 DesktopFolderTile.vue）。
+       单根组件，直接作为 Desktop.vue 中 folder-expand transition 的根。 -->
+  <div class="folder-expanded-overlay desktop-folder" @click.self="onClose">
     <div class="folder-expanded-card">
       <div class="folder-expanded-header">
         <input
@@ -58,6 +22,8 @@
         </button>
       </div>
       <div class="folder-expanded-body">
+        <!-- .folder-item 上的 4 个 data 属性是拖拽引擎从文件夹内拖出图标的源标识
+             （desktop-drag.js _findSourceElement 的 folder 分支选择器）与 FLIP 键，勿移除/改名 -->
         <div
           v-for="name in visibleApps"
           :key="name"
@@ -91,13 +57,11 @@
 import AppIcon from '@/components/AppIcon.vue';
 
 export default {
-  name: 'DesktopFolder',
+  name: 'DesktopFolderExpanded',
   components: { AppIcon: AppIcon },
   props: {
     // 文件夹对象：{ id, name, apps: [name...] }
     folder: { type: Object, required: true },
-    // 是否展开（false=槽位形态，true=展开形态）
-    expanded: { type: Boolean, default: false },
     // 是否编辑态
     editing: { type: Boolean, default: false }
   },
@@ -107,16 +71,8 @@ export default {
     };
   },
   computed: {
-    // 显示前 9 个应用（3×3）
-    displayApps: function() {
-      return (this.folder.apps || []).slice(0, 9);
-    },
-    // 空位数量（补齐到 9 的倍数，视觉对齐）
-    emptySlots: function() {
-      var count = 9 - this.displayApps.length;
-      return count > 0 ? count : 0;
-    },
-    // 过滤禁用应用后的可见列表（对接应用管控）
+    // 过滤禁用应用后的可见列表（对接应用管控）。
+    // 注意：与槽位 tile 预览（不过滤）的不对称是现状语义，勿顺手统一
     visibleApps: function() {
       var self = this;
       var isAppEnabled = this.$store.getters['desktop/isAppEnabled'];
@@ -131,14 +87,6 @@ export default {
       return this.$store.getters['desktop/appByName'](name) || {
         name: name, label: name, icon: '', color: '#8E8E93', route: ''
       };
-    },
-    // 槽位内小图标定位（3×3 网格）
-    tileAppStyle: function(i) {
-      return {};
-    },
-    onTileClick: function() {
-      if (this.editing) return;  // 编辑态下不打开
-      this.$emit('open', this.folder);
     },
     onClose: function() {
       this.$emit('close', this.folder);
@@ -173,115 +121,6 @@ export default {
 </script>
 
 <style scoped>
-/* ===== 槽位形态 ===== */
-.desktop-folder-tile {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 8px;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  position: relative;
-  -webkit-tap-highlight-color: transparent;
-  -webkit-user-select: none;
-  user-select: none;
-  -webkit-touch-callout: none;
-  transition: transform var(--duration-fast) var(--ease-standard);
-}
-
-.desktop-folder-tile:active {
-  transform: scale(0.94);
-}
-
-.desktop-folder-tile--editing {
-  animation: folderWiggle 0.25s var(--ease-standard) infinite alternate;
-  cursor: grab;
-}
-
-@keyframes folderWiggle {
-  0% { transform: rotate(-2deg); }
-  100% { transform: rotate(2deg); }
-}
-
-/* 文件夹图标容器（圆角矩形 + 毛玻璃） */
-.folder-tile-icon {
-  width: 60px;
-  height: 60px;
-  border-radius: var(--radius-lg);
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur-thin);
-  -webkit-backdrop-filter: var(--glass-blur-thin);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-}
-
-.desktop-folder-tile--editing .folder-tile-icon {
-  transform: scale(1.05);
-}
-
-/* 文件夹内 3×3 小图标网格 */
-.folder-tile-grid {
-  width: 46px;
-  height: 46px;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  grid-template-rows: repeat(3, 1fr);
-  grid-gap: 2px;
-}
-
-.folder-tile-app {
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.folder-tile-app img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  pointer-events: none;
-  -webkit-user-drag: none;
-}
-
-.folder-tile-app--empty {
-  background: transparent;
-}
-
-/* 文件夹名标签已移除（.folder-tile-name CSS 同步删除） */
-
-/* 编辑态删除按钮 */
-.folder-tile-remove {
-  position: absolute;
-  top: -6px;
-  left: -6px;
-  width: 20px;
-  height: 20px;
-  border-radius: var(--radius-pill);
-  background: var(--danger-color);
-  color: #fff;
-  border: 2px solid #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 10px;
-  cursor: pointer;
-  padding: 0;
-  z-index: 3;
-  box-shadow: var(--shadow-sm);
-  -webkit-tap-highlight-color: transparent;
-}
-
-.folder-tile-remove:active {
-  transform: scale(0.85);
-}
-
-/* ===== 展开形态 ===== */
 .folder-expanded-overlay {
   position: fixed;
   top: 0;
@@ -339,6 +178,7 @@ export default {
   outline: none;
   padding: 4px 8px;
   border-radius: var(--radius-sm);
+  transition: background var(--duration-fast) var(--ease-standard);
 }
 
 .folder-name-input:focus {

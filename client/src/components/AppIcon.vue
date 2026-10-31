@@ -140,6 +140,8 @@ export default {
   z-index: 2;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
   -webkit-tap-highlight-color: transparent;
+  /* 编辑态进入时随 wiggle 一起弹入（keyframe 定义在 global.scss，scoped keyframe 不隔离） */
+  animation: ctrlPopIn var(--duration-normal) var(--ease-spring);
 }
 
 .app-icon-remove:active {
@@ -181,13 +183,18 @@ export default {
   will-change: transform;
 }
 
+/* 编辑态按压反馈：wiggle animation 占用根元素 transform，:active 的缩放写在根上永远不生效
+   （死代码），故下移到 img-wrap 子元素——animation 与子元素 transform 互不冲突 */
 .app-icon--editing:active {
   cursor: grabbing;
-  transform: scale(0.95);
 }
 
 .app-icon--editing .app-icon-img-wrap {
   transform: scale(1.05);
+}
+
+.app-icon--editing:active .app-icon-img-wrap {
+  transform: scale(0.94);
 }
 
 @keyframes appIconWiggle {

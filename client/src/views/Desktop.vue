@@ -32,6 +32,12 @@
       <div
         v-if="showAnnouncementFloat && hasUnreadAnnouncements && currentAnnouncement"
         class="announcement-float"
+        :class="{ 'announcement-float--swiping': announceSwipeX !== 0 }"
+        :style="announceSwipeX !== 0 ? { transform: 'translateX(' + announceSwipeX + 'px)' } : null"
+        @touchstart.stop="onAnnounceTouchStart"
+        @touchmove.stop="onAnnounceTouchMove"
+        @touchend.stop="onAnnounceTouchEnd"
+        @touchcancel.stop="onAnnounceTouchEnd"
       >
         <div class="announcement-float-header">
           <div class="announcement-float-badge">
@@ -42,24 +48,28 @@
             <i class="fa-solid fa-xmark"></i>
           </button>
         </div>
-        <div
-          class="announcement-float-body"
-          role="button"
-          tabindex="0"
-          :aria-label="'查看公告全文：' + currentAnnouncement.title"
-          @click="openAnnouncementDetail(currentAnnouncement)"
-          @keydown.enter="openAnnouncementDetail(currentAnnouncement)"
-          @keydown.space.prevent="openAnnouncementDetail(currentAnnouncement)"
-        >
-          <h4 class="announcement-float-title">{{ currentAnnouncement.title }}</h4>
-          <p class="announcement-float-content">
-            {{ currentAnnouncement.content && currentAnnouncement.content.length > 100 ? currentAnnouncement.content.substring(0, 100) + '...' : currentAnnouncement.content }}
-          </p>
-          <span class="announcement-float-more">
-            <span>点击查看全文</span>
-            <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
-          </span>
-        </div>
+        <!-- 轮播切换交叉淡入：key 绑定当前公告索引 -->
+        <transition name="announce-swap" mode="out-in">
+          <div
+            :key="currentAnnouncementIndex"
+            class="announcement-float-body"
+            role="button"
+            tabindex="0"
+            :aria-label="'查看公告全文：' + currentAnnouncement.title"
+            @click="openAnnouncementDetail(currentAnnouncement)"
+            @keydown.enter="openAnnouncementDetail(currentAnnouncement)"
+            @keydown.space.prevent="openAnnouncementDetail(currentAnnouncement)"
+          >
+            <h4 class="announcement-float-title">{{ currentAnnouncement.title }}</h4>
+            <p class="announcement-float-content">
+              {{ currentAnnouncement.content && currentAnnouncement.content.length > 100 ? currentAnnouncement.content.substring(0, 100) + '...' : currentAnnouncement.content }}
+            </p>
+            <span class="announcement-float-more">
+              <span>点击查看全文</span>
+              <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
+            </span>
+          </div>
+        </transition>
         <div class="announcement-float-footer">
           <span class="announcement-float-indicator">
             {{ currentAnnouncementIndex + 1 }} / {{ unreadAnnouncements.length }}
@@ -80,7 +90,12 @@
     </transition>
 
     <!-- iPad 桌面模式：多页面容器 + 4×6 网格 -->
-    <div v-if="isGridLayout && isLoaded" class="desktop-pages" :style="pagesTransformStyle">
+    <div
+      v-if="isGridLayout && isLoaded"
+      class="desktop-pages"
+      :class="{ 'desktop-pages--dragging': pageDragOffset !== 0 }"
+      :style="pagesTransformStyle"
+    >
       <div
         v-for="(page, pageIndex) in pages"
         :key="page.id"
@@ -167,7 +182,7 @@
                 @launch="launchApp"
                 @remove="onRemoveApp(pageIndex, index)"
               />
-              <DesktopFolder
+              <DesktopFolderTile
                 v-else-if="slot.type === 'folder'"
                 :folder="folderById(slot.id) || { id: slot.id, name: '文件夹', apps: [] }"
                 :editing="isEditMode"
@@ -182,6 +197,17 @@
             </template>
           </div>
         </div>
+
+        <!-- 空页引导：无任何应用/文件夹/小组件时显示（pointer-events:none，不拦长按进编辑态） -->
+        <div v-if="!isEditMode && isPageEmpty(pageIndex)" class="desktop-page-empty-hint">
+          <i class="fa-solid fa-hand-pointer hint-icon"></i>
+          <span>此页为空 · 长按空白进入编辑态，把应用拖到这里</span>
+        </div>
+        <!-- 编辑态：小组件占位导致图标被裁剪的提示 -->
+        <div v-if="isEditMode && hiddenIconsCount(pageIndex) > 0" class="desktop-page-overflow-tip">
+          <i class="fa-solid fa-triangle-exclamation"></i>
+          <span>小组件占位较大，{{ hiddenIconsCount(pageIndex) }} 个图标被隐藏</span>
+        </div>
       </div>
     </div>
 
@@ -191,6 +217,7 @@
       :total="totalPages"
       :current="currentPage"
       :max-pages="9"
+      :drag-progress="pageDragProgress"
       @jump="setCurrentPage"
       @add-page="addPage"
     />
@@ -241,10 +268,9 @@
 
     <!-- 文件夹展开层 -->
     <transition name="folder-expand">
-      <DesktopFolder
+      <DesktopFolderExpanded
         v-if="openFolderId && folderById(openFolderId)"
         :folder="folderById(openFolderId)"
-        :expanded="true"
         :editing="isEditMode"
         @close="closeFolder"
         @rename="onRenameFolder"
@@ -331,7 +357,8 @@ import api from '@/utils/api';
 import readState from '@/utils/read-state';
 import updateChecker from '@/utils/update-checker';
 import AppIcon from '@/components/AppIcon.vue';
-import DesktopFolder from '@/components/DesktopFolder.vue';
+import DesktopFolderTile from '@/components/DesktopFolderTile.vue';
+import DesktopFolderExpanded from '@/components/DesktopFolderExpanded.vue';
 import DesktopPageIndicator from '@/components/DesktopPageIndicator.vue';
 import DesktopSettingsPanel from '@/components/DesktopSettingsPanel.vue';
 import BirthdayCelebration from '@/components/BirthdayCelebration.vue';
@@ -377,7 +404,8 @@ export default {
   name: 'Desktop',
   components: {
     AppIcon: AppIcon,
-    DesktopFolder: DesktopFolder,
+    DesktopFolderTile: DesktopFolderTile,
+    DesktopFolderExpanded: DesktopFolderExpanded,
     DesktopPageIndicator: DesktopPageIndicator,
     DesktopSettingsPanel: DesktopSettingsPanel,
     BirthdayCelebration: BirthdayCelebration
@@ -387,8 +415,8 @@ export default {
     return {
       entered: false,
       launchingApp: '',
-      touchStartY: 0,
-      mouseStartY: 0,
+      // 公告浮窗横滑关闭的跟手位移（0 = 未拖动；负左正右）
+      announceSwipeX: 0,
       videoBuffering: false,
       videoWallpaperFailed: false,
       videoPerformanceLevel: 2,
@@ -465,6 +493,13 @@ export default {
       if (this.newVersionAvailable) {
         badges['settings'] = '●';
       }
+      // 应用自设角标（context.system.setBadge）：并入同一张表，
+      // 系统自己的 chat / settings 优先，避免被第三方覆盖。
+      var appSet = this.$store.state.desktop.appBadges || {};
+      var names = Object.keys(appSet);
+      for (var i = 0; i < names.length; i++) {
+        if (!badges[names[i]]) badges[names[i]] = appSet[names[i]];
+      }
       return badges;
     },
     // 桌面布局是否已加载
@@ -499,13 +534,24 @@ export default {
     currentPage: function() {
       return this.$store.state.desktop.currentPage;
     },
-    // 页面容器 transform
+    // 页面容器 transform：跟手翻页时按像素实时偏移（desktop-gestures 写入 pageDragOffset），
+    // 松手后 offset 归零、dragging 类移除，由 .desktop-pages 的 transform transition 完成翻页/回弹
     pagesTransformStyle: function() {
+      if (this.pageDragOffset) {
+        return { transform: 'translateX(calc(-' + (this.currentPage * 100) + '% + ' + this.pageDragOffset.toFixed(1) + 'px))' };
+      }
       return { transform: 'translateX(-' + (this.currentPage * 100) + '%)' };
     },
     // 总页数
     totalPages: function() {
       return this.$store.getters['desktop/totalPages'];
+    },
+    // 跟手翻页进度（传给页码指示器实时联动）：-1 上一页方向 ~ 1 下一页方向，0 未拖动
+    pageDragProgress: function() {
+      if (!this.pageDragOffset) return 0;
+      var w = window.innerWidth || 1;
+      var p = -this.pageDragOffset / w;
+      return Math.max(-1, Math.min(1, p));
     },
     // 是否编辑态
     isEditMode: function() {
@@ -668,7 +714,8 @@ export default {
         var videos = document.querySelectorAll('.desktop-wallpaper-video video, video.desktop-video');
         if (!videos.length && self.$refs.videoA) videos = [self.$refs.videoA];
         for (var i = 0; i < videos.length; i++) {
-          try { if (dragging) { videos[i].pause(); } else if (!videos[i].paused && self.videoWallpaper) { videos[i].play(); } } catch (e) {}
+          // 拖拽结束恢复播放：仅当视频壁纸仍生效且不在编辑态（编辑态的暂停/恢复由 isEditMode watcher 管）
+          try { if (dragging) { videos[i].pause(); } else if (videos[i].paused && !self.isEditMode && self.videoWallpaperSrc && !self.videoWallpaperFailed) { videos[i].play(); } } catch (e) {}
         }
       }
     );
@@ -733,6 +780,11 @@ export default {
       clearTimeout(this._retryTimer);
       this._retryTimer = null;
     }
+    if (this._launchTimer) {
+      clearTimeout(this._launchTimer);
+      this._launchTimer = null;
+    }
+    this.stopAnnouncementRotate();
     var video = this.$refs.videoA;
     if (video) {
       video.pause();
@@ -1040,7 +1092,6 @@ export default {
       if (target.closest('.dock-slot')) return false;
       if (target.closest('.desktop-widget')) return false;
       if (target.closest('.desktop-settings-overlay')) return false;
-      if (target.closest('.folder-expand')) return false;
       if (target.closest('.announcement-float')) return false;
       // 桌面背景、desktop-pages、desktop-grid、空槽位 → 空白
       return true;
@@ -1051,6 +1102,7 @@ export default {
       if (this.isEditMode) {
         if (this._isClickOnBlank(e)) {
           this.$store.dispatch('desktop/exitEditMode');
+          if (navigator.vibrate) navigator.vibrate(10);  // 与进入编辑态的 15ms 对称收尾
           return;
         }
         this.onPointerDown(e);
@@ -1067,6 +1119,7 @@ export default {
         // 点击空白退出编辑态，点击图标转发到拖拽引擎
         if (this._isClickOnBlank(e)) {
           this.$store.dispatch('desktop/exitEditMode');
+          if (navigator.vibrate) navigator.vibrate(10);
           return;
         }
         this.onPointerDown(e);
@@ -1090,10 +1143,41 @@ export default {
     },
     // ===== 文件夹操作 =====
     openFolder: function(folderId) {
+      // 捕获文件夹 tile 位置，展开卡片从 tile 原点弹出（局部实现；
+      // 不复用路由级 appOpenTransition——其 origin 由 App.vue 的路由 watcher 消费，会与应用启动起点冲突。
+      // origin 在父侧 nextTick 直接写卡片 style（rect 捕获与 origin 写入同处收口，
+      // 不依赖子组件挂载时机；组件已拆分为单根，此写法继续保留）
+      // 子组件实例的 props/mounted 链路不可靠，父侧 DOM 直设不依赖它）
+      var rect = null;
+      var tile = document.querySelector('[data-flip-key="page-folder-' + folderId + '"]');
+      if (tile && tile.getBoundingClientRect) {
+        try {
+          var r = tile.getBoundingClientRect();
+          if (r.width > 8 && r.height > 8) rect = { left: r.left, top: r.top, width: r.width, height: r.height };
+        } catch (e) {}
+      }
       this.$store.commit('desktop/SET_OPEN_FOLDER', folderId);
+      if (rect) {
+        this.$nextTick(function() {
+          var card = document.querySelector('.folder-expanded-card');
+          if (!card || !card.getBoundingClientRect) return;
+          try {
+            var cr = card.getBoundingClientRect();
+            if (cr.width < 8 || cr.height < 8) return;
+            var ox = ((rect.left + rect.width / 2) - cr.left) / cr.width * 100;
+            var oy = ((rect.top + rect.height / 2) - cr.top) / cr.height * 100;
+            // tile 理论上位于卡片附近，越界值夹取防异常元素（悬空 tile/隐藏态）
+            ox = Math.max(-20, Math.min(120, ox));
+            oy = Math.max(-20, Math.min(120, oy));
+            card.style.transformOrigin = ox.toFixed(1) + '% ' + oy.toFixed(1) + '%';
+          } catch (e) {}
+        });
+      }
+      if (navigator.vibrate) navigator.vibrate(8);
     },
     closeFolder: function() {
       this.$store.commit('desktop/SET_OPEN_FOLDER', null);
+      if (navigator.vibrate) navigator.vibrate(8);
     },
     onRenameFolder: function(payload) {
       this.$store.commit('desktop/RENAME_FOLDER', { folderId: payload.folder.id, name: payload.name });
@@ -1101,10 +1185,6 @@ export default {
     },
     onDeleteFolder: function(folderId) {
       this.$store.commit('desktop/DELETE_FOLDER', { folderId: folderId });
-      this.$store.dispatch('desktop/saveDesktopLayout');
-    },
-    onRemoveAppFromFolder: function(payload) {
-      this.$store.commit('desktop/REMOVE_FROM_FOLDER', { folderId: payload.folder.id, appName: payload.appName });
       this.$store.dispatch('desktop/saveDesktopLayout');
     },
     // ===== 桌面图标移除 =====
@@ -1147,6 +1227,31 @@ export default {
     // ===== 页面管理 =====
     setCurrentPage: function(pageIndex) {
       this.$store.commit('desktop/SET_CURRENT_PAGE', pageIndex);
+      if (navigator.vibrate) navigator.vibrate(8);  // 页码点跳页轻震（仅此路径；翻页手势路径各自已震）
+    },
+    // 页面是否完全为空（无应用/文件夹/小组件）——空页引导展示用
+    isPageEmpty: function(pageIndex) {
+      var page = this.pages[pageIndex];
+      if (!page) return false;
+      var slots = page.slots || [];
+      for (var i = 0; i < slots.length; i++) {
+        if (slots[i]) return false;
+      }
+      var view = this.pagesView[pageIndex];
+      return !view || view.widgets.length === 0;
+    },
+    // 因小组件占位被裁剪、当前不可见的图标数——编辑态溢出提示用
+    hiddenIconsCount: function(pageIndex) {
+      var page = this.pages[pageIndex];
+      var view = this.pagesView[pageIndex];
+      if (!page || !view) return 0;
+      var visibleLen = view.slots.length;
+      var slots = page.slots || [];
+      var hidden = 0;
+      for (var i = visibleLen; i < slots.length; i++) {
+        if (slots[i]) hidden++;
+      }
+      return hidden;
     },
     addPage: function() {
       this.$store.commit('desktop/ADD_PAGE');
@@ -1189,6 +1294,62 @@ export default {
     onSettingsDone: function() {
       this.$store.commit('desktop/SET_SETTINGS_PANEL', false);
       this.$store.dispatch('desktop/exitEditMode');
+      if (navigator.vibrate) navigator.vibrate(10);
+    },
+    // ===== 公告浮窗横滑关闭 =====
+    // 跟手位移 + 快速甩出判定；仅隐藏不标已读（与右上角 × 的"全部已读"语义区分）
+    onAnnounceTouchStart: function(e) {
+      if (!e.touches || e.touches.length !== 1) { this._announceSwipe = null; return; }
+      var t = e.touches[0];
+      this._announceSwipe = {
+        startX: t.clientX, startY: t.clientY,
+        lastX: t.clientX, lastT: e.timeStamp || Date.now(),
+        v: 0, active: false
+      };
+      this.announceSwipeX = 0;
+    },
+    onAnnounceTouchMove: function(e) {
+      var s = this._announceSwipe;
+      if (!s) return;
+      var t = e.touches[0];
+      var dx = t.clientX - s.startX;
+      var dy = t.clientY - s.startY;
+      if (!s.active) {
+        // 横向意图确认后才接管（参数与跟手翻页一致）
+        if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+          s.active = true;
+        } else {
+          return;
+        }
+      }
+      if (e.cancelable) e.preventDefault();
+      this.announceSwipeX = dx;
+      // 瞬时速度（供甩出判定），指数平滑
+      var now = e.timeStamp || Date.now();
+      var dt = now - s.lastT;
+      if (dt > 0) {
+        s.v = s.v * 0.6 + ((t.clientX - s.lastX) / dt) * 0.4;
+      }
+      s.lastX = t.clientX;
+      s.lastT = now;
+    },
+    onAnnounceTouchEnd: function() {
+      var s = this._announceSwipe;
+      this._announceSwipe = null;
+      if (!s || !s.active) { this.announceSwipeX = 0; return; }
+      var dx = this.announceSwipeX;
+      this.announceSwipeX = 0;
+      if (Math.abs(dx) > 80 || Math.abs(s.v) > 0.5) {
+        // 甩出：先补一段出场位移（移除 swiping 类恢复 transition 播放滑出），再隐藏
+        var self = this;
+        this.announceSwipeX = dx >= 0 ? 420 : -420;
+        setTimeout(function() {
+          self.showAnnouncementFloat = false;
+          self.stopAnnouncementRotate();
+          self.announceSwipeX = 0;
+        }, 180);
+        if (navigator.vibrate) navigator.vibrate(10);
+      }
     },
     // ===== 启动应用 =====
     // sourceEl：被点击的图标元素（AppIcon 根 / dock 项），供容器变换过渡捕获起点
@@ -1202,7 +1363,12 @@ export default {
         appOpenTransition.captureOrigin(sourceEl);
       }
       self.launchingApp = app.name;
-      setTimeout(function() {
+      // 重入保护：250ms 延迟内连点其他图标时以最后一次为准，旧计时作废
+      if (self._launchTimer) {
+        clearTimeout(self._launchTimer);
+      }
+      self._launchTimer = setTimeout(function() {
+        self._launchTimer = null;
         self.launchingApp = '';
         self.$router.push(app.route).catch(function() {});
       }, 250);
@@ -1243,8 +1409,10 @@ export default {
         if (self.unreadAnnouncements.length > 0) {
           self.currentAnnouncementIndex = 0;
           self.showAnnouncementFloat = true;
+          self.startAnnouncementRotate();
         } else {
           self.showAnnouncementFloat = false;
+          self.stopAnnouncementRotate();
         }
       }).catch(function() {
         self.unreadAnnouncements = [];
@@ -1277,7 +1445,7 @@ export default {
       loader.then(function(data) {
         var apps = (data && data.enabled_apps) || [];
         self.enabledApps = apps;
-        // 同步到 store（供 DesktopFolder 等组件通过 getter 读取）
+        // 同步到 store（供 DesktopFolderExpanded 等组件通过 getter 读取）
         self.$store.commit('desktop/SET_ENABLED_APPS', apps);
         // 加载桌面布局：传入当前用户可见的应用列表，避免 admin 等角色限定应用占用普通用户桌面槽位
         var visibleApps = apps.filter(function(name) { return self.isVisibleForUser(name); });
@@ -1366,6 +1534,27 @@ export default {
       });
     },
 
+    // 公告浮窗自动轮播：多条未读时每 8s 推进一条（后台标签页跳过），列表清空自动停
+    startAnnouncementRotate: function() {
+      var self = this;
+      self.stopAnnouncementRotate();
+      if (!self.unreadAnnouncements || self.unreadAnnouncements.length < 2) return;
+      self._announceTimer = setInterval(function() {
+        if (document.hidden) return;
+        if (!self.showAnnouncementFloat || self.unreadAnnouncements.length < 2) {
+          self.stopAnnouncementRotate();
+          return;
+        }
+        self.currentAnnouncementIndex = (self.currentAnnouncementIndex + 1) % self.unreadAnnouncements.length;
+      }, 8000);
+    },
+    stopAnnouncementRotate: function() {
+      if (this._announceTimer) {
+        clearInterval(this._announceTimer);
+        this._announceTimer = null;
+      }
+    },
+
     dismissAnnouncement: function() {
       var self = this;
       var current = self.currentAnnouncement;
@@ -1430,6 +1619,10 @@ export default {
   position: relative;
   overflow: hidden;
   background: #000;
+  /* 横向手势全部归 JS（跟手翻页），浏览器仅保留纵向滚动（小组件内列表）；
+     同时关闭横向 overscroll，防止浏览器把右滑误当历史返回 */
+  touch-action: pan-y;
+  overscroll-behavior-x: none;
 }
 
 .desktop-video-wallpaper {
@@ -1479,7 +1672,13 @@ export default {
   will-change: transform;
 }
 
+/* 跟手翻页进行中：关掉过渡（位移由手势实时驱动），松手后移除本类恢复 transition 完成翻页/回弹 */
+.desktop-pages--dragging {
+  transition: none;
+}
+
 .desktop-page {
+  position: relative;
   min-width: 100%;
   -webkit-flex: 0 0 100%;
   flex: 0 0 100%;
@@ -1492,6 +1691,53 @@ export default {
   -webkit-justify-content: center;
   justify-content: center;
   padding: 0 32px;
+}
+
+/* 空页引导：居中淡提示，pointer-events:none 不拦截长按/拖拽手势 */
+.desktop-page-empty-hint {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: -webkit-flex;
+  display: flex;
+  -webkit-flex-direction: column;
+  flex-direction: column;
+  -webkit-align-items: center;
+  align-items: center;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-body);
+  pointer-events: none;
+  opacity: 0.75;
+}
+.desktop-page-empty-hint .hint-icon {
+  font-size: 26px;
+  margin-bottom: 10px;
+  opacity: 0.8;
+}
+
+/* 编辑态：小组件占位溢出提示（浮在页面顶部，不挡拖拽落点判定） */
+.desktop-page-overflow-tip {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: center;
+  align-items: center;
+  padding: 6px 14px;
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.desktop-page-overflow-tip i {
+  margin-right: 6px;
+  color: var(--warning-color, #FF9F0A);
 }
 
 /* ===== 小组件区域 ===== */
@@ -1516,17 +1762,20 @@ export default {
   box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.08));
 }
 .desktop-widget.widget-editing {
-  /* 曲线改用令牌（规范禁 CSS 关键字曲线）；时长沿用循环动画豁免档 */
-  animation: widgetWiggle var(--duration-normal) var(--ease-standard) infinite;
+  /* 与图标 wiggle 统一节奏（±2deg alternate）——原 ±0.5deg 对称循环与图标三重不一致 */
+  animation: widgetWiggle var(--duration-normal) var(--ease-standard) infinite alternate;
   outline: 2px dashed rgba(var(--primary-rgb), 0.5);
   outline-offset: -2px;
 }
-.desktop-widget.widget-editing:hover {
-  transform: scale(1.02);
+/* 触屏无 hover 概念：sticky hover 会让点过的 widget 悬停在高处不落回，仅精确指针生效 */
+@media (hover: hover) and (pointer: fine) {
+  .desktop-widget.widget-editing:hover {
+    transform: scale(1.02);
+  }
 }
 @keyframes widgetWiggle {
-  0%, 100% { transform: rotate(-0.5deg); }
-  50% { transform: rotate(0.5deg); }
+  0% { transform: rotate(-2deg); }
+  100% { transform: rotate(2deg); }
 }
 /* widget 编辑态控制按钮：iPadOS 摇晃编辑态的统一玻璃圆钮——
    除「移除」外一律中性深玻璃，hover 只提亮不改色相，消除四种颜色的混搭感 */
@@ -1550,8 +1799,12 @@ export default {
   justify-content: center;
   z-index: 10;
   transition: transform var(--duration-fast) var(--ease-standard);
+  /* 编辑态进入时随 wiggle 一起弹入（keyframe 在 global.scss） */
+  animation: ctrlPopIn var(--duration-normal) var(--ease-spring);
 }
-.widget-remove-btn:hover { transform: scale(1.15); background: var(--danger-color); }
+@media (hover: hover) and (pointer: fine) {
+  .widget-remove-btn:hover { transform: scale(1.15); background: var(--danger-color); }
+}
 .widget-remove-btn:active { transform: scale(0.9); }
 
 /* widget 编辑态控制按钮（resize/config/refresh） */
@@ -1575,18 +1828,24 @@ export default {
   z-index: 10;
   transition: transform var(--duration-fast) var(--ease-standard),
               background var(--duration-fast) var(--ease-standard);
+  /* 编辑态进入时随 wiggle 一起弹入（keyframe 在 global.scss） */
+  animation: ctrlPopIn var(--duration-normal) var(--ease-spring);
 }
-.widget-ctrl-btn:hover { transform: scale(1.15); }
+@media (hover: hover) and (pointer: fine) {
+  .widget-ctrl-btn:hover { transform: scale(1.15); }
+}
 .widget-ctrl-btn:active { transform: scale(0.9); }
 .widget-resize-minus { right: 6px; }
 .widget-resize-plus { right: 32px; }
 .widget-config-btn { right: 58px; }
 .widget-refresh-btn { right: 84px; }
-/* 中性按钮统一 hover：提亮而不是换色相 */
-.widget-resize-minus:hover,
-.widget-resize-plus:hover,
-.widget-config-btn:hover,
-.widget-refresh-btn:hover { background: rgba(80, 80, 84, 0.85); }
+/* 中性按钮统一 hover：提亮而不是换色相（触屏 sticky hover 防残留，仅精确指针生效） */
+@media (hover: hover) and (pointer: fine) {
+  .widget-resize-minus:hover,
+  .widget-resize-plus:hover,
+  .widget-config-btn:hover,
+  .widget-refresh-btn:hover { background: rgba(80, 80, 84, 0.85); }
+}
 
 /* ===== 4×6 网格（widget + app icon 共用） ===== */
 .desktop-grid {
@@ -1728,6 +1987,11 @@ export default {
   -webkit-transform: none;
   transform: none;
 }
+/* 编辑态按压反馈：wiggle 占用根元素 transform，:active 缩放下移到 .dock-icon 子元素 */
+.desktop--editing .dock-slot:active .dock-icon {
+  -webkit-transform: scale(0.94);
+  transform: scale(0.94);
+}
 @-webkit-keyframes dockSlotWiggle {
   0% { -webkit-transform: rotate(-2deg); }
   100% { -webkit-transform: rotate(2deg); }
@@ -1752,9 +2016,12 @@ export default {
   border-radius: var(--radius-xl);
 }
 
-.dock-slot:hover {
-  -webkit-transform: scale(1.15) translateY(-6px);
-  transform: scale(1.15) translateY(-6px);
+/* 触屏无 hover：sticky hover 残留会让图标点完悬停在高处不落回（iPadOS 仅精确指针有 hover） */
+@media (hover: hover) and (pointer: fine) {
+  .dock-slot:hover {
+    -webkit-transform: scale(1.15) translateY(-6px);
+    transform: scale(1.15) translateY(-6px);
+  }
 }
 
 .dock-slot:active {
@@ -1830,6 +2097,8 @@ export default {
   -webkit-justify-content: center;
   justify-content: center;
   overflow: hidden;
+  /* 编辑态按压反馈作用于此子元素（wiggle 占用根元素 transform），过渡供按压缩放使用 */
+  transition: transform var(--duration-fast) var(--ease-standard);
 }
 
 .dock-icon img {
@@ -1856,6 +2125,8 @@ export default {
   z-index: 2;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
   -webkit-tap-highlight-color: transparent;
+  /* 编辑态进入时随 wiggle 一起弹入（keyframe 在 global.scss） */
+  animation: ctrlPopIn var(--duration-normal) var(--ease-spring);
 }
 
 .dock-remove-btn:active {
@@ -2025,8 +2296,8 @@ export default {
   -webkit-justify-content: center;
   justify-content: center;
   font-size: 14px;
-  -webkit-transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
-  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
+  -webkit-transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
+  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
 }
 
 .announcement-float-close:hover {
@@ -2034,9 +2305,34 @@ export default {
   color: #fff;
 }
 
+.announcement-float-close:active {
+  transform: scale(0.9);
+}
+
 .announcement-float-body {
   padding: 0 16px 12px;
   cursor: pointer;
+  border-radius: var(--radius-md);
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+
+.announcement-float-body:active {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* 横滑关闭进行中：关掉过渡（位移由手势实时驱动），松手移除后恢复过渡播放甩出/回弹 */
+.announcement-float--swiping {
+  transition: none !important;
+}
+
+/* 轮播切换交叉淡入 */
+.announce-swap-enter-active,
+.announce-swap-leave-active {
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+.announce-swap-enter,
+.announce-swap-leave-to {
+  opacity: 0;
 }
 
 /* 「点击查看全文」提示：浮窗正文只截 100 字，点进去看完整公告 */
@@ -2109,12 +2405,16 @@ export default {
   -webkit-align-items: center;
   align-items: center;
   gap: 4px;
-  -webkit-transition: background var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard);
-  transition: background var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard);
+  -webkit-transition: background var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
+  transition: background var(--duration-fast) var(--ease-standard), opacity var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
 }
 
 .announcement-float-btn i {
   font-size: 11px;
+}
+
+.announcement-float-btn:active {
+  transform: scale(0.94);
 }
 
 .announcement-float-btn-detail {
@@ -2168,21 +2468,26 @@ export default {
   transform: translateX(60px);
 }
 
-/* 文件夹展开过渡：打开淡入，关闭淡出+缩回（参考 iPadOS 关闭文件夹缩回动画） */
+/* 文件夹展开过渡：打开淡入，关闭时遮罩纯淡出、仅卡片缩回 tile 原点
+   （原实现把 scale(0.92) 施加在 overlay 根上，毛玻璃遮罩跟着一起缩，不符合果风语义） */
 .folder-expand-enter-active {
   -webkit-transition: opacity var(--duration-normal) var(--ease-standard);
   transition: opacity var(--duration-normal) var(--ease-standard);
 }
 .folder-expand-leave-active {
-  -webkit-transition: opacity var(--duration-fast) var(--ease-accelerate), -webkit-transform var(--duration-fast) var(--ease-accelerate);
-  transition: opacity var(--duration-fast) var(--ease-accelerate), transform var(--duration-fast) var(--ease-accelerate);
+  -webkit-transition: opacity var(--duration-fast) var(--ease-accelerate);
+  transition: opacity var(--duration-fast) var(--ease-accelerate);
 }
 .folder-expand-enter, .folder-expand-leave-to {
   opacity: 0;
 }
-.folder-expand-leave-to {
-  -webkit-transform: scale(0.92);
-  transform: scale(0.92);
+/* 收起：卡片朝 transform-origin（tile 中心，父侧 openFolder 写入）缩回并淡出 */
+.folder-expand-leave-active .folder-expanded-card {
+  animation: folderCollapse var(--duration-fast) var(--ease-accelerate) forwards;
+}
+@keyframes folderCollapse {
+  0% { opacity: 1; transform: scale(1) translateY(0); }
+  100% { opacity: 0; transform: scale(0.92) translateY(8px); }
 }
 
 /* ========== Widget 配置弹窗（支持多字段、select/text/bool/number） ========== */

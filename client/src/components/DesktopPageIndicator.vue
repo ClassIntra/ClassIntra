@@ -5,6 +5,7 @@
       :key="i"
       class="page-dot"
       :class="{ 'page-dot--active': (i - 1) === current }"
+      :style="(i - 1) === current ? activeDotStyle : null"
       @click="onJump(i - 1)"
       :aria-label="'第 ' + i + ' 页'"
     ></button>
@@ -28,7 +29,22 @@ export default {
     // 当前页索引
     current: { type: Number, default: 0 },
     // 最大页数
-    maxPages: { type: Number, default: 9 }
+    maxPages: { type: Number, default: 9 },
+    // 跟手翻页进度（宿主由 pageDragOffset/视口宽 换算）：-1 上一页方向 ~ 1 下一页方向；
+    // 0 表示未拖动。拖动中 active 长条朝目标点位移+拉伸，松手回零复用既有过渡
+    dragProgress: { type: Number, default: 0 }
+  },
+  computed: {
+    // active 长条的实时联动样式（仅拖动中非零）
+    activeDotStyle: function() {
+      var p = this.dragProgress || 0;
+      // 边界页的越界方向没有目标点，不联动（首页右拖 / 末页左拖为橡皮筋阻尼）
+      if ((this.current === 0 && p < 0) || (this.current === this.total - 1 && p > 0)) p = 0;
+      if (!p) return null;
+      var shift = p * 22;  // 朝相邻点位移（点距 20px + 2px gap）
+      var stretch = 1 + Math.abs(p) * 0.5;
+      return { transform: 'translateX(' + shift.toFixed(1) + 'px) scaleX(' + stretch.toFixed(3) + ')' };
+    }
   },
   methods: {
     onJump: function(pageIndex) {
