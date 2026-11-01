@@ -347,9 +347,11 @@ var stmtInsertPrivateMessage = db.prepare(
 );
 
 var stmtGetPrivateHistory = db.prepare(
-  'SELECT id, sender_id, receiver_id, content, type, extra_json, read, recalled, created_at FROM private_messages ' +
-  'WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?) ' +
-  'ORDER BY id DESC LIMIT ?'
+  // private_messages 没有 sender_name 列：LEFT JOIN users 补名字，跨班用户为空由前端兜底
+  'SELECT m.id, m.sender_id, m.receiver_id, m.content, m.type, m.extra_json, m.read, m.recalled, m.created_at, COALESCE(u.net_name, u.real_name, \'\') AS sender_name ' +
+  'FROM private_messages m LEFT JOIN users u ON u.user_id = m.sender_id ' +
+  'WHERE (m.sender_id = ? AND m.receiver_id = ?) OR (m.sender_id = ? AND m.receiver_id = ?) ' +
+  'ORDER BY m.id DESC LIMIT ?'
 );
 
 var stmtInsertGroup = db.prepare(
@@ -1092,7 +1094,13 @@ function handleRelayConnection(ws) {
             if (myState.last_gm_id > (remoteSyncState.last_gm_id || 0)) needReverseCatchup = true;
             if (myState.last_post_id > (remoteSyncState.last_post_id || 0)) needReverseCatchup = true;
 
-            if (needReverseCatchup) {
+            // ⚠️ 防乒乓（2026-11-02 事故）：reverse catchup 发出去后，对端收到同样走
+            // 本段逻辑再回一发 —— 两边各自在某个计数器上「领先」（chat/pm/gm/post 是
+            // 各库独立自增，天然不可比），就会无限互发，每轮全表查询 + 批量写库，
+            // 5Hz 打满事件循环（8i/18i 同时卡死的真凶）。冷却 45s：一个连接周期内
+            // 最多回一发，够用且彻底断链。
+            if (needReverseCatchup && Date.now() - (ws.__lastReverseAt || 0) > 45000) {
+              ws.__lastReverseAt = Date.now();
               var reverseCatchupData = relaySync.buildCatchupResponse(remoteSyncState);
               var reverseResponse = JSON.stringify({
                 type: 'relay_catchup_response',
@@ -1423,7 +1431,9 @@ function connectToRelayPeers() {
                   if (myState.last_gm_id > (remoteSyncState.last_gm_id || 0)) needReverseCatchup = true;
                   if (myState.last_post_id > (remoteSyncState.last_post_id || 0)) needReverseCatchup = true;
 
-                  if (needReverseCatchup) {
+                  // 同上：每连接 45s 冷却，断掉双向 catchup 乒乓（2026-11-02 事故）
+                  if (needReverseCatchup && Date.now() - (relayWs.__lastReverseAt || 0) > 45000) {
+                    relayWs.__lastReverseAt = Date.now();
                     var reverseCatchupData = relaySync.buildCatchupResponse(remoteSyncState);
                     var reverseResponse = JSON.stringify({
                       type: 'relay_catchup_response',
@@ -1865,6 +1875,7 @@ function handleGetPrivateHistory(ws, data) {
       id: rows[i].id,
       sender_id: rows[i].sender_id,
       receiver_id: rows[i].receiver_id,
+      sender_name: rows[i].sender_name || '',
       content: rows[i].content,
       type: rows[i].type,
       read: rows[i].read,
