@@ -210,6 +210,162 @@
           </div>
         </div>
 
+        <!-- ========== 学元管理 ========== -->
+        <div v-if="activeTab === 'xueyuan'" key="xueyuan" class="admin-section">
+          <div class="section-toolbar">
+            <div class="toolbar-left">
+              <h3 class="sub-title">学元发行与对账</h3>
+              <span class="xy-rate">1 元 = {{ xySummary ? xySummary.yuan_rate : 1 }} 学元</span>
+            </div>
+            <div class="toolbar-right">
+              <button class="action-btn" :disabled="xyLoading" @click="loadXueyuan">
+                <i class="fa-solid fa-rotate" :class="{ spinning: xyLoading }"></i> 刷新
+              </button>
+            </div>
+          </div>
+
+          <div v-if="xyLoading && !xySummary" class="loading-container">
+            <div class="spinner"></div>
+            <p>正在读取学元账本...</p>
+          </div>
+
+          <template v-else>
+            <div class="stats-grid" style="margin-bottom:16px">
+              <div class="stat-card">
+                <div class="stat-icon"><i class="fa-solid fa-wallet"></i></div>
+                <div class="stat-info">
+                  <div class="stat-value">{{ xyMoney(xySummary && xySummary.cash) }}</div>
+                  <div class="stat-label">充值学元（可提现）</div>
+                </div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-icon"><i class="fa-solid fa-gift"></i></div>
+                <div class="stat-info">
+                  <div class="stat-value">{{ xyMoney(xySummary && xySummary.grant) }}</div>
+                  <div class="stat-label">赠送学元（仅投资）</div>
+                </div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-icon"><i class="fa-solid fa-circle-plus"></i></div>
+                <div class="stat-info">
+                  <div class="stat-value">{{ xyMoney(xySummary && xySummary.recharged_today) }}</div>
+                  <div class="stat-label">今日充值</div>
+                </div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-icon"><i class="fa-solid fa-money-bill-wave"></i></div>
+                <div class="stat-info">
+                  <div class="stat-value">{{ (xySummary && xySummary.pending_withdraw_count) || 0 }}</div>
+                  <div class="stat-label">待审批提现（{{ xyMoney(xySummary && xySummary.pending_withdraw_cent / 100) }} 学元）</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="xy-audit" :class="xyAudit && xyAudit.ok ? 'ok' : 'bad'">
+              <i :class="xyAudit && xyAudit.ok ? 'fa-solid fa-circle-check' : 'fa-solid fa-triangle-exclamation'"></i>
+              <span class="xy-audit-main">
+                <template v-if="xyAudit && xyAudit.ok">
+                  对账通过：{{ xyAudit.accounts }} 个账户、{{ xyAudit.transactions }} 笔交易全部平账，双资金池自洽。
+                </template>
+                <template v-else-if="xyAudit">
+                  发现 {{ xyAudit.issues.length }} 项异常，请立即人工核查：
+                  <em v-for="(it, idx) in xyAudit.issues" :key="idx">{{ it.detail }}</em>
+                </template>
+                <template v-else>尚未对账</template>
+              </span>
+              <button class="table-btn sm" @click="runXyAudit">重新对账</button>
+            </div>
+
+            <!-- 线下充值 -->
+            <div class="xy-card">
+              <div class="xy-card-head">
+                <h4><i class="fa-solid fa-cash-register"></i> 线下充值</h4>
+                <p>先当面收现金，再录系统。充值学元可转账、红包、跨班、投资、提现；教师发放的赠送学元只能投资。</p>
+              </div>
+              <div class="xy-form">
+                <input v-model="xyRecharge.userInput" class="search-input xy-input-wide" placeholder="用户ID，多人用空格或逗号分隔（最多 50 人）" />
+                <input v-model="xyRecharge.yuan" type="number" min="0" step="0.01" class="search-input xy-input-sm" placeholder="每人金额（元）" />
+                <input v-model="xyRecharge.memo" class="search-input" maxlength="80" placeholder="备注，如：9 月班费充值" />
+                <button class="btn-primary" :disabled="xyRecharge.busy || !xyRecharge.userInput || !xyRecharge.yuan" @click="submitXyRecharge">
+                  {{ xyRecharge.busy ? '录入中…' : '确认充值' }}
+                </button>
+              </div>
+              <p class="xy-foot-tip">
+                按 1 元 = {{ xySummary ? xySummary.yuan_rate : 1 }} 学元换算，单人单次上限
+                {{ xySummary && xySummary.limits ? xySummary.limits.max_recharge : 2000 }} 学元。
+                重复提交会按请求号去重，不会重复入账。
+              </p>
+            </div>
+
+            <!-- 提现审批 -->
+            <div class="xy-card">
+              <div class="xy-card-head">
+                <h4><i class="fa-solid fa-money-bill-wave"></i> 提现审批
+                  <span v-if="xyPending.length" class="xy-count">{{ xyPending.length }}</span>
+                </h4>
+                <p>请先当面交付现金，再点「通过」；通过后系统扣除冻结的充值学元。驳回则原路退回。</p>
+              </div>
+              <div v-if="!xyPending.length" class="xy-empty">暂无待审批的提现申请</div>
+              <div v-else class="xy-list">
+                <div v-for="w in xyPending" :key="w.id" class="xy-row">
+                  <span class="xy-row-main">
+                    <b>{{ w.user_id }} · {{ xyMoney(w.amount) }} 学元</b>
+                    <span>{{ w.memo || '无备注' }} · {{ formatDate(w.created_at) }}</span>
+                  </span>
+                  <button class="table-btn sm enable" :disabled="xyReviewBusyId === w.id" @click="reviewXyWithdraw(w, true)">通过</button>
+                  <button class="table-btn sm danger" :disabled="xyReviewBusyId === w.id" @click="reviewXyWithdraw(w, false)">驳回</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 台账 -->
+            <div class="xy-card">
+              <div class="xy-card-head">
+                <h4><i class="fa-solid fa-receipt"></i> 最近充值记录</h4>
+                <p>每笔充值都有独立请求号，可用于和线下现金对账。</p>
+              </div>
+              <div v-if="!xyRecharges.length" class="xy-empty">还没有充值记录</div>
+              <div v-else class="data-table-wrapper">
+                <table class="data-table">
+                  <thead><tr><th>时间</th><th>用户</th><th>人民币</th><th>学元</th><th>操作人</th><th>备注</th></tr></thead>
+                  <tbody>
+                    <tr v-for="r in xyRecharges" :key="r.id">
+                      <td>{{ formatDate(r.created_at) }}</td>
+                      <td>{{ r.user_id }}</td>
+                      <td>¥{{ xyMoney(r.yuan) }}</td>
+                      <td>{{ xyMoney(r.amount) }}</td>
+                      <td>{{ r.operator || '-' }}</td>
+                      <td>{{ r.memo || '-' }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="xy-card">
+              <div class="xy-card-head">
+                <h4><i class="fa-solid fa-clock-rotate-left"></i> 提现记录</h4>
+              </div>
+              <div v-if="!xyWithdrawals.length" class="xy-empty">还没有提现记录</div>
+              <div v-else class="data-table-wrapper">
+                <table class="data-table">
+                  <thead><tr><th>时间</th><th>用户</th><th>学元</th><th>状态</th><th>审批人</th><th>备注</th></tr></thead>
+                  <tbody>
+                    <tr v-for="w in xyWithdrawals" :key="w.id">
+                      <td>{{ formatDate(w.created_at) }}</td>
+                      <td>{{ w.user_id }}</td>
+                      <td>{{ xyMoney(w.amount) }}</td>
+                      <td><span class="xy-status" :class="w.status">{{ xyWithdrawStatus(w.status) }}</span></td>
+                      <td>{{ w.reviewer || '-' }}</td>
+                      <td>{{ w.review_memo || w.memo || '-' }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </template>
+        </div>
+
         <!-- ========== 广播管理 ========== -->
         <div v-if="activeTab === 'permissions'" key="permissions" class="admin-section">
           <div class="perm-header">
@@ -1740,6 +1896,7 @@ export default {
       tempPasswordInfo: {},
       tabs: [
   { key: 'users', label: '用户管理' },
+  { key: 'xueyuan', label: '学元管理' },
   { key: 'permissions', label: '权限管理' },
   { key: 'announcements', label: '公告管理' },
   { key: 'broadcast', label: '广播管理' },
@@ -1753,6 +1910,7 @@ export default {
 ],
       loadedTabs: {
         users: false,
+        xueyuan: false,
         permissions: false,
         announcements: false,
         broadcast: false,
@@ -1779,6 +1937,15 @@ export default {
       userPageSize: 50,
       userDisplayCount: 50,
       userSearchTimer: null,
+      // 学元管理
+      xyLoading: false,
+      xySummary: null,
+      xyAudit: null,
+      xyPending: [],
+      xyWithdrawals: [],
+      xyRecharges: [],
+      xyRecharge: { userInput: '', yuan: '', memo: '', busy: false },
+      xyReviewBusyId: null,
       // Broadcast
       broadcastContent: '',
       broadcastPriority: 'normal',
@@ -2440,6 +2607,9 @@ export default {
         case 'users':
           this.loadUsers();
           break;
+        case 'xueyuan':
+          this.loadXueyuan();
+          break;
         case 'permissions':
           this.loadOfficers();
           break;
@@ -2473,6 +2643,105 @@ export default {
           this.loadAdminLogs();
           break;
       }
+    },
+
+    // ======== 学元管理 ========
+    xyMoney: function(v) {
+      var n = Number(v);
+      if (!isFinite(n)) return '0.00';
+      return n.toFixed(2);
+    },
+    xyWithdrawStatus: function(s) {
+      if (s === 'pending') return '待审批';
+      if (s === 'paid') return '已提现';
+      if (s === 'rejected') return '已驳回';
+      if (s === 'cancelled') return '已撤销';
+      return s || '-';
+    },
+    loadXueyuan: function() {
+      var self = this;
+      self.xyLoading = true;
+      Promise.all([
+        api.get('/xueyuan/admin/overview', { params: { recentLimit: 10 } }),
+        api.get('/xueyuan/admin/withdrawals', { params: { limit: 30 } }),
+        api.get('/xueyuan/admin/recharges', { params: { limit: 30 } })
+      ]).then(function(results) {
+        var overview = (results[0].data && results[0].data.data) || {};
+        var wd = (results[1].data && results[1].data.data) || {};
+        var rc = (results[2].data && results[2].data.data) || {};
+        self.xySummary = overview.summary || null;
+        self.xyAudit = overview.audit || null;
+        self.xyPending = wd.pending || [];
+        self.xyWithdrawals = wd.list || [];
+        self.xyRecharges = rc.list || [];
+      }).catch(function(err) {
+        var msg = (err.response && err.response.data && err.response.data.message) || '学元数据加载失败';
+        self.$toast && self.$toast.error(msg);
+      }).then(function() {
+        self.xyLoading = false;
+      });
+    },
+    runXyAudit: function() {
+      var self = this;
+      api.get('/xueyuan/admin/audit').then(function(res) {
+        var d = (res.data && res.data.data) || {};
+        self.xyAudit = d;
+        self.$toast && self.$toast.success(d.ok ? '对账通过，账本无异常' : ('发现 ' + (d.issues || []).length + ' 项异常'));
+      }).catch(function(err) {
+        var msg = (err.response && err.response.data && err.response.data.message) || '对账失败';
+        self.$toast && self.$toast.error(msg);
+      });
+    },
+    submitXyRecharge: function() {
+      var self = this;
+      if (self.xyRecharge.busy) return;
+      var ids = String(self.xyRecharge.userInput || '').split(/[\s,，;；]+/).filter(function(s) { return !!s; });
+      if (!ids.length) return self.$toast && self.$toast.error('请填写要充值的用户ID');
+      var yuan = Number(self.xyRecharge.yuan);
+      if (!(yuan > 0)) return self.$toast && self.$toast.error('每人金额必须大于 0 元');
+      self.xyRecharge.busy = true;
+      api.post('/xueyuan/admin/recharge', {
+        userIds: ids,
+        yuan: yuan,
+        memo: self.xyRecharge.memo,
+        requestId: 'rc' + Date.now() + '-' + Math.floor(Math.random() * 100000)
+      }).then(function(res) {
+        var body = res.data || {};
+        var d = body.data || {};
+        if (body.code !== 200) throw { message: body.message };
+        var skipped = d.skipped || [];
+        self.$toast && self.$toast.success(body.message || '充值完成');
+        if (skipped.length) {
+          self.$toast && self.$toast.error('跳过：' + skipped.map(function(s) { return s.user_id + '(' + s.reason + ')'; }).join('，'));
+        }
+        self.xyRecharge.userInput = '';
+        self.xyRecharge.yuan = '';
+        self.xyRecharge.memo = '';
+        self.loadXueyuan();
+      }).catch(function(err) {
+        var msg = (err && err.message) || (err.response && err.response.data && err.response.data.message) || '充值失败';
+        self.$toast && self.$toast.error(msg);
+      }).then(function() {
+        self.xyRecharge.busy = false;
+      });
+    },
+    reviewXyWithdraw: function(w, approve) {
+      var self = this;
+      if (self.xyReviewBusyId) return;
+      if (!approve && !window.confirm('驳回后学元会退回同学可用余额，确定驳回？')) return;
+      if (approve && !window.confirm('确认已经当面把现金交给 ' + w.user_id + '？通过后将扣除其冻结学元。')) return;
+      self.xyReviewBusyId = w.id;
+      api.post('/xueyuan/admin/withdrawals/' + w.id + '/review', { approve: approve }).then(function(res) {
+        var body = res.data || {};
+        if (body.code !== 200) throw { message: body.message };
+        self.$toast && self.$toast.success(body.message || '已处理');
+        self.loadXueyuan();
+      }).catch(function(err) {
+        var msg = (err && err.message) || (err.response && err.response.data && err.response.data.message) || '审批失败';
+        self.$toast && self.$toast.error(msg);
+      }).then(function() {
+        self.xyReviewBusyId = null;
+      });
     },
 
     // ======== Debounce Helper ========
@@ -7225,4 +7494,127 @@ export default {
   color: var(--text-secondary);
   opacity: 0.6;
 }
+
+/* ======== 学元管理 ======== */
+.xy-rate {
+  margin-left: 10px;
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: rgba(208, 138, 23, 0.12);
+  color: #D08A17;
+  font-size: var(--font-size-caption2);
+}
+.xy-audit {
+  display: flex;
+  align-items: flex-start;
+  margin-bottom: 16px;
+  padding: 11px 14px;
+  border-radius: 12px;
+  font-size: var(--font-size-caption1);
+  line-height: 1.6;
+}
+.xy-audit.ok {
+  background: rgba(46, 158, 91, 0.1);
+  border: 1px solid rgba(46, 158, 91, 0.22);
+  color: var(--success-color);
+}
+.xy-audit.bad {
+  background: rgba(228, 87, 79, 0.1);
+  border: 1px solid rgba(228, 87, 79, 0.25);
+  color: var(--danger-color);
+}
+.xy-audit > i { margin-right: 9px; line-height: 1.6; }
+.xy-audit-main { flex: 1; min-width: 0; }
+.xy-audit-main em {
+  display: block;
+  margin-top: 3px;
+  font-style: normal;
+  opacity: 0.9;
+}
+.xy-audit .table-btn { margin-left: 10px; flex: 0 0 auto; }
+.xy-card {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+}
+.xy-card-head h4 {
+  margin: 0;
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-primary);
+}
+.xy-card-head h4 i { margin-right: 6px; color: var(--primary-color); }
+.xy-card-head p {
+  margin: 4px 0 12px;
+  font-size: var(--font-size-caption2);
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+.xy-count {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: rgba(208, 138, 23, 0.16);
+  color: #D08A17;
+  font-size: 11px;
+  line-height: 18px;
+}
+.xy-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.xy-form .search-input { margin: 0 8px 8px 0; }
+.xy-form .xy-input-wide { flex: 1 1 320px; min-width: 220px; }
+.xy-form .xy-input-sm { flex: 0 0 130px; width: 130px; }
+.xy-form .btn-primary { margin-bottom: 8px; }
+.xy-foot-tip {
+  margin: 0;
+  font-size: var(--font-size-caption2);
+  line-height: 1.6;
+  color: var(--text-tertiary);
+}
+.xy-empty {
+  padding: 18px 0;
+  text-align: center;
+  font-size: var(--font-size-caption1);
+  color: var(--text-tertiary);
+}
+.xy-list { display: flex; flex-direction: column; }
+.xy-row {
+  display: flex;
+  align-items: center;
+  padding: 10px 0;
+}
+.xy-row + .xy-row { border-top: 1px solid var(--border-color); }
+.xy-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.xy-row-main b {
+  font-size: var(--font-size-subheadline);
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.xy-row-main span {
+  margin-top: 2px;
+  font-size: var(--font-size-caption2);
+  color: var(--text-tertiary);
+}
+.xy-row .table-btn { margin-left: 8px; }
+.xy-status {
+  padding: 1px 7px;
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 18px;
+}
+.xy-status.pending { color: #D08A17; background: rgba(208, 138, 23, 0.12); }
+.xy-status.paid { color: var(--success-color); background: rgba(46, 158, 91, 0.12); }
+.xy-status.rejected { color: var(--danger-color); background: rgba(228, 87, 79, 0.12); }
+.xy-status.cancelled { color: var(--text-tertiary); background: rgba(127, 127, 127, 0.12); }
 </style>

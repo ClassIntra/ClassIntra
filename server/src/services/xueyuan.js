@@ -268,12 +268,14 @@ function viewAccount(userId) {
     available_cash_cent: a.available_cash,
     available_cash: fromCent(a.available_cash),
     frozen_cash_cent: a.frozen_cash,
+    frozen_cash: fromCent(a.frozen_cash),
     // 赠送学元
     grant_cent: a.grant_balance,
     grant: fromCent(a.grant_balance),
     available_grant_cent: a.available_grant,
     available_grant: fromCent(a.available_grant),
     frozen_grant_cent: a.frozen_grant,
+    frozen_grant: fromCent(a.frozen_grant),
     // 可提现（充值学元中未超出净充值的部分）
     withdrawable_cent: withdrawable,
     withdrawable: fromCent(withdrawable),

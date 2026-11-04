@@ -158,14 +158,19 @@
         :class="['pay-card--' + payCard.kind, { 'pay-card--own': isOwn }]"
         @click="onPayCardClick"
       >
-        <span class="pay-card-ico" :class="'pay-card-ico--' + payCard.kind">
-          <i :class="payCard.kind === 'packet' ? 'fa-solid fa-envelope-open-text' : 'fa-solid fa-money-bill-transfer'"></i>
-        </span>
-        <span class="pay-card-main">
-          <span class="pay-card-title">{{ payCardTitle }}</span>
+        <div class="pay-card-top">
+          <span class="pay-card-ico" :class="'pay-card-ico--' + payCard.kind">
+            <i :class="payCard.kind === 'packet' ? 'fa-solid fa-envelope-open-text' : 'fa-solid fa-money-bill-transfer'"></i>
+          </span>
+          <span class="pay-card-head">
+            <span class="pay-card-kicker">{{ payCardKicker }}</span>
+            <span class="pay-card-title">{{ payCardTitle }}</span>
+          </span>
+        </div>
+        <div class="pay-card-bottom">
           <span class="pay-card-sub">{{ payCardSub }}</span>
-        </span>
-        <span class="pay-card-act">{{ payCardAction }}</span>
+          <span class="pay-card-act">{{ payCardAction }}</span>
+        </div>
       </div>
       <div v-else class="bubble-content" :class="{ 'bubble-media': isMediaOnly && message.recalled !== 1 }">
         <div v-if="message.reply_to" class="reply-quote" @click="onReplyQuoteClick">
@@ -319,11 +324,17 @@ export default {
       if (!d || typeof d !== 'object') return null;
       return { kind: m[1], data: d };
     },
+    payCardKicker: function() {
+      var c = this.payCard;
+      if (!c) return '';
+      if (c.kind === 'packet') return c.data.scope === 'cross' ? '跨班红包' : '学元红包';
+      return this.isOwn ? '我发出的转账' : '学元转账';
+    },
     payCardTitle: function() {
       var c = this.payCard;
       if (!c) return '';
       if (c.kind === 'packet') return c.data.note || '恭喜发财';
-      return '转账 ' + Number(c.data.amount || 0).toFixed(2) + ' 学元';
+      return Number(c.data.amount || 0).toFixed(2) + ' 学元';
     },
     payCardSub: function() {
       var c = this.payCard;
@@ -1606,23 +1617,59 @@ export default {
 
 /* ===== 学元转账 / 红包卡片（聊天内） ===== */
 .pay-card {
+  position: relative;
   display: flex;
-  align-items: center;
-  min-width: 196px;
-  padding: 10px 12px;
-  border-radius: 10px;
+  flex-direction: column;
+  width: 218px;
+  min-width: 208px;
+  padding: 10px 12px 9px;
+  border-radius: 12px;
+  overflow: hidden;
   cursor: pointer;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  transition: transform 0.16s ease, box-shadow 0.16s ease;
 }
+.pay-card:active { transform: scale(0.985); }
 .pay-card--transfer {
-  background: linear-gradient(135deg, #FFF3E0, #FFE2BF);
-  border: 1px solid rgba(224, 139, 30, 0.28);
+  background: linear-gradient(140deg, #FFF9F0 0%, #FFE9CB 62%, #FFDBA8 100%);
+  border: 1px solid rgba(224, 139, 30, 0.32);
+  color: #7A4312;
 }
 .pay-card--packet {
-  background: linear-gradient(135deg, #F0564C, #D93B32);
-  border: 1px solid rgba(190, 40, 32, 0.5);
+  background: linear-gradient(145deg, #F4715E 0%, #DD4639 55%, #C4332A 100%);
+  border: 1px solid rgba(168, 34, 27, 0.55);
   color: #fff;
 }
-.pay-card--own.pay-card--packet { opacity: 0.92; }
+/* 红包卡片的光斑与压边，让整块更像实体红包 */
+.pay-card--packet::before {
+  content: '';
+  position: absolute;
+  top: -34px;
+  right: -30px;
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  pointer-events: none;
+}
+.pay-card--packet::after {
+  content: '';
+  position: absolute;
+  left: -24px;
+  bottom: -38px;
+  width: 78px;
+  height: 78px;
+  border-radius: 50%;
+  background: rgba(120, 10, 6, 0.16);
+  pointer-events: none;
+}
+.pay-card--own.pay-card--packet { opacity: 0.94; }
+.pay-card-top {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+}
 .pay-card-ico {
   flex: 0 0 34px;
   width: 34px;
@@ -1630,43 +1677,67 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-right: 10px;
-  border-radius: 50%;
+  margin-right: 9px;
+  border-radius: 10px;
   font-size: 14px;
 }
-.pay-card-ico--transfer { background: rgba(224, 139, 30, 0.18); color: #C8731A; }
-.pay-card-ico--packet { background: rgba(255, 255, 255, 0.22); color: #FFF3D6; }
-.pay-card-main {
+.pay-card-ico--transfer { background: rgba(200, 115, 26, 0.16); color: #B4620F; }
+.pay-card-ico--packet { background: rgba(255, 255, 255, 0.24); color: #FFF3D6; }
+.pay-card-head {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
 }
+.pay-card-kicker {
+  font-size: 9px;
+  letter-spacing: 0.4px;
+  opacity: 0.7;
+}
 .pay-card-title {
-  font-size: var(--font-size-subheadline);
-  font-weight: 600;
+  margin-top: 1px;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.25;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
 }
+.pay-card--transfer .pay-card-title { color: #8A4A0B; }
+.pay-card-bottom {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px solid rgba(120, 70, 10, 0.12);
+}
+.pay-card--packet .pay-card-bottom { border-top-color: rgba(255, 255, 255, 0.2); }
 .pay-card-sub {
-  margin-top: 3px;
-  font-size: 11px;
-  opacity: 0.78;
+  flex: 1;
+  min-width: 0;
+  font-size: 10px;
+  opacity: 0.82;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 .pay-card-act {
   flex: 0 0 auto;
-  margin-left: 10px;
-  font-size: var(--font-size-caption);
+  margin-left: 8px;
+  padding: 3px 9px;
+  border-radius: 10px;
+  font-size: 10px;
   font-weight: 600;
-  opacity: 0.86;
+}
+.pay-card--transfer .pay-card-act {
+  background: rgba(200, 115, 26, 0.14);
+  color: #A85A0B;
 }
 .pay-card--packet .pay-card-act {
-  padding: 3px 8px;
-  border-radius: 9px;
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.24);
+  color: #FFF3D6;
 }
 </style>

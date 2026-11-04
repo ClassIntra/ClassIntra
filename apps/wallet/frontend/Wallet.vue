@@ -10,18 +10,38 @@
 
     <div class="wallet-scroll">
       <div class="wallet-inner">
-        <!-- 余额卡 -->
+        <!-- 余额卡：充值学元与赠送学元分开记账 -->
         <div class="bal-card">
           <div class="bal-glow"></div>
           <div class="bal-head">
-            <span class="bal-label">学元余额</span>
+            <span class="bal-label">学元总余额</span>
             <span class="bal-ico"><i class="fa-solid fa-coins"></i></span>
           </div>
           <div class="bal-amount">{{ money(account.balance) }}</div>
-          <div class="bal-split">
-            <span>可用 <b>{{ money(account.available) }}</b></span>
-            <span class="dot"></span>
-            <span>冻结 <b>{{ money(account.frozen) }}</b></span>
+
+          <div class="bp-row">
+            <div class="bp-item">
+              <span class="bp-name"><i class="fa-solid fa-wallet"></i> 充值学元</span>
+              <span class="bp-num">{{ money(account.cash) }}</span>
+              <span class="bp-sub">
+                可用 {{ money(account.available_cash) }}
+                <em v-if="account.frozen_cash"> · 冻结 {{ money(account.frozen_cash) }}</em>
+              </span>
+            </div>
+            <div class="bp-item">
+              <span class="bp-name"><i class="fa-solid fa-gift"></i> 赠送学元</span>
+              <span class="bp-num">{{ money(account.grant) }}</span>
+              <span class="bp-sub">
+                可用 {{ money(account.available_grant) }}
+                <em v-if="account.frozen_grant"> · 冻结 {{ money(account.frozen_grant) }}</em>
+              </span>
+              <span class="bp-tag">只能投资</span>
+            </div>
+          </div>
+
+          <div class="bal-withdraw" @click="switchTab('withdraw')">
+            <span>可提现 <b>{{ money(withdrawable) }}</b> 学元</span>
+            <span class="bw-link">去提现<i class="fa-solid fa-chevron-right"></i></span>
           </div>
 
           <div class="bal-foot">
@@ -43,11 +63,6 @@
             <span class="q-ico blue"><i class="fa-solid fa-money-bill-transfer"></i></span>
             <span class="q-txt">转账</span>
           </button>
-          <button class="quick" @click="openPinSet">
-            <span class="q-ico green"><i class="fa-solid fa-shield-halved"></i></span>
-            <span class="q-txt">支付密码</span>
-            <span v-if="!payPinSet.set" class="q-badge warn">未设</span>
-          </button>
           <button class="quick" @click="openPacket">
             <span class="q-ico red"><i class="fa-solid fa-envelope-open-text"></i></span>
             <span class="q-txt">发红包</span>
@@ -56,6 +71,14 @@
             <span class="q-ico gold"><i class="fa-solid fa-hand-holding-heart"></i></span>
             <span class="q-txt">领红包</span>
             <span v-if="packetBadge > 0" class="q-badge">{{ packetBadge }}</span>
+          </button>
+          <button class="quick" @click="switchTab('withdraw')">
+            <span class="q-ico purple"><i class="fa-solid fa-money-bill-wave"></i></span>
+            <span class="q-txt">提现</span>
+          </button>
+          <button class="quick" @click="openRecharge">
+            <span class="q-ico teal"><i class="fa-solid fa-circle-plus"></i></span>
+            <span class="q-txt">充值</span>
           </button>
         </div>
 
@@ -96,7 +119,10 @@
               </span>
               <span class="lr-main">
                 <span class="lr-title">{{ row.memo || row.kind_label }}</span>
-                <span class="lr-sub">{{ row.kind_label }} · {{ fmtTime(row.created_at) }}</span>
+                <span class="lr-sub">
+                  <em v-if="row.pool_label" class="lr-pool" :class="row.pool">{{ row.pool_label }}</em>
+                  {{ row.kind_label }} · {{ fmtTime(row.created_at) }}
+                </span>
               </span>
               <span class="lr-right">
                 <span class="lr-amount" :class="row.delta_cent > 0 ? 'in' : 'out'">{{ (row.delta_cent > 0 ? '+' : '') + money(row.delta) }}</span>
@@ -190,8 +216,53 @@
           </div>
         </div>
 
+        <!-- ============ 提现 ============ -->
+        <div v-else-if="tab === 'withdraw'" class="panel">
+          <div class="wd-hero">
+            <span class="wd-hero-label">可提现学元</span>
+            <span class="wd-hero-num">{{ money(withdrawable) }}</span>
+            <span class="wd-hero-tip">只有线下向班管充值的学元能提现；赠送学元和投资收益都不能提现，防止把系统赠金套成现金。</span>
+          </div>
+
+          <div class="wd-form">
+            <div class="pay-row">
+              <span>提现金额</span>
+              <input v-model="withdraw.amount" type="number" inputmode="decimal" :placeholder="'最低 ' + money(limits.withdraw_min)" />
+            </div>
+            <div class="pay-row">
+              <span>备注</span>
+              <input v-model="withdraw.memo" maxlength="30" placeholder="选填，给班管看" />
+            </div>
+            <div class="wd-hint">
+              1 元 = {{ money(yuanRate) }} 学元 · 单笔 {{ money(limits.withdraw_min) }}–{{ money(limits.withdraw) }} 学元。
+              提交后学元先冻结，班管审批通过并当面给你现金后才真正扣除。
+            </div>
+            <button class="pay-primary" :disabled="withdraw.busy || !canWithdraw" @click="submitWithdraw">
+              {{ withdraw.busy ? '提交中…' : '申请提现' }}
+            </button>
+          </div>
+
+          <div class="sec-title">我的提现记录</div>
+          <div v-if="!withdrawals.length" class="empty small">
+            <i class="fa-solid fa-money-bill-wave"></i>
+            <p>还没有提现记录</p>
+          </div>
+          <div v-else class="wd-list">
+            <div v-for="w in withdrawals" :key="w.id" class="wd-row">
+              <span class="wd-ico" :class="w.status">
+                <i :class="w.status === 'pending' ? 'fa-solid fa-hourglass-half' : (w.status === 'paid' ? 'fa-solid fa-check' : 'fa-solid fa-rotate-left')"></i>
+              </span>
+              <span class="wd-main">
+                <span class="wd-title">{{ money(w.amount) }} 学元<em class="wd-status" :class="w.status">{{ withdrawStatusText(w.status) }}</em></span>
+                <span class="wd-sub">{{ fmtTime(w.created_at) }}<template v-if="w.review_memo"> · {{ w.review_memo }}</template></span>
+              </span>
+              <button v-if="w.status === 'pending'" class="wd-cancel" :disabled="withdraw.busy" @click="cancelWithdraw(w)">撤销</button>
+            </div>
+          </div>
+        </div>
+
         <!-- ============ 排行 ============ -->
-        <div v-else class="panel">
+        <div v-else-if="tab === 'rank'" class="panel">
           <div class="rank-head">
             <span>班级学元榜</span>
             <span class="rank-mine" v-if="rankMe">我的名次 <b>#{{ rankMe.rank }}</b> · {{ money(rankMe.balance) }}</span>
@@ -221,7 +292,7 @@
         <div class="sources">
           <div class="src-head">
             <span>学元从哪来</span>
-            <span class="src-note">练习货币，不能充值、不能提现</span>
+            <span class="src-note">赠送学元只能投资 · 充值请找班管</span>
           </div>
           <div class="src-grid">
             <div v-for="s in sources" :key="s.name" class="src-item">
@@ -279,7 +350,7 @@
           <input v-model="transfer.memo" maxlength="30" placeholder="选填，对方能看到" />
         </div>
         <div class="pay-hint">
-          可用 {{ money(account.available) }} 学元 · 单笔最多 {{ money(limits.transfer) }} 学元
+          可用充值学元 {{ money(account.available_cash) }} · 单笔最多 {{ money(limits.transfer) }} 学元。赠送学元只能投资，不能转账。
         </div>
         <button class="pay-primary" :disabled="transfer.busy" @click="transferNext">下一步</button>
       </div>
@@ -359,7 +430,7 @@
             同学领红包时必须<b>原样输入口令</b>；发到聊天里，让大家照着输。24 小时没领完自动退回。
           </template>
           <template v-else>
-            发出去先冻结，同学领到才真正扣款；{{ limits.packet_count }} 个封顶。
+            红包只用充值学元，发出去先冻结，同学领到才真正扣款；{{ limits.packet_count }} 个封顶。
             <template v-if="packet.scope === 'cross'"><br />跨班红包会生成 6 位红包码，同学在「红包 → 输入红包码」里领取。</template>
             24 小时没领完自动退回。
           </template>
@@ -464,6 +535,29 @@
       </div>
     </PayPage>
 
+    <!-- ============ 充值说明 ============ -->
+    <PayPage :visible="recharge.open" title="充值学元" subtitle="线下找班管，现金换学元" @close="recharge.open = false">
+      <div class="pay-form">
+        <div class="rc-rate">
+          <span class="rc-rate-label">当前汇率</span>
+          <span class="rc-rate-num">1 元 = {{ money(yuanRate) }} 学元</span>
+        </div>
+        <div class="rc-steps">
+          <div class="rc-step"><em>1</em><span>线下把现金交给班管，说明要充多少。</span></div>
+          <div class="rc-step"><em>2</em><span>班管在管控中心「学元」页录入，学元立即到账。</span></div>
+          <div class="rc-step"><em>3</em><span>充值学元可转账、发红包、跨班、投资，也可申请提现。</span></div>
+        </div>
+        <div class="rc-split">
+          <div class="rc-split-item cash"><i class="fa-solid fa-wallet"></i><b>充值学元</b><span>转账 / 红包 / 跨班 / 投资 / 提现</span></div>
+          <div class="rc-split-item grant"><i class="fa-solid fa-gift"></i><b>赠送学元</b><span>只能投资，不能转账或提现</span></div>
+        </div>
+        <div class="pay-hint">
+          单次充值上限 {{ money(limits.recharge) }} 学元。充值记录可查，班管乱录会被审计对账发现。
+        </div>
+        <button class="pay-primary" @click="recharge.open = false">知道了</button>
+      </div>
+    </PayPage>
+
   </div>
 </template>
 
@@ -487,6 +581,7 @@ var KIND_ICON = {
 };
 
 var SRC_ICON = {
+  wallet: 'fa-solid fa-wallet',
   gift: 'fa-solid fa-gift',
   practice: 'fa-solid fa-chart-line',
   daily: 'fa-solid fa-calendar-day',
@@ -514,6 +609,7 @@ export default {
       tabs: [
         { key: 'ledger', label: '明细' },
         { key: 'packets', label: '红包' },
+        { key: 'withdraw', label: '提现' },
         { key: 'rank', label: '学元榜' }
       ],
       filters: [
@@ -523,13 +619,29 @@ export default {
       ],
       direction: '',
 
-      account: { balance: 0, available: 0, frozen: 0 },
+      account: {
+        balance: 0,
+        available: 0,
+        frozen: 0,
+        cash: 0,
+        grant: 0,
+        available_cash: 0,
+        available_grant: 0,
+        frozen_cash: 0,
+        frozen_grant: 0
+      },
+      withdrawable: 0,
+      yuanRate: 1,
       daily: { claimed: true, amount: 0, streak: 0, base: 10, bonus: 20, bonus_from: 7, next_day: 1 },
       week: { in: 0, out: 0, count: 0 },
       month: { in: 0, out: 0, count: 0 },
       sources: [],
-      limits: { transfer: 500, packet_total: 500, packet_count: 20 },
+      limits: { transfer: 500, packet_total: 500, packet_count: 20, recharge: 2000, withdraw: 1000, withdraw_min: 1 },
       packetBadge: 0,
+
+      withdrawals: [],
+      withdraw: { amount: '', memo: '', busy: false },
+      recharge: { open: false },
 
       claiming: false,
       claimingId: 0,
@@ -581,6 +693,13 @@ export default {
     packetReady: function () {
       if (this.packet.kind === 'designated') return this.packet.targets.length > 0;
       return true;
+    },
+    canWithdraw: function () {
+      var a = toNum(this.withdraw.amount);
+      if (!(a > 0)) return false;
+      if (a < toNum(this.limits.withdraw_min)) return false;
+      if (a > toNum(this.limits.withdraw)) return false;
+      return a <= toNum(this.withdrawable) + 1e-9;
     },
     balanceText: function () {
       return this.money(this.account.balance);
@@ -656,6 +775,8 @@ export default {
         if (d.sources) self.sources = d.sources;
         if (d.pay_pin) self.payPinSet = d.pay_pin;
         if (d.limits) self.limits = d.limits;
+        if (d.withdrawable !== undefined) self.withdrawable = d.withdrawable;
+        if (d.yuan_rate) self.yuanRate = d.yuan_rate;
         if (d.packets) self.packetBadge = d.packets.available || 0;
       }).catch(function (err) {
         self.toast(self.errMsg(err, '钱包数据加载失败'), 'error');
@@ -695,6 +816,7 @@ export default {
     switchTab: function (key) {
       this.tab = key;
       if (key === 'packets') this.loadPackets();
+      if (key === 'withdraw') this.loadWithdrawals();
       if (key === 'rank' && !this.rank.length) this.loadRank();
     },
 
@@ -724,6 +846,74 @@ export default {
       }).catch(function (err) {
         self.toast(self.errMsg(err, '榜单加载失败'), 'error');
       });
+    },
+
+    openRecharge: function () {
+      this.recharge.open = true;
+    },
+
+    loadWithdrawals: function () {
+      var self = this;
+      return api.get('/xueyuan/withdraw/list').then(function (res) {
+        var d = (res.data && res.data.data) || {};
+        self.withdrawals = d.list || [];
+        if (d.withdrawable !== undefined) self.withdrawable = d.withdrawable;
+      }).catch(function (err) {
+        self.toast(self.errMsg(err, '提现记录加载失败'), 'error');
+      });
+    },
+
+    submitWithdraw: function () {
+      var self = this;
+      if (self.withdraw.busy || !self.canWithdraw) return;
+      var amount = toNum(self.withdraw.amount);
+      self.withdraw.busy = true;
+      api.post('/xueyuan/withdraw/request', {
+        amount: amount,
+        memo: self.withdraw.memo,
+        requestId: 'wd' + Date.now() + '-' + Math.floor(Math.random() * 100000)
+      }).then(function (res) {
+        var body = res.data || {};
+        if (body.code !== 200) throw { message: body.message };
+        var d = body.data || {};
+        if (d.account) self.account = d.account;
+        self.withdraw.amount = '';
+        self.withdraw.memo = '';
+        self.toast(body.message || '提现申请已提交', 'success');
+        self.loadWithdrawals();
+        self.loadOverview();
+      }).catch(function (err) {
+        self.toast(self.errMsg(err, '提现申请失败'), 'error');
+      }).then(function () {
+        self.withdraw.busy = false;
+      });
+    },
+
+    cancelWithdraw: function (w) {
+      var self = this;
+      if (self.withdraw.busy) return;
+      self.withdraw.busy = true;
+      api.post('/xueyuan/withdraw/cancel/' + w.id).then(function (res) {
+        var body = res.data || {};
+        if (body.code !== 200) throw { message: body.message };
+        var d = body.data || {};
+        if (d.account) self.account = d.account;
+        self.toast('已撤销，学元退回可用', 'success');
+        self.loadWithdrawals();
+        self.loadOverview();
+      }).catch(function (err) {
+        self.toast(self.errMsg(err, '撤销失败'), 'error');
+      }).then(function () {
+        self.withdraw.busy = false;
+      });
+    },
+
+    withdrawStatusText: function (s) {
+      if (s === 'pending') return '待审批';
+      if (s === 'paid') return '已提现';
+      if (s === 'rejected') return '已驳回';
+      if (s === 'cancelled') return '已撤销';
+      return s || '';
     },
 
     claimDaily: function () {
@@ -863,7 +1053,7 @@ export default {
       var amount = toNum(f.amount);
       if (!(amount > 0)) return self.toast('金额要大于 0', 'error');
       if (amount > self.limits.transfer) return self.toast('单笔最多 ' + self.money(self.limits.transfer) + ' 学元', 'error');
-      if (amount > self.account.available) return self.toast('可用学元不够（冻结中的钱不能转）', 'error');
+      if (amount > self.account.available_cash) return self.toast('可用充值学元不够（赠送学元不能转账）', 'error');
 
       var to = String(f.to || '').trim();
       if (!to || !f.peerName) return self.toast('先选一位收款的同学', 'error');
@@ -948,7 +1138,7 @@ export default {
           return self.toast('写一句口令，领红包的时候要输的', 'error');
         }
       }
-      if (total > self.account.available) return self.toast('可用学元不够（冻结中的钱不能发红包）', 'error');
+      if (total > self.account.available_cash) return self.toast('可用充值学元不够（赠送学元不能发红包）', 'error');
       if (!self.payPinSet.set) {
         self.openPinSet();
         self.toast('先设置支付密码，再回来发红包', 'info');
@@ -1340,6 +1530,75 @@ export default {
 .bal-week .in { color: #FFF6D8; }
 .bal-week .out { color: rgba(255, 255, 255, 0.85); }
 
+/* 双钱包：充值/赠送分栏 */
+.bp-row {
+  position: relative;
+  display: flex;
+  margin-top: 10px;
+}
+.bp-item {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 11px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.14);
+  display: flex;
+  flex-direction: column;
+}
+.bp-item + .bp-item { margin-left: 10px; }
+.bp-name {
+  display: flex;
+  align-items: center;
+  font-size: 10px;
+  opacity: 0.92;
+}
+.bp-name i { margin-right: 5px; }
+.bp-num {
+  margin-top: 3px;
+  font-size: 17px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.bp-sub { font-size: 10px; opacity: 0.86; }
+.bp-sub em { font-style: normal; }
+.bp-tag {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 1px 6px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.22);
+  font-size: 9px;
+}
+.bal-withdraw {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 10px;
+  padding: 8px 11px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 11px;
+  cursor: pointer;
+}
+.bal-withdraw b { font-weight: 700; }
+.bw-link { display: flex; align-items: center; font-size: 10px; opacity: 0.9; }
+.bw-link i { margin-left: 3px; font-size: 9px; }
+.bal-withdraw:active { opacity: 0.75; }
+
+/* 流水资金池标签 */
+.lr-pool {
+  display: inline-block;
+  margin-right: 4px;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-style: normal;
+  font-size: 9px;
+  line-height: 14px;
+}
+.lr-pool.cash { color: #2F7CF6; background: rgba(47, 124, 246, 0.1); }
+.lr-pool.grant { color: #D08A17; background: rgba(208, 138, 23, 0.12); }
+
 /* ---------- 快捷 ---------- */
 .quick-row {
   display: flex;
@@ -1349,30 +1608,35 @@ export default {
   position: relative;
   flex: 1;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 50px;
+  height: 62px;
   margin: 0 6px;
   border-radius: 14px;
   background: var(--card-bg);
   border: 1px solid var(--border-color);
   color: var(--text-primary);
-  font-size: var(--font-size-subheadline);
+  font-size: 11px;
+  line-height: 1;
 }
 .quick:active { transform: scale(0.985); }
 .q-ico {
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-right: 8px;
+  margin-bottom: 5px;
   border-radius: 9px;
   font-size: 12px;
 }
+.q-txt { font-size: 11px; color: var(--text-secondary); }
 .q-ico.blue { color: #2F7CF6; background: rgba(47, 124, 246, 0.12); }
 .q-ico.red { color: #E4574F; background: rgba(228, 87, 79, 0.12); }
 .q-ico.gold { color: #D08A17; background: rgba(208, 138, 23, 0.14); }
+.q-ico.purple { color: #7B5CD6; background: rgba(123, 92, 214, 0.12); }
+.q-ico.teal { color: #0E9AA7; background: rgba(14, 154, 167, 0.12); }
 .q-badge {
   position: absolute;
   top: 4px;
@@ -1890,13 +2154,166 @@ export default {
   color: var(--text-secondary);
 }
 
+/* ---------- 提现 ---------- */
+.wd-hero {
+  padding: 16px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(123, 92, 214, 0.16), rgba(47, 124, 246, 0.1));
+  border: 1px solid rgba(123, 92, 214, 0.2);
+}
+.wd-hero-label { display: block; font-size: 11px; color: var(--text-secondary); }
+.wd-hero-num {
+  display: block;
+  margin: 4px 0 6px;
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.wd-hero-tip {
+  display: block;
+  font-size: 10px;
+  line-height: 1.7;
+  color: var(--text-tertiary);
+}
+.wd-form {
+  margin-top: 12px;
+  padding: 0 14px 14px;
+  border-radius: 14px;
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+}
+.wd-hint {
+  margin: 10px 0 12px;
+  font-size: 10px;
+  line-height: 1.7;
+  color: var(--text-tertiary);
+}
+.wd-list {
+  border-radius: 14px;
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  overflow: hidden;
+}
+.wd-row {
+  display: flex;
+  align-items: center;
+  padding: 11px 14px;
+}
+.wd-row + .wd-row { border-top: 1px solid var(--separator-color, var(--border-color)); }
+.wd-ico {
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 10px;
+  border-radius: 9px;
+  font-size: 11px;
+}
+.wd-ico.pending { color: #D08A17; background: rgba(208, 138, 23, 0.12); }
+.wd-ico.paid { color: #2E9E5B; background: rgba(46, 158, 91, 0.12); }
+.wd-ico.rejected { color: #E4574F; background: rgba(228, 87, 79, 0.12); }
+.wd-ico.cancelled { color: var(--text-tertiary); background: rgba(127, 127, 127, 0.12); }
+.wd-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.wd-title {
+  display: flex;
+  align-items: center;
+  font-size: var(--font-size-subheadline);
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.wd-status {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 7px;
+  font-style: normal;
+  font-size: 9px;
+  line-height: 14px;
+}
+.wd-status.pending { color: #D08A17; background: rgba(208, 138, 23, 0.12); }
+.wd-status.paid { color: #2E9E5B; background: rgba(46, 158, 91, 0.12); }
+.wd-status.rejected { color: #E4574F; background: rgba(228, 87, 79, 0.12); }
+.wd-status.cancelled { color: var(--text-tertiary); background: rgba(127, 127, 127, 0.12); }
+.wd-sub {
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.wd-cancel {
+  flex: 0 0 auto;
+  height: 26px;
+  margin-left: 8px;
+  padding: 0 10px;
+  border-radius: 13px;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.wd-cancel:active { opacity: 0.7; }
+
+/* ---------- 充值说明 ---------- */
+.rc-rate {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(208, 138, 23, 0.18), rgba(242, 169, 59, 0.08));
+  border: 1px solid rgba(208, 138, 23, 0.22);
+}
+.rc-rate-label { font-size: 12px; color: var(--text-secondary); }
+.rc-rate-num { font-size: 20px; font-weight: 700; color: #D08A17; }
+.rc-steps { margin: 14px 0; }
+.rc-step {
+  display: flex;
+  align-items: flex-start;
+  padding: 7px 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+.rc-step em {
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
+  margin-right: 9px;
+  border-radius: 50%;
+  background: rgba(var(--primary-rgb, 0, 122, 255), 0.12);
+  color: var(--primary-color);
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 20px;
+  text-align: center;
+}
+.rc-split { display: flex; margin-bottom: 12px; }
+.rc-split-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 10px 12px;
+  border-radius: 12px;
+  line-height: 1.5;
+}
+.rc-split-item + .rc-split-item { margin-left: 10px; }
+.rc-split-item i { font-size: 13px; margin-bottom: 3px; }
+.rc-split-item b { font-size: 12px; }
+.rc-split-item span { margin-top: 2px; font-size: 10px; opacity: 0.86; }
+.rc-split-item.cash { color: #2F7CF6; background: rgba(47, 124, 246, 0.1); }
+.rc-split-item.grant { color: #D08A17; background: rgba(208, 138, 23, 0.12); }
+
 /* ---------- 窄屏 ---------- */
 @media (max-width: 620px) {
   .wallet-inner { padding: 12px 12px 22px; }
   .bal-amount { font-size: 30px; }
   .src-item { width: calc(100% - 12px); }
-  .q-txt { display: none; }
-  .q-ico { margin-right: 0; }
+  .q-txt { font-size: 10px; }
+  .q-ico { margin-bottom: 4px; }
   .bal-week { font-size: 10px; }
 }
 

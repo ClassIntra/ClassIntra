@@ -146,15 +146,19 @@ function dailyState(userId) {
 }
 
 // 学元来源（钱包页的说明清单；数字与实现保持一致）
-var SOURCES = [
-  { icon: 'gift', name: '开户赠金', amount: '1000 学元', note: '首次开通学元账户自动到账，一次性' },
-  { icon: 'practice', name: '投资练习金', amount: '9000 学元', note: '第一次进入「学元证券」自动发放' },
-  { icon: 'daily', name: '每日助学津贴', amount: '10 学元（连签第 7 天起 20）', note: '每天在钱包点一次，断签重新计' },
-  { icon: 'medal', name: '交易成就', amount: '5–100 学元', note: '在学元证券解锁成就时发放' },
-  { icon: 'trophy', name: '跨班对决奖励', amount: '100 学元', note: '每周五胜方班级的活跃同学' },
-  { icon: 'teacher', name: '班管发放', amount: '不定', note: '老师奖励（管控中心 → 学元）' },
-  { icon: 'swap', name: '同学转账 / 红包', amount: '不定', note: '同学之间互转，不产生新学元' }
-];
+function sourceList() {
+  var rate = xy.yuanRate();
+  return [
+    { icon: 'wallet', name: '线下充值', amount: '1 元 = ' + rate + ' 学元', note: '找班管交现金，录入后到账；可转账、投资、提现' },
+    { icon: 'gift', name: '开户赠金', amount: '1000 学元', note: '首次开通学元账户自动到账，属赠送学元，只能投资' },
+    { icon: 'practice', name: '投资练习金', amount: '9000 学元', note: '第一次进入「学元证券」自动发放，只能投资' },
+    { icon: 'daily', name: '每日助学津贴', amount: '10 学元（连签第 7 天起 20）', note: '每天在钱包点一次，断签重新计' },
+    { icon: 'medal', name: '交易成就', amount: '5–100 学元', note: '在学元证券解锁成就时发放' },
+    { icon: 'trophy', name: '跨班对决奖励', amount: '100 学元', note: '每周五胜方班级的活跃同学' },
+    { icon: 'teacher', name: '班管发放', amount: '不定', note: '老师奖励，属赠送学元，只能投资' },
+    { icon: 'swap', name: '同学转账 / 红包', amount: '不定', note: '只流转充值学元，不产生新学元' }
+  ];
+}
 
 // ---------------- 跨班入账（对端班级调用，无登录态） ----------------
 // 认证靠 HMAC(RELAY_SECRET)+时间戳，而不是 JWT：对端服务器没有本班用户身份。
@@ -513,7 +517,7 @@ router.get('/', function (req, res) {
           mine_open: packets.mine.filter(function (p) { return p.status === 'open'; }).length
         },
         pay_pin: payPin.state(uid),
-        sources: SOURCES,
+        sources: sourceList(),
         // 可提现额度：只有「累计线下充值 - 累计已提现」以内的充值学元能提，
         // 防止「赠金投资赚钱 → 卖出 → 提现」把系统赠金套成现金。
         withdrawable: xy.withdrawableCent(uid) / 100,

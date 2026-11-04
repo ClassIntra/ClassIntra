@@ -194,6 +194,46 @@ async function main() {
   ok('搜索不会把自己列出来', !(s3.body.data.list || []).some(function (x) { return x.user_id === '251901'; }),
     s3.body.data.list);
 
+  // ================= 4b. 线下充值（班管录入） =================
+  // 转账 / 红包 / 跨班只允许「充值学元」；开户赠金与每日津贴属于「赠送学元」。
+  // 所以先用班管身份给三个测试账号各录一笔线下充值，后面的支付用例才有资金池可用。
+  console.log('\n=== 4b. 线下充值 ===');
+  // 班管身份：auth 中间件会以库里的 is_admin 为准，所以先落库再签 token
+  db.prepare("UPDATE users SET is_admin = 1 WHERE user_id = '251901'").run();
+  var TADMIN = jwt.sign({ user_id: '251901', is_admin: 1, is_class_admin: 1, role: 'admin' },
+    'wallet-test-secret', { expiresIn: '1h' });
+  // 先开户，确保赠金先入账，再看充值是否只进充值池
+  await api('GET', '/api/wallet', { token: T2 });
+  await api('GET', '/api/wallet', { token: T3 });
+
+  var rc = await api('POST', '/api/xueyuan/admin/recharge', {
+    token: TADMIN,
+    body: { userIds: ['251901', '251902', '251903'], yuan: 1000, memo: '校园卡线下充值', requestId: 'rc-wallet' }
+  });
+  eq('班管录入线下充值 200', rc.status, 200);
+  eq('三人充值成功', (rc.body.data.done || []).length, 3);
+  eq('充值按 1:1 换算', rc.body.data.rate, 1);
+
+  var wRc = (await api('GET', '/api/wallet')).body.data.account;
+  eq('充值进入充值学元', wRc.cash, 1000);
+  eq('赠送学元不受影响', wRc.grant, 1010);
+  eq('总余额 = 1010 赠送 + 1000 充值', wRc.balance, 2010);
+  eq('可提现额度只认充值学元', wRc.withdrawable, 1000);
+
+  var rcAgain = await api('POST', '/api/xueyuan/admin/recharge', {
+    token: TADMIN,
+    body: { userIds: ['251901'], yuan: 1000, memo: '重复请求号', requestId: 'rc-wallet' }
+  });
+  var wRc2 = (await api('GET', '/api/wallet')).body.data.account;
+  ok('同一请求号重复充值不重复入账',
+    wRc2.balance === 2010 && rcAgain.body.data.done[0].duplicate === true,
+    { balance: wRc2.balance, dup: rcAgain.body.data.done[0].duplicate });
+
+  var rcForbidden = await api('POST', '/api/xueyuan/admin/recharge', {
+    token: T2, body: { userIds: ['251901'], yuan: 10 }
+  });
+  ok('普通学生不能录充值（403）', rcForbidden.status === 403, rcForbidden.body.message);
+
   // ================= 5. 支付密码 =================
   console.log('\n=== 5. 支付密码 ===');
   var ps0 = await api('GET', '/api/wallet/pay-pin');
@@ -234,22 +274,24 @@ async function main() {
   eq('改回测试密码', changeBack.status, 200);
 
   // ================= 6. 转账 =================
-  console.log('\n=== 5. 转账 ===');
+  console.log('\n=== 6. 转账 ===');
   var tr1 = await api('POST', '/api/wallet/transfer', {
     body: { to: '251902', amount: 50, memo: '请你喝水', request_id: 'req-1', pin: PIN }
   });
   eq('转账 200', tr1.status, 200);
-  eq('转出后余额 1010 → 960', tr1.body.data.account.balance, 960);
+  eq('转出后余额 2010 → 1960', tr1.body.data.account.balance, 1960);
+  eq('只扣充值学元 1000 → 950', tr1.body.data.account.cash, 950);
+  eq('赠送学元不被挪用', tr1.body.data.account.grant, 1010);
   eq('收款方昵称回填', tr1.body.data.to_name, '测试2');
 
   var tr2 = await api('POST', '/api/wallet/transfer', {
     body: { to: '251902', amount: 50, memo: '请你喝水', request_id: 'req-1', pin: PIN }
   });
-  ok('同一 request_id 重放不重复扣钱（幂等）', tr2.body.data.duplicate === true && tr2.body.data.account.balance === 960,
+  ok('同一 request_id 重放不重复扣钱（幂等）', tr2.body.data.duplicate === true && tr2.body.data.account.balance === 1960,
     { dup: tr2.body.data.duplicate, balance: tr2.body.data.account.balance });
 
   var wB = await api('GET', '/api/wallet', { token: T2 });
-  eq('收款方余额 1000 + 50 = 1050', wB.body.data.account.balance, 1050);
+  eq('收款方余额 2000 + 50 = 2050', wB.body.data.account.balance, 2050);
 
   var trSelf = await api('POST', '/api/wallet/transfer', { body: { to: '251901', amount: 1, pin: PIN } });
   eq('不能给自己转账', trSelf.status, 400);
@@ -270,9 +312,9 @@ async function main() {
   ok('发红包返回 id 与冻结金额', packetId > 0 && pk1.body.data.total === 30, pk1.body.data);
 
   var wAfterPacket = await api('GET', '/api/wallet');
-  eq('发红包后余额不变（冻结而非扣款）', wAfterPacket.body.data.account.balance, 960);
+  eq('发红包后余额不变（冻结而非扣款）', wAfterPacket.body.data.account.balance, 1960);
   eq('冻结金额 30', wAfterPacket.body.data.account.frozen, 30);
-  eq('可用余额 930', wAfterPacket.body.data.account.available, 930);
+  eq('可用余额 1930', wAfterPacket.body.data.account.available, 1930);
 
   var pListB = await api('GET', '/api/wallet/packets', { token: T2 });
   ok('同学能看到可领红包', (pListB.body.data.available || []).some(function (p) { return p.id === packetId; }),
@@ -297,15 +339,15 @@ async function main() {
   var wEnd = await api('GET', '/api/wallet');
   ok('红包领完后发送者冻结归零', wEnd.body.data.account.frozen === 0, wEnd.body.data.account.frozen);
   ok('发送者余额减少（只减被领走的，未领完的会退还）',
-    wEnd.body.data.account.balance < 960 && wEnd.body.data.account.balance >= 930,
+    wEnd.body.data.account.balance < 1960 && wEnd.body.data.account.balance >= 1930,
     wEnd.body.data.account.balance);
 
   // 余额守恒：A 减少的 = B + C 增加的
   var wB2 = await api('GET', '/api/wallet', { token: T2 });
   var wC2 = await api('GET', '/api/wallet', { token: T3 });
-  var aOut = 960 - wEnd.body.data.account.balance;
-  var bIn = wB2.body.data.account.balance - 1050;
-  var cIn = wC2.body.data.account.balance - 1000;
+  var aOut = 1960 - wEnd.body.data.account.balance;
+  var bIn = wB2.body.data.account.balance - 2050;
+  var cIn = wC2.body.data.account.balance - 2000;
   ok('红包金额守恒（A 支出 = B + C 收入，误差 < 0.01）',
     Math.abs(aOut - (bIn + cIn)) < 0.01,
     { aOut: aOut, bIn: bIn, cIn: cIn });
