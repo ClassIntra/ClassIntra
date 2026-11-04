@@ -149,6 +149,7 @@ function mintFor(row, amountCent, packetId, note, senderName) {
   return xy.mint({
     to: row.user_id,
     amountCent: amountCent,
+    pool: 'cash',
     kind: 'transfer',
     ref: ref,
     app: 'wallet',

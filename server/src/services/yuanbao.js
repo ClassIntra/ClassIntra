@@ -63,6 +63,8 @@ function ensure() {
   // phrase 口令（领取时要输入发红包时写的祝福语，答错不能领）
   addColumn('xy_packet', 'kind', "TEXT NOT NULL DEFAULT 'normal'");
   addColumn('xy_packet', 'passphrase', 'TEXT');
+  // 资金池：历史红包是单池时代创建的，标记为 grant；新红包一律用充值学元
+  addColumn('xy_packet', 'pool', "TEXT NOT NULL DEFAULT 'grant'");
   db.exec(`
 CREATE TABLE IF NOT EXISTS xy_packet_target (
   packet_id INTEGER NOT NULL,
@@ -165,15 +167,16 @@ function create(sender, totalCent, count, note, appName, opts) {
   var id = 0;
   var code = '';
   var tx = db.transaction(function () {
-    xueyuan.hold(sender, total);   // 冻结；失败会抛「可用学元不足」
+    // 红包只能在同学间流转，因此只允许冻结充值学元；赠送学元仅可用于投资
+    xueyuan.hold(sender, total, { pool: 'cash' });
     if (scope === 'cross') code = newCode();
     var info = db.prepare([
-      'INSERT INTO xy_packet (sender, total_cent, count, note, remaining_cent, remaining_count, status, created_at, expire_at, scope, code, server_id, kind, passphrase)',
-      'VALUES (?, ?, ?, ?, ?, ?, \'open\', ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO xy_packet (sender, total_cent, count, note, remaining_cent, remaining_count, status, created_at, expire_at, scope, code, server_id, kind, passphrase, pool)',
+      'VALUES (?, ?, ?, ?, ?, ?, \'open\', ?, ?, ?, ?, ?, ?, ?, ?)'
     ].join('\n')).run(String(sender), total, n,
       kind === 'phrase' ? passphrase : String(note || '').slice(0, 40),
       total, n, now, now + TTL, scope, code || null, peers.serverId(), kind,
-      kind === 'phrase' ? passphrase : null);
+      kind === 'phrase' ? passphrase : null, 'cash');
     id = info.lastInsertRowid;
     if (kind === 'designated') {
       var ins = db.prepare('INSERT INTO xy_packet_target (packet_id, user_id, amount_cent) VALUES (?, ?, ?)');
@@ -270,15 +273,30 @@ function claim(packetId, userId, appName, opts) {
       amount = pickAmount(p);
     }
 
-    xueyuan.release(p.sender, amount);   // 先解冻，再转出（转账失败会抛，事务回滚解冻）
-    xueyuan.transfer({
-      from: p.sender,
-      to: String(userId),
-      amountCent: amount,
-      ref: 'packet:' + p.id + ':' + userId,
-      app: appName || 'wallet',
-      memo: '红包 · ' + (p.note || '恭喜发财')
-    });
+    var pool = p.pool === 'cash' ? 'cash' : 'grant';
+    xueyuan.release(p.sender, amount, { pool: pool });   // 先解冻，再转出（转账失败会抛，事务回滚解冻）
+    if (pool === 'cash') {
+      xueyuan.transfer({
+        from: p.sender,
+        to: String(userId),
+        amountCent: amount,
+        ref: 'packet:' + p.id + ':' + userId,
+        app: appName || 'wallet',
+        memo: '红包 · ' + (p.note || '恭喜发财')
+      });
+    } else {
+      // 兼容迁移前发出的在途红包：当时只有一个池，按原池完成，不再套用新规则
+      xueyuan.post({
+        entries: [
+          { user_id: p.sender, delta: -amount, pool: 'grant' },
+          { user_id: String(userId), delta: amount, pool: 'grant' }
+        ],
+        kind: 'transfer',
+        ref: 'packet:' + p.id + ':' + userId,
+        app: appName || 'wallet',
+        memo: '红包 · ' + (p.note || '恭喜发财')
+      });
+    }
     db.prepare([
       'UPDATE xy_packet SET remaining_cent = remaining_cent - ?, remaining_count = remaining_count - 1,',
       "  status = CASE WHEN remaining_count - 1 <= 0 THEN 'done' ELSE status END",
@@ -358,10 +376,12 @@ function claimRemote(packetId, claimerId, callerServer, callerName, opts) {
       amount = pickAmount(p);
     }
 
-    xueyuan.release(p.sender, amount);
+    var pool = p.pool === 'cash' ? 'cash' : 'grant';
+    xueyuan.release(p.sender, amount, { pool: pool });
     xueyuan.burn({
       from: p.sender,
       amountCent: amount,
+      pool: pool,
       kind: 'transfer',
       ref: 'xpacket:' + p.id + ':' + claimerId,
       app: 'wallet',
@@ -531,7 +551,7 @@ function sweepExpired() {
   for (var i = 0; i < rows.length; i++) {
     var p = rows[i];
     try {
-      xueyuan.release(p.sender, p.remaining_cent);
+      xueyuan.release(p.sender, p.remaining_cent, { pool: p.pool === 'cash' ? 'cash' : 'grant' });
       db.prepare("UPDATE xy_packet SET status = 'expired', remaining_count = 0 WHERE id = ?").run(p.id);
       n++;
     } catch (e) { /* 下一轮再试 */ }

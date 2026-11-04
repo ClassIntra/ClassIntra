@@ -163,8 +163,8 @@ async function pay(opts) {
   if (amount > MAX_CROSS_CENT) throw new Error('跨班单笔不能超过 ' + (MAX_CROSS_CENT / 100) + ' 学元');
   if (to === uid) throw new Error('不能给自己转账');
 
-  // 冻结（可用不足会抛）
-  xy.hold(uid, amount);
+  // 冻结（可用不足会抛）。跨班转账只能动用充值学元：赠送学元仅可投资
+  xy.hold(uid, amount, { pool: 'cash' });
 
   var fromBase = '';
   try { fromBase = payCode.normalizeBase(opts.fromBase || ''); } catch (e) { fromBase = ''; }
@@ -172,8 +172,8 @@ async function pay(opts) {
   var ref = 'xp:' + uid + ':' + crypto.randomBytes(8).toString('hex');
   var t = nowMs();
   db.prepare([
-    'INSERT INTO xy_cross_tx (ref, from_user, to_user, to_server, to_base, to_token, from_base, amount_cent, memo, status, attempts, created_at, updated_at)',
-    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?)"
+    'INSERT INTO xy_cross_tx (ref, from_user, to_user, to_server, to_base, to_token, from_base, amount_cent, memo, status, attempts, created_at, updated_at, pool)',
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, 'cash')"
   ].join('\n')).run(ref, uid, to, '', base, token, fromBase, amount, memo, t, t);
 
   var payload = {
@@ -225,10 +225,12 @@ function settle(ref, peerTx) {
   if (!tx || tx.status !== 'pending') return;
   db.transaction(function () {
     // 解冻 + 回收（钱离开本班账本，对端会 mint 一笔等额）
-    xy.release(tx.from_user, tx.amount_cent);
+    var pool = tx.pool === 'cash' ? 'cash' : 'grant';
+    xy.release(tx.from_user, tx.amount_cent, { pool: pool });
     xy.burn({
       from: tx.from_user,
       amountCent: tx.amount_cent,
+      pool: pool,
       kind: 'transfer',
       ref: 'cross:' + ref,
       app: 'wallet',
@@ -243,7 +245,8 @@ function refund(ref, reason) {
   var tx = findTx(ref);
   if (!tx || tx.status !== 'pending') return;
   db.transaction(function () {
-    xy.release(tx.from_user, tx.amount_cent);
+    var pool = tx.pool === 'cash' ? 'cash' : 'grant';
+    xy.release(tx.from_user, tx.amount_cent, { pool: pool });
     db.prepare("UPDATE xy_cross_tx SET status = 'refunded', error = ?, updated_at = ? WHERE ref = ? AND status = 'pending'")
       .run(String(reason || '').slice(0, 120), nowMs(), ref);
   })();
@@ -320,6 +323,7 @@ function receive(payload) {
     var r = xy.mint({
       to: to,
       amountCent: amount,
+      pool: 'cash',
       kind: 'transfer',
       ref: 'cross:' + String(p.ref || ''),
       app: 'wallet',

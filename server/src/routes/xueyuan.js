@@ -31,7 +31,7 @@ var db = require('../utils/db');
 // 未预期异常才是 500 —— 这样前端能把「余额不足」和「服务器挂了」分开。
 function fail(res, err) {
   var msg = err && err.message ? err.message : '操作失败';
-  var known = /余额不足|可用学元不足|超过上限|不能超过|非法|不存在|已被冻结|至少|不能为空|尚未开通|已关闭|未知的业务类型|不平衡|重复出现|不能给自己|必须|请填写|请选择|一次最多|无法|不能/.test(msg);
+  var known = /余额不足|可用学元不足|可提现学元不足|不足|超过上限|不能超过|非法|不存在|已被冻结|至少|不能为空|尚未开通|已关闭|未知的业务类型|不平衡|重复出现|不能给自己|必须|请填写|请选择|一次最多|无法|不能|已有一笔|已处理|只能撤销/.test(msg);
   if (!known) console.error('[xueyuan] 未预期错误:', err);
   return res.status(known ? 400 : 500).json({ code: known ? 400 : 500, message: msg });
 }
@@ -88,9 +88,20 @@ router.get('/config', function (req, res) {
       name: '学元',
       code: 'XY',
       cent_per_yuan: xy.CENT_PER_YUAN,
+      // 与现实货币比率：1 元 = N 学元。默认 1:1，充值/提现都按这个换算。
+      yuan_rate: xy.yuanRate(),
       welcome: xy.fromCent(xy.LIMITS.WELCOME_CENT),
       daily: xy.fromCent(xy.LIMITS.DAILY_CENT),
+      daily_bonus: xy.fromCent(xy.LIMITS.DAILY_BONUS_CENT || 0),
+      daily_bonus_from_day: xy.LIMITS.DAILY_BONUS_FROM_DAY || 7,
       max_transfer: xy.fromCent(xy.LIMITS.MAX_TRANSFER_CENT),
+      max_recharge: xy.fromCent(xy.LIMITS.MAX_RECHARGE_CENT),
+      max_withdraw: xy.fromCent(xy.LIMITS.MAX_WITHDRAW_CENT),
+      min_withdraw: xy.fromCent(xy.LIMITS.MIN_WITHDRAW_CENT),
+      pools: {
+        cash: '充值学元：可转账、发红包、投资、提现',
+        grant: '赠送学元：仅可用于投资，不可提现'
+      },
       kinds: xy.KINDS
     }
   });
@@ -156,6 +167,52 @@ router.post('/transfer', function (req, res) {
         account: xy.viewAccount(from)
       }
     });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+// ---------------- 提现（学生申请 / 班管线下付现） ----------------
+// 只有充值学元能提现；赠送学元在记账层就被隔离，走不到这里。
+
+router.post('/withdraw/request', function (req, res) {
+  try {
+    var body = req.body || {};
+    var userId = String(req.user.user_id);
+    xy.ensureAccount(userId);
+    var r = xy.requestWithdraw({
+      user: userId,
+      amount: body.amount,
+      memo: String(body.memo || '').slice(0, 60),
+      requestId: String(body.requestId || '').slice(0, 40) || null
+    });
+    res.json({
+      code: 200,
+      message: r.duplicate ? '申请已存在' : '已提交，请找班管线下提现',
+      data: { withdraw: r.withdraw, account: r.account }
+    });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+router.get('/withdraw/list', function (req, res) {
+  try {
+    var list = xy.listWithdrawals({
+      user: String(req.user.user_id),
+      status: req.query.status,
+      limit: req.query.limit
+    });
+    res.json({ code: 200, message: 'ok', data: { list: list, withdrawable: xy.withdrawableCent(String(req.user.user_id)) / xy.CENT_PER_YUAN } });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+router.post('/withdraw/cancel/:id', function (req, res) {
+  try {
+    var r = xy.cancelWithdraw(req.params.id, { user: String(req.user.user_id) });
+    res.json({ code: 200, message: '已撤销，学元已退回', data: r });
   } catch (err) {
     fail(res, err);
   }
@@ -293,6 +350,123 @@ function handleBatch(req, res, direction) {
     fail(res, err);
   }
 }
+
+// ---------------- 线下充值（班管收现金后录入） ----------------
+// 充值学元进入 cash 池，可转账、红包、投资、提现；与「教师发放」的赠送学元严格区分。
+// body: { userId | userIds: [], yuan: 每人实收人民币, amount: 每人学元(兼容), method, memo, requestId }
+
+router.post('/admin/recharge', requireTreasury, function (req, res) {
+  try {
+    var body = req.body || {};
+    var ids = Array.isArray(body.userIds) ? body.userIds.slice() : [];
+    if (body.userId) ids.push(body.userId);
+    var memo = String(body.memo || '').slice(0, 80);
+    var method = String(body.method || 'cash').slice(0, 20);
+
+    if (!ids.length) throw new Error('请选择要充值的账号');
+    if (ids.length > 50) throw new Error('一次最多为 50 个账号充值');
+
+    var amountCent;
+    if (body.yuan !== undefined && body.yuan !== null && body.yuan !== '') {
+      amountCent = xy.yuanToCent(body.yuan);
+      if (amountCent === null) throw new Error('人民币金额不合法');
+    } else {
+      amountCent = xy.toCent(body.amount);
+      if (amountCent === null) throw new Error('学元金额不合法');
+    }
+    if (!(amountCent > 0)) throw new Error('充值金额必须大于 0');
+    if (amountCent > xy.LIMITS.MAX_RECHARGE_CENT) {
+      throw new Error('单人单次充值不能超过 ' + xy.centToYuan(xy.LIMITS.MAX_RECHARGE_CENT) + ' 元');
+    }
+
+    var reqId = String(body.requestId || '').slice(0, 40) ||
+      (Date.now().toString(36) + Math.random().toString(36).slice(2, 8));
+
+    var done = [];
+    var skipped = [];
+
+    for (var i = 0; i < ids.length; i++) {
+      var uid = String(ids[i] || '').trim();
+      try {
+        var u = db.prepare('SELECT user_id, net_name FROM users WHERE user_id = ?').get(uid);
+        if (!u) { skipped.push({ user_id: uid, reason: '账号不存在' }); continue; }
+
+        var r = xy.recharge({
+          user: uid,
+          amountCent: amountCent,
+          operator: String(req.user.user_id),
+          method: method,
+          memo: memo || '线下充值',
+          requestId: reqId + ':' + uid
+        });
+        done.push({
+          user_id: uid,
+          net_name: u.net_name,
+          amount: xy.fromCent(amountCent),
+          yuan: xy.centToYuan(amountCent),
+          duplicate: !!r.duplicate
+        });
+      } catch (e) {
+        skipped.push({ user_id: uid, reason: e.message });
+      }
+    }
+
+    res.json({
+      code: 200,
+      message: '已为 ' + done.length + ' 人录入充值' + (skipped.length ? '，' + skipped.length + ' 人跳过' : ''),
+      data: { done: done, skipped: skipped, request_id: reqId, rate: xy.yuanRate() }
+    });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+router.get('/admin/recharges', requireTreasury, function (req, res) {
+  try {
+    res.json({
+      code: 200,
+      message: 'ok',
+      data: { list: xy.listRecharges({ user: req.query.user, limit: req.query.limit }) }
+    });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+// ---------------- 提现审批 ----------------
+
+router.get('/admin/withdrawals', requireTreasury, function (req, res) {
+  try {
+    res.json({
+      code: 200,
+      message: 'ok',
+      data: {
+        list: xy.listWithdrawals({ status: req.query.status, user: req.query.user, limit: req.query.limit }),
+        pending: xy.listWithdrawals({ status: 'pending', limit: 100 })
+      }
+    });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+// body: { approve: true/false, memo, requestId }
+router.post('/admin/withdrawals/:id/review', requireTreasury, function (req, res) {
+  try {
+    var body = req.body || {};
+    var r = xy.reviewWithdraw(req.params.id, body.approve !== false, {
+      reviewer: String(req.user.user_id),
+      memo: String(body.memo || '').slice(0, 80)
+    });
+    res.json({
+      code: 200,
+      message: body.approve !== false ? '已通过，请当面交付现金' : '已驳回，学元已退回',
+      data: r
+    });
+  } catch (err) {
+    fail(res, err);
+  }
+});
 
 // 当日 0 点（东八区）的毫秒时间戳
 function todayStartMs() {

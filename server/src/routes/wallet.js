@@ -514,8 +514,15 @@ router.get('/', function (req, res) {
         },
         pay_pin: payPin.state(uid),
         sources: SOURCES,
+        // 可提现额度：只有「累计线下充值 - 累计已提现」以内的充值学元能提，
+        // 防止「赠金投资赚钱 → 卖出 → 提现」把系统赠金套成现金。
+        withdrawable: xy.withdrawableCent(uid) / 100,
+        yuan_rate: xy.yuanRate(),
         limits: {
           transfer: xy.LIMITS.MAX_TRANSFER_CENT / 100,
+          recharge: xy.LIMITS.MAX_RECHARGE_CENT / 100,
+          withdraw: xy.LIMITS.MAX_WITHDRAW_CENT / 100,
+          withdraw_min: xy.LIMITS.MIN_WITHDRAW_CENT / 100,
           packet_total: yuanbao.MAX_TOTAL_CENT / 100,
           packet_count: yuanbao.MAX_COUNT,
           cross: crossPay.MAX_CROSS_CENT / 100,
@@ -539,7 +546,7 @@ router.get('/ledger', function (req, res) {
     var cond = dir === 'in' ? 'AND e.delta > 0' : (dir === 'out' ? 'AND e.delta < 0' : '');
 
     var rows = db.prepare([
-      'SELECT e.id, e.tx_id, e.delta, e.balance_after, e.created_at,',
+      'SELECT e.id, e.tx_id, e.delta, e.balance_after, e.pool, e.created_at,',
       '       t.kind, t.app_name, t.operator, t.memo',
       'FROM xy_entry e JOIN xy_tx t ON t.id = e.tx_id',
       'WHERE e.user_id = ? AND (? = 0 OR e.id < ?) ' + cond,
@@ -552,6 +559,8 @@ router.get('/ledger', function (req, res) {
         delta: xy.fromCent(r.delta),
         delta_cent: r.delta,
         balance_after: xy.fromCent(r.balance_after),
+        pool: r.pool || '',
+        pool_label: r.pool === 'cash' ? '充值学元' : (r.pool === 'grant' ? '赠送学元' : ''),
         kind: r.kind,
         kind_label: xy.KINDS[r.kind] || r.kind,
         app: r.app_name,
