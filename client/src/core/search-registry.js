@@ -9,6 +9,7 @@
 // 5. 单例模式 getSearchRegistry()
 
 import { APP_REGISTRY } from './app-registry';
+import { marketRegistry } from './market-registry';
 import { getDefaultStore } from './persistence-store';
 
 var STORAGE_KEY_RECENT = 'classintra:search:recent';
@@ -147,6 +148,34 @@ SearchRegistry.prototype._searchApps = function(q) {
       });
     }
   }
+  // 市场应用：安装即被全局搜索收录（对应 iOS Spotlight / Android App Search）。
+  // 之前市场应用完全搜不到，用户只能回桌面翻图标；这里统一补上，不需要应用自己接。
+  try {
+    var marketApps = marketRegistry.getInstalledApps();
+    for (var mi = 0; mi < marketApps.length; mi++) {
+      var marketApp = marketApps[mi];
+      if (!marketApp || !marketApp.name || marketApp.enabled === false) continue;
+      var mName = String(marketApp.name).toLowerCase();
+      var mLabel = String(marketApp.label || marketApp.name).toLowerCase();
+      if (mName.indexOf(q) === -1 && mLabel.indexOf(q) === -1) continue;
+      results.push({
+        id: 'app:' + marketApp.name,
+        title: marketApp.label || marketApp.name,
+        description: '打开应用（第三方）',
+        icon: marketApp.icon || 'fa-solid fa-cube',
+        iconColor: marketApp.color || '',
+        category: '应用',
+        action: (function(route) {
+          return function() {
+            if (route && window.__router) window.__router.push(route);
+          };
+        })(marketApp.route)
+      });
+    }
+  } catch (e) {
+    // 市场应用列表不可用时不影响内置应用搜索
+  }
+
   return results;
 };
 

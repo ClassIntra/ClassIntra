@@ -172,7 +172,10 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         NODE_PATH: path.join(serverDir, 'node_modules'),
-        TUNNEL_GATEWAY_PORT: '10111',
+        // ⚠️ 不要改回 10111：该端口被第三方服务 CSB_CoreService.exe 占用，
+        //    Windows 会以 EACCES（而非 EADDRINUSE）拒绝 listen，表现为「无声崩溃循环」。
+        //    改这里的同时必须同步改 frpc.ini 的两条 local_port，否则穿透流量到不了网关。
+        TUNNEL_GATEWAY_PORT: '10121',
         UPSTREAM_PORT: envVars.PORT || '9001'
       }
     },

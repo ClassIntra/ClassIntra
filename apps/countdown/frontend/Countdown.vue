@@ -36,6 +36,19 @@
       </div>
 
       <template v-else>
+        <!-- ========== 搜索 ========== -->
+        <div class="search-bar" v-if="events.length || linkedCalendarEvents.length">
+          <i class="fa-solid fa-magnifying-glass"></i>
+          <input
+            v-model="searchQuery"
+            placeholder="搜索标题或备注"
+            class="search-input"
+          />
+          <button v-if="searchQuery" class="search-clear" @click="searchQuery = ''" aria-label="清除搜索">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+
         <!-- ========== 置顶卡片轮播 ========== -->
         <div v-if="pinnedEvents.length" class="pinned-section">
           <div class="section-label">
@@ -119,7 +132,7 @@
                     {{ ev.title }}
                     <span v-if="isRepeat(ev)" class="er-repeat" title="重复事件"><i class="fa-solid fa-arrows-rotate"></i></span>
                   </div>
-                  <div class="er-date">{{ formatDateLabel(getEffectiveDate(ev)) }}{{ ev.note ? ' · ' + ev.note : '' }}</div>
+                  <div class="er-date">{{ formatDateLabel(getEffectiveDate(ev)) }}{{ repeatLabel(ev) }}{{ ev.note ? ' · ' + ev.note : '' }}</div>
                 </div>
                 <div class="er-days today">今天</div>
                 <div class="er-actions">
@@ -154,7 +167,7 @@
                     {{ ev.title }}
                     <span v-if="isRepeat(ev)" class="er-repeat" title="重复事件"><i class="fa-solid fa-arrows-rotate"></i></span>
                   </div>
-                  <div class="er-date">{{ formatDateLabel(getEffectiveDate(ev)) }}{{ ev.note ? ' · ' + ev.note : '' }}</div>
+                  <div class="er-date">{{ formatDateLabel(getEffectiveDate(ev)) }}{{ repeatLabel(ev) }}{{ ev.note ? ' · ' + ev.note : '' }}</div>
                 </div>
                 <div class="er-days future">{{ getCountdown(ev).days }}<span class="er-unit">天</span></div>
                 <div class="er-actions">
@@ -171,12 +184,13 @@
 
           <!-- 已过 -->
           <div v-if="pastEvents.length" class="group-block">
-            <div class="group-header past-header">
+            <div class="group-header past-header past-toggle" @click="togglePastCollapsed">
               <i class="fa-solid fa-history"></i>
               <span>已过</span>
               <span class="group-count">{{ pastEvents.length }}</span>
+              <i class="fa-solid collapse-arrow" :class="pastCollapsed ? 'fa-chevron-down' : 'fa-chevron-up'"></i>
             </div>
-            <div class="event-list">
+            <div class="event-list" v-show="!pastCollapsed">
               <div
                 v-for="ev in pastEvents"
                 :key="ev.id"
@@ -189,7 +203,7 @@
                     {{ ev.title }}
                     <span v-if="isRepeat(ev)" class="er-repeat" title="重复事件"><i class="fa-solid fa-arrows-rotate"></i></span>
                   </div>
-                  <div class="er-date">{{ formatDateLabel(getEffectiveDate(ev)) }}{{ ev.note ? ' · ' + ev.note : '' }}</div>
+                  <div class="er-date">{{ formatDateLabel(getEffectiveDate(ev)) }}{{ repeatLabel(ev) }}{{ ev.note ? ' · ' + ev.note : '' }}</div>
                 </div>
                 <div class="er-days past">{{ getCountdown(ev).days }}<span class="er-unit">天前</span></div>
                 <div class="er-actions">
@@ -207,7 +221,7 @@
           <!-- 筛选无结果 -->
           <div v-if="!todayEvents.length && !futureEvents.length && !pastEvents.length" class="empty-filter">
             <i class="fa-solid fa-filter-circle-xmark"></i>
-            <p>该分类下暂无倒数日</p>
+            <p>{{ emptyFilterText }}</p>
           </div>
         </div>
       </template>
@@ -228,6 +242,15 @@
           <div class="form-row">
             <label>目标日期</label>
             <input type="date" v-model="editor.form.target_date" class="form-input" />
+            <div class="quick-dates">
+              <button
+                v-for="q in quickDates"
+                :key="q.label"
+                type="button"
+                class="quick-date-btn"
+                @click="setQuickDate(q)"
+              >{{ q.label }}</button>
+            </div>
           </div>
           <div class="form-row">
             <label>分类</label>
@@ -275,8 +298,9 @@
               <label>重复</label>
               <select v-model="editor.form.repeat_type" class="form-input">
                 <option value="none">不重复</option>
-                <option value="yearly">每年</option>
+                <option value="weekly">每周</option>
                 <option value="monthly">每月</option>
+                <option value="yearly">每年</option>
               </select>
             </div>
             <div class="form-row half">
@@ -340,7 +364,15 @@ export default {
       loading: true,
       error: '',
       activeCategory: 'all',
+      searchQuery: '',
+      pastCollapsed: false,
       categoryList: CATEGORIES,
+      quickDates: [
+        { label: '今天', offset: 0, unit: 'day' },
+        { label: '明天', offset: 1, unit: 'day' },
+        { label: '一周后', offset: 7, unit: 'day' },
+        { label: '下月', offset: 1, unit: 'month' }
+      ],
       presetColors: PRESET_COLORS,
       reminderOptions: REMINDER_OPTIONS,
       editor: {
@@ -362,6 +394,25 @@ export default {
     };
   },
   computed: {
+    // 搜索词（小写）
+    searchKey: function() {
+      return this.searchQuery.trim().toLowerCase();
+    },
+    // 筛选/搜索空结果文案
+    emptyFilterText: function() {
+      var q = this.searchQuery.trim();
+      if (q) return '没有匹配「' + q + '」的倒数日';
+      return '该分类下暂无倒数日';
+    },
+    // 搜索匹配：标题/备注包含关键词（空词全通过）
+    _matchSearch: function() {
+      var key = this.searchKey;
+      return function(ev) {
+        if (!key) return true;
+        return String(ev.title || '').toLowerCase().indexOf(key) !== -1 ||
+               String(ev.note || '').toLowerCase().indexOf(key) !== -1;
+      };
+    },
     // 合并原生倒数日 + 来自日历的虚拟倒数日
     // 虚拟事件标记 _source: 'linked'，原生事件标记 _source: 'native'
     allEventsWithLinked: function() {
@@ -376,18 +427,24 @@ export default {
       }.bind(this));
       return native.concat(linked);
     },
-    // 置顶事件（仅原生倒数日可置顶；跟随分类筛选）
+    // 置顶事件（仅原生倒数日可置顶；跟随分类筛选与搜索）
     pinnedEvents: function() {
       var self = this;
+      var match = self._matchSearch;
       return self.allEventsWithLinked.filter(function(ev) {
-        return ev.pinned && ev._source === 'native' && (self.activeCategory === 'all' || ev.category === self.activeCategory);
+        return ev.pinned && ev._source === 'native' &&
+          (self.activeCategory === 'all' || ev.category === self.activeCategory) &&
+          match(ev);
       });
     },
-    // 非置顶事件（含来自日历的虚拟事件；跟随分类筛选）
+    // 非置顶事件（含来自日历的虚拟事件；跟随分类筛选与搜索）
     nonPinnedEvents: function() {
       var self = this;
+      var match = self._matchSearch;
       return self.allEventsWithLinked.filter(function(ev) {
-        return !ev.pinned && (self.activeCategory === 'all' || ev.category === self.activeCategory);
+        return !ev.pinned &&
+          (self.activeCategory === 'all' || ev.category === self.activeCategory) &&
+          match(ev);
       });
     },
     todayEvents: function() {
@@ -407,6 +464,8 @@ export default {
     }
   },
   mounted: function() {
+    // 恢复"已过"折叠状态
+    try { this.pastCollapsed = localStorage.getItem('classintra_countdown_past_collapsed') === '1'; } catch (e) {}
     this.loadData();
   },
   activated: function() {
@@ -479,6 +538,29 @@ export default {
     isRepeat: function(ev) {
       return ev.repeat_type && ev.repeat_type !== 'none';
     },
+    // 重复事件文案（行内展示）
+    repeatLabel: function(ev) {
+      if (!this.isRepeat(ev)) return '';
+      var map = { weekly: ' · 每周', monthly: ' · 每月', yearly: ' · 每年' };
+      return map[ev.repeat_type] || ' · 重复';
+    },
+    // 快捷日期：offset 天后 / 下月同日（月末自动钳制）
+    setQuickDate: function(q) {
+      var base = new Date();
+      var target;
+      if (q.unit === 'month') {
+        var day = base.getDate();
+        target = new Date(base.getFullYear(), base.getMonth() + 1, 1);
+        var lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+        target.setDate(Math.min(day, lastDay));
+      } else {
+        target = new Date(base.getFullYear(), base.getMonth(), base.getDate() + (q.offset || 0));
+      }
+      var y = target.getFullYear();
+      var m = target.getMonth() + 1;
+      var d = target.getDate();
+      this.editor.form.target_date = y + '-' + (m < 10 ? '0' + m : m) + '-' + (d < 10 ? '0' + d : d);
+    },
     // 获取事件颜色（自定义 > 分类默认）
     getEventColor: function(ev) {
       if (ev.color) return ev.color;
@@ -496,6 +578,11 @@ export default {
       var d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
       var weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
       return (parseInt(parts[1], 10)) + '月' + parseInt(parts[2], 10) + '日 · ' + weekdays[d.getDay()];
+    },
+    // 已过分组折叠/展开（状态持久化）
+    togglePastCollapsed: function() {
+      this.pastCollapsed = !this.pastCollapsed;
+      try { localStorage.setItem('classintra_countdown_past_collapsed', this.pastCollapsed ? '1' : '0'); } catch (e) {}
     },
     // 跳到今天
     goToToday: function() {
@@ -703,6 +790,45 @@ export default {
 .state-retry:hover { opacity: 0.9; }
 .state-retry:active { transform: scale(0.96); }
 
+/* ========== 搜索 ========== */
+.search-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--card-bg);
+  border: 1px solid var(--separator-color);
+  border-radius: var(--radius-lg);
+  padding: 8px 12px;
+  margin-bottom: 14px;
+  box-shadow: var(--shadow-sm);
+}
+.search-bar i { color: var(--text-tertiary); font-size: 13px; }
+.search-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--font-size-body);
+}
+.search-input::placeholder { color: var(--text-tertiary); }
+.search-clear {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 50%;
+  background: var(--surface-elevated);
+  color: var(--text-tertiary);
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard);
+}
+.search-clear:hover { background: var(--separator-color); color: var(--text-primary); }
+
 /* ========== 置顶卡片轮播 ========== */
 .pinned-section { margin-bottom: 18px; }
 .section-label {
@@ -857,6 +983,13 @@ export default {
 .group-header i { font-size: 11px; }
 .group-header.today-header { color: var(--warning-color); }
 .group-header.past-header { color: var(--text-tertiary); }
+.past-toggle { cursor: pointer; user-select: none; }
+.past-toggle:hover { opacity: 0.8; }
+.collapse-arrow {
+  margin-left: auto;
+  font-size: 11px;
+  transition: transform var(--duration-normal) var(--ease-standard);
+}
 .group-count {
   background: var(--surface-elevated);
   color: var(--text-secondary);
@@ -1045,6 +1178,24 @@ export default {
   outline: none;
   border-color: var(--primary-color);
 }
+.quick-dates {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.quick-date-btn {
+  border: 1px solid var(--separator-color);
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  font-size: var(--font-size-caption);
+  padding: 4px 12px;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: background-color var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard);
+}
+.quick-date-btn:hover { background: var(--primary-lighter); color: var(--primary-color); border-color: rgba(var(--primary-rgb), 0.3); }
+.quick-date-btn:active { transform: scale(0.95); }
 textarea.form-input { resize: vertical; }
 .form-row-inline {
   display: flex;

@@ -711,9 +711,9 @@ export default {
       var slotRect = target.element.getBoundingClientRect();
       if (gridRect.width <= 0 || gridRect.height <= 0) return null;
 
-      // 网格参数（与 .desktop-grid CSS 保持一致）
+      // 网格参数（与 .desktop-grid CSS 保持一致；行数随图标密度设置动态）
       var COLS = 6;
-      var ROWS = 4;
+      var ROWS = (this.$store.state.desktop.layout && this.$store.state.desktop.layout.rows) || 4;
       var GAP = 12;
       // 小屏适配：grid-gap 为 8px
       var computedGap = parseInt(window.getComputedStyle(gridEl).gridGap || window.getComputedStyle(gridEl).gap || GAP, 10);

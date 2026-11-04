@@ -197,6 +197,44 @@ try {
   console.warn('[app] apps-static 静态路由初始化失败（apps/ 目录可能不存在）:', e.message);
 }
 
+// 第三方市场应用 / 主题静态资源：必须与 9001 主实例对齐。
+// ⚠️ 历史坑：这里曾漏挂 /market-static，https 入口请求 /market-static/pet/frontend/entry.js
+//    会落进下面的 SPA 回退，返回 index.html（text/html + X-Content-Type-Options: nosniff），
+//    浏览器直接拒绝执行脚本 —— 表现就是「从 https 进桌宠显示加载失败」，而 9001 一切正常。
+//    改动时请与 app.js L297–333 同步。
+var marketService = require('./core/market-service');
+try {
+  fs.mkdirSync(marketService.marketAppsDir, { recursive: true });
+  app.use('/market-static', express.static(marketService.marketAppsDir, {
+    maxAge: '0',
+    immutable: false,
+    setHeaders: function(res) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+    }
+  }));
+} catch (e) {
+  console.warn('[app] market-static 静态路由初始化失败:', e.message);
+}
+
+try {
+  fs.mkdirSync(marketService.marketThemesDir, { recursive: true });
+  app.use('/market-theme-static', express.static(marketService.marketThemesDir, {
+    maxAge: '0',
+    immutable: false,
+    setHeaders: function(res) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+    }
+  }));
+} catch (e) {
+  console.warn('[app] market-theme-static 静态路由初始化失败:', e.message);
+}
+
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/user', require('./routes/user'));
 app.use('/api/admin', require('./routes/admin'));
@@ -206,6 +244,9 @@ app.use('/api/level', require('./routes/level'));
 app.use('/api/cdn', require('./routes/cdn-proxy'));
 app.use('/api/system', require('./routes/system'));
 app.use('/api/integrations', require('./routes/integrations'));
+// 市场应用目录 / 安装态 / 详情：9443 也必须挂，否则客户端拿不到 app.route，
+// /pet 这类路由会落进 '*' 回退被重定向回桌面，表现为「打开桌宠失败」。
+app.use('/api/market', require('./routes/market'));
 
 // ZW 设备启动器：必须与 9001 主实例保持一致。
 // ⚠️ 历史坑：这里曾漏挂 /zxw，导致 https 入口访问 /zxw 直接落进下面的 SPA 回退、
@@ -216,6 +257,12 @@ app.use('/zx', function(req, res) { res.redirect(308, '/zxw' + req.url); });
 
 var routeAggregator = require('./core/route-aggregator');
 routeAggregator.mountAppRoutes(app);
+
+// 第三方市场应用路由热挂载调度器：与 9001 主实例保持一致。
+// 漏掉这一步时，市场应用的 /api/{app}/* 后端接口在 https 入口全部落进 SPA 回退，
+// 前端只看到一段 HTML，表现同样是「加载失败」。
+marketService.init();
+app.use(marketService.dispatcher());
 
 var serviceRegistry = require('./core/service-registry').getServiceRegistry();
 serviceRegistry.register('db', function() { return require('./utils/db'); });

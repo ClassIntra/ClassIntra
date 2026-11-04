@@ -28,6 +28,9 @@
       <template #actions>
         <slot name="nav-right"></slot>
       </template>
+      <template #center-extra>
+        <slot name="nav-center"></slot>
+      </template>
     </AppNavBar>
 
     <!-- 内容区 -->

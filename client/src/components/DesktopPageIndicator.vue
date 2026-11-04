@@ -1,5 +1,6 @@
 <template>
-  <div class="page-indicator" @click.stop>
+  <!-- 右键页点：页面管理菜单（对齐 iPadOS 长按页点），坐标透传给宿主的 ctxMenu -->
+  <div class="page-indicator" @click.stop @contextmenu.prevent.stop="$emit('page-menu', $event)">
     <button
       v-for="i in total"
       :key="i"
@@ -30,8 +31,9 @@ export default {
     current: { type: Number, default: 0 },
     // 最大页数
     maxPages: { type: Number, default: 9 },
-    // 跟手翻页进度（宿主由 pageDragOffset/视口宽 换算）：-1 上一页方向 ~ 1 下一页方向；
-    // 0 表示未拖动。拖动中 active 长条朝目标点位移+拉伸，松手回零复用既有过渡
+    // 跟手翻页进度（兼容旧的 prop 驱动方式）：-1 上一页方向 ~ 1 下一页方向，0 未拖动。
+    // 2026-11-02 起桌面改为拖拽中调用 setDragProgress() 直写 DOM（不产生逐帧重渲染），
+    // 该 prop 仅保留给其它宿主/测试用，缺省 0 时行为与以前一致。
     dragProgress: { type: Number, default: 0 }
   },
   computed: {
@@ -49,6 +51,21 @@ export default {
   methods: {
     onJump: function(pageIndex) {
       this.$emit('jump', pageIndex);
+    },
+    // 跟手进度直写 DOM（2026-11-02）：宿主不再为每一帧拖拽维护响应式 offset，
+    // 避免整个桌面组件逐帧重渲染。语义与 activeDotStyle 完全一致，只是绕过 Vue。
+    setDragProgress: function(p) {
+      var dot = this.$el && this.$el.querySelector('.page-dot--active');
+      if (!dot) return;
+      if ((this.current === 0 && p < 0) || (this.current === this.total - 1 && p > 0)) p = 0;
+      if (!p) { dot.style.transform = ''; return; }
+      var shift = p * 22;  // 朝相邻点位移（点距 20px + 2px gap）
+      var stretch = 1 + Math.abs(p) * 0.5;
+      dot.style.transform = 'translateX(' + shift.toFixed(1) + 'px) scaleX(' + stretch.toFixed(3) + ')';
+    },
+    clearDragProgress: function() {
+      var dot = this.$el && this.$el.querySelector('.page-dot--active');
+      if (dot) dot.style.transform = '';
     }
   }
 };

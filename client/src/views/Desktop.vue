@@ -1,11 +1,15 @@
 <template>
   <div
     class="desktop"
-    :class="{ 'desktop-enter': entered, 'desktop--editing': isEditMode, 'desktop--dragging': isDragging, 'desktop--grid': isGridLayout }"
+    :class="{ 'desktop-enter': entered, 'desktop--editing': isEditMode, 'desktop--dragging': isDragging, 'desktop--grid': isGridLayout, 'desktop--folder-open': !!openFolderId }"
+    :data-icon-size="iconSize"
     @touchstart="onDesktopTouchStart"
     @touchmove="onDesktopTouchMove"
     @touchend="onDesktopTouchEnd"
+    @touchcancel="onDesktopTouchCancel"
     @mousedown="onDesktopMouseDown"
+    @wheel="onDesktopWheel"
+    @contextmenu.prevent="onDesktopContextMenu"
   >
     <template v-if="videoWallpaperSrc && !videoWallpaperFailed">
       <video
@@ -89,11 +93,24 @@
       </div>
     </transition>
 
+    <!-- 公告未读胶囊：浮窗自动收起/横滑甩出后的重开入口（不标已读） -->
+    <transition name="announcement-float">
+      <button
+        v-if="announcementMinimized && hasUnreadAnnouncements"
+        class="announcement-minimized"
+        :aria-label="'查看未读公告 ' + unreadAnnouncements.length + ' 条'"
+        @click="reopenAnnouncement"
+      >
+        <i class="fa-solid fa-bullhorn"></i>
+        <span class="announcement-minimized-count">{{ unreadAnnouncements.length }}</span>
+      </button>
+    </transition>
+
     <!-- iPad 桌面模式：多页面容器 + 4×6 网格 -->
     <div
       v-if="isGridLayout && isLoaded"
+      ref="pagesEl"
       class="desktop-pages"
-      :class="{ 'desktop-pages--dragging': pageDragOffset !== 0 }"
       :style="pagesTransformStyle"
     >
       <div
@@ -101,7 +118,7 @@
         :key="page.id"
         class="desktop-page"
       >
-        <div class="desktop-grid">
+        <div class="desktop-grid" :style="{ gridTemplateRows: 'repeat(' + gridRows + ', 1fr)', maxHeight: gridMaxHeight }">
           <!-- 小组件（与 app 图标共用同一网格，grid-auto-flow: dense 实现环绕分布） -->
           <div
             v-for="w in ((pagesView[pageIndex] && pagesView[pageIndex].widgets) || [])"
@@ -154,55 +171,53 @@
             </template>
           </div>
           <div
-            v-for="(slot, index) in ((pagesView[pageIndex] && pagesView[pageIndex].slots) || [])"
-            :key="'slot-' + index"
+            v-for="item in slotRenderList(pageIndex)"
+            :key="'slot-' + item.index"
             class="desktop-slot"
             :class="{
-              'slot--empty': !slot,
-              'slot--drop-target': isDropTarget('page', pageIndex, index)
+              'slot--empty': !item.slot,
+              'slot--drop-target': isDropTarget('page', pageIndex, item.index)
             }"
+            :style="slotExtraStyle(pageIndex, item.index, item.slot)"
             :data-dst-type="'page'"
             :data-dst-page="pageIndex"
-            :data-dst-idx="index"
+            :data-dst-idx="item.index"
           >
-            <template v-if="slot">
+            <template v-if="item.slot">
               <AppIcon
-                v-if="slot.type === 'app' && isAppEnabled(slot.name)"
-                :app="appMeta(slot.name) || placeholderApp(slot.name)"
-                :badge="appBadges[slot.name] || ''"
-                :launching="launchingApp === slot.name"
+                v-if="item.slot.type === 'app' && isAppEnabled(item.slot.name)"
+                :app="appMeta(item.slot.name) || placeholderApp(item.slot.name)"
+                :badge="appBadges[item.slot.name] || ''"
+                :launching="launchingApp === item.slot.name"
                 :editing="isEditMode"
-                :pinned="pinnedAppNames.indexOf(slot.name) !== -1"
-                :show-label="false"
+                :pinned="pinnedAppNames.indexOf(item.slot.name) !== -1"
+                :show-label="showIconLabels"
                 :data-src-type="'page'"
                 :data-src-page="pageIndex"
-                :data-src-idx="index"
-                :data-src-app="slot.name"
-                :data-flip-key="'page-app-' + slot.name"
+                :data-src-idx="item.index"
+                :data-src-app="item.slot.name"
+                :data-flip-key="'page-app-' + item.slot.name"
                 @launch="launchApp"
-                @remove="onRemoveApp(pageIndex, index)"
+                @remove="onRemoveApp(pageIndex, item.index)"
               />
               <DesktopFolderTile
-                v-else-if="slot.type === 'folder'"
-                :folder="folderById(slot.id) || { id: slot.id, name: '文件夹', apps: [] }"
+                v-else-if="item.slot.type === 'folder'"
+                :folder="folderById(item.slot.id) || { id: item.slot.id, name: '文件夹', apps: [] }"
                 :editing="isEditMode"
                 :data-src-type="'page'"
                 :data-src-page="pageIndex"
-                :data-src-idx="index"
-                :data-src-app="slot.id"
-                :data-flip-key="'page-folder-' + slot.id"
-                @open="openFolder(slot.id)"
-                @remove="onDeleteFolder(slot.id)"
+                :data-src-idx="item.index"
+                :data-src-app="item.slot.id"
+                :data-flip-key="'page-folder-' + item.slot.id"
+                @open="openFolder(item.slot.id)"
+                @remove="onDeleteFolder(item.slot.id)"
+                @resize="onResizeFolder(item.slot.id, pageIndex, item.index)"
+                @launch-app="launchAppByName"
               />
             </template>
           </div>
         </div>
 
-        <!-- 空页引导：无任何应用/文件夹/小组件时显示（pointer-events:none，不拦长按进编辑态） -->
-        <div v-if="!isEditMode && isPageEmpty(pageIndex)" class="desktop-page-empty-hint">
-          <i class="fa-solid fa-hand-pointer hint-icon"></i>
-          <span>此页为空 · 长按空白进入编辑态，把应用拖到这里</span>
-        </div>
         <!-- 编辑态：小组件占位导致图标被裁剪的提示 -->
         <div v-if="isEditMode && hiddenIconsCount(pageIndex) > 0" class="desktop-page-overflow-tip">
           <i class="fa-solid fa-triangle-exclamation"></i>
@@ -211,15 +226,16 @@
       </div>
     </div>
 
-    <!-- 分页点指示器 -->
+    <!-- 分页点指示器（跟手进度由 gestures 直写其内部 DOM，不传响应式 prop） -->
     <DesktopPageIndicator
       v-if="isGridLayout && isLoaded"
+      ref="pager"
       :total="totalPages"
       :current="currentPage"
       :max-pages="9"
-      :drag-progress="pageDragProgress"
       @jump="setCurrentPage"
       @add-page="addPage"
+      @page-menu="onPageMenu"
     />
 
     <!-- Dock 栏（transition-group 实现图标进出动画 + 自动扩展/缩减） -->
@@ -229,7 +245,13 @@
       name="dock-slot"
       tag="div"
       class="dock-bar"
-      :class="{ 'dock-bar--editing': isEditMode, 'dock-bar--empty': effectiveDockApps.length === 0, 'dock-bar--hidden': !shouldShowDock }"
+      :class="{
+        'dock-bar--editing': isEditMode,
+        'dock-bar--empty': effectiveDockApps.length === 0,
+        'dock-bar--hidden': !shouldShowDock,
+        'dock-bar--many': effectiveDockApps.length > 8,
+        'dock-bar--huge': effectiveDockApps.length > 12
+      }"
       :data-dst-type="isGridLayout ? 'dock' : null"
       :data-dst-dock="isGridLayout ? 'append' : null"
     >
@@ -250,7 +272,7 @@
         @click="onDockClick($event, name)"
       >
         <div class="dock-icon">
-          <img :src="dockAppMeta(name).icon" :alt="dockAppMeta(name).label" loading="eager">
+          <img :src="dockIconUrl(name)" :alt="dockAppMeta(name).label" loading="eager">
         </div>
         <span v-if="appBadges[name]" class="dock-badge" :class="{ 'dock-badge-dot': appBadges[name] === '●' }">{{ appBadges[name] === '●' ? '' : appBadges[name] }}</span>
         <!-- 编辑态删除徽章：从 Dock 移除（固定图标不可移除） -->
@@ -298,6 +320,16 @@
       v-if="showBirthdayCelebration"
       :userName="birthdayUserName"
       @dismiss="dismissBirthdayCelebration"
+    />
+
+    <!-- PC 右键菜单（触屏不受影响） -->
+    <DesktopContextMenu
+      :visible="ctxMenu.visible"
+      :x="ctxMenu.x"
+      :y="ctxMenu.y"
+      :items="ctxMenu.items"
+      @select="onCtxSelect"
+      @close="closeCtxMenu"
     />
 
     <!-- Widget 配置弹窗（支持多字段、select/text/bool/number 类型） -->
@@ -361,6 +393,7 @@ import DesktopFolderTile from '@/components/DesktopFolderTile.vue';
 import DesktopFolderExpanded from '@/components/DesktopFolderExpanded.vue';
 import DesktopPageIndicator from '@/components/DesktopPageIndicator.vue';
 import DesktopSettingsPanel from '@/components/DesktopSettingsPanel.vue';
+import DesktopContextMenu from '@/components/DesktopContextMenu.vue';
 import BirthdayCelebration from '@/components/BirthdayCelebration.vue';
 import desktopDrag from '@/mixins/desktop-drag.js';
 import desktopGestures from '@/mixins/desktop-gestures.js';
@@ -369,6 +402,9 @@ import { mergeMarketApps } from '@/core/app-registry';
 import { marketRegistry } from '@/core/market-registry';
 import { getWidget } from '@/core/widget-aggregator';
 import appOpenTransition from '@/core/app-open-transition';
+import { resolveAppIcon } from '@/utils/icon-resolver.js';
+import { prefetchRoutes } from '@/core/route-prefetch';
+import { ROUTE_APP_MAP } from '@/core/router-aggregator';
 
 // 渐变壁纸预设：多层合成（主渐变 + radial 光晕），与 utils/wallpaper-bg.js
 // 的 GRADIENT_MAP 保持一致，两边若调整需同步。
@@ -408,6 +444,7 @@ export default {
     DesktopFolderExpanded: DesktopFolderExpanded,
     DesktopPageIndicator: DesktopPageIndicator,
     DesktopSettingsPanel: DesktopSettingsPanel,
+    DesktopContextMenu: DesktopContextMenu,
     BirthdayCelebration: BirthdayCelebration
   },
   mixins: [desktopDrag, desktopGestures],
@@ -417,6 +454,10 @@ export default {
       launchingApp: '',
       // 公告浮窗横滑关闭的跟手位移（0 = 未拖动；负左正右）
       announceSwipeX: 0,
+      // 公告浮窗已收起为右上角胶囊（未读保留，不标已读）
+      announcementMinimized: false,
+      // PC 右键菜单状态（meta 携带动作上下文：图标源信息 / blank）
+      ctxMenu: { visible: false, x: 0, y: 0, items: [], meta: { type: 'blank' } },
       videoBuffering: false,
       videoWallpaperFailed: false,
       videoPerformanceLevel: 2,
@@ -534,24 +575,39 @@ export default {
     currentPage: function() {
       return this.$store.state.desktop.currentPage;
     },
-    // 页面容器 transform：跟手翻页时按像素实时偏移（desktop-gestures 写入 pageDragOffset），
-    // 松手后 offset 归零、dragging 类移除，由 .desktop-pages 的 transform transition 完成翻页/回弹
+    // 页面容器 transform：只表达「当前页」这一稳定态。
+    // 跟手位移由 desktop-gestures 逐帧直写 DOM（2026-11-02）——拖拽期间不产生
+    // 响应式更新，避免整个桌面组件（三页图标 + Dock + 公告）逐帧重渲染。
     pagesTransformStyle: function() {
-      if (this.pageDragOffset) {
-        return { transform: 'translateX(calc(-' + (this.currentPage * 100) + '% + ' + this.pageDragOffset.toFixed(1) + 'px))' };
-      }
       return { transform: 'translateX(-' + (this.currentPage * 100) + '%)' };
     },
     // 总页数
     totalPages: function() {
       return this.$store.getters['desktop/totalPages'];
     },
-    // 跟手翻页进度（传给页码指示器实时联动）：-1 上一页方向 ~ 1 下一页方向，0 未拖动
-    pageDragProgress: function() {
-      if (!this.pageDragOffset) return 0;
-      var w = window.innerWidth || 1;
-      var p = -this.pageDragOffset / w;
-      return Math.max(-1, Math.min(1, p));
+    // 桌面网格图标是否显示文字标签（dock 恒无标签）
+    showIconLabels: function() {
+      return this.$store.state.settings.showIconLabels;
+    },
+    // 图标尺寸档位（small/standard/large），经 root data 属性驱动 --app-icon-size
+    iconSize: function() {
+      return this.$store.state.settings.iconSize;
+    },
+    // 网格行数（图标密度），列固定 6
+    gridRows: function() {
+      return this.$store.getters['desktop/gridRows'];
+    },
+    // 网格最大高度：随行数放宽，且不超过视口可用高度
+    gridMaxHeight: function() {
+      var rows = this.gridRows;
+      var byRows = 440 + (rows - 4) * 113;
+      var byViewport = (window.innerHeight || 787) - 245;
+      return Math.max(300, Math.min(byRows, byViewport)) + 'px';
+    },
+    // 桌宠是否应让位：设置面板/文件夹展开/widget 配置/编辑态任一打开
+    uiOverlayBusy: function() {
+      var s = this.$store.state.desktop;
+      return !!(s.settingsPanelOpen || s.openFolderId || this.widgetConfigEditor.open || this.isEditMode);
     },
     // 是否编辑态
     isEditMode: function() {
@@ -568,16 +624,41 @@ export default {
     // 收敛成 computed 后由 Vue 缓存，仅在 pages / 权限变化时重算。
     pagesView: function() {
       var self = this;
-      return (this.pages || []).map(function(page) {
+      var rows = this.gridRows;
+      var slotCount = 6 * rows;
+      return (this.pages || []).map(function(page, pageIndex) {
         var widgets = self.visibleWidgetsByPage(page.id);
         var widgetCells = 0;
         for (var i = 0; i < widgets.length; i++) {
           var w = widgets[i];
           widgetCells += ((w.w || 2) * (w.h || 2));
         }
-        var maxSlots = 24 - widgetCells;
+        var maxSlots = slotCount - widgetCells;
         if (maxSlots < 0) maxSlots = 0;
-        return { widgets: widgets, slots: (page.slots || []).slice(0, maxSlots) };
+        // 大文件夹：跨度与覆盖格（covered 索引跳过渲染，span 由 slot div 承载）
+        var layoutFolders = (self.$store.state.desktop.layout || {}).folders || {};
+        var covered = {};
+        var spans = {};
+        var slots = page.slots || [];
+        for (var j = 0; j < slots.length && j < slotCount; j++) {
+          var s = slots[j];
+          if (!s || s.type !== 'folder') continue;
+          var f = layoutFolders[s.id];
+          var size = f && f.size;
+          if (size !== '2x2' && size !== '2x4') continue;
+          var w2 = size === '2x4' ? 4 : 2;
+          var c0 = j % 6;
+          var r0 = Math.floor(j / 6);
+          if (c0 + w2 > 6 || r0 + 2 > rows) continue;
+          spans[j] = size;
+          for (var dr = 0; dr < 2; dr++) {
+            for (var dc = 0; dc < w2; dc++) {
+              if (dr === 0 && dc === 0) continue;
+              covered[j + dr * 6 + dc] = true;
+            }
+          }
+        }
+        return { widgets: widgets, slots: (page.slots || []).slice(0, maxSlots), covered: covered, spans: spans };
       });
     },
     // 应用可见性查找表：把「注册表元数据 + 角色过滤 + 管控过滤」一次性归并。
@@ -694,6 +775,8 @@ export default {
   },
   mounted: function() {
     var self = this;
+    // PC 键盘：方向键翻页 / Esc 分层收起（组件级监听随路由自动隔离在桌面页）
+    document.addEventListener('keydown', this._onPcKeyDown);
     // 悬空引用守卫：打开中的文件夹被解散（拖出最后一个应用/管控清空）时自动收起，
     // 避免 folder=null 渲染崩溃（拖出定住/禁用后打开报错的共同根因）
     self._unwatchFolderGone = self.$store.watch(
@@ -725,6 +808,13 @@ export default {
       self.playVideoWallpaper();
     });
     self.loadUnreadAnnouncements();
+    // 空闲预取常用应用的懒加载 chunk：把「点开才下载+解析」的等待前移到桌面空闲期。
+    // 延迟 1.2s 触发（等 enabledApps 落地再筛名单），模块内部再等 2.6s 空闲才开拉。
+    self._prefetchTimer = setTimeout(function() {
+      self._prefetchTimer = null;
+      if (self._isDestroyed) return;
+      prefetchRoutes(self.$router, self._buildPrefetchPaths());
+    }, 1200);
     mergeMarketApps(marketRegistry.getInstalledApps());
     self.dockApps = APP_REGISTRY.slice();
     self._marketUnsubscribe = marketRegistry.onChange(function(apps) {
@@ -747,6 +837,7 @@ export default {
     window.addEventListener('focus', self._focusHandler);
   },
   beforeDestroy: function() {
+    document.removeEventListener('keydown', this._onPcKeyDown);
     if (this._unwatchFolderGone) {
       this._unwatchFolderGone();
       this._unwatchFolderGone = null;
@@ -784,7 +875,12 @@ export default {
       clearTimeout(this._launchTimer);
       this._launchTimer = null;
     }
+    if (this._prefetchTimer) {
+      clearTimeout(this._prefetchTimer);
+      this._prefetchTimer = null;
+    }
     this.stopAnnouncementRotate();
+    this.stopAnnouncementMinimize();
     var video = this.$refs.videoA;
     if (video) {
       video.pause();
@@ -793,6 +889,15 @@ export default {
     }
   },
   watch: {
+    // 桌宠让位：全屏面板/遮罩/编辑态任一打开 → body 挂 ci-pet-suppressed，
+    // pet overlay 的 syncRouteVisibility 消费（轮询兜底 + ci-route-changed 即时触发）
+    uiOverlayBusy: {
+      handler: function(val) {
+        document.body.classList.toggle('ci-pet-suppressed', !!val);
+        try { window.dispatchEvent(new Event('ci-route-changed')); } catch (e) {}
+      },
+      immediate: true
+    },
     videoWallpaperSrc: function() {
       var self = this;
       // 换壁纸：重置降级状态——此前源的视频播放失败不代表新源也会失败，
@@ -1097,6 +1202,8 @@ export default {
       return true;
     },
     onDesktopTouchStart: function(e) {
+      this._touchActive = true;
+      this._markTouchActivity();
       this.onDesktopGestureTouchStart(e);
       // 编辑态下：点击空白退出编辑态，点击图标转发到拖拽引擎
       if (this.isEditMode) {
@@ -1109,12 +1216,27 @@ export default {
       }
     },
     onDesktopTouchMove: function(e) {
+      this._markTouchActivity();
       this.onDesktopGestureTouchMove(e);
     },
     onDesktopTouchEnd: function(e) {
+      this._touchActive = !!(e.touches && e.touches.length > 0);
+      this._markTouchActivity();
       this.onDesktopGestureTouchEnd(e);
     },
+    onDesktopTouchCancel: function(e) {
+      this._touchActive = !!(e.touches && e.touches.length > 0);
+      this._markTouchActivity();
+      this.onDesktopGestureTouchEnd(e);
+    },
+    // 触摸活动时间戳：供 onDesktopContextMenu 识别「长按合成的 contextmenu」
+    // （安卓 Chrome 长按 ~500ms 会补发 contextmenu，与长按进编辑态的手势叠车）
+    _markTouchActivity: function() {
+      this._lastTouchActivityAt = Date.now();
+    },
     onDesktopMouseDown: function(e) {
+      // PC：右键菜单打开时，任意左键按下即关闭（菜单内部已 .stop 不会误触）
+      this.closeCtxMenu();
       if (this.isEditMode) {
         // 点击空白退出编辑态，点击图标转发到拖拽引擎
         if (this._isClickOnBlank(e)) {
@@ -1129,6 +1251,38 @@ export default {
     appMeta: function(name) {
       return this.$store.getters['desktop/appByName'](name);
     },
+    // 应用名 → 路由路径（预取用；ROUTE_APP_MAP 是 path→name，这里反查）
+    _routePathOfApp: function(name) {
+      for (var path in ROUTE_APP_MAP) {
+        if (Object.prototype.hasOwnProperty.call(ROUTE_APP_MAP, path) && ROUTE_APP_MAP[path] === name) {
+          return path;
+        }
+      }
+      return '';
+    },
+    // 预取候选：重块优先（社区/聊天/音乐/日历），再补 Dock 与当前页图标（都是最短路径的高频入口）
+    _buildPrefetchPaths: function() {
+      var self = this;
+      var order = ['community', 'chat', 'music', 'calendar'];
+      function push(name) {
+        if (name && order.indexOf(name) === -1) order.push(name);
+      }
+      (self.effectiveDockApps || []).forEach(push);
+      var page = self.pages && self.pages[self.currentPage];
+      if (page && page.slots) {
+        page.slots.forEach(function(slot) {
+          if (slot && slot.type === 'app') push(slot.name);
+        });
+      }
+      var enabled = self.enabledApps;  // null=清单未到，先不筛
+      var paths = [];
+      order.forEach(function(name) {
+        if (enabled && enabled.indexOf(name) === -1) return;
+        var path = self._routePathOfApp(name);
+        if (path && paths.indexOf(path) === -1) paths.push(path);
+      });
+      return paths;
+    },
     placeholderApp: function(name) {
       return { name: name, label: name, icon: '', color: '#8E8E93', route: '' };
     },
@@ -1136,6 +1290,10 @@ export default {
     // dock-only 模式下 effectiveDockApps 聚合了文件夹内应用，可能有未注册名称
     dockAppMeta: function(name) {
       return this.appMeta(name) || this.placeholderApp(name);
+    },
+    // Dock 图标 URL：走解析器（DPR≤2 取 120px 变体，与桌面图标同源）
+    dockIconUrl: function(name) {
+      return resolveAppIcon(this.dockAppMeta(name));
     },
     // 根据 id 查文件夹对象（委托 store getter，修复模板调用 folderById is not a function）
     folderById: function(fid) {
@@ -1229,17 +1387,6 @@ export default {
       this.$store.commit('desktop/SET_CURRENT_PAGE', pageIndex);
       if (navigator.vibrate) navigator.vibrate(8);  // 页码点跳页轻震（仅此路径；翻页手势路径各自已震）
     },
-    // 页面是否完全为空（无应用/文件夹/小组件）——空页引导展示用
-    isPageEmpty: function(pageIndex) {
-      var page = this.pages[pageIndex];
-      if (!page) return false;
-      var slots = page.slots || [];
-      for (var i = 0; i < slots.length; i++) {
-        if (slots[i]) return false;
-      }
-      var view = this.pagesView[pageIndex];
-      return !view || view.widgets.length === 0;
-    },
     // 因小组件占位被裁剪、当前不可见的图标数——编辑态溢出提示用
     hiddenIconsCount: function(pageIndex) {
       var page = this.pages[pageIndex];
@@ -1252,6 +1399,64 @@ export default {
         if (slots[i]) hidden++;
       }
       return hidden;
+    },
+    // 大文件夹：某槽位是否被文件夹 tile 覆盖（覆盖格不渲染，index 与 store 对齐）
+    isSlotCovered: function(pageIndex, index) {
+      var pv = this.pagesView[pageIndex];
+      return !!(pv && pv.covered && pv.covered[index]);
+    },
+    // 槽位附加样式：入场 stagger + 大文件夹跨格（grid span）
+    slotExtraStyle: function(pageIndex, index, slot) {
+      var style = { '--stagger': ((pageIndex === this.currentPage ? index : 6 * this.gridRows) * 22) + 'ms' };
+      var pv = this.pagesView[pageIndex];
+      if (slot && slot.type === 'folder' && pv && pv.spans && pv.spans[index]) {
+        style.gridColumn = 'span ' + pv.spans[index].w;
+        style.gridRow = 'span ' + pv.spans[index].h;
+      }
+      return style;
+    },
+    // 大文件夹渲染列表：跳过覆盖格，保留原始 index（拖放/源定位依赖它对齐 store）
+    slotRenderList: function(pageIndex) {
+      var pv = this.pagesView[pageIndex];
+      if (!pv) return [];
+      var out = [];
+      for (var i = 0; i < pv.slots.length; i++) {
+        if (pv.covered && pv.covered[i]) continue;
+        out.push({ index: i, slot: pv.slots[i] });
+      }
+      return out;
+    },
+    // 大文件夹尺寸循环：校验覆盖格（空且不越界）→ RESIZE_FOLDER
+    onResizeFolder: function(folderId, pageIndex, index) {
+      var order = ['1x1', '2x2', '2x4'];
+      var page = this.pages[pageIndex];
+      var f = (this.$store.state.desktop.layout.folders || {})[folderId];
+      if (!page || !f) return;
+      var cur = order.indexOf(f.size || '1x1');
+      var nextSize = order[(cur + 1) % order.length];
+      var rows = this.gridRows;
+      var w = nextSize === '2x4' ? 4 : 2;
+      var c0 = index % 6;
+      var r0 = Math.floor(index / 6);
+      if (c0 + w > 6 || r0 + 2 > rows) {
+        if (this.$store.state.toast) {
+          this.$store.commit('toast/SHOW_TOAST', { message: '右侧 / 下方空间不足，无法放大', type: 'info' });
+        }
+        return;
+      }
+      for (var dr = 0; dr < 2; dr++) {
+        for (var dc = 0; dc < w; dc++) {
+          if (dr === 0 && dc === 0) continue;
+          if (page.slots[index + dr * 6 + dc]) {
+            if (this.$store.state.toast) {
+              this.$store.commit('toast/SHOW_TOAST', { message: '相邻位置已被图标占用，无法放大', type: 'info' });
+            }
+            return;
+          }
+        }
+      }
+      this.$store.commit('desktop/RESIZE_FOLDER', { folderId: folderId, pageIndex: pageIndex, index: index, nextSize: nextSize });
+      this.$store.dispatch('desktop/saveDesktopLayout');
     },
     addPage: function() {
       this.$store.commit('desktop/ADD_PAGE');
@@ -1340,17 +1545,182 @@ export default {
       var dx = this.announceSwipeX;
       this.announceSwipeX = 0;
       if (Math.abs(dx) > 80 || Math.abs(s.v) > 0.5) {
-        // 甩出：先补一段出场位移（移除 swiping 类恢复 transition 播放滑出），再隐藏
+        // 甩出：先补一段出场位移（移除 swiping 类恢复 transition 播放滑出），再收起为胶囊
         var self = this;
         this.announceSwipeX = dx >= 0 ? 420 : -420;
         setTimeout(function() {
-          self.showAnnouncementFloat = false;
-          self.stopAnnouncementRotate();
           self.announceSwipeX = 0;
+          self.minimizeAnnouncement();
         }, 180);
         if (navigator.vibrate) navigator.vibrate(10);
       }
     },
+    // ===== PC 适配：右键菜单 / 滚轮翻页 / 键盘 =====
+
+    // 右键：按目标分菜单——网格图标（打开/移除）与空白（编辑/整理/设置）
+    // 触屏长按会由浏览器合成 contextmenu（安卓 Chrome ~500ms，手指仍按住时派发），
+    // 此时长按手势同时已进入编辑态——双响叠车。判定以「触摸仍激活」为主信号
+    // （合成事件必然发生在触摸序列内），250ms 时间窗只兜底少数抬起后才补发的机型；
+    // 本菜单只服务鼠标右键（PC 适配）。
+    onDesktopContextMenu: function(e) {
+      if (this._touchActive) return;
+      if (Date.now() - (this._lastTouchActivityAt || 0) < 250) return;
+      var el = e.target;
+      var items = [];
+      var meta = { type: 'blank' };
+      var icon = el && el.closest ? el.closest('.app-icon') : null;
+      // 仅网格图标带 data-src-page/idx（文件夹展开层/其他 AppIcon 复用场景走空白菜单）
+      if (icon && !this.isEditMode && icon.getAttribute('data-src-page') !== null) {
+        var pageIndex = parseInt(icon.getAttribute('data-src-page'), 10);
+        var index = parseInt(icon.getAttribute('data-src-idx'), 10);
+        var slot = this.pages[pageIndex] && this.pages[pageIndex].slots[index];
+        if (slot && slot.type === 'app') {
+          var meta0 = this.appMeta(slot.name);
+          if (meta0 && meta0.route) {
+            meta = { type: 'icon', app: meta0, el: icon, pageIndex: pageIndex, index: index };
+            items = [
+              { icon: 'fa-solid fa-arrow-up-right-from-square', label: '打开' },
+              { icon: 'fa-solid fa-minus', label: '从桌面移除', danger: true }
+            ];
+          }
+        }
+      }
+      // 文件夹 tile：打开 / 调整大小（大文件夹循环）/ 解散
+      var tile = el && el.closest ? el.closest('.desktop-folder-tile') : null;
+      if (!items.length && tile && tile.getAttribute('data-src-app') !== null) {
+        var fid = tile.getAttribute('data-src-app');
+        var fPage = parseInt(tile.getAttribute('data-src-page'), 10);
+        var fIdx = parseInt(tile.getAttribute('data-src-idx'), 10);
+        if (fid) {
+          meta = { type: 'folder-tile', folderId: fid, pageIndex: fPage, index: fIdx };
+          items = [
+            { icon: 'fa-solid fa-folder-open', label: '打开' },
+            { icon: 'fa-solid fa-up-right-and-down-left-from-center', label: '调整大小' },
+            { icon: 'fa-solid fa-trash', label: '解散文件夹', danger: true }
+          ];
+        }
+      }
+      if (!items.length) {
+        items = this.isEditMode ? [
+          { icon: 'fa-solid fa-check', label: '退出编辑模式' },
+          { icon: 'fa-solid fa-broom', label: '整理当前页' },
+          { icon: 'fa-solid fa-gear', label: '桌面设置' }
+        ] : [
+          { icon: 'fa-solid fa-pen-to-square', label: '编辑模式' },
+          { icon: 'fa-solid fa-broom', label: '整理当前页' },
+          { icon: 'fa-solid fa-gear', label: '桌面设置' }
+        ];
+      }
+      this.ctxMenu = { visible: true, x: e.clientX, y: e.clientY, items: items, meta: meta };
+    },
+    onCtxSelect: function(i) {
+      var meta = this.ctxMenu.meta;
+      this.closeCtxMenu();
+      if (meta.type === 'icon') {
+        if (i === 0) {
+          this.launchApp(meta.app, meta.el);
+        } else if (i === 1) {
+          this.onRemoveApp(meta.pageIndex, meta.index);
+        }
+        return;
+      }
+      if (meta.type === 'pager') {
+        // 页点菜单：整理当前页 / 删除当前页
+        if (i === 0) this.tidyCurrentPage();
+        else if (i === 1) this.removePage();
+        return;
+      }
+      if (meta.type === 'folder-tile') {
+        // 文件夹 tile 菜单：打开 / 调整大小 / 解散
+        if (i === 0) this.openFolder(meta.folderId);
+        else if (i === 1) this.onResizeFolder(meta.folderId, meta.pageIndex, meta.index);
+        else if (i === 2) this.onDeleteFolder(meta.folderId);
+        return;
+      }
+      if (i === 0) {
+        if (this.$store.getters['desktop/isEditMode']) {
+          this.$store.dispatch('desktop/exitEditMode');
+          if (navigator.vibrate) navigator.vibrate(10);
+        } else {
+          this.$store.dispatch('desktop/enterEditMode');
+          if (navigator.vibrate) navigator.vibrate(15);
+        }
+      } else if (i === 1) {
+        this.tidyCurrentPage();
+      } else if (i === 2) {
+        // 桌面设置面板的 PC 唯一入口（触屏为双指捏合）
+        this.$store.commit('desktop/SET_SETTINGS_PANEL', true);
+      }
+    },
+    // 页点右键：页面管理（对齐 iPadOS 长按页点）
+    onPageMenu: function(e) {
+      this.ctxMenu = {
+        visible: true,
+        x: e.clientX,
+        y: e.clientY,
+        items: [
+          { icon: 'fa-solid fa-broom', label: '整理当前页' },
+          { icon: 'fa-solid fa-minus', label: '删除当前页', danger: true }
+        ],
+        meta: { type: 'pager' }
+      };
+    },
+    closeCtxMenu: function() {
+      if (this.ctxMenu.visible) this.ctxMenu.visible = false;
+    },
+
+    // 滚轮翻页：累积 delta 过阈值翻一页（widget 无内部滚动区，dock 横滚区与浮层排除）
+    onDesktopWheel: function(e) {
+      var t = e.target;
+      if (!t || !t.closest) return;
+      if (t.closest('.dock-bar, .desktop-widget, .desktop-settings-overlay, .folder-expanded-overlay, .announcement-float, .widget-config-mask, .desktop-ctx-menu')) return;
+      if (!this.isGridLayout) return;
+      if (this.$store.state.desktop.openFolderId || this.$store.state.desktop.settingsPanelOpen) return;
+      var total = this.$store.getters['desktop/totalPages'];
+      if (total < 2) return;
+      var now = Date.now();
+      if (now - (this._wheelFlipAt || 0) < 350) { this._wheelAcc = 0; return; }  // 冷却防连翻
+      var dy = e.deltaY;
+      if (e.deltaMode === 1) dy = dy * 16;  // 行模式归一为像素
+      this._wheelAcc = (this._wheelAcc || 0) + dy;
+      if (Math.abs(this._wheelAcc) < 80) return;
+      var dir = this._wheelAcc > 0 ? 1 : -1;  // 下滚 → 下一页
+      this._wheelAcc = 0;
+      this._wheelFlipAt = now;
+      var target = this.$store.state.desktop.currentPage + dir;
+      if (target < 0 || target > total - 1) return;
+      this.$store.commit('desktop/SET_CURRENT_PAGE', target);
+    },
+
+    // 键盘：←/→ 翻页；Esc 按层级收（右键菜单 > 设置面板 > 编辑态）
+    _onPcKeyDown: function(e) {
+      var t = e.target;
+      var tag = t && t.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (t && t.isContentEditable)) return;
+      if (e.key === 'Escape') {
+        if (this.ctxMenu.visible) { this.closeCtxMenu(); return; }
+        if (this.$store.state.desktop.settingsPanelOpen) {
+          this.$store.commit('desktop/SET_SETTINGS_PANEL', false);
+          return;
+        }
+        if (this.$store.getters['desktop/isEditMode']) {
+          this.$store.dispatch('desktop/exitEditMode');
+          if (navigator.vibrate) navigator.vibrate(10);
+        }
+        return;
+      }
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      if (this.ctxMenu.visible) return;
+      if (this.$store.state.desktop.openFolderId || this.$store.state.desktop.settingsPanelOpen) return;
+      if (this.$store.getters['desktop/isDragging']) return;
+      if (!this.isGridLayout) return;
+      var total = this.$store.getters['desktop/totalPages'];
+      var target = this.$store.state.desktop.currentPage + (e.key === 'ArrowRight' ? 1 : -1);
+      if (target < 0 || target > total - 1) return;
+      e.preventDefault();
+      this.$store.commit('desktop/SET_CURRENT_PAGE', target);
+    },
+
     // ===== 启动应用 =====
     // sourceEl：被点击的图标元素（AppIcon 根 / dock 项），供容器变换过渡捕获起点
     launchApp: function(app, sourceEl) {
@@ -1361,6 +1731,16 @@ export default {
       }
       if (sourceEl) {
         appOpenTransition.captureOrigin(sourceEl);
+      }
+      // 打开动画关闭（性能救急）：立即导航，跳过图标脉冲的 250ms 等待
+      if (!appOpenTransition.enabled()) {
+        if (self._launchTimer) {
+          clearTimeout(self._launchTimer);
+          self._launchTimer = null;
+        }
+        self.launchingApp = '';
+        self.$router.push(app.route).catch(function() {});
+        return;
       }
       self.launchingApp = app.name;
       // 重入保护：250ms 延迟内连点其他图标时以最后一次为准，旧计时作废
@@ -1410,9 +1790,12 @@ export default {
           self.currentAnnouncementIndex = 0;
           self.showAnnouncementFloat = true;
           self.startAnnouncementRotate();
+          self.startAnnouncementMinimize();
         } else {
           self.showAnnouncementFloat = false;
+          self.announcementMinimized = false;
           self.stopAnnouncementRotate();
+          self.stopAnnouncementMinimize();
         }
       }).catch(function() {
         self.unreadAnnouncements = [];
@@ -1555,6 +1938,37 @@ export default {
       }
     },
 
+    // 公告浮窗 30s 自动收起为右上角胶囊（iPadOS 横幅语义：不打扰但保留入口，不标已读）
+    startAnnouncementMinimize: function() {
+      var self = this;
+      self.stopAnnouncementMinimize();
+      self._announceMinimizeTimer = setTimeout(function() {
+        self._announceMinimizeTimer = null;
+        if (self.showAnnouncementFloat && self.unreadAnnouncements.length > 0) {
+          self.minimizeAnnouncement();
+        }
+      }, 30000);
+    },
+    stopAnnouncementMinimize: function() {
+      if (this._announceMinimizeTimer) {
+        clearTimeout(this._announceMinimizeTimer);
+        this._announceMinimizeTimer = null;
+      }
+    },
+    minimizeAnnouncement: function() {
+      this.showAnnouncementFloat = false;
+      this.announcementMinimized = true;
+      this.stopAnnouncementRotate();
+      this.stopAnnouncementMinimize();
+    },
+    // 点胶囊重开：未读列表未动，轮播与 30s 收起计时重新开始
+    reopenAnnouncement: function() {
+      this.announcementMinimized = false;
+      this.showAnnouncementFloat = true;
+      this.startAnnouncementRotate();
+      this.startAnnouncementMinimize();
+    },
+
     dismissAnnouncement: function() {
       var self = this;
       var current = self.currentAnnouncement;
@@ -1563,7 +1977,9 @@ export default {
       self.unreadAnnouncements.splice(self.currentAnnouncementIndex, 1);
       if (self.unreadAnnouncements.length === 0) {
         self.showAnnouncementFloat = false;
+        self.announcementMinimized = false;
         self.currentAnnouncementIndex = 0;
+        self.stopAnnouncementMinimize();
       } else if (self.currentAnnouncementIndex >= self.unreadAnnouncements.length) {
         self.currentAnnouncementIndex = self.unreadAnnouncements.length - 1;
       }
@@ -1581,7 +1997,9 @@ export default {
       readState.markManyRead('announcement', ids);
       self.unreadAnnouncements = [];
       self.showAnnouncementFloat = false;
+      self.announcementMinimized = false;
       self.currentAnnouncementIndex = 0;
+      self.stopAnnouncementMinimize();
       self.$store.commit('island/READ_STATE_CHANGED');
     },
     goToAnnouncements: function() {
@@ -1624,6 +2042,24 @@ export default {
   touch-action: pan-y;
   overscroll-behavior-x: none;
 }
+
+/* 图标尺寸三档（桌面设置→桌面外观）：属性选择器特异性高于 AppIcon 小屏媒体查询 */
+.desktop[data-icon-size="small"] { --app-icon-size: 52px; }
+.desktop[data-icon-size="large"] { --app-icon-size: 68px; }
+
+/* 入场编排：桌面挂载/返回时图标按序弹入（.desktop-enter 由 mounted 置位） */
+.desktop-enter .desktop-slot {
+  animation: slotIn var(--duration-normal) var(--ease-spring) both;
+  animation-delay: var(--stagger, 0ms);
+}
+@keyframes slotIn {
+  0% { opacity: 0; transform: scale(0.86) translateY(6px); }
+  100% { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .desktop-enter .desktop-slot { animation: none; }
+}
+[data-no-motion="true"] .desktop-enter .desktop-slot { animation: none; }
 
 .desktop-video-wallpaper {
   position: absolute;
@@ -1672,8 +2108,10 @@ export default {
   will-change: transform;
 }
 
-/* 跟手翻页进行中：关掉过渡（位移由手势实时驱动），松手后移除本类恢复 transition 完成翻页/回弹 */
-.desktop-pages--dragging {
+/* 跟手翻页进行中：关掉过渡（位移由手势实时驱动），松手移除标记后恢复 transition 完成翻页/回弹。
+   2026-11-02：标记改挂 <html data-paging>（手势 mixin 直写），不再走 Vue class 绑定——
+   逐帧的响应式更新会让整个桌面组件重渲染。 */
+[data-paging="1"] .desktop-pages {
   transition: none;
 }
 
@@ -1691,29 +2129,6 @@ export default {
   -webkit-justify-content: center;
   justify-content: center;
   padding: 0 32px;
-}
-
-/* 空页引导：居中淡提示，pointer-events:none 不拦截长按/拖拽手势 */
-.desktop-page-empty-hint {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  display: -webkit-flex;
-  display: flex;
-  -webkit-flex-direction: column;
-  flex-direction: column;
-  -webkit-align-items: center;
-  align-items: center;
-  color: var(--text-tertiary);
-  font-size: var(--font-size-body);
-  pointer-events: none;
-  opacity: 0.75;
-}
-.desktop-page-empty-hint .hint-icon {
-  font-size: 26px;
-  margin-bottom: 10px;
-  opacity: 0.8;
 }
 
 /* 编辑态：小组件占位溢出提示（浮在页面顶部，不挡拖拽落点判定） */
@@ -1895,6 +2310,22 @@ export default {
 .desktop--editing .desktop-static-wallpaper {
   -webkit-filter: brightness(0.6) blur(4px);
   filter: brightness(0.6) blur(4px);
+}
+
+/* 文件夹展开：底层整体磨砂——全部走直接 filter（不依赖 backdrop-filter：
+   视频合成层采样在 Chrome80/X5 不可靠），与编辑态同机制 */
+.desktop--folder-open .desktop-video-wallpaper,
+.desktop--folder-open .desktop-static-wallpaper {
+  -webkit-filter: brightness(0.8) blur(14px);
+  filter: brightness(0.8) blur(14px);
+}
+.desktop--folder-open .desktop-pages,
+.desktop--folder-open .dock-bar,
+.desktop--folder-open .page-indicator,
+.desktop--folder-open .announcement-float,
+.desktop--folder-open .announcement-minimized {
+  -webkit-filter: blur(12px) brightness(0.85);
+  filter: blur(12px) brightness(0.85);
 }
 
 /* 编辑态空槽位虚线提示 */
@@ -2084,6 +2515,31 @@ export default {
     width: 66px;
     height: 66px;
   }
+}
+
+/* dock-only 满载自适应：图标随数量收缩（many >8 / huge >12，后者叠加时靠后声明覆盖），
+   免去横向滚动；类选择器特异性高于上方媒体查询的 .dock-icon */
+.dock-bar--many .dock-icon {
+  width: 52px;
+  height: 52px;
+}
+.dock-bar--many .dock-slot {
+  margin: 0 7px;
+}
+.dock-bar--many .dock-badge {
+  top: -3px;
+  right: -3px;
+  min-width: 17px;
+  height: 17px;
+  line-height: 17px;
+  font-size: 10px;
+}
+.dock-bar--huge .dock-icon {
+  width: 46px;
+  height: 46px;
+}
+.dock-bar--huge .dock-slot {
+  margin: 0 6px;
 }
 
 .dock-icon {
@@ -2279,6 +2735,54 @@ export default {
 
 .announcement-float-badge i {
   font-size: var(--font-size-footnote);
+}
+
+/* 公告未读胶囊（浮窗收起后的重开入口） */
+.announcement-minimized {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  z-index: 900;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: center;
+  align-items: center;
+  height: 36px;
+  padding: 0 12px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: rgba(28, 28, 30, 0.72);
+  -webkit-backdrop-filter: var(--glass-blur-thin);
+  backdrop-filter: var(--glass-blur-thin);
+  color: var(--text-on-wallpaper, #fff);
+  font-size: 13px;
+  cursor: pointer;
+  box-shadow: var(--shadow-md);
+  -webkit-tap-highlight-color: transparent;
+  transition: transform var(--duration-fast) var(--ease-standard), background var(--duration-fast) var(--ease-standard);
+}
+
+.announcement-minimized:active {
+  transform: scale(0.94);
+}
+
+.announcement-minimized i {
+  font-size: 13px;
+  color: var(--warning-color, #FFD60A);
+}
+
+.announcement-minimized-count {
+  margin-left: 6px;
+  min-width: 18px;
+  height: 18px;
+  line-height: 18px;
+  text-align: center;
+  border-radius: var(--radius-pill);
+  background: var(--danger-color);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 0 4px;
 }
 
 .announcement-float-close {

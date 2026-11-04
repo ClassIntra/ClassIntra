@@ -23,6 +23,8 @@ manifests.forEach(function(m) {
       defaultSize: w.defaultSize || { w: 2, h: 2 },
       minSize: w.minSize || { w: 1, h: 1 },
       maxSize: w.maxSize || { w: 4, h: 4 },
+      // 可加宽：picker 显示「加宽 2×」选项，addWidget 传 w = default.w*2（夹紧 maxSize）
+      widenable: w.widenable === true,
       description: w.description || '',
       configSchema: w.configSchema || null,
       // 权限字段：拥有指定 permission 的用户才能查看/添加此 widget（null 表示无限制）
@@ -107,6 +109,7 @@ function syncMarketWidgets(apps) {
         WIDGET_REGISTRY[key].description = w.description || '';
         WIDGET_REGISTRY[key].configSchema = w.configSchema || null;
         WIDGET_REGISTRY[key].permission = w.permission || null;
+        WIDGET_REGISTRY[key].widenable = w.widenable === true;
         return;
       }
       registerWidget({
@@ -116,6 +119,7 @@ function syncMarketWidgets(apps) {
         defaultSize: w.defaultSize || { w: 2, h: 2 },
         minSize: w.minSize || { w: 1, h: 1 },
         maxSize: w.maxSize || { w: 4, h: 4 },
+        widenable: w.widenable === true,
         description: w.description || '',
         configSchema: w.configSchema || null,
         permission: w.permission || null,

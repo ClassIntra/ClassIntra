@@ -269,8 +269,20 @@ export default {
         .then(function() {
           // 记住本次登录账号（下次自动填充）
           try { localStorage.setItem('ci_last_account', self.account.trim()); } catch (e) {}
+
+          // 登录后回跳：存在未登录时想去的地址就回那里（外部链接直达应用带参数），否则桌面。
+          // 只接受站内相对路径且不回跳登录页本身 —— 防开放重定向，也防死循环。
+          var back = '';
+          try {
+            var saved = localStorage.getItem('ci:redirect-after-login') || '';
+            localStorage.removeItem('ci:redirect-after-login');
+            if (saved && saved.charAt(0) === '/' && saved.indexOf('//') !== 0 && saved.indexOf('/login') !== 0) {
+              back = saved;
+            }
+          } catch (e) {}
+
           // router.push 单独捕获，避免 NavigationDuplicated 进入登录错误处理
-          return self.$router.push({ name: 'Desktop' }).catch(function(navErr) {
+          return self.$router.push(back || { name: 'Desktop' }).catch(function(navErr) {
             if (navErr && navErr.name !== 'NavigationDuplicated' && navErr.name !== 'NavigationAborted') {
               console.warn('[Login] Navigation after login failed:', navErr);
             }

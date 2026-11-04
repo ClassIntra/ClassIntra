@@ -21,6 +21,12 @@
 
 import { getPerfPolicy } from '@/core/perf-policy';
 
+// ===== 临时总开关（性能救急，2026-11-01）=====
+// true = 不播应用打开/关闭的容器变换动画（回退普通 page-fade），
+// 且 Desktop.vue 的 launchApp 读 enabled() 同步跳过图标脉冲的 250ms 等待——点下即进应用。
+// 恢复动画：改回 false 即可，两条消费路径（App.vue 路由 watcher / launchApp）自动跟随。
+var DISABLED = true;
+
 var _pendingOrigin = null; // 本次打开的图标 rect（enter 时消费）
 var _lastOrigin = null;    // 最近一次打开的图标 rect（返回收缩用）
 var _lastAppRoute = '';    // 记录展开的应用路由（收缩时仍对应才播）
@@ -58,8 +64,9 @@ function clearLast() {
   _lastAppRoute = '';
 }
 
-// 是否允许播放（用户偏好 + 性能档位）
+// 是否允许播放（临时总开关 + 用户偏好 + 性能档位）
 function enabled() {
+  if (DISABLED) return false;
   try {
     if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false;
   } catch (e) {}

@@ -70,9 +70,21 @@
             <div class="day-festival" v-if="cell.festival">{{ cell.festival }}</div>
             <div class="day-solar-term" v-else-if="cell.solarTerm">{{ cell.solarTerm }}</div>
             <div class="day-events" v-if="cell.events.length || cell.birthdays.length">
-              <span v-for="(ev, ei) in cell.events.slice(0, 3)" :key="ei" class="event-dot" :style="{ background: getCategoryColor(ev.category) }"></span>
-              <span v-if="cell.events.length > 3" class="event-more">+{{ cell.events.length - 3 }}</span>
-              <span v-if="cell.birthdays.length" class="birthday-icon" title="生日"><i class="fa-solid fa-cake-candles"></i></span>
+              <div
+                v-for="(ev, ei) in cell.events.slice(0, 2)"
+                :key="ei"
+                class="event-bar"
+                :style="{ borderLeftColor: getCategoryColor(ev.category) }"
+                @click.stop="openEditor(ev)"
+                title="点击编辑"
+              >
+                <i v-if="ev._repeat" class="fa-solid fa-arrows-rotate eb-repeat" title="重复事件"></i>
+                <span class="eb-title">{{ ev.start_time ? ev.start_time.substring(0, 5) + ' ' : '' }}{{ ev.title }}</span>
+              </div>
+              <div class="day-events-foot" v-if="cell.events.length > 2 || cell.birthdays.length">
+                <span v-if="cell.events.length > 2" class="event-more">+{{ cell.events.length - 2 }}</span>
+                <span v-if="cell.birthdays.length" class="birthday-icon" title="生日"><i class="fa-solid fa-cake-candles"></i></span>
+              </div>
             </div>
           </div>
         </div>
@@ -102,7 +114,10 @@
                 <i class="fa-regular fa-clock"></i>
                 {{ ev.start_time }}{{ ev.end_time ? ' - ' + ev.end_time : '' }}
               </div>
-              <div class="event-title">{{ ev.title }}</div>
+              <div class="event-title">
+                {{ ev.title }}
+                <span v-if="ev._repeat" class="ev-repeat-tag" title="重复事件"><i class="fa-solid fa-arrows-rotate"></i></span>
+              </div>
               <div class="event-desc" v-if="ev.description">{{ ev.description }}</div>
               <div class="event-reminder" v-if="ev.reminder_minutes">
                 <i class="fa-solid fa-bell"></i> 提前 {{ ev.reminder_minutes }} 分钟提醒
@@ -181,6 +196,23 @@
             </select>
           </div>
           <div class="form-row">
+            <label>重复</label>
+            <select v-model="editor.form.repeat_type" class="form-input">
+              <option value="none">不重复</option>
+              <option value="daily">每天</option>
+              <option value="weekly">每周</option>
+              <option value="monthly">每月</option>
+              <option value="yearly">每年</option>
+            </select>
+          </div>
+          <div class="form-row" v-if="editor.form.repeat_type !== 'none'">
+            <label>重复至（可选，留空表示一直重复）</label>
+            <input type="date" v-model="editor.form.repeat_end" class="form-input" />
+          </div>
+          <div class="form-row" v-if="editor.repeatBase">
+            <div class="repeat-hint"><i class="fa-solid fa-circle-info"></i> 此为重复事件，修改将作用于整个系列</div>
+          </div>
+          <div class="form-row">
             <label>描述</label>
             <textarea v-model="editor.form.description" class="form-input" placeholder="事件描述（可选）" rows="3"></textarea>
           </div>
@@ -241,6 +273,7 @@ export default {
       month: now.getMonth() + 1,
       view: 'month',          // 视图：'year' / 'month' / 'day'
       weekdays: WEEKDAYS,
+      categories: CATEGORIES, // 分类选择器数据（修复模板引用未定义导致的空列表）
       events: [],
       birthdays: [],
       linkedCountdowns: [],  // 来自倒数日的虚拟事件（show_in_calendar=1）
@@ -249,6 +282,7 @@ export default {
       editor: {
         open: false,
         id: null,
+        repeatBase: false,   // 编辑的是重复事件（系列）
         form: {
           title: '',
           event_date: '',
@@ -256,6 +290,8 @@ export default {
           end_time: '',
           category: 'general',
           reminder_minutes: 0,
+          repeat_type: 'none',
+          repeat_end: '',
           description: '',
           show_in_countdown: false
         }
@@ -598,6 +634,15 @@ export default {
       }
     },
     selectDate: function(cell) {
+      // 点击非当月日期：跳转到该月并选中（数据自动加载）
+      if (!cell.inMonth) {
+        var parts = cell.dateStr.split('-');
+        this.year = parseInt(parts[0], 10);
+        this.month = parseInt(parts[1], 10);
+        this.loadData();
+        this.loadBirthdays();
+        this.loadLinkedCountdowns();
+      }
       this.selectedDate = cell.dateStr;
     },
     openEditor: function(event) {
@@ -608,21 +653,25 @@ export default {
         return;
       }
       if (event && event.id) {
-        // 编辑现有事件
-        self.editor.id = event.id;
+        // 编辑现有事件（重复实例 → 定位到系列原始行）
+        self.editor.id = event._repeat ? event.source_event_id : event.id;
+        self.editor.repeatBase = !!event._repeat;
         self.editor.form = {
           title: event.title,
-          event_date: event.event_date,
+          event_date: event._repeat ? (event._series_start || event.event_date) : event.event_date,
           start_time: event.start_time || '',
           end_time: event.end_time || '',
           category: event.category || 'general',
           reminder_minutes: event.reminder_minutes || 0,
+          repeat_type: event.repeat_type || 'none',
+          repeat_end: event.repeat_end || '',
           description: event.description || '',
           show_in_countdown: !!event.show_in_countdown
         };
       } else if (event && event.event_date) {
         // 指定日期新建
         self.editor.id = null;
+        self.editor.repeatBase = false;
         self.editor.form = {
           title: '',
           event_date: event.event_date,
@@ -630,12 +679,15 @@ export default {
           end_time: '',
           category: 'general',
           reminder_minutes: 0,
+          repeat_type: 'none',
+          repeat_end: '',
           description: '',
           show_in_countdown: false
         };
       } else {
         // 全新新建
         self.editor.id = null;
+        self.editor.repeatBase = false;
         self.editor.form = {
           title: '',
           event_date: self.selectedDate,
@@ -643,6 +695,8 @@ export default {
           end_time: '',
           category: 'general',
           reminder_minutes: 0,
+          repeat_type: 'none',
+          repeat_end: '',
           description: '',
           show_in_countdown: false
         };
@@ -663,6 +717,11 @@ export default {
         self.toast('请选择日期');
         return;
       }
+      // 时间合法性：填了结束时间时必须晚于开始时间
+      if (form.start_time && form.end_time && form.end_time <= form.start_time) {
+        self.toast('结束时间需晚于开始时间');
+        return;
+      }
       var payload = {
         title: form.title.trim(),
         event_date: form.event_date,
@@ -670,6 +729,8 @@ export default {
         end_time: form.end_time,
         category: form.category,
         reminder_minutes: parseInt(form.reminder_minutes, 10) || 0,
+        repeat_type: form.repeat_type || 'none',
+        repeat_end: (form.repeat_type && form.repeat_type !== 'none') ? (form.repeat_end || '') : '',
         description: form.description,
         show_in_countdown: form.show_in_countdown ? 1 : 0
       };
@@ -695,14 +756,18 @@ export default {
     },
     deleteEvent: function(ev) {
       var self = this;
+      var isRepeat = !!ev._repeat;
       self.$modal.confirm({
         title: '删除事件',
-        message: '确定删除「' + ev.title + '」？此操作不可恢复。',
+        message: isRepeat
+          ? '「' + ev.title + '」是重复事件，将删除整个系列。此操作不可恢复。'
+          : '确定删除「' + ev.title + '」？此操作不可恢复。',
         confirmText: '删除',
         cancelText: '取消'
       }).then(function(result) {
         if (!result) return;
-        api.delete('/calendar/events/' + ev.id).then(function(res) {
+        var deleteId = isRepeat ? ev.source_event_id : ev.id;
+        api.delete('/calendar/events/' + deleteId).then(function(res) {
           if (res.data && res.data.code === 200) {
             self.loadData();
             self.toast('已删除', 'success');
@@ -883,13 +948,6 @@ export default {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.day-events {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  flex-wrap: wrap;
-  margin-top: auto;
-}
 .event-dot {
   width: 6px;
   height: 6px;
@@ -903,6 +961,66 @@ export default {
 .birthday-icon {
   font-size: 12px;
   line-height: 1;
+}
+
+/* 月格事件标题条 */
+.day-events {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  margin-top: auto;
+  min-width: 0;
+}
+.event-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 1px 3px 1px 5px;
+  border-left: 3px solid var(--text-tertiary);
+  border-radius: 3px;
+  background: rgba(120, 120, 128, 0.1);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+.event-bar:hover { background: rgba(120, 120, 128, 0.2); }
+.event-bar:active { opacity: 0.7; }
+.eb-title {
+  font-size: 10px;
+  line-height: 1.3;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eb-repeat {
+  font-size: 7px;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+.day-events-foot {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+/* 详情列表重复标记 */
+.ev-repeat-tag {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  margin-left: 4px;
+}
+/* 编辑器重复提示 */
+.repeat-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--warning-color);
+  background: rgba(var(--warning-rgb), 0.1);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
 }
 
 /* 当日详情 */
@@ -1006,8 +1124,8 @@ export default {
   gap: 6px;
 }
 .ea-btn {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border: none;
   background: transparent;
   color: var(--text-tertiary);
@@ -1016,6 +1134,7 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
+  font-size: 14px;
   transition: background-color var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard), opacity var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
 }
 .ea-btn:hover {

@@ -329,7 +329,9 @@ function validateDesktopLayout(layout) {
   if (!Array.isArray(layout.pinnedApps)) return null;
   if (layout.folders !== null && (typeof layout.folders !== 'object' || Array.isArray(layout.folders))) return null;
 
-  var MAX_SLOTS = 24;
+  // 图标密度（行数）：6 列 × N 行，N ∈ 4~7；旧布局（无 rows / 24 槽）默认 4
+  var VALID_SLOTS = [24, 30, 36, 42];
+  var rows = (layout.rows === 4 || layout.rows === 5 || layout.rows === 6 || layout.rows === 7) ? layout.rows : 4;
   // 规范化单个 slot：合法返回 {type,...}，非法/空返回 null
   function normalizeSlot(slot) {
     if (slot === null) return null;
@@ -345,7 +347,7 @@ function validateDesktopLayout(layout) {
 
   var pages = layout.pages.map(function(page, pi) {
     if (!page || typeof page !== 'object') return null;
-    if (!Array.isArray(page.slots) || page.slots.length !== MAX_SLOTS) return null;
+    if (!Array.isArray(page.slots) || VALID_SLOTS.indexOf(page.slots.length) === -1) return null;
     var slots = page.slots.map(normalizeSlot);
     return { id: typeof page.id === 'string' ? page.id : ('page-' + pi), slots: slots };
   });
@@ -368,7 +370,9 @@ function validateDesktopLayout(layout) {
       folders[fid] = {
         id: f.id,
         name: f.name,
-        apps: f.apps.filter(function(name) { return typeof name === 'string' && name; })
+        apps: f.apps.filter(function(name) { return typeof name === 'string' && name; }),
+        // 大文件夹尺寸（'2x2'|'2x4'，缺省 1×1 不落字段）
+        size: (f.size === '2x2' || f.size === '2x4') ? f.size : undefined
       };
     }
   }
@@ -401,6 +405,7 @@ function validateDesktopLayout(layout) {
 
   return {
     version: typeof layout.version === 'number' ? layout.version : 1,
+    rows: rows,
     pages: pages,
     dock: dock,
     pinnedApps: pinnedApps,

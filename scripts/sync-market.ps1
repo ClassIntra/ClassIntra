@@ -60,6 +60,9 @@ Get-ChildItem $src | Where-Object {
 # 用 robocopy /MIR 镜像（含删除多余文件，防双仓漂移），排除 node_modules/.git。
 # /XF 排除引擎二进制（*.exe / *.nnue，约 57MB 的第三方 GPL 产物）：它们既不进公开仓、
 # 也不该被 /MIR 的 purge 删掉——robocopy 的 /XF /XD 排除项同样受保护，不会被清理。
+# ⚠️ /XD 里的 screenshots 是血泪教训（2026-10-31）：市场详情页的截图素材只存在于
+# market 仓（主仓 market-apps/* 从不放 screenshots），不排除的话 /MIR 会把它们当
+# "多余文件"镜像删除 —— chess 的两张截图就是这样被删掉且无法恢复的（git 未跟踪）。
 # robocopy 退出码 0-7 均为成功（1=有复制，0=无差异），>=8 才是失败。
 if ($App) {
   $appSrc = Join-Path $PSScriptRoot ("..\market-apps\" + $App)
@@ -67,7 +70,7 @@ if ($App) {
   if (-not (Test-Path $appSrc)) { Write-Host "[错误] 市场应用不存在：$appSrc"; exit 1 }
   Write-Host ''
   Write-Host "== 同步市场应用 $App =="
-  robocopy $appSrc $appDst /MIR /XD node_modules .git /XF *.exe *.nnue /NJH /NJS /NDL | Out-Host
+  robocopy $appSrc $appDst /MIR /XD node_modules .git screenshots /XF *.exe *.nnue /NJH /NJS /NDL | Out-Host
   if ($LASTEXITCODE -ge 8) { Write-Host "[错误] robocopy 同步失败（退出码 $LASTEXITCODE）"; exit 1 }
   $global:LASTEXITCODE = 0
   Write-Host "[同步] apps/$App"

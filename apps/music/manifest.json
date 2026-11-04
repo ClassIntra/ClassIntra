@@ -15,7 +15,28 @@
     "component": "./frontend/Music.vue",
     "meta": {
       "requiresAuth": false
-    }
+    },
+    "widgets": [
+      {
+        "id": "music-mini",
+        "name": "音乐播控",
+        "component": "./frontend/widgets/MusicMiniWidget.vue",
+        "defaultSize": {
+          "w": 2,
+          "h": 2
+        },
+        "minSize": {
+          "w": 2,
+          "h": 2
+        },
+        "maxSize": {
+          "w": 4,
+          "h": 2
+        },
+        "description": "正在播放与快捷控制",
+        "widenable": true
+      }
+    ]
   },
   "backend": {
     "mountPath": "/api/music",

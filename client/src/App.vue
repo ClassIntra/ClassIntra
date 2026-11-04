@@ -231,6 +231,33 @@ export default {
       });
       return self.marketSyncPromise;
     },
+    // 服务端设置水合：wallpaper / theme / avatar_color（登录后与已登录刷新共用）
+    hydrateServerSettings: function(serverSettings) {
+      if (!serverSettings) return;
+      if (serverSettings.wallpaper && serverSettings.wallpaper !== 'default') {
+        var localWp = localStorage.getItem('wallpaper') || 'default';
+        if (localWp !== serverSettings.wallpaper) {
+          this.$store.commit('settings/SET_WALLPAPER', serverSettings.wallpaper);
+        }
+      }
+      if (serverSettings.theme) {
+        var localTheme = localStorage.getItem('theme');
+        if (!localTheme) {
+          this.$store.commit('settings/SET_THEME', serverSettings.theme);
+        }
+      }
+      // 同步头像颜色到 localStorage（服务端优先）
+      if (serverSettings.avatar_color) {
+        var uid = '';
+        try {
+          var storedUser = JSON.parse(localStorage.getItem('user') || 'null');
+          uid = (storedUser && storedUser.user_id) || '';
+        } catch (e) { uid = ''; }
+        if (uid) {
+          localStorage.setItem('avatar_color_' + uid, serverSettings.avatar_color);
+        }
+      }
+    },
     // 断网时立即锁屏并隐藏敏感信息（同步执行，零延迟，不删除本地数据）
     lockForOffline: function() {
       if (this.isLocked && this._offlineLocked) return;
@@ -395,26 +422,7 @@ export default {
       }).catch(function(err) { self.handleStatusCheckError(err); });
       api.get('/user/settings').then(function(response) {
         if (response.data.code === 200 && response.data.data) {
-          var serverSettings = response.data.data;
-          if (serverSettings.wallpaper && serverSettings.wallpaper !== 'default') {
-            var localWp = localStorage.getItem('wallpaper') || 'default';
-            if (localWp !== serverSettings.wallpaper) {
-              self.$store.commit('settings/SET_WALLPAPER', serverSettings.wallpaper);
-            }
-          }
-          if (serverSettings.theme) {
-            var localTheme = localStorage.getItem('theme');
-            if (!localTheme) {
-              self.$store.commit('settings/SET_THEME', serverSettings.theme);
-            }
-          }
-          // 同步头像颜色到 localStorage（服务端优先）
-          if (serverSettings.avatar_color) {
-            var uid = (storedUser && storedUser.user_id) || '';
-            if (uid) {
-              localStorage.setItem('avatar_color_' + uid, serverSettings.avatar_color);
-            }
-          }
+          self.hydrateServerSettings(response.data.data);
         }
       }).catch(function() {});
     }
@@ -518,6 +526,15 @@ export default {
         updateChecker.startPeriodicCheck();
         // 登录成功后拉取锁屏功能开关
         self.loadLockScreenState();
+        // 已认证 bootstrap 重放：SPA 内登录时，boot 期的市场同步/设置水合
+        // 都发生在未登录期（401 降级为空），不重放则桌面缺第三方应用与壁纸
+        self.syncMarketAppControl(null, true, 'control').catch(function() {});
+        syncMarketThemes().catch(function() {});
+        api.get('/user/settings').then(function(response) {
+          if (response.data.code === 200 && response.data.data) {
+            self.hydrateServerSettings(response.data.data);
+          }
+        }).catch(function() {});
       } else {
         updateChecker.stopPeriodicCheck();
         // 退出登录后恢复默认开启，避免影响下一次登录

@@ -31,8 +31,33 @@ var CAPABILITY_CATALOG = {
     icon: 'fa-globe',
     level: 'normal'
   },
+  'data.store': {
+    label: '云端数据',
+    description: '在本系统服务器保存该应用的数据与文件（按账号隔离，换设备登录可找回）',
+    icon: 'fa-cloud-arrow-up',
+    level: 'normal'
+  },
 
   // ---- 系统（context.system.*）----
+  'system.badge': {
+    label: '桌面角标',
+    description: '在桌面图标上显示未读数字或圆点',
+    icon: 'fa-circle-dot',
+    level: 'normal'
+  },
+  'system.openApp': {
+    label: '打开其他应用',
+    description: '跳转到本系统的其他应用并携带参数',
+    icon: 'fa-arrow-up-right-from-square',
+    level: 'notice'
+  },
+  'system.search': {
+    label: '全局搜索收录',
+    description: '让本应用的内容出现在系统全局搜索里',
+    icon: 'fa-magnifying-glass',
+    level: 'normal'
+  },
+
   'system.notification': {
     label: '发送通知',
     description: '向你推送通知提醒',
@@ -45,6 +70,13 @@ var CAPABILITY_CATALOG = {
     icon: 'fa-clipboard',
     level: 'notice'
   },
+  'system.shareTarget': {
+    label: '接收分享',
+    description: '出现在系统分享面板里，接收其他应用分享的文本与链接',
+    icon: 'fa-share-from-square',
+    level: 'normal'
+  },
+
   'system.share': {
     label: '调用分享',
     description: '调起系统分享面板',
@@ -77,6 +109,12 @@ var CAPABILITY_CATALOG = {
     icon: 'fa-bars-staggered',
     level: 'normal'
   },
+  'ui.overlay': {
+    label: '全局悬浮层',
+    description: '在任意页面挂载全局悬浮层（如桌宠）',
+    icon: 'fa-layer-group',
+    level: 'normal'
+  },
 
   // ---- 应用自身（context.app.*）----
   'app.config': {
@@ -92,6 +130,14 @@ var CAPABILITY_CATALOG = {
     level: 'normal'
   },
 
+  // ---- 经济（平台统一虚拟货币）----
+  'economy.wallet': {
+    label: '学元账户',
+    description: '读取你的学元余额与流水，并在你确认后扣款或收款（学元是校内虚拟货币，不与现实货币兑换）',
+    icon: 'fa-coins',
+    level: 'notice'
+  },
+
   // ---- 设备（context.device.*）----
   'device.info': {
     label: '设备信息',
@@ -105,6 +151,31 @@ var CAPABILITY_CATALOG = {
     icon: 'fa-file-import',
     level: 'notice'
   },
+  'device.microphone': {
+    label: '麦克风',
+    description: '录制音频（首次使用时会请求授权）',
+    icon: 'fa-microphone',
+    level: 'sensitive'
+  },
+  'device.vibrate': {
+    label: '触觉反馈',
+    description: '短振动反馈（设备支持时）',
+    icon: 'fa-mobile-screen',
+    level: 'normal'
+  },
+  'device.network': {
+    label: '网络状态',
+    description: '读取在线状态与网络类型，用于降级处理',
+    icon: 'fa-wifi',
+    level: 'normal'
+  },
+  'device.screen': {
+    label: '屏幕信息',
+    description: '读取屏幕尺寸、像素比与横竖屏',
+    icon: 'fa-display',
+    level: 'normal'
+  },
+
   'device.camera': {
     label: '相机',
     description: '调用摄像头拍照或扫码',
@@ -180,7 +251,8 @@ function countNotices(names) {
   var n = 0;
   for (var i = 0; i < names.length; i++) {
     var d = describeCapability(names[i]);
-    if (d.level === 'notice') n++;
+    // notice（有外部影响）+ sensitive（涉及隐私硬件/数据）都算「需要留意」
+    if (d.level === 'notice' || d.level === 'sensitive') n++;
   }
   return n;
 }

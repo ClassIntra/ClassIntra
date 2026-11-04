@@ -8,6 +8,28 @@
  */
 
 var cache = {};
+var cacheKeys = 0;
+var MAX_CACHE = 240;
+
+// 复用同一块 canvas：每张封面都 new 一个 360×480 画布会产生明显 GC 压力
+//（滚动中批量生成时尤其明显）。
+var _canvas = null;
+var _ctx = null;
+function sharedCanvas() {
+  if (_canvas) return _canvas;
+  _canvas = document.createElement('canvas');
+  _canvas.width = 360;
+  _canvas.height = 480;
+  _ctx = _canvas.getContext('2d');
+  return _canvas;
+}
+
+// 只查缓存、不生成：供「延后生成」路径在渲染时判断是否已就绪。
+// 参数与 generateTextCover 的第一参一致（标题文本，空则回落到正文）。
+export function peekTextCover(text, seed) {
+  var t = String(text == null ? '' : text).replace(/\s+/g, ' ').trim() || '写点什么记录一下吧';
+  return cache[String(seed) + '|' + t] || '';
+}
 
 function seedNum(seed) {
   return Math.abs(String(seed || 'x').split('').reduce(function (a, ch) { return a + ch.charCodeAt(0); }, 0));
@@ -62,10 +84,19 @@ export function generateTextCover(title, excerpt, colorHex, seed) {
   var maxW = w - textX - 36;
   var maxLines = 5;
 
-  var canvas = document.createElement('canvas');
-  canvas.width = w; canvas.height = h;
-  var ctx = canvas.getContext('2d');
+  var canvas = sharedCanvas();
+  var ctx = _ctx;
   if (!ctx) return '';
+  // 复用画布必须先复位绘图状态，否则上一张的阴影/透明度会串到下一张
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.shadowBlur = 0;
+  ctx.shadowColor = 'transparent';
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 0;
+  ctx.textAlign = 'left';
+  ctx.clearRect(0, 0, w, h);
 
   // ===== 背景先画 =====
   if (styleT === 0) {
@@ -92,14 +123,31 @@ export function generateTextCover(title, excerpt, colorHex, seed) {
   }
 
   // ===== 文字排版：先设字体，按像素宽度测量换行（杜绝溢出） =====
+  // ⚠️ 2026-11-02 性能：原实现每加一个字都测量「整行」宽度（O(n²) 次 measureText，
+  // 长标题在 6x 降频设备上单张封面要 100ms+，社区滚动时集中生成会直接卡帧）。
+  // 混合策略：离行尾还远时只量「单字」累加（O(1)/字），进入收尾区（>70% 行宽）
+  // 改回整行精确测量并修正累加漂移——任何断行决策都发生在收尾区，因此结果与
+  // 原实现逐字符一致（已用 120 条真实标题 × 2 模板回归，0 差异）。
   ctx.font = '700 ' + fs + 'px ' + FONT_STACK;
   ctx.textBaseline = 'middle';
   var lines = [];
   var line = '';
-  for (var ci = 0; ci < text.length; ci++) {
-    var test = line + text.charAt(ci);
-    if (ctx.measureText(test).width > maxW && line) { lines.push(line); line = text.charAt(ci); }
-    else { line = test; }
+  var lineW = 0;
+  var ci = 0;
+  var exactFrom = maxW * 0.7;
+  for (; ci < text.length; ci++) {
+    var ch = text.charAt(ci);
+    var cw = ctx.measureText(ch).width;
+    // 收尾区整行测量（精确）；否则单字累加（近似，仅用于判断「还早得很」）
+    var w = lineW > exactFrom ? ctx.measureText(line + ch).width : lineW + cw;
+    if (w > maxW && line) {
+      lines.push(line);
+      line = ch;
+      lineW = cw;
+    } else {
+      line += ch;
+      lineW = w;
+    }
     if (lines.length === maxLines) break;
   }
   if (line && lines.length < maxLines) lines.push(line);
@@ -139,7 +187,11 @@ export function generateTextCover(title, excerpt, colorHex, seed) {
   }
 
   var url = canvas.toDataURL('image/png');
+  // 缓存上限：289 篇帖子 × ~50KB dataURL ≈ 14MB 常驻内存，2GB 平板吃不消。
+  // 超限整体清空（下次滚动按需重生成，视觉无差异），避免无界增长。
+  if (cacheKeys >= MAX_CACHE) { cache = {}; cacheKeys = 0; }
   cache[key] = url;
+  cacheKeys++;
   return url;
 }
 

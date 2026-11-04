@@ -64,31 +64,51 @@ function formatTime(t) {
 }
 
 // 根据开学日期计算当前是第几周
-function calcWeekNumber(termStart) {
+// refDate 可选：计算"包含 refDate 的那一周"的周次（默认今天），供上周/下周切换复用
+function calcWeekNumber(termStart, refDate) {
   if (!termStart) return 1;
   var start = new Date(termStart + 'T00:00:00');
-  var now = new Date();
-  var diff = now - start;
+  var ref = refDate || new Date();
+  var diff = ref - start;
   if (diff < 0) return 1;
   var days = Math.floor(diff / (24 * 60 * 60 * 1000));
   return Math.floor(days / 7) + 1;
 }
 
-// 计算本周各天的日期字符串（下标 1=周一 ... 7=周日）
-function getWeekDates() {
+// 本周（或偏移 offset 周）的周一日期
+function getWeekMonday(offset) {
   var now = new Date();
-  var day = now.getDay(); // 0=周日, 1=周一...
-  var monday = new Date(now);
+  var day = now.getDay();
+  var monday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   if (day === 0) {
     monday.setDate(now.getDate() - 6);
   } else {
     monday.setDate(now.getDate() - (day - 1));
   }
+  if (offset) monday.setDate(monday.getDate() + offset * 7);
+  return monday;
+}
+
+// 计算本周（offset=0）或偏移周各天的日期 'M/D'（下标 1=周一 ... 7=周日）
+function getWeekDates(offset) {
+  var monday = getWeekMonday(offset || 0);
   var dates = {};
   for (var i = 1; i <= 7; i++) {
     var d = new Date(monday);
     d.setDate(monday.getDate() + (i - 1));
     dates[i] = (d.getMonth() + 1) + '/' + d.getDate();
+  }
+  return dates;
+}
+
+// 计算本周（offset=0）或偏移周各天的日期字符串 'YYYY-MM-DD'（下标 1=周一 ... 7=周日）
+function getWeekDateStrs(offset) {
+  var monday = getWeekMonday(offset || 0);
+  var dates = {};
+  for (var i = 1; i <= 7; i++) {
+    var d = new Date(monday);
+    d.setDate(monday.getDate() + (i - 1));
+    dates[i] = formatDateStr(d);
   }
   return dates;
 }
@@ -300,7 +320,7 @@ function applyOverrides(classes, overrides) {
   var deletes = overrides.filter(function(o) { return o.action === 'delete'; });
   var inserts = overrides.filter(function(o) { return o.action === 'insert'; });
 
-  // replace：按 key 查找原课节并覆盖字段
+  // replace：按 key 查找原课节并覆盖字段（保留原始 key 供再次调课时引用原位）
   replaces.forEach(function(o) {
     for (var i = 0; i < result.length; i++) {
       if (result[i]._key === o.key) {
@@ -312,6 +332,7 @@ function applyOverrides(classes, overrides) {
           start_time: newStart,
           end_time: newEnd,
           _adjusted: true,
+          _origKey: o.key,
           _key: buildClassKey({ start_time: newStart, subject: newSubject })
         });
         break;
@@ -367,7 +388,9 @@ export {
   hexToRgba,
   formatTime,
   calcWeekNumber,
+  getWeekMonday,
   getWeekDates,
+  getWeekDateStrs,
   formatDateStr,
   jsDayToCompDay,
   findScheduleForDay,

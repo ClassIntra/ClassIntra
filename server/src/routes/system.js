@@ -328,4 +328,79 @@ router.get('/modules', function(req, res) {
   });
 });
 
+// ========== 跨机（跨班）连通性诊断 ==========
+// 用来回答两类高频问题：
+//   1.「另一班的人为什么登不上？」——跨班账号的密码在对端，对端不可达就验证不了
+//   2.「为什么看不到另一班上传的文件？」——云盘/消息的跨机同步依赖同一条链路
+// 只做只读探测（GET /api/system/version），不改变任何状态。
+router.get('/relay-status', function(req, res) {
+  var auth = require('../middleware/auth');
+  auth.requireAuth(req, res, function() {
+    auth.requireAdmin(req, res, function() {
+      var config = require('../config');
+      var peers = (config.relay && config.relay.servers) || [];
+
+      var syncInfo = null;
+      try {
+        var relaySync = require('../utils/relay-sync');
+        if (typeof relaySync.getSyncStatus === 'function') syncInfo = relaySync.getSyncStatus();
+      } catch (e) { syncInfo = null; }
+
+      if (!peers.length) {
+        return res.json({ code: 200, data: { peers: [], sync: syncInfo, note: '未配置 RELAY_SERVERS，本机为单机模式' } });
+      }
+
+      var http = require('http');
+      var https = require('https');
+      var results = [];
+      var pending = peers.length;
+
+      function done() {
+        res.json({
+          code: 200,
+          data: {
+            peers: results,
+            sync: syncInfo,
+            serverId: process.env.RELAY_SERVER_ID || ''
+          }
+        });
+      }
+
+      peers.forEach(function(wsUrl) {
+        // ws://host:port/relay → http://host:port（与登录时 tryRelayLogin 的推导保持一致）
+        var base = String(wsUrl)
+          .replace(/\/relay$/, '')
+          .replace(/^ws:\/\//, 'http://')
+          .replace(/^wss:\/\//, 'https://');
+        var started = Date.now();
+        var mod = base.indexOf('https://') === 0 ? https : http;
+
+        function finish(extra) {
+          results.push({
+            url: String(wsUrl),
+            httpBase: base,
+            reachable: !!extra.reachable,
+            statusCode: extra.statusCode || null,
+            latencyMs: Date.now() - started,
+            error: extra.error || ''
+          });
+          if (--pending === 0) done();
+        }
+
+        var req = mod.get(base + '/api/system/version', { timeout: 3000 }, function(resp) {
+          try { resp.resume(); } catch (e) {}
+          finish({ reachable: resp.statusCode === 200, statusCode: resp.statusCode });
+        });
+        req.on('error', function(e) {
+          finish({ reachable: false, error: (e && e.code) || (e && e.message) || 'unknown' });
+        });
+        req.on('timeout', function() {
+          try { req.destroy(); } catch (e) {}
+          finish({ reachable: false, error: 'TIMEOUT' });
+        });
+      });
+    });
+  });
+});
+
 module.exports = router;

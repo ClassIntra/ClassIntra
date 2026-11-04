@@ -27,12 +27,19 @@
         <span class="week-num">第 {{ weekNumber }} 周</span>
         <span class="week-sep">·</span>
         <span class="week-type-label" :class="weekType">{{ weekType === 'odd' ? '单周' : '双周' }}</span>
+        <span v-if="weekOffset !== 0" class="week-offset-tag">{{ weekOffset > 0 ? '+' + weekOffset + '周' : weekOffset + '周' }}</span>
         <i class="fa-solid fa-pen-to-square edit-icon"></i>
       </div>
       <div class="term-picker" v-else>
         <span class="picker-label">开学日期</span>
         <input type="date" v-model="termStart" @change="onTermStartChange" />
         <button class="picker-confirm" @click="showTermStartPicker = false">确定</button>
+      </div>
+      <!-- 周次导航（仅周视图） -->
+      <div class="week-nav" v-if="viewMode === 'week'">
+        <button class="week-nav-btn" @click="shiftWeek(-1)" title="上一周"><i class="fa-solid fa-chevron-left"></i></button>
+        <button class="week-nav-btn week-nav-now" v-if="weekOffset !== 0" @click="shiftWeek(0)" title="回到本周">本周</button>
+        <button class="week-nav-btn" @click="shiftWeek(1)" title="下一周"><i class="fa-solid fa-chevron-right"></i></button>
       </div>
       <div class="today-info">{{ todayLabel }}</div>
     </div>
@@ -85,13 +92,19 @@
                 :style="{ background: row.cells[day.value].bg, color: row.cells[day.value].color }"
                 :class="{ current: isCurrentClass(row.cells[day.value], day.value), adjusted: row.cells[day.value]._adjusted }"
                 @click.stop="openWeekOverrideEditor(row.cells[day.value], day.value)"
-                title="点击调课"
+                :title="cellTitle(row.cells[day.value])"
               >
                 <span v-if="row.cells[day.value]._adjusted" class="week-adjust-tag">调</span>
                 <span class="class-name">{{ row.cells[day.value].simplified }}</span>
                 <span class="class-time">{{ formatTime(row.cells[day.value].start) }}</span>
                 <i class="fa-solid fa-pen class-edit-icon"></i>
               </div>
+              <div
+                v-else
+                class="empty-cell-add"
+                @click.stop="openAddClassEditor(row, day.value)"
+                title="添加课程"
+              ><i class="fa-solid fa-plus"></i></div>
             </td>
           </tr>
         </tbody>
@@ -172,6 +185,10 @@
             >
               <span class="ti-simplified">{{ getSimplified(cls.subject) }}</span>
               <span v-if="cls._adjusted" class="ti-adjusted-tag">调</span>
+              <span v-if="isOngoingClass(cls)" class="ti-remaining">{{ remainingText(cls) }}</span>
+              <div class="ti-progress" v-if="isOngoingClass(cls)">
+                <div class="ti-progress-fill" :style="{ width: classProgress(cls) + '%' }"></div>
+              </div>
             </div>
             <button class="today-item-edit" @click="openOverrideEditor(cls._overrideKey || buildClassKey(cls))" title="调课">
               <i class="fa-solid fa-pen"></i>
@@ -194,13 +211,13 @@
     <div v-if="overrideEditor.open" class="override-editor-mask" @click.self="closeOverrideEditor">
       <div class="override-editor">
         <div class="oe-header">
-          <span class="oe-title">调课 · {{ overrideEditor.origClass ? overrideEditor.origClass.subject + ' ' + formatTime(overrideEditor.origClass.start_time) : '' }}</span>
+          <span class="oe-title">{{ overrideEditor.mode === 'insert' ? '添加课程' : '调课' }}<template v-if="overrideEditor.targetDate"> · {{ overrideEditor.targetDate.substring(5) }}</template><template v-else> · 今天</template><template v-if="overrideEditor.mode !== 'insert' && overrideEditor.origClass"> · {{ overrideEditor.origClass.subject }} {{ formatTime(overrideEditor.origClass.start_time) }}</template></span>
           <button class="oe-close" @click="closeOverrideEditor"><i class="fa-solid fa-xmark"></i></button>
         </div>
         <div class="oe-body">
           <div class="oe-field">
             <label>科目</label>
-            <select v-model="overrideEditor.form.subject">
+            <select ref="oeSubject" v-model="overrideEditor.form.subject">
               <option value="">-- 选择科目 --</option>
               <option v-for="s in raw.subjects" :key="s.name" :value="s.name">{{ s.name }}</option>
             </select>
@@ -220,10 +237,10 @@
           <button class="oe-btn oe-btn-delete" @click="deleteOverride" v-if="overrideEditor.key !== null">
             <i class="fa-solid fa-trash"></i> 删除此节
           </button>
-          <button class="oe-btn oe-btn-insert" @click="insertOverrideAfter" v-if="overrideEditor.key !== null">
+          <button class="oe-btn oe-btn-insert" @click="insertOverrideAfter" v-if="overrideEditor.key !== null && overrideEditor.mode !== 'insert'">
             <i class="fa-solid fa-plus"></i> 后插一节
           </button>
-          <button class="oe-btn oe-btn-save" @click="saveOverride">保存</button>
+          <button class="oe-btn oe-btn-save" @click="saveOverride">{{ overrideEditor.mode === 'insert' ? '添加' : '保存' }}</button>
           <button class="oe-btn oe-btn-cancel" @click="closeOverrideEditor">取消</button>
         </div>
       </div>
@@ -242,7 +259,9 @@ import {
   hexToRgba,
   formatTime,
   calcWeekNumber,
+  getWeekMonday,
   getWeekDates,
+  getWeekDateStrs,
   formatDateStr,
   jsDayToCompDay,
   getDayClasses,
@@ -261,8 +280,10 @@ import {
   applyOverrides
 } from './widgets/timetable-helpers';
 
-// 构建周视图表格行（保持原逻辑）
-function buildTimetable(data, weekType) {
+// 构建周视图表格行
+// overridesByDay: { [day]: 调课列表 } —— 构建前先应用到每天的 classes，
+// 使 replace/delete/insert 在周视图一致生效（insert 的新课节自动落入对应时段行）
+function buildTimetable(data, weekType, overridesByDay) {
   var subjectsMap = {};
   if (data && data.subjects) {
     data.subjects.forEach(function(s) {
@@ -270,12 +291,16 @@ function buildTimetable(data, weekType) {
     });
   }
 
-  // 按天筛选当前周次适用的 schedule
-  var daySchedules = {};
+  // 按天筛选当前周次适用的 schedule，并应用当天调课
+  var dayClassLists = {};
+  for (var d0 = 1; d0 <= 7; d0++) {
+    dayClassLists[d0] = [];
+  }
   if (data && data.schedules) {
     data.schedules.forEach(function(sch) {
       if (sch.weeks === 'all' || sch.weeks === weekType) {
-        daySchedules[sch.enable_day] = sch;
+        var overrides = (overridesByDay && overridesByDay[sch.enable_day]) || [];
+        dayClassLists[sch.enable_day] = applyOverrides(sch.classes || [], overrides);
       }
     });
   }
@@ -284,19 +309,16 @@ function buildTimetable(data, weekType) {
   var dayPeriodClasses = {};
   for (var day = 1; day <= 7; day++) {
     dayPeriodClasses[day] = {};
-    var sch = daySchedules[day];
-    if (sch && sch.classes) {
-      sch.classes.forEach(function(cls) {
-        var period = getPeriodKey(cls.start_time);
-        if (!dayPeriodClasses[day][period]) dayPeriodClasses[day][period] = [];
-        dayPeriodClasses[day][period].push(cls);
+    dayClassLists[day].forEach(function(cls) {
+      var period = getPeriodKey(cls.start_time);
+      if (!dayPeriodClasses[day][period]) dayPeriodClasses[day][period] = [];
+      dayPeriodClasses[day][period].push(cls);
+    });
+    Object.keys(dayPeriodClasses[day]).forEach(function(p) {
+      dayPeriodClasses[day][p].sort(function(a, b) {
+        return (a.start_time || '').localeCompare(b.start_time || '');
       });
-      Object.keys(dayPeriodClasses[day]).forEach(function(p) {
-        dayPeriodClasses[day][p].sort(function(a, b) {
-          return (a.start_time || '').localeCompare(b.start_time || '');
-        });
-      });
-    }
+    });
   }
 
   // 找出每个时段的最大节次数
@@ -328,7 +350,10 @@ function buildTimetable(data, weekType) {
             start: cls.start_time,
             end: cls.end_time,
             color: color,
-            bg: hexToRgba(color, 0.16)
+            bg: hexToRgba(color, 0.16),
+            _adjusted: !!cls._adjusted,
+            _overrideKey: cls._overrideKey || buildClassKey({ start_time: cls.start_time, subject: cls.subject }),
+            _origKey: cls._origKey || null
           };
         } else {
           row.cells[day2] = null;
@@ -363,25 +388,6 @@ function buildLegend(data, weekType) {
   return result;
 }
 
-// 计算本周各天的 'YYYY-MM-DD' 字符串（用于节假日查询）
-function getWeekDateStrs() {
-  var now = new Date();
-  var day = now.getDay();
-  var monday = new Date(now);
-  if (day === 0) {
-    monday.setDate(now.getDate() - 6);
-  } else {
-    monday.setDate(now.getDate() - (day - 1));
-  }
-  var dates = {};
-  for (var i = 1; i <= 7; i++) {
-    var d = new Date(monday);
-    d.setDate(monday.getDate() + (i - 1));
-    dates[i] = formatDateStr(d);
-  }
-  return dates;
-}
-
 export default {
   name: 'Timetable',
   components: { AppNavBar },
@@ -391,17 +397,19 @@ export default {
       error: '',
       raw: null,
       termStart: '',
-      weekNumber: 1,
-      weekType: 'odd',
+      weekOffset: 0,          // 周视图偏移：0=本周，±N=前/后 N 周
+      weekTypeOverride: null, // 手动切换单双周（null=按周次自动）
       showTermStartPicker: false,
-      weekDates: {},
-      weekDateStrs: {},
+      weekStamp: 0,           // 页面可见性变化时自增，驱动周日期重新计算
+      overrideStamp: 0,       // 调课保存/删除后自增，驱动周视图与今日视图重算（localStorage 非响应式）
       nowTime: Date.now(),
       viewMode: 'week',
       // 调课编辑器（基于稳定 key 引用原课节，避免 idx 漂移）
       overrideEditor: {
         open: false,
-        key: null,          // 当前编辑课节的稳定 key（start_time|subject）
+        mode: 'replace',    // 'replace'=调既有课节 / 'insert'=空格新增一节
+        key: null,          // 当前编辑课节的稳定 key（start_time|subject）；insert 模式为 null
+        afterKey: null,     // insert 模式：插入位置锚点（前一节课的 key）
         origClass: null,    // 当前编辑的原课节对象（用于显示初始值）
         targetDate: null,   // 当前编辑的目标日期（YYYY-MM-DD）；null 表示今日视图
         form: {
@@ -413,6 +421,25 @@ export default {
     };
   },
   computed: {
+    // 周次与单双周（跟随周偏移推算；weekTypeOverride 为手动预览切换）
+    weekNumber: function() {
+      var _ = this.weekStamp;
+      var monday = getWeekMonday(this.weekOffset);
+      return calcWeekNumber(this.termStart, monday);
+    },
+    weekType: function() {
+      if (this.weekTypeOverride) return this.weekTypeOverride;
+      return (this.weekNumber % 2 === 1) ? 'odd' : 'even';
+    },
+    // 本周（或偏移周）各天日期
+    weekDates: function() {
+      var _ = this.weekStamp;
+      return getWeekDates(this.weekOffset);
+    },
+    weekDateStrs: function() {
+      var _ = this.weekStamp;
+      return getWeekDateStrs(this.weekOffset);
+    },
     days: function() {
       var hasSchool = {};
       if (this.raw && this.raw.schedules) {
@@ -441,10 +468,15 @@ export default {
     },
     rows: function() {
       if (!this.raw) return [];
-      var baseRows = buildTimetable(this.raw, this.weekType);
-      // 触发 weekDateStrs 依赖（页面可见性变化时重新计算）
-      var _ = this.weekDateStrs;
-      return this.applyWeekOverrides(baseRows);
+      var _ = this.weekStamp; // 触发 weekDateStrs 依赖（页面可见性变化时重新计算）
+      var __ = this.overrideStamp; // 调课变更后强制重算
+      // 批量加载本周 7 天的调课，构建时应用到每天的 classes
+      var overridesByDay = {};
+      for (var d = 1; d <= 7; d++) {
+        var dateStr = this.weekDateStrs[d];
+        overridesByDay[d] = dateStr ? loadOverrides(dateStr) : [];
+      }
+      return buildTimetable(this.raw, this.weekType, overridesByDay);
     },
     legendSubjects: function() {
       return buildLegend(this.raw, this.weekType);
@@ -484,6 +516,7 @@ export default {
     },
     // 今日调课数据
     todayOverrides: function() {
+      var _ = this.overrideStamp; // 调课变更后强制重算
       return loadOverrides(this.todayDateStr);
     },
     // 是否有调课
@@ -519,10 +552,6 @@ export default {
   mounted: function() {
     // 不缓存：每次进入页面都重新请求后端
     this.termStart = localStorage.getItem('timetable_term_start') || this.guessTermStart();
-    this.weekNumber = calcWeekNumber(this.termStart);
-    this.weekType = this.weekNumber % 2 === 1 ? 'odd' : 'even';
-    this.weekDates = getWeekDates();
-    this.weekDateStrs = getWeekDateStrs();
     this.loadData();
     // 每分钟刷新当前时间，用于高亮"正在上的课"和下节课倒计时
     var self = this;
@@ -530,8 +559,7 @@ export default {
     // 页面重新可见时重新加载（不使用轮询，符合项目约定）
     this._visibilityHandler = function() {
       if (!document.hidden) {
-        self.weekDates = getWeekDates();
-        self.weekDateStrs = getWeekDateStrs();
+        self.weekStamp++;  // 驱动周日期/周次重算（跨天/跨周场景）
         self.loadData();
       }
     };
@@ -560,13 +588,17 @@ export default {
         self.error = '网络错误：' + (err && err.message ? err.message : '请求失败');
       });
     },
+    // 周次切换：-1 上一周 / 0 回本周 / 1 下一周
+    shiftWeek: function(delta) {
+      this.weekOffset = (delta === 0) ? 0 : this.weekOffset + delta;
+      this.weekTypeOverride = null;  // 切周后按该周周次自动定单双周
+    },
     toggleWeekType: function() {
-      this.weekType = this.weekType === 'odd' ? 'even' : 'odd';
+      this.weekTypeOverride = (this.weekType === 'odd') ? 'even' : 'odd';
     },
     onTermStartChange: function() {
       localStorage.setItem('timetable_term_start', this.termStart);
-      this.weekNumber = calcWeekNumber(this.termStart);
-      this.weekType = this.weekNumber % 2 === 1 ? 'odd' : 'even';
+      this.weekTypeOverride = null;
     },
     guessTermStart: function() {
       var now = new Date();
@@ -575,6 +607,8 @@ export default {
       return year + '-09-01';
     },
     isToday: function(dayValue) {
+      // 仅本周（offset=0）才高亮"今天"列
+      if (this.weekOffset !== 0) return false;
       var target = jsDayToCompDay(new Date().getDay());
       return target === dayValue;
     },
@@ -635,54 +669,34 @@ export default {
       var e = parseInt(ep[0], 10) * 60 + parseInt(ep[1], 10);
       return nowMin > e;
     },
+    // 进行中课程的进度百分比（0-100）
+    classProgress: function(cls) {
+      var _ = this.nowTime;
+      if (!cls || !cls.start_time || !cls.end_time) return 0;
+      var now = new Date();
+      var nowMin = now.getHours() * 60 + now.getMinutes();
+      var sp = cls.start_time.split(':');
+      var ep = cls.end_time.split(':');
+      var s = parseInt(sp[0], 10) * 60 + parseInt(sp[1], 10);
+      var e = parseInt(ep[0], 10) * 60 + parseInt(ep[1], 10);
+      if (e <= s) return 0;
+      var pct = Math.round(((nowMin - s) / (e - s)) * 100);
+      return Math.max(0, Math.min(100, pct));
+    },
+    // 进行中课程的剩余时间文案
+    remainingText: function(cls) {
+      var _ = this.nowTime;
+      if (!cls || !cls.end_time) return '';
+      var now = new Date();
+      var nowMin = now.getHours() * 60 + now.getMinutes();
+      var ep = cls.end_time.split(':');
+      var e = parseInt(ep[0], 10) * 60 + parseInt(ep[1], 10);
+      var remain = e - nowMin;
+      if (remain <= 0) return '即将下课';
+      return '剩 ' + remain + ' 分钟';
+    },
     // ===== 调课编辑器（基于稳定 key，避免 idx 漂移）=====
     buildClassKey: function(cls) { return buildClassKey(cls); },
-    // 将本周每天的调课（replace/delete）应用到周视图单元格
-    // insert 类型因会破坏 period+slot 对齐结构，暂不在周视图展示
-    applyWeekOverrides: function(rows) {
-      if (!rows || !rows.length) return rows;
-      // 批量加载本周 7 天的 overrides
-      var overridesByDay = {};
-      for (var d = 1; d <= 7; d++) {
-        var dateStr = this.weekDateStrs[d];
-        overridesByDay[d] = dateStr ? loadOverrides(dateStr) : [];
-      }
-      // 遍历每个单元格应用 replace/delete
-      for (var i = 0; i < rows.length; i++) {
-        var row = rows[i];
-        for (var day = 1; day <= 7; day++) {
-          var cell = row.cells[day];
-          if (!cell) continue;
-          var dayOverrides = overridesByDay[day];
-          if (!dayOverrides || !dayOverrides.length) continue;
-          var key = buildClassKey({ start_time: cell.start, subject: cell.subject });
-          for (var k = 0; k < dayOverrides.length; k++) {
-            var ov = dayOverrides[k];
-            if (ov.key !== key) continue;
-            if (ov.action === 'replace') {
-              var newSubject = ov.subject || cell.subject;
-              var newStart = ov.start_time || cell.start;
-              var newEnd = ov.end_time || cell.end;
-              var color = getSubjectColor(newSubject);
-              row.cells[day] = {
-                subject: newSubject,
-                simplified: this.getSimplified(newSubject),
-                start: newStart,
-                end: newEnd,
-                color: color,
-                bg: hexToRgba(color, 0.16),
-                _adjusted: true,
-                _origKey: key // 保留原始 key，供再次调课时引用原课节
-              };
-            } else if (ov.action === 'delete') {
-              row.cells[day] = null;
-            }
-            break;
-          }
-        }
-      }
-      return rows;
-    },
     openOverrideEditor: function(key) {
       // 优先在原始课表中查找（保证调课基准一致）
       var cls = null;
@@ -702,6 +716,7 @@ export default {
         }
       }
       if (!cls) return;
+      this.overrideEditor.mode = 'replace';
       this.overrideEditor.key = key;
       this.overrideEditor.origClass = cls;
       this.overrideEditor.targetDate = null; // 今日视图：targetDate 留空，回退到 todayDateStr
@@ -717,6 +732,7 @@ export default {
       // 优先用 _origKey（已被 replace 过的 cell），否则用当前值构造 key
       // 这样再次编辑已调课的节时，仍能引用原课节，避免 key 漂移
       var key = cell._origKey || buildClassKey({ start_time: cell.start, subject: cell.subject });
+      this.overrideEditor.mode = 'replace';
       this.overrideEditor.key = key;
       this.overrideEditor.origClass = {
         subject: cell.subject,
@@ -729,9 +745,40 @@ export default {
       this.overrideEditor.form.end_time = formatTime(cell.end);
       this.overrideEditor.open = true;
     },
+    // 格子悬浮提示：完整科目名 + 时间段
+    cellTitle: function(cell) {
+      if (!cell) return '';
+      return cell.subject + ' ' + formatTime(cell.start) + '-' + formatTime(cell.end) + '（点击调课）';
+    },
+    // 周视图空格子：新增一节（insert 模式，锚定到上方最近一节课之后）
+    openAddClassEditor: function(row, dayValue) {
+      var targetDate = this.weekDateStrs[dayValue] || this.todayDateStr;
+      // 从当前行向上找同列最近一节课，作为插入锚点与默认开始时间
+      var rows = this.rows;
+      var rowIdx = rows.indexOf(row);
+      var anchor = null;
+      for (var i = rowIdx - 1; i >= 0; i--) {
+        if (rows[i].cells[dayValue]) { anchor = rows[i].cells[dayValue]; break; }
+      }
+      this.overrideEditor.mode = 'insert';
+      this.overrideEditor.key = null;
+      this.overrideEditor.afterKey = anchor ? anchor._overrideKey : null;
+      this.overrideEditor.origClass = null;
+      this.overrideEditor.targetDate = targetDate;
+      this.overrideEditor.form.subject = '';
+      this.overrideEditor.form.start_time = anchor ? formatTime(anchor.end) : '';
+      this.overrideEditor.form.end_time = '';
+      this.overrideEditor.open = true;
+      var self = this;
+      this.$nextTick(function() {
+        if (self.$refs.oeSubject) self.$refs.oeSubject.focus();
+      });
+    },
     closeOverrideEditor: function() {
       this.overrideEditor.open = false;
+      this.overrideEditor.mode = 'replace';
       this.overrideEditor.key = null;
+      this.overrideEditor.afterKey = null;
       this.overrideEditor.origClass = null;
       this.overrideEditor.targetDate = null;
       this.overrideEditor.form.subject = '';
@@ -739,6 +786,10 @@ export default {
       this.overrideEditor.form.end_time = '';
     },
     saveOverride: function() {
+      if (this.overrideEditor.mode === 'insert') {
+        this.saveInsertOverride();
+        return;
+      }
       if (!this.overrideEditor.key) return;
       var form = this.overrideEditor.form;
       if (!form.subject) {
@@ -759,8 +810,38 @@ export default {
       };
       overrides = dedupeOverride(overrides, newOverride);
       saveOverrides(targetDate, overrides);
+      this.overrideStamp++;
       this.closeOverrideEditor();
       this.$store.commit('toast/SHOW_TOAST', { message: '调课已保存', type: 'success' });
+    },
+    // insert 模式保存（周视图空格新增）
+    saveInsertOverride: function() {
+      var form = this.overrideEditor.form;
+      if (!form.subject) {
+        this.$store.commit('toast/SHOW_TOAST', { message: '请选择科目', type: 'warning' });
+        return;
+      }
+      var startTime = form.start_time.length === 5 ? form.start_time + ':00' : form.start_time;
+      var endTime = form.end_time.length === 5 ? form.end_time + ':00' : form.end_time;
+      if (!startTime || !endTime) {
+        this.$store.commit('toast/SHOW_TOAST', { message: '请填写开始和结束时间', type: 'warning' });
+        return;
+      }
+      var targetDate = this.overrideEditor.targetDate || this.todayDateStr;
+      var overrides = loadOverrides(targetDate);
+      var newOverride = {
+        key: buildClassKey({ start_time: startTime, subject: form.subject }),
+        action: 'insert',
+        subject: form.subject,
+        start_time: startTime,
+        end_time: endTime,
+        afterKey: this.overrideEditor.afterKey  // null = 追加到当天末尾
+      };
+      overrides = dedupeOverride(overrides, newOverride);
+      saveOverrides(targetDate, overrides);
+      this.overrideStamp++;
+      this.closeOverrideEditor();
+      this.$store.commit('toast/SHOW_TOAST', { message: '已添加课程', type: 'success' });
     },
     deleteOverride: function() {
       if (!this.overrideEditor.key) return;
@@ -771,6 +852,7 @@ export default {
         action: 'delete'
       });
       saveOverrides(targetDate, overrides);
+      this.overrideStamp++;
       this.closeOverrideEditor();
       this.$store.commit('toast/SHOW_TOAST', { message: '已删除该节调课', type: 'success' });
     },
@@ -796,6 +878,7 @@ export default {
       };
       overrides = dedupeOverride(overrides, newOverride);
       saveOverrides(targetDate, overrides);
+      this.overrideStamp++;
       this.closeOverrideEditor();
       this.$store.commit('toast/SHOW_TOAST', { message: '已插入新课节', type: 'success' });
     },
@@ -804,6 +887,7 @@ export default {
       this.$modal.confirm('确定要清除今日所有调课吗？').then(function(ok) {
         if (!ok) return;
         clearOverrides(self.todayDateStr);
+        self.overrideStamp++;
         self.closeOverrideEditor();
         self.$store.commit('toast/SHOW_TOAST', { message: '已清除今日调课', type: 'success' });
       });
@@ -815,7 +899,7 @@ export default {
 <style scoped>
 .timetable-page {
   width: 100%;
-  height: 100vh;
+  height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -957,6 +1041,67 @@ export default {
   cursor: pointer;
 }
 .picker-confirm:active { transform: scale(0.95); }
+
+/* 周次导航 */
+.week-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+.week-nav-btn {
+  height: 26px;
+  min-width: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--border-color, rgba(0,0,0,0.1));
+  border-radius: var(--radius-md);
+  background: var(--card-bg, #fff);
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard);
+}
+.week-nav-btn:hover { background: var(--primary-lighter, rgba(var(--primary-rgb), 0.08)); }
+.week-nav-btn:active { transform: scale(0.93); }
+.week-nav-now {
+  font-weight: 600;
+  color: var(--primary-color);
+  border-color: rgba(var(--primary-rgb), 0.3);
+}
+.week-offset-tag {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: rgba(var(--warning-rgb), 0.14);
+  color: var(--warning-color);
+}
+
+/* 空格子快速加课 */
+.empty-cell-add {
+  height: 100%;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  border: 1px dashed transparent;
+  color: var(--text-tertiary);
+  opacity: 0.35;
+  font-size: 12px;
+  cursor: pointer;
+  transition: opacity var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), background var(--duration-fast) var(--ease-standard);
+  box-sizing: border-box;
+}
+.empty-cell-add:hover {
+  opacity: 1;
+  border-color: rgba(var(--primary-rgb), 0.35);
+  background: rgba(var(--primary-rgb), 0.04);
+}
+.empty-cell-add:active { transform: scale(0.96); }
 
 /* 加载/错误/空状态 */
 .loading-state, .error-state, .empty-state {
@@ -1431,6 +1576,28 @@ tr.period-start .period-cell {
   color: #fff;
   padding: 1px 5px;
   border-radius: var(--radius-xs);
+}
+/* 进行中课程的剩余时间与进度条 */
+.ti-remaining {
+  margin-left: auto;
+  font-size: var(--font-size-caption1);
+  font-weight: 600;
+  opacity: 0.85;
+}
+.ti-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.06);
+}
+.ti-progress-fill {
+  height: 100%;
+  background: var(--success-color);
+  transition: width 1s linear;
 }
 .today-item-edit {
   border: none;

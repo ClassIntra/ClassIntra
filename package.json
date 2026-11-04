@@ -1,6 +1,6 @@
 {
   "name": "classintra",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "private": true,
   "license": "MIT",
   "author": "ClassIntra",
@@ -20,7 +20,8 @@
     "verify:schema": "node scripts/schema-verify.mjs",
     "verify:all": "pnpm verify:modules && pnpm verify:motion && pnpm verify:schema",
     "review:market": "node scripts/market-review.mjs",
-    "create:app": "node scripts/create-app.mjs"
+    "create:app": "node scripts/create-app.mjs",
+    "probe:market": "node scripts/probe-market-ui.mjs"
   },
   "devDependencies": {
     "sharp": "^0.35.5"

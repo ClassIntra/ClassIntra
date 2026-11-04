@@ -1,6 +1,7 @@
 var db = require('./db');
 var resolveUniqueName = require('./unique-name').resolveUniqueName;
 var time = require('./time');
+var preFetchCloudFiles = require('./cloud-prefetch').preFetchCloudFiles;
 
 var lastSyncResult = null;
 var lastSyncTime = null;
@@ -757,6 +758,23 @@ function applySyncData(syncData) {
 
   lastSyncResult = result;
   lastSyncTime = new Date().toISOString();
+
+  // 补同步落地的消息同样可能引用对端才有的云盘文件（跨班断线期间攒下的图/附件）。
+  // 实时中继路径在 relay-handlers 里做了预取，而这条 catchup 路径以前完全没做 ——
+  // 于是「跨班聊天久了图全挂」：实时发的不缺，补同步回来的一律显示「文件已删除」。
+  // 放在事务成功提交之后：失败的写入会被回滚，提前预取等于给幽灵消息拉文件。
+  var messageKeys = ['chat_messages', 'private_messages', 'group_messages'];
+  for (var mk = 0; mk < messageKeys.length; mk++) {
+    var list = syncData[messageKeys[mk]];
+    if (!list || !list.length) continue;
+    for (var mi = 0; mi < list.length; mi++) {
+      try {
+        preFetchCloudFiles(list[mi] && list[mi].content, syncData.server_id || '');
+      } catch (e) {
+        console.warn('[relay-sync] 预取云盘文件失败:', e.message);
+      }
+    }
+  }
 
   // 附带本次新插入的消息行，供调用方补推给在线客户端
   result.newly_applied = newlyApplied;

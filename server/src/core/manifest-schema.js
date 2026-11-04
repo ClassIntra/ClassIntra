@@ -24,7 +24,8 @@ var FIELD_DEFS = {
   capabilities: { type: 'array', required: false, default: [], description: '能力披露清单（仅展示，不拦截）' },
   layout: { type: 'object', required: false, description: '布局偏好：mode(fullscreen/sheet/window) / resizable / minWidth / minHeight' },
   visibleRoles: { type: 'array', required: false, default: [], description: '可见角色白名单（空数组=所有角色可见）：classAdmin / admin / officer / student' },
-  config: { type: 'array', required: false, default: [], description: '配置项声明 [{key,label,type,required,default,description}]：安装时引导管理员填写，值存数据库 app_config 表（读取回退：DB → process.env → default）' }
+  config: { type: 'array', required: false, default: [], description: '配置项声明 [{key,label,type,required,default,description}]：安装时引导管理员填写，值存数据库 app_config 表（读取回退：DB → process.env → default）' },
+  shareTarget: { type: 'object', required: false, description: '接收分享声明 { title, accept: ["text","url"] }：让本应用出现在宿主的分享面板里' }
 };
 
 // 配置项类型枚举（type 字段；secret 在管理端回显时打码）
@@ -49,12 +50,17 @@ var CURRENT_SDK_VERSION = '1';
 // 已知能力名（披露用，非拦截）
 var KNOWN_CAPABILITIES = [
   'data.storage', 'data.realtime', 'data.http',
-  'system.notification', 'system.clipboard', 'system.share', 'system.navigate',
+  'data.store',
+  'system.notification', 'system.clipboard', 'system.share', 'system.shareTarget', 'system.navigate',
+  'system.badge', 'system.openApp', 'system.search',
   'ui.toast', 'ui.modal', 'ui.sheet',
   // ui.overlay：声明 frontend.overlay 后可在任意页面挂载全局悬浮层（宿主 z-index 9400）
   'ui.overlay',
   'app.config', 'app.storage',
-  'device.info', 'device.filePicker', 'device.camera'
+  // economy.wallet：读写当前用户的学元账户（平台统一虚拟货币，非现实货币）
+  'economy.wallet',
+  'device.info', 'device.filePicker', 'device.camera', 'device.microphone',
+  'device.vibrate', 'device.network', 'device.screen'
 ];
 
 // 布局模式枚举
@@ -144,6 +150,39 @@ function validateManifest(m) {
     }
     if (!m.backend.entry || typeof m.backend.entry !== 'string') {
       warnings.push('backend.entry 缺失或非字符串');
+    }
+    // ---- backend.jobs：定时任务托管（见 core/app-scheduler.js）----
+    if (m.backend.jobs !== undefined) {
+      if (!Array.isArray(m.backend.jobs)) {
+        warnings.push('backend.jobs 应为数组，已忽略');
+      } else {
+        for (var ji = 0; ji < m.backend.jobs.length; ji++) {
+          var job = m.backend.jobs[ji];
+          if (!job || typeof job !== 'object') {
+            warnings.push('backend.jobs[' + ji + '] 应为对象');
+            continue;
+          }
+          if (!job.name || !/^[a-z][a-z0-9-]{1,40}$/.test(String(job.name))) {
+            warnings.push('backend.jobs[' + ji + '].name 缺失或非 kebab-case');
+          }
+          if (!job.handler || typeof job.handler !== 'string' || job.handler.indexOf('./') !== 0) {
+            warnings.push('backend.jobs[' + ji + '].handler 必须是包内相对路径（./backend/jobs/x.js）');
+          }
+          if (job.every === undefined && job.daily === undefined) {
+            warnings.push('backend.jobs[' + ji + '] 需要 every 或 daily');
+          }
+          if (job.every !== undefined) {
+            var sec = typeof job.every === 'number' ? job.every : parseInt(String(job.every), 10);
+            var mult = /m$/i.test(String(job.every)) ? 60 : (/h$/i.test(String(job.every)) ? 3600 : 1);
+            if (!isFinite(sec) || sec * mult < 60) {
+              warnings.push('backend.jobs[' + ji + '].every 不能小于 60 秒');
+            }
+          }
+          if (job.daily !== undefined && !/^([01]\d|2[0-3]):([0-5]\d)$/.test(String(job.daily))) {
+            warnings.push('backend.jobs[' + ji + '].daily 必须是 HH:MM（24 小时制）');
+          }
+        }
+      }
     }
   }
 

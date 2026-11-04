@@ -12,7 +12,38 @@
   "frontend": {
     "route": "/weather",
     "routeName": "Weather",
-    "component": "./frontend/Weather.vue"
+    "component": "./frontend/Weather.vue",
+    "widgets": [
+      {
+        "id": "weather-now",
+        "name": "实时天气",
+        "component": "./frontend/widgets/WeatherNowWidget.vue",
+        "defaultSize": {
+          "w": 2,
+          "h": 2
+        },
+        "minSize": {
+          "w": 2,
+          "h": 2
+        },
+        "maxSize": {
+          "w": 4,
+          "h": 2
+        },
+        "description": "当前天气与温度",
+        "widenable": true,
+        "configSchema": {
+          "fields": [
+            {
+              "key": "city",
+              "label": "城市名",
+              "type": "text",
+              "default": "庐江"
+            }
+          ]
+        }
+      }
+    ]
   },
   "backend": {
     "mountPath": "/api/weather",

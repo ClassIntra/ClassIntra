@@ -1,0 +1,30 @@
+{
+  "name": "classintra-devkit",
+  "version": "0.1.0",
+  "description": "ClassIntra 第三方应用开发工具：脚手架、体检、打包上架。零依赖，不需要克隆主仓库。",
+  "type": "module",
+  "bin": {
+    "classintra-devkit": "./bin/cli.mjs",
+    "ci-devkit": "./bin/cli.mjs"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "classintra",
+    "market",
+    "plugin",
+    "scaffold",
+    "webos"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ClassIntra/ClassIntra.git"
+  }
+}

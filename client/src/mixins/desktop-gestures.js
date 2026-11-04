@@ -20,7 +20,8 @@ var PAGE_EDGE_RESISTANCE = 0.35;     // 首/尾页反向拖拽的橡皮筋阻尼
 export default {
   data: function() {
     return {
-      pageDragOffset: 0,  // 跟手翻页实时位移（响应式，供 pagesTransformStyle 使用）
+      // 注：跟手位移不再放响应式 data（曾用 pageDragOffset）——逐帧响应式更新会让
+      // 整个桌面组件重渲染。位移走实例字段 _dragOffsetPx，DOM 直写。
       _gestureLongPressTimer: null,
       _gestureTouchStartX: 0,
       _gestureTouchStartY: 0,
@@ -34,7 +35,8 @@ export default {
       _gesturePageDragLastT: 0,
       _gesturePageDragVelocity: 0,
       _gesturePageDragPending: 0,
-      _gesturePageDragRaf: 0
+      _gesturePageDragRaf: 0,
+      _dragGlassTimer: null
     };
   },
   methods: {
@@ -210,7 +212,9 @@ export default {
       if (this.$store.state.desktop.settingsPanelOpen) return;
       if (this.$store.getters['desktop/totalPages'] < 2) return;
       this._gesturePageDragActive = true;
-      this._setPageDragOffset(0);
+      this._dragOffsetPx = 0;
+      this._setPagingAttr(true);
+      this._setDragGlassFlat(true);
     },
 
     // 实时更新拖页位移与瞬时速度（速度供松手 fling 判定）
@@ -235,32 +239,84 @@ export default {
       this._gesturePageDragLastT = now;
     },
 
-    // 位移写入响应式 data：rAF 合帧，避免 touchmove 高频触发重渲染
+    // 位移写入 DOM（不经 Vue）：拖拽中每帧更新响应式 offset 会让整个桌面组件
+    // 逐帧重渲染（三页图标全量 diff），在安卓 9 上是滑页掉帧的主要来源之一。
+    // rAF 合帧后直写 transform + 页码指示器内部变量，Vue 只在松手翻页时参与一次。
     _setPageDragOffset: function(offset) {
       var self = this;
       this._gesturePageDragPending = offset;
       if (this._gesturePageDragRaf) return;
       this._gesturePageDragRaf = requestAnimationFrame(function() {
         self._gesturePageDragRaf = 0;
-        if (self._gesturePageDragActive) {
-          self.pageDragOffset = self._gesturePageDragPending || 0;
+        if (!self._gesturePageDragActive) return;
+        var dx = self._gesturePageDragPending || 0;
+        self._dragOffsetPx = dx;
+        var el = self.$refs.pagesEl;
+        if (el) {
+          var page = self.$store.state.desktop.currentPage;
+          el.style.transform = 'translateX(calc(-' + (page * 100) + '% + ' + dx.toFixed(1) + 'px))';
+        }
+        var pager = self.$refs.pager;
+        if (pager && pager.setDragProgress) {
+          var w = window.innerWidth || 1;
+          pager.setDragProgress(Math.max(-1, Math.min(1, -dx / w)));
         }
       });
     },
 
-    // 松手收尾：按位移/速度判定翻页，否则回弹（移除 dragging 类后走 CSS transition）
+    // 跟手期间关闭 .desktop-pages 的过渡（[data-paging] 由 Desktop.vue scoped 样式消费）
+    _setPagingAttr: function(on) {
+      if (typeof document === 'undefined') return;
+      var root = document.documentElement;
+      if (on) {
+        root.setAttribute('data-paging', '1');
+      } else {
+        root.removeAttribute('data-paging');
+      }
+    },
+
+    // 滑页期间临时平化毛玻璃（[data-dragging="1"] 由 _motion.scss 消费）：
+    // 页面在手指下移动时，dock/island 的 backdrop-filter 每帧都要重算背后画面 =
+    // 滑页掉帧主源。松手后延迟恢复（覆盖翻页/回弹的 transform 过渡），静止观感不变。
+    _setDragGlassFlat: function(on, restoreDelay) {
+      if (typeof document === 'undefined') return;
+      var root = document.documentElement;
+      if (this._dragGlassTimer) {
+        clearTimeout(this._dragGlassTimer);
+        this._dragGlassTimer = null;
+      }
+      if (on) {
+        root.setAttribute('data-dragging', '1');
+        return;
+      }
+      var self = this;
+      this._dragGlassTimer = setTimeout(function() {
+        self._dragGlassTimer = null;
+        root.removeAttribute('data-dragging');
+      }, restoreDelay || 0);
+    },
+
+    // 松手收尾：按位移/速度判定翻页，否则回弹（恢复 transition 后由 CSS 补间）
     _finishPageDrag: function(e) {
       var active = this._gesturePageDragActive;
-      var offset = this.pageDragOffset;
+      var offset = this._dragOffsetPx || 0;
       var velocity = this._gesturePageDragVelocity || 0;
       this._gesturePageDragActive = false;
       this._gesturePageDragVelocity = 0;
-      this.pageDragOffset = 0;
+      this._dragOffsetPx = 0;
+      this._setPagingAttr(false);          // 先恢复 transition，下面的位置变更才有补间
+      this._setDragGlassFlat(false, 320);  // 翻页/回弹过渡结束后恢复玻璃
+
+      var pager = this.$refs.pager;
+      if (pager && pager.clearDragProgress) pager.clearDragProgress();
 
       // 显著位移时抑制合成 click，防止滑页误启动图标（2px：封掉轻微滑动的残余误触）
       if (active && Math.abs(offset) > 2 && e && e.cancelable) {
         e.preventDefault();
       }
+
+      var el = this.$refs.pagesEl;
+      if (!active || !el) return;  // 没真正拖动过（点击/长按），不碰 DOM
 
       var width = window.innerWidth || 1;
       var totalPages = this.$store.getters['desktop/totalPages'];
@@ -268,12 +324,17 @@ export default {
       var forward = offset < 0;  // 左滑 → 下一页
       var crossed = Math.abs(offset) > width * PAGE_COMMIT_RATIO;
       var fling = Math.abs(velocity) > PAGE_FLING_VELOCITY && (forward ? velocity < 0 : velocity > 0);
-      if (!crossed && !fling) return;
-
       var target = currentPage + (forward ? 1 : -1);
-      if (target < 0 || target > totalPages - 1) return;
-      this.$store.commit('desktop/SET_CURRENT_PAGE', target);
-      if (navigator.vibrate) navigator.vibrate(8);
+      var willFlip = (crossed || fling) && target >= 0 && target <= totalPages - 1;
+
+      if (willFlip) {
+        // 提交页码：Vue 把 transform 写成新页位置，CSS transition 从当前拖动位置补间过去
+        this.$store.commit('desktop/SET_CURRENT_PAGE', target);
+        if (navigator.vibrate) navigator.vibrate(8);
+      } else {
+        // 回弹：把内联位移收敛回当前页位置，transition 自动补间
+        el.style.transform = 'translateX(-' + (currentPage * 100) + '%)';
+      }
     },
 
     // 中途取消跟手（第二指落下等）：立即复位偏移
@@ -284,7 +345,16 @@ export default {
         cancelAnimationFrame(this._gesturePageDragRaf);
         this._gesturePageDragRaf = 0;
       }
-      this.pageDragOffset = 0;
+      this._dragOffsetPx = 0;
+      this._setPagingAttr(false);
+      var pager = this.$refs.pager;
+      if (pager && pager.clearDragProgress) pager.clearDragProgress();
+      var el = this.$refs.pagesEl;
+      if (el) {
+        var page = this.$store.state.desktop.currentPage;
+        el.style.transform = 'translateX(-' + (page * 100) + '%)';
+      }
+      this._setDragGlassFlat(false, 320);  // 取消也可能伴随回弹过渡，同样等过渡结束
     },
 
     // 处理横滑切页（兜底路径）
@@ -315,5 +385,6 @@ export default {
   beforeDestroy: function() {
     this._cancelLongPress();
     this._cancelPageDrag();
+    this._setDragGlassFlat(false, 0);  // 离场兜底：避免 data-dragging 残留
   }
 };

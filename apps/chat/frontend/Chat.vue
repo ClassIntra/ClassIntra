@@ -214,6 +214,7 @@
               :dateLabel="getDateLabel(index)"
               :searchTerm="searchText"
               :isPrivate="isPrivateChat"
+              :peerName="isPrivateChat ? getContactDisplayName(currentPrivateContact) : ''"
               :isRead="!!readReceipts[msg.id || msg.message_id]"
               :showTimestamp="shouldShowTimestamp(index)"
               :showUnreadDivider="showUnreadDivider && index === unreadDividerIndex"
@@ -229,6 +230,7 @@
               @toggle-reaction="toggleReaction"
               @scroll-to="scrollToMessage"
               @open-profile="openUserProfile"
+              @pay-card="onPayCard"
             />
           </transition-group>
         </div>
@@ -259,9 +261,30 @@
             <button class="reply-preview-cancel" @click="cancelReply"><i class="fa-solid fa-xmark"></i></button>
           </div>
           <div class="input-wrapper">
-            <button class="emoji-toggle" @click="showEmoji = !showEmoji"><i class="fa-regular fa-face-smile"></i></button>
+            <button class="emoji-toggle" @click="showEmoji = !showEmoji; showPlusMenu = false"><i class="fa-regular fa-face-smile"></i></button>
             <EmojiPicker :visible="showEmoji" @select="insertEmoji" />
-            <button class="cloud-toggle" @click="showCloudPicker = true" title="云盘图片"><i class="fa-solid fa-cloud"></i></button>
+            <div class="plus-wrap">
+              <button class="plus-toggle" :class="{ active: showPlusMenu }" @click.stop="togglePlusMenu" title="更多">
+                <i class="fa-solid fa-plus"></i>
+              </button>
+              <div v-if="showPlusMenu" class="plus-overlay" @click="showPlusMenu = false"></div>
+              <transition name="fade-quick">
+                <div v-if="showPlusMenu" class="plus-menu">
+                  <button class="plus-item" @click="openMoneyForm('transfer')">
+                    <span class="plus-ico"><i class="fa-solid fa-money-bill-transfer"></i></span>
+                    <span>转账</span>
+                  </button>
+                  <button class="plus-item" @click="openMoneyForm('packet')">
+                    <span class="plus-ico red"><i class="fa-solid fa-envelope-open-text"></i></span>
+                    <span>红包</span>
+                  </button>
+                  <button class="plus-item" @click="showPlusMenu = false; showCloudPicker = true">
+                    <span class="plus-ico"><i class="fa-solid fa-cloud"></i></span>
+                    <span>云盘</span>
+                  </button>
+                </div>
+              </transition>
+            </div>
             <textarea
               v-model="inputText"
               class="chat-input"
@@ -276,6 +299,172 @@
         </div>
       </div>
     </div>
+
+    <!-- ===== 学元支付（全屏，微信式）=====
+         用户明确要求：转账/红包在聊天页内完成，不跳应用、不用小浮窗。
+         这里用 PayPage 整屏接管，密码用自绘键盘（平板系统键盘会遮半屏）。 -->
+    <PayPage :visible="pay.view === 'transfer'" title="转账" subtitle="转给同学学元" @close="closePay">
+      <div class="pay-form">
+        <div class="pay-amount">
+          <span class="pay-currency">¥</span>
+          <input v-model="pay.amount" type="number" inputmode="decimal" class="pay-amount-input" placeholder="0.00" />
+        </div>
+        <div v-if="pay.toName" class="peer-picked">
+          <i class="fa-solid fa-circle-check"></i>
+          <b>{{ pay.toName }}</b>
+          <em class="pp-id">{{ pay.to }}</em>
+          <span v-if="pay.cross" class="cp-cross">跨班</span>
+          <button class="pp-change" @click="clearChatPeer">重选</button>
+        </div>
+        <div v-else class="pay-row">
+          <span>收款人</span>
+          <input v-model.trim="pay.peopleQ" type="text" placeholder="输入名字筛选，或直接点下面" />
+        </div>
+        <div v-if="!pay.toName" class="people-list">
+          <button v-for="p in chatFilteredPeople" :key="p.user_id" class="people-item" @click="pickChatPeer(p)">
+            <span class="pi-name">{{ p.name }}</span>
+            <span class="pi-id">{{ p.user_id }}</span>
+            <span v-if="p.remote" class="cp-cross">跨班</span>
+          </button>
+          <div v-if="!chatFilteredPeople.length" class="people-empty">没有匹配的同学</div>
+        </div>
+        <div class="pay-row">
+          <span>备注</span>
+          <input v-model="pay.note" maxlength="30" placeholder="选填，对方能看到" />
+        </div>
+        <div class="pay-hint">可用 {{ payAvailable }} 学元 · 单笔最多 {{ payLimit }} 学元</div>
+        <button class="pay-primary" :disabled="pay.busy" @click="payNext">下一步</button>
+      </div>
+    </PayPage>
+
+    <PayPage :visible="pay.view === 'packet'" title="发红包" subtitle="塞钱进红包" @close="closePay">
+      <div class="pay-form">
+        <div class="pay-amount pay-amount--packet">
+          <span class="pay-currency">¥</span>
+          <input v-model="pay.amount" type="number" inputmode="decimal" class="pay-amount-input" placeholder="0.00" />
+        </div>
+        <div class="pay-row">
+          <span>发给谁</span>
+          <div class="scope-seg">
+            <button :class="{ active: pay.scope !== 'cross' }" @click="pay.scope = 'local'">本班</button>
+            <button :class="{ active: pay.scope === 'cross' }" @click="pay.scope = 'cross'">跨班</button>
+          </div>
+        </div>
+        <div class="pay-row">
+          <span>玩法</span>
+          <div class="scope-seg">
+            <button :class="{ active: !pay.pkt || pay.pkt === 'normal' }" @click="pay.pkt = 'normal'">拼手气</button>
+            <button :class="{ active: pay.pkt === 'designated' }" @click="pay.pkt = 'designated'">指定</button>
+            <button :class="{ active: pay.pkt === 'phrase' }" @click="pay.pkt = 'phrase'">口令</button>
+          </div>
+        </div>
+        <div class="pay-row" v-if="pay.pkt !== 'designated'">
+          <span>发给谁</span>
+          <div class="scope-seg">
+            <button :class="{ active: pay.scope !== 'cross' }" @click="pay.scope = 'local'">本班</button>
+            <button :class="{ active: pay.scope === 'cross' }" @click="pay.scope = 'cross'">跨班</button>
+          </div>
+        </div>
+
+        <div v-if="pay.pkt === 'designated'" class="pkt-pick">
+          <div class="pp-head">选同学（{{ pay.targets.length }} 人）</div>
+          <div class="pay-row" style="border-bottom:none;padding-bottom:6px">
+            <span>筛选</span>
+            <input v-model.trim="pay.peopleQ" type="text" placeholder="名字 / 学号" />
+          </div>
+          <div class="people-list pick">
+            <button v-for="p in chatFilteredPeople" :key="'pk' + p.user_id" class="people-item"
+              :class="{ picked: pay.targets.indexOf(p.user_id) >= 0 }" @click="toggleChatTarget(p)">
+              <span class="pi-name">{{ p.name }}</span>
+              <span class="pi-id">{{ p.user_id }}</span>
+              <span v-if="p.remote" class="cp-cross">跨班</span>
+              <i class="pi-check fa-solid fa-check"></i>
+            </button>
+            <div v-if="!chatFilteredPeople.length" class="people-empty">没有匹配的同学</div>
+          </div>
+        </div>
+
+        <div class="pay-row" v-if="pay.pkt !== 'designated'">
+          <span>个数</span>
+          <input v-model="pay.count" type="tel" placeholder="1–20" />
+        </div>
+        <div class="pay-row">
+          <span>{{ pay.pkt === 'phrase' ? '口令' : '祝福语' }}</span>
+          <input v-model="pay.note" :maxlength="pay.pkt === 'phrase' ? 12 : 20"
+            :placeholder="pay.pkt === 'phrase' ? '领红包要输这句口令' : '恭喜发财'" />
+        </div>
+        <div class="pay-hint">
+          发出去先冻结，同学领到才真正扣款；24 小时没领完自动退回。
+          <template v-if="pay.pkt === 'designated'"><br />只有选中的同学能领，含外班同学会自动生成红包码。</template>
+          <template v-else-if="pay.pkt === 'phrase'"><br />领的时候必须<b>原样输入口令</b>，发到聊天里让大家照着输。</template>
+          <template v-else-if="pay.scope === 'cross'"><br /><b>跨班红包</b>卡片里会带 6 位红包码，外班同学点开即可领取。</template>
+        </div>
+        <button class="pay-primary pay-primary--packet" :disabled="pay.busy" @click="payNext">塞钱进红包</button>
+      </div>
+    </PayPage>
+
+    <PayPage
+      :visible="pay.view === 'pin'"
+      :title="pay.kind === 'packet' ? '发红包' : '转账'"
+      subtitle="验证支付密码"
+      @close="closePay"
+    >
+      <PayPinPad
+        :title="pay.kind === 'packet' ? ('¥ ' + (pay.amount || '0')) : ('转给 ' + (pay.toName || pay.to || '同学'))"
+        :subtitle="pay.kind === 'packet' ? ('共 ' + (pay.count || 1) + ' 个') : ('¥ ' + (pay.amount || '0'))"
+        :error="pay.pinError"
+        :disabled="pay.busy"
+        @submit="submitPin"
+        @cancel="closePay"
+        @forgot="forgotPin"
+      />
+    </PayPage>
+
+    <PayPage :visible="pay.view === 'setup'" title="设置支付密码" subtitle="设置好就能转账 / 发红包" @close="closePay">
+      <div class="pay-form">
+        <div class="pay-row">
+          <span>支付密码</span>
+          <input v-model="pay.setupPin" type="password" inputmode="numeric" maxlength="6" placeholder="6 位数字" />
+        </div>
+        <div class="pay-row">
+          <span>登录密码</span>
+          <input v-model="pay.setupPassword" type="password" maxlength="64" placeholder="验证是你本人" />
+        </div>
+        <div class="pay-hint" :style="pay.pinError ? 'color:#E4574F' : ''">
+          {{ pay.pinError || '支付密码只用于花钱，和登录密码分开；连错 5 次锁 15 分钟。' }}
+        </div>
+        <button class="pay-primary" :disabled="pay.busy" @click="submitSetup">
+          {{ pay.busy ? '处理中…' : '确认设置' }}
+        </button>
+        <button class="pin-mode-link" @click="forgotPin">已经设过？用登录密码重设</button>
+      </div>
+    </PayPage>
+
+    <PayPage :visible="pay.view === 'result'" :title="(pay.result && pay.result.title) || '结果'" @close="closePay">
+      <div class="pay-result">
+        <div class="pay-result-icon" :class="{ fail: pay.result && !pay.result.ok }">
+          <i :class="pay.result && pay.result.ok ? 'fa-solid fa-check' : 'fa-solid fa-xmark'"></i>
+        </div>
+        <div v-if="pay.result && pay.result.amount" class="pay-result-amount">{{ pay.result.amount }}</div>
+        <div class="pay-result-text">{{ pay.result && pay.result.text }}</div>
+        <button class="pay-primary" @click="closePay">完成</button>
+      </div>
+    </PayPage>
+
+    <PayPage :visible="pay.view === 'open'" title="" light @close="closePay">
+      <div class="open-pk">
+        <div class="open-pk-avatar"><i :class="pay.open && pay.open.kind === 'phrase' ? 'fa-solid fa-key' : 'fa-solid fa-envelope-open-text'"></i></div>
+        <div class="open-pk-note">{{ pay.open ? (pay.open.note || '恭喜发财') : '' }}</div>
+        <div class="open-pk-from">{{ pay.open ? ((pay.open.sender_name || '同学') + ' 的' + (pay.open.kind === 'designated' ? '专属红包' : (pay.open.kind === 'phrase' ? '口令红包' : '红包'))) : '' }}</div>
+        <div v-if="pay.open && pay.open.kind === 'phrase'" class="open-pk-phrase">
+          <input v-model.trim="pay.openPhrase" maxlength="12" placeholder="输入口令" @keyup.enter="claimOpenPacket" />
+        </div>
+        <div v-if="pay.open && pay.open.kind === 'phrase'" class="open-pk-phrase-tip">口令就是上面那句，原样输入</div>
+        <button class="open-pk-btn" :disabled="pay.busy" @click="claimOpenPacket">
+          {{ pay.busy ? '拆开中…' : '拆 开 红 包' }}
+        </button>
+      </div>
+    </PayPage>
 
     <!-- Context Menu -->
     <transition name="fade-quick">
@@ -321,8 +510,8 @@
             <div class="member-select-list scrollbar-thin">
               <label v-for="contact in filteredCreateGroupContacts" :key="contact.user_id" class="member-select-item">
                 <input type="checkbox" :value="contact.user_id" v-model="newGroupMembers" />
-                <UserAvatar :user-id="contact.user_id" :name="contact.net_name" :size="28" class="member-select-avatar" />
-                <span class="member-select-name">{{ contact.net_name }}</span>
+                <UserAvatar :user-id="contact.user_id" :name="contact.net_name || contact.real_name || contact.user_id" :size="28" class="member-select-avatar" />
+                <span class="member-select-name">{{ contact.net_name || contact.real_name || contact.user_id }}</span>
               </label>
               <div v-if="contacts.length === 0" class="empty-hint">暂无联系人</div>
               <div v-else-if="filteredCreateGroupContacts.length === 0" class="empty-hint">没有匹配的联系人</div>
@@ -519,8 +708,8 @@
           <div class="member-select-list scrollbar-thin" style="max-height: 300px;">
             <label v-for="contact in filteredInviteContacts" :key="contact.user_id" class="member-select-item">
               <input type="checkbox" :value="contact.user_id" v-model="inviteUserIds" />
-              <UserAvatar :user-id="contact.user_id" :name="contact.net_name" :size="28" class="member-select-avatar" />
-              <span class="member-select-name">{{ contact.net_name }}</span>
+              <UserAvatar :user-id="contact.user_id" :name="contact.net_name || contact.real_name || contact.user_id" :size="28" class="member-select-avatar" />
+              <span class="member-select-name">{{ contact.net_name || contact.real_name || contact.user_id }}</span>
             </label>
             <div v-if="availableInviteContacts.length === 0" class="empty-hint">没有可邀请的联系人</div>
             <div v-else-if="filteredInviteContacts.length === 0" class="empty-hint">没有匹配的联系人</div>
@@ -678,6 +867,8 @@
 
 <script>
 import ChatBubble from '@/components/ChatBubble.vue';
+import PayPage from '@/components/pay/PayPage.vue';
+import PayPinPad from '@/components/pay/PayPinPad.vue';
 // 时间戳归一化比较：created_at 有 SQLite/ISO 两种格式并存，裸 localeCompare 同日内必错序
 import { cmpTimeDesc } from '@/utils/time-compare';
 import EmojiPicker from '@/components/EmojiPicker.vue';
@@ -703,7 +894,9 @@ export default {
     AppNavBar: AppNavBar,
     CloudImagePicker: CloudImagePicker,
     ImagePreview: ImagePreview,
-    UserAvatar: UserAvatar
+    UserAvatar: UserAvatar,
+    PayPage: PayPage,
+    PayPinPad: PayPinPad
   },
   data: function() {
     return {
@@ -713,6 +906,16 @@ export default {
       sidebarOpen: false,
       inputText: '',
       showEmoji: false,
+      showPlusMenu: false,
+      // 聊天内全屏支付（转账/红包/开红包/密码/结果）
+      pay: {
+        view: '', kind: 'transfer', to: '', toName: '', amount: '', count: '5', note: '', scope: 'local',
+        busy: false, pinError: '', result: null, open: null, openPhrase: '',
+        cross: false, people: [], peopleQ: '', targets: [], pkt: 'normal',
+        setupPin: '', setupPassword: ''
+      },
+      payAvailable: '0.00',
+      payLimit: '500',
       showCloudPicker: false,
       showCreateGroup: false,
       newGroupName: '',
@@ -796,6 +999,14 @@ export default {
     };
   },
   computed: {
+    chatFilteredPeople: function() {
+      var q = String(this.pay.peopleQ || '').trim().toLowerCase();
+      var list = this.pay.people || [];
+      if (!q) return list;
+      return list.filter(function(p) {
+        return p.name.toLowerCase().indexOf(q) >= 0 || String(p.user_id).indexOf(q) >= 0;
+      });
+    },
     currentMessages: function() {
       var state = this.$store.state.chat;
       if (this.currentChat === 'public') {
@@ -2110,10 +2321,274 @@ export default {
       this.$set(this.messageStatuses, tempId, 'sent');
       return true;
     },
+    // ---- 加号菜单（转账 / 红包 / 云盘）----
+    togglePlusMenu: function() {
+      this.showPlusMenu = !this.showPlusMenu;
+      if (this.showPlusMenu) this.showEmoji = false;
+    },
+    payReset: function() {
+      return {
+        view: '', kind: 'transfer', to: '', toName: '', amount: '', count: '5', note: '', scope: 'local',
+        busy: false, pinError: '', result: null, open: null, openPhrase: '',
+        cross: false, people: this.pay && this.pay.people || [], peopleQ: '', targets: [], pkt: 'normal',
+        setupPin: '', setupPassword: ''
+      };
+    },
+    loadChatPeople: function() {
+      var self = this;
+      if (self.pay.people && self.pay.people.length) return;
+      api.get('/wallet/people', { params: { limit: 120 } }).then(function(res) {
+        var d = (res && res.data && res.data.data) || {};
+        self.pay = Object.assign({}, self.pay, { people: d.list || [] });
+      }).catch(function() { /* 列表拉不到时用户仍可看默认 */ });
+    },
+    pickChatPeer: function(p) {
+      this.pay = Object.assign({}, this.pay, { to: p.user_id, toName: p.name || '', cross: !!p.remote });
+    },
+    clearChatPeer: function() {
+      this.pay = Object.assign({}, this.pay, { to: '', toName: '', cross: false });
+    },
+    toggleChatTarget: function(p) {
+      var arr = this.pay.targets.slice();
+      var i = arr.indexOf(p.user_id);
+      if (i >= 0) arr.splice(i, 1); else arr.push(p.user_id);
+      this.pay = Object.assign({}, this.pay, { targets: arr });
+    },
+    openMoneyForm: function(mode) {
+      var self = this;
+      self.loadChatPeople();
+      var m = /(\d{6})/.exec(String(this.currentChat || ''));
+      var next = self.payReset();
+      next.view = mode;
+      next.kind = mode;
+      next.to = m ? m[1] : '';
+      self.pay = next;
+      self.showPlusMenu = false;
+      // 拉一次可用余额（转账页要显示「可用 xx」，避免填完才发现不够）
+      api.get('/wallet').then(function(res) {
+        var d = (res.data && res.data.data) || {};
+        if (d.account) self.payAvailable = Number(d.account.available || 0).toFixed(2);
+        if (d.limits) {
+          self.payLimit = String(d.limits.transfer || 500);
+          if (mode === 'packet') self.payLimit = String(d.limits.packet_total || 500);
+        }
+      }).catch(function() { /* 拉不到就按默认值展示 */ });
+    },
+    closePay: function() {
+      this.pay = this.payReset();
+    },
+    payNext: function() {
+      var self = this;
+      var f = self.pay;
+      var toast = function(message) {
+        self.$store.commit('toast/SHOW_TOAST', { message: message, type: 'error' });
+      };
+      var amount = Number(f.amount);
+      if (!(amount > 0)) return toast('金额要大于 0');
+      if (f.kind === 'transfer') {
+        if (!f.toName) return toast('先选一位收款的同学');
+      }
+      if (f.kind === 'packet') {
+        var sub = f.pkt || 'normal';
+        if (sub === 'designated') {
+          if (!f.targets.length) return toast('先选要发给哪些同学');
+        } else {
+          var c = parseInt(f.count, 10);
+          if (!(c >= 1 && c <= 20)) return toast('红包个数要在 1–20 之间');
+          if (sub === 'phrase' && !String(f.note || '').trim()) return toast('写一句口令，领红包的时候要输的');
+        }
+      }
+      this.pay = Object.assign({}, f, { view: 'pin', pinError: '' });
+    },
+    forgotPin: function() {
+      // 忘记密码 / 没设置：聊天页内直接处理
+      this.pay = Object.assign({}, this.pay, { view: 'setup', pinError: '', setupPin: '', setupPassword: '' });
+    },
+    submitPin: function(pin) {
+      var self = this;
+      var f = self.pay;
+      if (f.busy) return;
+      var amount = Number(f.amount);
+      var isPacket = f.kind === 'packet';
+      var count = parseInt(f.count, 10);
+      self.pay = Object.assign({}, f, { busy: true, pinError: '' });
+
+      var sub = f.pkt || 'normal';
+      var url = isPacket ? '/wallet/packet' : '/wallet/transfer';
+      var payload = isPacket
+        ? {
+            total: amount, count: count, note: f.note, pin: pin, scope: f.scope || 'local',
+            kind: sub, targets: sub === 'designated' ? f.targets : []
+          }
+        : { to: f.to, amount: amount, memo: f.note, pin: pin, request_id: 'chat' + Date.now() };
+
+      api.post(url, payload).then(function(res) {
+        var body = (res && res.data) || {};
+        if (body.code !== 200) {
+          var e = new Error(body.message || '支付失败');
+          e.payPin = body.data && body.data.pay_pin;
+          throw e;
+        }
+        var d = body.data || {};
+        var text;
+        if (isPacket) {
+          text = '[[pay:packet]]' + JSON.stringify({
+            id: d.id, total: d.total, count: d.count, note: f.note || '',
+            kind: d.kind || sub,
+            scope: d.scope || 'local',
+            code: d.code || '',
+            base: (window.location && window.location.origin) || ''
+          });
+        } else {
+          text = '[[pay:transfer]]' + JSON.stringify({
+            amount: amount, to: f.to, to_name: d.to_name || f.to, note: f.note || ''
+          });
+        }
+        self.sendMessage({ text: text });
+        self.pay = Object.assign({}, self.pay, {
+          busy: false,
+          view: 'result',
+          result: {
+            ok: true,
+            title: isPacket ? '红包已发出' : '转账成功',
+            amount: isPacket ? ('¥ ' + amount.toFixed(2)) : ('¥ ' + amount.toFixed(2)),
+            text: isPacket
+              ? ((d.kind === 'designated')
+                  ? ('已冻结 ' + amount.toFixed(2) + ' 学元，只有选中的 ' + (d.count || count) + ' 位同学能领')
+                  : (d.scope === 'cross'
+                      ? ('已冻结 ' + amount.toFixed(2) + ' 学元。红包码 ' + (d.code || '') + '，外班同学在钱包「红包码 / 口令」里也能领')
+                      : ('已冻结 ' + amount.toFixed(2) + ' 学元，同学在聊天里点红包就能领')))
+              : ('已转给 ' + (f.toName || d.to_name || f.to) + '，对方会在聊天里看到转账卡片')
+          }
+        });
+      }).catch(function(err) {
+        var pp = err && err.payPin;
+        if (pp && pp.need_setup) {
+          // 没设置支付密码：聊天页内直接设置（之前让用户跳钱包，找不到入口）
+          self.pay = Object.assign({}, self.pay, { busy: false, view: 'setup', pinError: '' });
+          return;
+        }
+        var msg = (err && err.message) || '支付失败';
+        if (pp && pp.locked) msg = '连续输错已锁定，请 15 分钟后再试或用登录密码重设';
+        else if (pp && typeof pp.remaining === 'number') msg = msg + '（还剩 ' + pp.remaining + ' 次）';
+        self.pay = Object.assign({}, self.pay, { busy: false, pinError: msg });
+      });
+    },
+    // 聊天页内设置支付密码（要登录密码验证身份）
+    submitSetup: function() {
+      var self = this;
+      var f = self.pay;
+      if (f.busy) return;
+      if (!/^\d{6}$/.test(String(f.setupPin || ''))) {
+        return self.pay = Object.assign({}, f, { pinError: '支付密码是 6 位数字' });
+      }
+      if (!String(f.setupPassword || '')) {
+        return self.pay = Object.assign({}, f, { pinError: '输入登录密码验证身份' });
+      }
+      self.pay = Object.assign({}, f, { busy: true, pinError: '' });
+      api.post('/wallet/pay-pin', { pin: f.setupPin, password: f.setupPassword }).then(function(res) {
+        var body = (res && res.data) || {};
+        if (body.code !== 200) throw new Error(body.message || '设置失败');
+        self.pay = Object.assign({}, self.pay, {
+          busy: false, view: 'pin', pinError: '', setupPin: '', setupPassword: ''
+        });
+        self.$store.commit('toast/SHOW_TOAST', { message: '支付密码已设置，继续操作即可', type: 'success' });
+      }).catch(function(err) {
+        self.pay = Object.assign({}, self.pay, {
+          busy: false,
+          pinError: (err && err.message) || '设置失败'
+        });
+      });
+    },
+    onPayCard: function(card) {
+      var self = this;
+      if (!card) return;
+      if (card.kind === 'transfer') {
+        var d = card.data || {};
+        self.pay = Object.assign(self.payReset(), {
+          view: 'result',
+          result: {
+            ok: true,
+            title: '转账',
+            amount: '¥ ' + Number(d.amount || 0).toFixed(2),
+            text: (card.own ? ('转给 ' + (d.to_name || d.to || '同学')) : '收到的转账') +
+              (d.note ? ' · ' + d.note : '')
+          }
+        });
+        return;
+      }
+      // 红包：自己发的点开只提示，别人发的进开红包页
+      if (card.own) {
+        return self.$store.commit('toast/SHOW_TOAST', { message: '红包已发出，等同学来领', type: 'info' });
+      }
+      var p = card.data || {};
+      self.pay = Object.assign(self.payReset(), {
+        view: 'open',
+        open: {
+          id: p.id,
+          code: p.code || '',
+          base: p.base || '',
+          scope: p.scope || 'local',
+          kind: p.kind || 'normal',
+          note: p.note || '',
+          sender_name: card.senderName || '同学'
+        }
+      });
+    },
+    claimOpenPacket: function() {
+      var self = this;
+      var p = self.pay.open;
+      if (!p || (!p.id && !p.code) || self.pay.busy) return;
+      var phrase = String(self.pay.openPhrase || '').trim();
+      if (p.kind === 'phrase' && !phrase) {
+        return self.$store.commit('toast/SHOW_TOAST', { message: '先输入口令', type: 'error' });
+      }
+      self.pay = Object.assign({}, self.pay, { busy: true });
+      var req;
+      if (p.code || p.base) {
+        // 跨班红包（或带红包码）：统一走跨班入口
+        req = api.post('/wallet/packet/claim-code', {
+          code: p.code || undefined,
+          phrase: p.kind === 'phrase' ? phrase : undefined,
+          packet_id: (!p.code && p.id) ? p.id : undefined,
+          base: p.base || ''
+        });
+      } else {
+        // 本班红包：拼手气/指定直接领；口令红包带口令
+        req = api.post('/wallet/packet/' + p.id + '/claim', { phrase: phrase || undefined });
+      }
+      req.then(function(res) {
+        var body = (res && res.data) || {};
+        if (body.code !== 200) throw new Error(body.message || '领取失败');
+        var d = body.data || {};
+        var pending = !!d.pending;
+        self.pay = Object.assign({}, self.pay, {
+          busy: false,
+          view: 'result',
+          open: null,
+          openPhrase: '',
+          result: {
+            ok: true,
+            title: pending ? '红包领取中' : '红包',
+            amount: pending ? '' : ('+' + Number(d.amount || 0).toFixed(2)),
+            text: pending
+              ? '红包已在分配，班级之间网络恢复后自动到账（不用重复点）'
+              : (d.duplicate ? '这个红包你已经领过了' : '已存入学元余额')
+          }
+        });
+      }).catch(function(err) {
+        self.pay = Object.assign({}, self.pay, { busy: false });
+        self.$store.commit('toast/SHOW_TOAST', {
+          message: (err && err.message) || '领取失败',
+          type: 'error'
+        });
+      });
+    },
     sendMessage: function(options) {
       var self = this;
       var isForward = !!(options && options.forwardData);
-      var content = isForward ? JSON.stringify(options.forwardData) : self.inputText.trim();
+      var fromOption = !!(options && options.text);
+      var content = isForward ? JSON.stringify(options.forwardData) : (fromOption ? String(options.text) : self.inputText.trim());
       var msgType = isForward ? 'community_forward' : 'text';
       if (!content || self.sending) return;
       var user = self.currentUser;
@@ -2155,7 +2630,7 @@ export default {
             // dropped：消息实际未发出，保留输入内容便于用户重试
             return;
           }
-          if (!isForward) {
+          if (!isForward && !fromOption) {
             self.inputText = '';
           }
           // 自己发言说明已读到当前底部，未读分隔线完成使命后应消失
@@ -2216,6 +2691,10 @@ export default {
         tag = 'cloud-video';
       } else if (mime.indexOf('audio/') === 0) {
         tag = 'cloud-audio';
+      } else if (mime && mime.indexOf('image/') !== 0) {
+        // 既不是图片也不是音视频 → 普通附件（zip/docx/xlsx/pdf…）。
+        // 旧实现一律落成 cloud-img，渲染时当图片请求 → 404 → 显示「文件已删除」。
+        tag = 'cloud-file';
       } else {
         // 回退到文件名解析
         var lower = (file.name || '').toLowerCase();
@@ -2225,6 +2704,9 @@ export default {
         } else if (lower.indexOf('__audio') > -1 || lower.indexOf('.mp3') > -1 || lower.indexOf('.m4a') > -1 ||
                    lower.indexOf('.aac') > -1 || lower.indexOf('.wav') > -1 || lower.indexOf('.ogg') > -1 || lower.indexOf('.opus') > -1) {
           tag = 'cloud-audio';
+        } else if (mime === '' && /\.(zip|rar|7z|doc|docx|xls|xlsx|ppt|pptx|pdf|txt|apk)$/.test(lower)) {
+          // mime 缺失时按常见文档后缀兜底，避免又退回 cloud-img 变成「已删除」
+          tag = 'cloud-file';
         }
       }
       // 使用 hash+扩展名作为标识符（扩展名用于渲染时识别媒体类型）
@@ -4034,6 +4516,197 @@ export default {
   opacity: 0.7;
 }
 
+/* 加号菜单（转账 / 红包 / 云盘） */
+.plus-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.plus-toggle {
+  font-size: var(--font-size-subheadline);
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
+}
+
+.plus-toggle:hover,
+.plus-toggle.active {
+  background: var(--bg-color);
+  color: var(--primary-color);
+}
+
+.plus-toggle i {
+  transition: transform var(--duration-fast) var(--ease-standard);
+}
+
+.plus-toggle.active i {
+  transform: rotate(45deg);
+}
+
+.plus-overlay {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 40;
+}
+
+.plus-menu {
+  position: absolute;
+  bottom: 56px;
+  left: -6px;
+  z-index: 41;
+  display: flex;
+  flex-direction: column;
+  padding: 8px;
+  min-width: 132px;
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg, 14px);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.16);
+}
+
+.plus-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-subheadline);
+  color: var(--text-primary);
+  text-align: left;
+}
+
+.plus-item:hover {
+  background: var(--bg-color);
+}
+
+.plus-ico {
+  width: 26px;
+  height: 26px;
+  margin-right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--text-secondary);
+}
+
+.plus-ico.red {
+  color: #E4574F;
+  background: rgba(228, 87, 79, 0.1);
+}
+
+/* 转账 / 红包弹窗 */
+.money-overlay {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.money-modal {
+  width: 320px;
+  max-width: 88vw;
+  background: var(--card-bg);
+  border-radius: var(--radius-lg, 16px);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+}
+
+.money-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--separator-color);
+  font-size: var(--font-size-headline, 15px);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.money-close {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: var(--text-secondary);
+}
+
+.money-close:hover {
+  background: var(--bg-color);
+}
+
+.money-body {
+  padding: 14px 16px 16px;
+}
+
+.money-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.money-row > span {
+  flex: 0 0 64px;
+  font-size: var(--font-size-subheadline);
+  color: var(--text-secondary);
+}
+
+.money-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-color);
+  color: var(--text-primary);
+  font-size: var(--font-size-subheadline);
+  outline: none;
+}
+
+.money-row input:focus {
+  border-color: var(--primary-color);
+}
+
+.money-tip {
+  margin: 4px 0 12px;
+  font-size: var(--font-size-caption);
+  color: var(--text-tertiary);
+  line-height: 1.6;
+}
+
+.money-submit {
+  width: 100%;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--primary-color);
+  color: #fff;
+  font-size: var(--font-size-subheadline);
+  font-weight: 600;
+}
+
+.money-submit:disabled {
+  opacity: 0.6;
+}
+
 .chat-input {
   flex: 1;
   min-height: 44px;
@@ -5299,4 +5972,252 @@ export default {
     padding: 12px 16px;
   }
 }
+
+/* ===== 聊天内全屏支付（转账 / 红包 / 开红包） ===== */
+.pay-form {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 18px 22px 26px;
+}
+.pay-amount {
+  display: flex;
+  align-items: flex-end;
+  padding: 16px 0 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+.pay-currency {
+  margin-right: 8px;
+  font-size: 26px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.pay-amount-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 40px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.pay-amount--packet .pay-currency,
+.pay-amount--packet .pay-amount-input { color: #D93B32; }
+.pay-row {
+  display: flex;
+  align-items: center;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+.pay-row > span {
+  flex: 0 0 64px;
+  font-size: var(--font-size-subheadline);
+  color: var(--text-secondary);
+}
+.pay-row input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: var(--font-size-subheadline);
+  color: var(--text-primary);
+  text-align: right;
+}
+.pay-hint {
+  margin: 14px 0 18px;
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--text-tertiary);
+}
+.pay-primary {
+  width: 100%;
+  height: 46px;
+  border-radius: 12px;
+  background: #07C160;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+}
+.pay-primary:disabled { opacity: 0.6; }
+.pay-primary--packet { background: #E4574F; }
+
+.pay-result {
+  padding: 52px 26px 26px;
+  text-align: center;
+}
+.pay-result-icon {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(7, 193, 96, 0.12);
+  color: #07C160;
+  font-size: 26px;
+}
+.pay-result-icon.fail {
+  background: rgba(228, 87, 79, 0.12);
+  color: #E4574F;
+}
+.pay-result-amount {
+  font-size: 34px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.pay-result-text {
+  margin: 10px 0 28px;
+  font-size: var(--font-size-footnote);
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+
+/* 开红包：整屏红底，中间金色按钮 */
+.open-pk {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+  box-sizing: border-box;
+  background: radial-gradient(circle at 50% 18%, #E8564C 0%, #B72F26 72%);
+  color: #fff;
+}
+.open-pk-avatar {
+  width: 84px;
+  height: 84px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  font-size: 34px;
+  color: #FFE7B0;
+}
+.open-pk-note {
+  margin-top: 22px;
+  font-size: 20px;
+  font-weight: 600;
+  text-align: center;
+}
+.open-pk-from {
+  margin-top: 8px;
+  font-size: var(--font-size-footnote);
+  opacity: 0.78;
+}
+.open-pk-btn {
+  margin-top: 46px;
+  width: 132px;
+  height: 132px;
+  border-radius: 50%;
+  background: linear-gradient(160deg, #F7D07A, #D9A03A);
+  color: #7A3A0C;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.26);
+}
+.open-pk-btn:active { transform: scale(0.97); }
+.open-pk-btn:disabled { opacity: 0.75; }
+
+/* 跨班 / 本班 切换（红包表单） */
+.scope-seg {
+  display: flex;
+  margin-left: auto;
+  padding: 2px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.06);
+}
+.scope-seg button {
+  padding: 5px 14px;
+  border-radius: 7px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.scope-seg button.active {
+  background: #E4574F;
+  color: #fff;
+  font-weight: 600;
+}
+
+/* 选人 / 口令红包（Chrome 80：不用 gap） */
+.people-list {
+  max-height: 208px;
+  overflow-y: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  margin: 8px 0 4px;
+}
+.people-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255,255,255,.05);
+  text-align: left;
+}
+.people-item:last-child { border-bottom: none; }
+.pi-name { font-size: var(--font-size-subheadline); color: var(--text-primary); margin-right: 8px; }
+.pi-id {
+  flex: 1;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+}
+.pi-check { color: #07C160; font-size: 13px; visibility: hidden; }
+.people-item.picked { background: rgba(7, 193, 96, 0.1); }
+.people-item.picked .pi-check { visibility: visible; }
+.people-item.picked .pi-name { color: #07C160; }
+.people-empty { padding: 16px 12px; font-size: 12px; color: var(--text-tertiary); text-align: center; }
+.pp-id { margin: 0 8px; font-size: 11px; color: var(--text-tertiary); font-family: 'SF Mono', Menlo, Consolas, monospace; }
+.pp-change {
+  margin-left: auto;
+  padding: 4px 10px;
+  border-radius: 10px;
+  background: rgba(255,255,255,.06);
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.pkt-pick { border: 1px solid var(--border-color); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; }
+.pp-head { margin-bottom: 4px; font-size: 12px; color: var(--text-secondary); }
+.peer-picked {
+  display: flex;
+  align-items: center;
+  margin: 2px 0 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.peer-picked i { margin-right: 6px; color: #07C160; }
+.peer-picked b { color: var(--text-primary); font-weight: 600; }
+.cp-cross {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: rgba(228, 87, 79, 0.2);
+  color: #FF8B80;
+  font-size: 10px;
+}
+.pin-mode-link { width: 100%; margin-top: 12px; font-size: var(--font-size-caption); color: var(--primary-color); }
+
+/* 口令红包：拆开页加输入框 */
+.open-pk-phrase { margin-top: 26px; width: 232px; }
+.open-pk-phrase input {
+  width: 100%;
+  height: 42px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,.35);
+  background: rgba(255,255,255,.12);
+  color: #fff;
+  text-align: center;
+  font-size: 16px;
+  outline: none;
+}
+.open-pk-phrase input::placeholder { color: rgba(255,255,255,.7); }
+.open-pk-phrase-tip { margin-top: 8px; font-size: 11px; color: rgba(255,255,255,.8); }
 </style>

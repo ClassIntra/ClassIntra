@@ -11,15 +11,10 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="icon" type="image/svg+xml" href="/resources/public/brand/favicon.svg">
-  <link rel="preload" as="image" href="/resources/public/brand/logo-mark-white.png">
-  <link rel="preload" as="image" href="/resources/public/icons/Chat.png">
-  <link rel="preload" as="image" href="/resources/public/icons/Community.png">
-  <link rel="preload" as="image" href="/resources/public/icons/AI-Chat.png">
-  <link rel="preload" as="image" href="/resources/public/icons/Note.png">
-  <link rel="preload" as="image" href="/resources/public/icons/Files.png">
-  <link rel="preload" as="image" href="/resources/public/icons/Weather.png">
-  <link rel="preload" as="image" href="/resources/public/icons/Music.png">
-  <link rel="preload" as="image" href="/resources/public/icons/Settings.png">
+  <!-- 2026-11-02 移除 9 条图片 preload（logo + 8 张图标）：/resources 走 no-store，
+       预加载的响应不会被 <img> 复用，等于每次启动把这些图下载两遍（≈292KB）。
+       图标改由桌面挂载时请求 120px 变体（见 utils/icon-resolver.js）。
+       待静态资源改为可缓存（ETag 复用）后再恢复 preload 才有意义。 -->
   <title>ClassIntra</title>
   <style>
     /* ============================================================

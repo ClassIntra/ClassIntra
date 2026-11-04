@@ -123,9 +123,19 @@ app.use('/resources', express.static(config.resourcesDir, {
   maxAge: '0',
   immutable: false,
   setHeaders: function(res, filePath) {
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.setHeader('Pragma', 'no-cache');
-    res.setHeader('Expires', '0');
+    // 2026-11-02：Resources/public 下是构建期静态资产（图标/品牌/关卡 SVG/FA 字体），
+    // 之前一律 no-store → 每次刷新整包重下（首屏图标 ≈184KB、logo 48KB）。
+    // 改为「可校验缓存」：浏览器留副本、每次带 ETag 校验，内容没变只回 304（几百字节）。
+    // 仍不用长 max-age：图标替换后必须立刻生效（校园运维经常换图）。
+    if (/[\\/]public[\\/]/.test(filePath)) {
+      res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+      res.removeHeader('Pragma');
+      res.removeHeader('Expires');
+    } else {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    }
     res.removeHeader('Cross-Origin-Embedder-Policy');
     res.removeHeader('Cross-Origin-Resource-Policy');
     res.removeHeader('Cross-Origin-Opener-Policy');
@@ -303,9 +313,12 @@ try {
       maxAge: '0',
       immutable: false,
       setHeaders: function(res) {
-        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-        res.setHeader('Pragma', 'no-cache');
-        res.setHeader('Expires', '0');
+        // 2026-11-02：第三方应用素材（桌宠 webm 每段 ~500KB、style.css 431KB）此前是 no-store
+        // → 每次进桌面都整包重下，弱网下桌宠要等好几秒。改为可校验缓存（ETag 304），
+        // 更新应用后文件 mtime 变、ETag 变，仍立即生效（entry/style 还带 ?v=version）。
+        res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+        res.removeHeader('Pragma');
+        res.removeHeader('Expires');
         res.setHeader('Access-Control-Allow-Origin', '*');
       }
     }));
@@ -343,10 +356,22 @@ app.use('/api/level', require('./routes/level'));
 app.use('/api/cdn', require('./routes/cdn-proxy'));
 app.use('/api/system', require('./routes/system'));
 app.use('/api/realtime', require('./routes/realtime'));
+app.use('/api/integrations/v1', require('./routes/integrations-api'));
 app.use('/api/integrations', require('./routes/integrations'));
 app.use('/api/market', require('./routes/market'));
+// 应用级存储（KV + 对象存储）：第三方应用跟账号走的数据，按 app + 用户隔离
+app.use('/api/app-data', rateLimit({ max: 600, windowMs: 60000 }), require('./routes/app-data'));
+// 运行时权限：普通用户自己查/授/撤；/admin/* 段需要班管
+app.use('/api/app-permissions', rateLimit({ max: 300, windowMs: 60000 }), require('./routes/app-permissions'));
 // 设备指令信箱：控制类指令（封禁/解封、大字广播）的补拉 + 确认闭环
 app.use('/api/device-commands', require('./routes/device-commands'));
+// 学元（平台统一虚拟货币）：账本读写在 services/xueyuan.js，这里只做 HTTP 门面。
+// 它不依赖任何第三方应用，卸载应用不影响余额与流水。
+app.use('/api/xueyuan', rateLimit({ max: 300, windowMs: 60000 }), require('./routes/xueyuan'));
+// 学元钱包（系统应用 apps/wallet 的门面）：账户/津贴/流水/转账/红包/榜单。
+// 与 /api/xueyuan 读同一套账本，不另记账；红包实现已上移到 services/yuanbao.js，
+// 证券应用里的红包面板也调它 —— 两个入口看到的是同一份数据。
+app.use('/api/wallet', rateLimit({ max: 300, windowMs: 60000 }), require('./routes/wallet'));
 // Cluss 联动桥（只读）：供 Cluss 校验 ClassIntra 账号，实现跨系统账号互通
 // 未配置 RELAY_SECRET 时该路由自身返回 503，不影响任何现有功能
 app.use('/api/cluss-bridge', require('./routes/cluss-bridge'));
@@ -431,6 +456,17 @@ var MAX_PORT_RETRIES = 10;
 var server = app.listen(PORT, function() {
   portRetries = 0;
   console.log('ClassIntra Server running on port ' + PORT);
+  // 跨班支付：网络抖动导致 pending 的记录要自动重试，否则钱会一直冻着。
+  // 循环内部有 unref，不会阻止进程退出。
+  try { require('./services/peers').ensure(); } catch (e) {
+    console.error('[peers] 班级登记初始化失败:', e.message);
+  }
+  try { require('./services/packet-cross').startRetryLoop(); } catch (e) {
+    console.error('[packet-cross] 重试循环启动失败:', e.message);
+  }
+  try { require('./services/cross-pay').startRetryLoop(); } catch (e) {
+    console.error('[CrossPay] 重试循环启动失败:', e.message);
+  }
   try {
     var jwtUtil = require('./utils/qweather-jwt');
     jwtUtil.warmUp().then(function(ok) {
@@ -520,6 +556,15 @@ try {
   require('./services/device-commands').start();
 } catch (e) {
   console.error('[DeviceCmd] 启动失败:', e.message);
+}
+
+// ======== 应用定时任务 ========
+// 第三方应用在 manifest.backend.jobs 里声明任务，宿主负责按时触发并记账。
+// 失败不阻断启动：没有任务声明的部署不受影响。
+try {
+  require('./core/app-scheduler').start();
+} catch (e) {
+  console.error('[Scheduler] 启动失败:', e.message);
 }
 
 // ======== 天气提醒定时检查 ========

@@ -215,7 +215,9 @@ router.post('/login', function(req, res) {
         if (!candidates[ni].password_hash) { hasNoPwdRow = true; break; }
       }
       if (hasNoPwdRow) {
-        return tryRelayLogin(account, password, res);
+        // 本地确实有这个人（跨班同步过来的行）只是没密码 → 属于跨班账号，
+        // 对端不可达时要如实报「对方服务器不可达」，不能说密码错。
+        return tryRelayLogin(account, password, res, { crossClass: true });
       }
       var isAmbiguous = candidates.length > 1 && candidates[0].user_id !== account;
       return res.json({
@@ -250,6 +252,12 @@ router.post('/login', function(req, res) {
 
     // 6. Return user_info and token
     var user_info = buildUserInfo(user);
+    // 出站 Webhook：登录事件（外部系统可做在线状态 / 考勤同步）
+    require('../integrations/emit').emit('user.signed_in', {
+      user_id: user.user_id,
+      net_name: user.net_name || '',
+      at: new Date().toISOString()
+    });
     return res.json({ code: 200, message: '登录成功', data: { user_info: user_info, token: token } });
   } catch (err) {
     console.error('Login error:', err);
@@ -328,6 +336,22 @@ router.get('/check-status', auth.requireAuth, function(req, res) {
 
 // POST /api/auth/logout
 router.post('/logout', function(req, res) {
+  // 出站 Webhook：登出事件。这里不强制鉴权（登出必须永远成功），
+  // 只做 best-effort 解析 token，拿不到 user_id 就不发事件。
+  try {
+    var authHeader = req.headers.authorization || '';
+    if (authHeader.indexOf('Bearer ') === 0) {
+      var payload = jwtUtil.verifyToken(authHeader.slice(7));
+      if (payload && payload.user_id) {
+        require('../integrations/emit').emit('user.signed_out', {
+          user_id: payload.user_id,
+          at: new Date().toISOString()
+        });
+      }
+    }
+  } catch (e) {
+    // token 过期 / 伪造都不影响登出本身
+  }
   // 用与设置时完全相同的属性清除（少一个 Path 就会删不掉 → 幽灵 cookie）
   auth.clearAuthCookie(res);
   return res.json({ code: 200, message: '已退出登录', data: null });
@@ -397,7 +421,12 @@ router.post('/relay-verify', function(req, res) {
 // 跨班登录写入对端用户时若与本班用户同名，冲突时追加班级标记（如「张伟(18班)」）
 var resolveUniqueName = require('../utils/unique-name').resolveUniqueName;
 
-function tryRelayLogin(account, password, res) {
+function tryRelayLogin(account, password, res, opts) {
+  // crossClass=true：本地存在该用户但没有密码（跨班同步行），必须靠对端验证。
+  // 这种情况下「对端不可达」和「密码错误」表现完全不同，必须分开报——
+  // 否则用户只会以为自己记错密码（2026-10-31：8i 离线 6h，8 班账号全部登不上，
+  // 前端却一律提示「账号或密码错误」，排查绕了很大一圈）。
+  var crossClass = !!(opts && opts.crossClass);
   var RELAY_SERVERS = config.relay.servers;
   if (!RELAY_SERVERS || RELAY_SERVERS.length === 0) {
     return res.json({ code: 401, message: '账号或密码错误', data: null });
@@ -444,8 +473,11 @@ function tryRelayLogin(account, password, res) {
         }
       });
     });
-    req.on('error', function() { callback(null); });
-    req.on('timeout', function() { req.destroy(); callback(null); });
+    req.on('error', function(err) {
+      console.warn('[Relay Login] 对端不可达: ' + verifyUrl + ' ' + ((err && err.code) || (err && err.message) || ''));
+      callback(null);
+    });
+    req.on('timeout', function() { console.warn('[Relay Login] 对端超时: ' + verifyUrl); req.destroy(); callback(null); });
     req.write(postData);
     req.end();
   }
@@ -502,6 +534,14 @@ function tryRelayLogin(account, password, res) {
         }
         if (pending === 0 && !completed) {
           completed = true;
+          if (crossClass) {
+            console.warn('[Relay Login] 跨班账号验证失败（对端不可达）: account=' + account);
+            return res.json({
+              code: 503,
+              message: '这是跨班账号，需要连接对方班级服务器验证，但对方班级服务器当前不可达。请稍后再试，或联系班管检查对方班级的网络。',
+              data: null
+            });
+          }
           return res.json({ code: 401, message: '账号或密码错误', data: null });
         }
       });

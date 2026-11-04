@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+  <defs>
+    <linearGradient id="walletBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFC94A"/>
+      <stop offset="55%" stop-color="#F0A92B"/>
+      <stop offset="100%" stop-color="#C9761A"/>
+    </linearGradient>
+    <linearGradient id="walletFace" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#FFF0D2"/>
+    </linearGradient>
+  </defs>
+  <!-- 满铺直角背景（圆角由 AppIcon 容器 CSS 统一裁切） -->
+  <rect x="0" y="0" width="120" height="120" fill="url(#walletBg)"/>
+
+  <!-- 钱包主体 -->
+  <path d="M24 44c0-5 4-9 9-9h54c5 0 9 4 9 9v40c0 5-4 9-9 9H33c-5 0-9-4-9-9V44z" fill="url(#walletFace)"/>
+  <!-- 钱包翻盖 -->
+  <path d="M24 50h72" stroke="#E8C489" stroke-width="1.6" opacity="0.9"/>
+  <!-- 右侧卡扣 -->
+  <path d="M96 58h-16c-5 0-9 4-9 9s4 9 9 9h16V58z" fill="#E08B1E"/>
+  <circle cx="84" cy="67" r="3.2" fill="#FFF6E0"/>
+
+  <!-- 方孔钱（学元符号） -->
+  <circle cx="47" cy="68" r="15" fill="none" stroke="#D98B14" stroke-width="3.4"/>
+  <rect x="41" y="62" width="12" height="12" rx="2" fill="#D98B14"/>
+  <!-- 光泽 -->
+  <path d="M28 40c2-3 5-5 9-5h40" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" opacity="0.55"/>
+</svg>

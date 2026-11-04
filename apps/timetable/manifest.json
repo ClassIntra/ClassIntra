@@ -22,6 +22,7 @@
         "minSize": { "w": 1, "h": 1 },
         "maxSize": { "w": 4, "h": 4 },
         "description": "显示今日课程和下节课倒计时",
+        "widenable": true,
         "configSchema": null
       }
     ]

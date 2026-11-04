@@ -1,5 +1,5 @@
 <template>
-  <div class="weather-animation" :class="{ 'anim-fade': fading }" ref="animRoot">
+  <div class="weather-animation" :class="{ 'anim-fade': fading, 'anim-paused': paused }" ref="animRoot">
     <canvas ref="canvas" class="anim-canvas" v-show="showParticles"></canvas>
     <div class="milky-way" v-if="isNight && (category === 'sunny' || category === 'cloudy')"></div>
     <div class="stars-layer" v-if="isNight && (category === 'sunny' || category === 'cloudy')" ref="starsLayer">
@@ -179,7 +179,9 @@ export default {
   props: {
     category: { type: String, default: 'cloudy' },
     weatherCode: { type: String, default: '' },
-    isNight: { type: Boolean, default: false }
+    isNight: { type: Boolean, default: false },
+    // 滚动期间暂停动画（低端机滚动减载）：canvas 粒子软冻结 + DOM 动画 play-state 暂停
+    paused: { type: Boolean, default: false }
   },
   data: function() {
     return {
@@ -222,6 +224,11 @@ export default {
     }
   },
   watch: {
+    paused: function(val) {
+      if (this.particleEngine) {
+        ParticleEngine.setPaused(this.particleEngine, val);
+      }
+    },
     category: function(newVal, oldVal) {
       if (newVal !== oldVal) {
         this.transitionTo(newVal);
@@ -923,6 +930,11 @@ export default {
 
 .weather-animation.anim-fade {
   opacity: 0;
+}
+/* 滚动减载：冻结全部装饰动画（canvas 由引擎软暂停处理） */
+.weather-animation.anim-paused *,
+.weather-animation.anim-paused canvas {
+  animation-play-state: paused !important;
 }
 
 .anim-canvas {

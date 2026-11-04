@@ -38,7 +38,7 @@ var runtimePluginsDir = manifestLoader.pluginsDir; // 插件运行时目录（ro
 // ========== 安装限制 ==========
 // 安装上限（可用环境变量覆盖：大型项目部署按需放宽）
 var MAX_FILES = Number(process.env.MARKET_MAX_FILES) || 300;                 // 单应用最大文件数
-var MAX_FILE_BYTES = (Number(process.env.MARKET_MAX_FILE_MB) || 15) * 1024 * 1024;   // 单文件上限
+var MAX_FILE_BYTES = (Number(process.env.MARKET_MAX_FILE_MB) || 60) * 1024 * 1024;   // 单文件上限（60MB：容纳 48.4MB 的 NNUE 权重）
 var MAX_TOTAL_BYTES = (Number(process.env.MARKET_MAX_TOTAL_MB) || 80) * 1024 * 1024; // 单应用总大小上限
 // 文件扩展名白名单：Web 资源 + 多语言源码（独立端口服务可携带任意语言实现，
 // 宿主运行时由部署者预装——市场信任模型与插件后端一致）
@@ -47,6 +47,10 @@ var ALLOWED_EXTS = [
   '.json', '.js', '.mjs', '.css', '.svg', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico',
   '.woff', '.woff2', '.ttf', '.otf', '.txt', '.md', '.html',
   '.jsonc', '.mov', '.mp4', '.webm',
+  // 应用自带的可执行资产（象棋 Pikafish 引擎与 NNUE 权重，GPL-3）：
+  // 2026-10 起随应用包分发，使 market 更新清目录后引擎能自动装回。
+  // ⚠️ 放开此白名单意味着任何市场应用均可携带二进制，只在受信市场源下使用。
+  '.exe', '.nnue',
   // 多语言源码与工程文件（进程形态 backend.process 可为任意语言）
   '.py', '.rb', '.go', '.java', '.rs', '.php', '.sh', '.bat', '.ps1',
   '.toml', '.yaml', '.yml', '.xml', '.csv', '.ini', '.cfg', '.lock',
@@ -55,26 +59,157 @@ var ALLOWED_EXTS = [
 var CATALOG_CACHE_MS = 60000; // 目录缓存 60s
 
 // ========== 市场源 ==========
+// 三类来源合并，按优先级去重（内置 > 环境变量 > 数据库自定义）：
+//   1. 内置三源：gitee / github / local，不可删除
+//   2. 环境变量 MARKET_SOURCES：JSON 数组，或 "id|label|base" 逗号分隔，便于 .env 快速配置
+//   3. 管理端添加的自定义源（market_sources 表，迁移 023）
+//
+// 安全边界：自定义源只能由管理员添加，服务端会代拉其 index.json 与包文件。
+// 这等价于「管理员主动信任该 URL」——与安装第三方代码同级信任，不额外做 SSRF 白名单，
+// 否则内网自建市场（最常见用法）会被误伤。
 var DEFAULT_SOURCES = [
   {
     id: 'gitee',
     label: '官方市场（Gitee）',
     type: 'http',
-    base: 'https://gitee.com/classintra/market/raw/main/'
+    base: 'https://gitee.com/classintra/market/raw/main/',
+    builtin: true
   },
   {
     id: 'github',
     label: '官方市场（GitHub）',
     type: 'http',
-    base: 'https://raw.githubusercontent.com/ClassIntra/market/main/'
+    base: 'https://raw.githubusercontent.com/ClassIntra/market/main/',
+    builtin: true
   },
   {
     id: 'local',
     label: '本地市场',
     type: 'local',
-    base: process.env.MARKET_LOCAL_DIR || path.join(rootDir, '..', 'market')
+    base: process.env.MARKET_LOCAL_DIR || path.join(rootDir, '..', 'market'),
+    builtin: true
   }
 ];
+
+var SOURCE_ID_RE = /^[a-z][a-z0-9-]{1,31}$/;
+
+function _normalizeBase(raw) {
+  var s = String(raw || '').trim();
+  if (!s) return '';
+  if (!/^https?:\/\//i.test(s)) return '';
+  // 只保留 origin + path，去掉查询与哈希（避免签名参数污染拼接）
+  s = s.replace(/[?#].*$/, '');
+  if (s.charAt(s.length - 1) !== '/') s += '/';
+  return s;
+}
+
+function _validSourceObject(obj) {
+  if (!obj || typeof obj !== 'object') return null;
+  var id = String(obj.id || '').trim();
+  var label = String(obj.label || '').trim();
+  var base = _normalizeBase(obj.base);
+  if (!SOURCE_ID_RE.test(id)) return null;
+  if (!label || label.length > 40) return null;
+  if (!base) return null;
+  return { id: id, label: label, base: base, type: 'http', builtin: false };
+}
+
+// 环境变量解析：JSON 数组优先，失败则按 id|label|base 逗号分隔解析
+function _envSources() {
+  var raw = String(process.env.MARKET_SOURCES || '').trim();
+  if (!raw) return [];
+  var list = [];
+  if (raw.charAt(0) === '[') {
+    try {
+      var arr = JSON.parse(raw);
+      if (Array.isArray(arr)) {
+        for (var i = 0; i < arr.length; i++) {
+          var s = _validSourceObject(arr[i]);
+          if (s) list.push(s);
+        }
+      }
+    } catch (e) {
+      console.warn('[market] MARKET_SOURCES JSON 解析失败，已忽略');
+    }
+    return list;
+  }
+  var parts = raw.split(',');
+  for (var j = 0; j < parts.length; j++) {
+    var seg = parts[j].split('|');
+    if (seg.length < 3) continue;
+    var item = _validSourceObject({ id: seg[0], label: seg[1], base: seg[2] });
+    if (item) list.push(item);
+  }
+  return list;
+}
+
+// 数据库自定义源（表未迁移时返回空，不阻断启动）
+function _dbSources() {
+  try {
+    var db = require('../utils/db');
+    var rows = db.prepare('SELECT id, label, base, type, created_at, created_by FROM market_sources ORDER BY created_at ASC').all();
+    var out = [];
+    for (var i = 0; i < rows.length; i++) {
+      var item = _validSourceObject(rows[i]);
+      if (item) {
+        item.type = rows[i].type === 'local' ? 'http' : (rows[i].type || 'http');
+        item.createdAt = rows[i].created_at || 0;
+        item.createdBy = rows[i].created_by || '';
+        out.push(item);
+      }
+    }
+    return out;
+  } catch (e) {
+    return [];
+  }
+}
+
+// 合并去重：内置优先，其次环境变量，最后数据库；同 id 只留第一个
+function listSources() {
+  var seen = {};
+  var out = [];
+  var groups = [DEFAULT_SOURCES, _envSources(), _dbSources()];
+  for (var g = 0; g < groups.length; g++) {
+    for (var i = 0; i < groups[g].length; i++) {
+      var s = groups[g][i];
+      if (seen[s.id]) continue;
+      seen[s.id] = true;
+      out.push(s);
+    }
+  }
+  return out;
+}
+
+function addSource(input, operatorId) {
+  var item = _validSourceObject(input);
+  if (!item) throw new Error('市场源格式非法：id 需 kebab-case，label 必填，base 需 http(s) URL');
+  var existing = listSources();
+  for (var i = 0; i < existing.length; i++) {
+    if (existing[i].id === item.id) throw new Error('市场源 id 已存在: ' + item.id);
+  }
+  var db = require('../utils/db');
+  db.prepare(
+    'INSERT INTO market_sources (id, label, base, type, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(item.id, item.label, item.base, item.type, Date.now(), String(operatorId || ''));
+  clearCatalogCache(item.id);
+  return item;
+}
+
+function removeSource(sourceId) {
+  var id = String(sourceId || '').trim();
+  for (var i = 0; i < DEFAULT_SOURCES.length; i++) {
+    if (DEFAULT_SOURCES[i].id === id) throw new Error('内置市场源不可删除: ' + id);
+  }
+  var envIds = _envSources().map(function(s) { return s.id; });
+  if (envIds.indexOf(id) !== -1) {
+    throw new Error('该市场源由环境变量 MARKET_SOURCES 声明，请修改 .env 后重启');
+  }
+  var db = require('../utils/db');
+  var info = db.prepare('DELETE FROM market_sources WHERE id = ?').run(id);
+  if (!info.changes) throw new Error('自定义市场源不存在: ' + id);
+  clearCatalogCache(id);
+  return { id: id };
+}
 
 // 检测 manifest 声明的 required 配置缺失项（DB → env → default 三级回退后仍为空）
 function _configMissing(manifest) {
@@ -88,8 +223,9 @@ function _configMissing(manifest) {
 }
 
 function getSource(sourceId) {
-  for (var i = 0; i < DEFAULT_SOURCES.length; i++) {
-    if (DEFAULT_SOURCES[i].id === sourceId) return DEFAULT_SOURCES[i];
+  var all = listSources();
+  for (var i = 0; i < all.length; i++) {
+    if (all[i].id === sourceId) return all[i];
   }
   return null;
 }
@@ -98,11 +234,13 @@ function getSourceFallbacks(sourceId) {
   var preferred = getSource(sourceId);
   if (!preferred) return [];
 
-  var fallbackIds = preferred.id === 'gitee'
-    ? ['github', 'local']
-    : preferred.id === 'github'
-      ? ['gitee', 'local']
-      : [];
+  // 内置官方双源互相兜底（+ 本地）；自定义源只信任自己，不跨源回退，
+  // 否则「私有市场的应用」会莫名其妙去官方仓找同名包。
+  // local 保持历史语义：本地源失败就失败，不偷偷回落到线上源。
+  var fallbackIds = [];
+  if (preferred.id === 'gitee') fallbackIds = ['github', 'local'];
+  else if (preferred.id === 'github') fallbackIds = ['gitee', 'local'];
+  else if (preferred.id === 'local') fallbackIds = [];
 
   return [preferred].concat(fallbackIds.map(function(id) {
     return getSource(id);
@@ -419,6 +557,10 @@ function listInstalled() {
       overlayEntry: m.frontend && m.frontend.overlay ? m.frontend.overlay : '',
       // 桌面小组件声明（可选）：去掉 component 字段（市场应用的 widget 渲染入口
       // 在 entry.js 的 definition.widgets 契约上，manifest 中的 component 不生效）
+      // 接收分享声明：透传给客户端，宿主的分享面板据此列出可接收的应用
+      shareTarget: (m.shareTarget && typeof m.shareTarget === 'object')
+        ? { title: String(m.shareTarget.title || '').slice(0, 40), accept: Array.isArray(m.shareTarget.accept) ? m.shareTarget.accept.slice(0, 5) : ['text'] }
+        : null,
       widgets: (m.frontend && Array.isArray(m.frontend.widgets) ? m.frontend.widgets : []).map(function(w) {
         return {
           id: w.id,
@@ -427,6 +569,7 @@ function listInstalled() {
           defaultSize: w.defaultSize || { w: 2, h: 2 },
           minSize: w.minSize || { w: 1, h: 1 },
           maxSize: w.maxSize || { w: 4, h: 4 },
+          widenable: w.widenable === true,
           configSchema: w.configSchema || null,
           permission: w.permission || null
         };
@@ -451,7 +594,8 @@ function _fetchFile(source, relPath, binary) {
   if (source.type === 'http') {
     return axios.get(source.base + relPath, {
       responseType: 'arraybuffer',
-      timeout: 30000,
+      // 60s→120s：带 48MB NNUE 权重的应用包，30s 在慢链路上必然超时
+      timeout: 120000,
       maxContentLength: MAX_FILE_BYTES,
       validateStatus: function(s) { return s >= 200 && s < 300; }
     }).then(function(res) { return Buffer.from(res.data); });
@@ -590,7 +734,7 @@ function getCatalog(sourceId) {
     }
     var data = _validateCatalog(JSON.parse(rawIndex.toString('utf8')));
     _resolveCatalogIcons(data, source.id);
-    data._verified = verified; // true / 'unsigned' / 'local'（路由层透传给前端展示）
+    data._verified = verified; // true / 'unsigned' / 'local' / 'custom'（路由层透传给前端展示）
     _catalogCache[sourceId] = { at: Date.now(), data: data };
     return data;
   }).catch(function(e) {
@@ -629,6 +773,7 @@ function clearCatalogCache(sourceId) {
 // 验签端：配置 MARKET_SIGNING_PUBLIC_KEY（PEM 文本或 PEM 文件路径）后，
 //         http 源（gitee/github）的目录必须验签通过才可用；local 源按文件系统信任跳过。
 // 返回值：true=验签通过 / false=验签失败 / 'unsigned'=未启用验签 / 'local'=本地源免验
+//         'custom'=管理员自定义源（用自己的信任模型，不套官方公钥）
 var _signingPublicKey = null;
 var _signingKeyLoaded = false;
 function _loadSigningPublicKey() {
@@ -651,6 +796,9 @@ function _loadSigningPublicKey() {
 
 function _verifyCatalogSignature(source, indexBuf) {
   if (source.type !== 'http') return 'local';
+  // 自定义源由管理员主动添加，等价于「管理员信任该 URL」；
+  // 它们通常用自己的签名体系（或干脆不签），不能拿官方公钥去验。
+  if (!source.builtin) return 'custom';
   var pub = _loadSigningPublicKey();
   if (!pub) return 'unsigned';
   return _fetchFile(source, 'index.json.sig')
@@ -741,6 +889,41 @@ function _validateMarketManifest(m, expectedName) {
         var portNum = Number(pc.port);
         if (!pc.port || !Number.isInteger(portNum) || portNum < 1024 || portNum > 65535) {
           errors.push('backend.process.port 非法（1024-65535 的空闲端口，安装时探测冲突）');
+        }
+      }
+    }
+    // ---- backend.jobs：定时任务（宿主托管，见 core/app-scheduler.js）----
+    if (m.backend.jobs !== undefined) {
+      if (!Array.isArray(m.backend.jobs)) {
+        errors.push('backend.jobs 应为数组');
+      } else {
+        var jobNames = {};
+        for (var bj = 0; bj < m.backend.jobs.length; bj++) {
+          var jobDef = m.backend.jobs[bj];
+          if (!jobDef || typeof jobDef !== 'object') { errors.push('backend.jobs[' + bj + '] 应为对象'); continue; }
+          if (!jobDef.name || !/^[a-z][a-z0-9-]{1,40}$/.test(String(jobDef.name))) {
+            errors.push('backend.jobs[' + bj + '].name 缺失或非 kebab-case');
+          } else if (jobNames[jobDef.name]) {
+            errors.push('backend.jobs 中任务名重复: ' + jobDef.name);
+          } else {
+            jobNames[jobDef.name] = true;
+          }
+          if (!jobDef.handler || typeof jobDef.handler !== 'string' || jobDef.handler.indexOf('./') !== 0 || jobDef.handler.indexOf('..') !== -1) {
+            errors.push('backend.jobs[' + bj + '].handler 必须是包内相对路径（./backend/jobs/x.js）');
+          }
+          if (jobDef.every === undefined && jobDef.daily === undefined) {
+            errors.push('backend.jobs[' + bj + '] 需要 every 或 daily');
+          }
+          if (jobDef.every !== undefined) {
+            var everySec = typeof jobDef.every === 'number' ? jobDef.every : parseInt(String(jobDef.every), 10);
+            var everyMul = /m$/i.test(String(jobDef.every)) ? 60 : (/h$/i.test(String(jobDef.every)) ? 3600 : 1);
+            if (!isFinite(everySec) || everySec * everyMul < 60) {
+              errors.push('backend.jobs[' + bj + '].every 不能小于 60 秒');
+            }
+          }
+          if (jobDef.daily !== undefined && !/^([01]\d|2[0-3]):([0-5]\d)$/.test(String(jobDef.daily))) {
+            errors.push('backend.jobs[' + bj + '].daily 必须是 HH:MM（24 小时制）');
+          }
         }
       }
     }
@@ -999,74 +1182,96 @@ function installAppFromSource(appName, sourceId) {
         fs.mkdirSync(path.dirname(dest), { recursive: true });
         fs.writeFileSync(dest, d.buf);
       }
-      // 替换旧目录（更新场景）
+      // 替换旧目录（更新场景）：旧目录先挪成 .bak-*，新目录就位后再删备份。
+      // 任何后续步骤失败都能回滚到旧版本——「更新一失败应用就消失」是历史。
       var finalDir = path.join(marketAppsDir, appName);
-      if (fs.existsSync(finalDir)) {
-        _removeTree(finalDir);
-      }
-      try {
-        fs.renameSync(tmpDir, finalDir);
-      } catch (renameErr) {
-        // Windows：旧目录被占用（EPERM）时退化为覆盖写入（安装兜底，非原子但可靠）
-        fs.mkdirSync(finalDir, { recursive: true });
-        fs.cpSync(tmpDir, finalDir, { recursive: true });
-        try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e2) {}
-      }
+      ctx.swap = _beginSwap(tmpDir, finalDir, appName);
     } catch (e) {
       try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e2) {}
       throw new Error('写入文件失败: ' + e.message);
     }
     return ctx;
   }).then(function(ctx) {
-    // app_control 注册（保留原启用状态；未注册过则默认启用）
     try {
-      var db = require('../utils/db');
-      db.prepare('INSERT OR IGNORE INTO app_control (app_name, enabled) VALUES (?, 1)').run(ctx.manifest.name);
+      return _finishInstall(ctx);
     } catch (e) {
-      console.warn('[market] app_control 注册失败（表可能未初始化）:', e.message);
+      var rolled = false;
+      try { rolled = !!(ctx.swap && ctx.swap.rollback()); } catch (e2) {}
+      throw new Error('安装后初始化失败' + (rolled ? '，已回滚到上一版本' : '') + ': ' + (e && e.message || e));
     }
-    // 热挂载后端
-    if (ctx.manifest.backend) {
-      var mounted = _setMount(ctx.manifest);
-      if (!mounted) console.warn('[market] 后端挂载失败（应用仍安装，重启后自动重试）');
-      // 独立端口型：拉起子进程
-      if (ctx.manifest.backend.process) {
-        try {
-          marketProcess.startApp(ctx.manifest, path.join(marketAppsDir, appName));
-        } catch (e) {
-          console.error('[market] 进程型应用启动失败:', appName, e.message);
-        }
-      }
-    }
-    // 刷新 manifest-loader 缓存（管理后台/默认应用列表立即感知）
-    manifestLoader.clearCache();
-    console.log('[market] 应用已安装:', ctx.manifest.name, 'v' + (ctx.manifest.version || '0.0.0'));
-    return {
-      name: ctx.manifest.name,
-      label: ctx.manifest.label,
-      version: ctx.manifest.version || '0.0.0',
-      source: ctx.source.id,
-      // required 配置缺失项：前端据此在安装成功后弹「立即配置」引导
-      configRequired: _configMissing(ctx.manifest)
-    };
   });
 }
 
-function installApp(appName, sourceId) {
-  var sources = getSourceFallbacks(sourceId || 'gitee');
-  if (!sources.length) return Promise.reject(new Error('未知市场源: ' + sourceId));
-
-  function attempt(index, errors) {
-    return installAppFromSource(appName, sources[index].id).catch(function(error) {
-      errors.push(sources[index].id + ': ' + error.message);
-      if (index + 1 >= sources.length) {
-        throw new Error('所有市场源均不可用：' + errors.join('；'));
-      }
-      return attempt(index + 1, errors);
-    });
+// 安装收尾：注册 app_control、热挂载、拉起进程。失败抛出（由调用方回滚）。
+function _finishInstall(ctx) {
+  var manifest = ctx.manifest;
+  // app_control 注册（保留原启用状态；未注册过则默认启用）
+  try {
+    var db = require('../utils/db');
+    db.prepare('INSERT OR IGNORE INTO app_control (app_name, enabled) VALUES (?, 1)').run(manifest.name);
+  } catch (e) {
+    console.warn('[market] app_control 注册失败（表可能未初始化）:', e.message);
   }
 
-  return attempt(0, []);
+  // 热挂载后端
+  if (manifest.backend) {
+    var mounted = _setMount(manifest);
+    if (!mounted) {
+      // 首装：保持旧行为（文件已就位，重启后自动重试）；
+      // 更新：视为失败并回滚，避免「新代码上了、路由没挂」的半死状态。
+      if (ctx.swap && ctx.swap.backupDir) {
+        throw new Error('后端挂载失败（' + (manifest.backend.mountPath || '') + '）');
+      }
+      console.warn('[market] 后端挂载失败（应用仍安装，重启后自动重试）');
+    }
+    // 独立端口型：拉起子进程
+    if (manifest.backend.process) {
+      try {
+        marketProcess.startApp(manifest, path.join(marketAppsDir, manifest.name));
+      } catch (e) {
+        console.error('[market] 进程型应用启动失败:', manifest.name, e.message);
+      }
+    }
+  }
+
+  // 到这里才算成功：删掉旧版本备份
+  if (ctx.swap && typeof ctx.swap.commit === 'function') {
+    try { ctx.swap.commit(); } catch (e) {}
+  }
+
+  // 刷新 manifest-loader 缓存（管理后台/默认应用列表立即感知）
+  manifestLoader.clearCache();
+  // 安装/更新后同步定时任务（manifest.backend.jobs）
+  try { require('./app-scheduler').syncApp(manifest.name); } catch (e) {}
+  try { recordMetric(manifest.name, ctx.swap && ctx.swap.backupDir ? 'update' : 'install'); } catch (e) {}
+  console.log('[market] 应用已安装:', manifest.name, 'v' + (manifest.version || '0.0.0'));
+  return {
+    name: manifest.name,
+    label: manifest.label,
+    version: manifest.version || '0.0.0',
+    source: ctx.source.id,
+    // required 配置缺失项：前端据此在安装成功后弹「立即配置」引导
+    configRequired: _configMissing(manifest)
+  };
+}
+
+function installApp(appName, sourceId) {
+  return _withInflight('app', appName, function() {
+    var sources = getSourceFallbacks(sourceId || 'gitee');
+    if (!sources.length) throw new Error('未知市场源: ' + sourceId);
+
+    function attempt(index, errors) {
+      return installAppFromSource(appName, sources[index].id).catch(function(error) {
+        errors.push(sources[index].id + ': ' + error.message);
+        if (index + 1 >= sources.length) {
+          throw new Error('所有市场源均不可用：' + errors.join('；'));
+        }
+        return attempt(index + 1, errors);
+      });
+    }
+
+    return attempt(0, []);
+  });
 }
 
 function prefix0(appName) { return 'apps/' + appName + '/'; }
@@ -1081,6 +1286,158 @@ function _getRestrictedCapabilities() {
     .filter(function(s) { return s; });
   return _restrictedCache;
 }
+
+// ========== 目录原子替换（带备份与回滚） ==========
+// 更新场景的正确顺序是「旧目录挪成备份 → 新目录就位 → 收尾成功才删备份」。
+// 之前的实现是先 _removeTree(finalDir) 再 rename——一旦 rename/挂载失败，
+// 旧版本已经没了，用户看到的是「应用消失」。这里把顺序反过来。
+// 目录原子替换：实现见 core/fs-swap.js（独立模块便于单测）
+var fsSwap = require('./fs-swap');
+function _beginSwap(tmpDir, finalDir, tag) {
+  return fsSwap.beginSwap(tmpDir, finalDir, tag, _removeTree);
+}
+
+// ========== 安装指标（本地可观测） ==========
+// 每个班级服务器各自记账，不上报中心（自托管模型下没有「全局安装量」这回事）。
+function recordMetric(name, kind) {
+  try {
+    var db = require('../utils/db');
+    var now = Date.now();
+    if (kind === 'install') {
+      db.prepare(
+        'INSERT INTO market_app_metrics (app_name, install_count, update_count, first_install_at, last_install_at) ' +
+        'VALUES (?, 1, 0, ?, ?) ' +
+        'ON CONFLICT(app_name) DO UPDATE SET install_count = install_count + 1, last_install_at = excluded.last_install_at'
+      ).run(name, now, now);
+    } else if (kind === 'update') {
+      db.prepare(
+        'INSERT INTO market_app_metrics (app_name, install_count, update_count, first_install_at, last_install_at) ' +
+        'VALUES (?, 1, 1, ?, ?) ' +
+        'ON CONFLICT(app_name) DO UPDATE SET update_count = update_count + 1, last_install_at = excluded.last_install_at'
+      ).run(name, now, now);
+    }
+  } catch (e) {
+    // 表未迁移时静默：指标是附加能力，不能阻断安装
+  }
+}
+
+// ========== 使用记录与错误归因（第三方可观测） ==========
+// 自托管模型下没有中心化统计：这里记的是「本班服务器」的使用与异常。
+// 开发者能看到的前提是班管愿意分享，但至少不再靠猜。
+
+function recordUsage(name, userId) {
+  try {
+    var db = require('../utils/db');
+    var now = Date.now();
+    db.prepare(
+      'INSERT INTO market_app_usage (app_name, user_id, last_seen_at, open_count) VALUES (?, ?, ?, 1) ' +
+      'ON CONFLICT(app_name, user_id) DO UPDATE SET last_seen_at = excluded.last_seen_at, open_count = open_count + 1'
+    ).run(String(name), String(userId || ''), now);
+  } catch (e) {}
+}
+
+var _errorWriteCount = 0;
+var _errorBucketHour = -1;
+function recordAppError(name, payload) {
+  try {
+    // 单进程每小时最多写 500 条：第三方死循环刷 error 不能把库写爆
+    var hour = Math.floor(Date.now() / 3600000);
+    if (_errorBucketHour !== hour) { _errorBucketHour = hour; _errorWriteCount = 0; }
+    if (_errorWriteCount > 500) return false;
+    _errorWriteCount++;
+
+    var db = require('../utils/db');
+    var body = payload || {};
+    db.prepare(
+      'INSERT INTO market_app_errors (app_name, message, stack, url, user_id, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(
+      String(name),
+      String(body.message || '').slice(0, 500),
+      String(body.stack || '').slice(0, 4000),
+      String(body.url || '').slice(0, 300),
+      String(body.userId || ''),
+      Date.now()
+    );
+    // 只保留每个应用最近 200 条，老记录自动淘汰
+    db.prepare(
+      'DELETE FROM market_app_errors WHERE app_name = ? AND id NOT IN (' +
+      '  SELECT id FROM market_app_errors WHERE app_name = ? ORDER BY created_at DESC LIMIT 200' +
+      ')'
+    ).run(String(name), String(name));
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function getAppHealth(name) {
+  var db;
+  try { db = require('../utils/db'); } catch (e) { return null; }
+  var manifest = getInstalledManifest(name);
+  if (!manifest) return null;
+
+  var out = {
+    name: name,
+    label: manifest.label || name,
+    version: manifest.version || '0.0.0',
+    installed: true,
+    enabled: isAppEnabled(name),
+    metrics: null,
+    usage: { users: 0, opens: 0, lastSeenAt: 0 },
+    errors: { total: 0, last24h: 0, lastAt: 0, lastMessage: '' },
+    process: null
+  };
+
+  try {
+    out.metrics = db.prepare('SELECT * FROM market_app_metrics WHERE app_name = ?').get(name) || null;
+  } catch (e) {}
+
+  try {
+    var u = db.prepare(
+      'SELECT COUNT(*) AS users, COALESCE(SUM(open_count), 0) AS opens, COALESCE(MAX(last_seen_at), 0) AS lastSeenAt ' +
+      'FROM market_app_usage WHERE app_name = ?'
+    ).get(name);
+    if (u) out.usage = { users: u.users || 0, opens: u.opens || 0, lastSeenAt: u.lastSeenAt || 0 };
+  } catch (e) {}
+
+  try {
+    var since = Date.now() - 24 * 3600 * 1000;
+    var e1 = db.prepare('SELECT COUNT(*) AS c FROM market_app_errors WHERE app_name = ?').get(name);
+    var e2 = db.prepare('SELECT COUNT(*) AS c FROM market_app_errors WHERE app_name = ? AND created_at >= ?').get(name, since);
+    var last = db.prepare('SELECT message, created_at FROM market_app_errors WHERE app_name = ? ORDER BY created_at DESC LIMIT 1').get(name);
+    out.errors = {
+      total: (e1 && e1.c) || 0,
+      last24h: (e2 && e2.c) || 0,
+      lastAt: (last && last.created_at) || 0,
+      lastMessage: (last && last.message) || ''
+    };
+  } catch (e) {}
+
+  try {
+    if (manifest.backend && manifest.backend.process) {
+      var st = marketProcess.status();
+      var rec = st && st[name];
+      out.process = rec ? { running: !!rec.running, restarts: rec.restarts || 0, port: rec.port || 0 } : { running: false, restarts: 0, port: manifest.backend.process.port || 0 };
+    }
+  } catch (e) {}
+
+  return out;
+}
+
+// ========== 安装并发锁 ==========
+// 同一应用/插件/主题同时只允许一个安装流程。两个班管同时点「更新」时，
+// 旧实现会各自建临时目录、互相删对方刚就位的目录。
+var _inflight = {};
+function _withInflight(kind, name, fn) {
+  var key = kind + ':' + name;
+  if (_inflight[key]) {
+    return Promise.reject(new Error('该' + (kind === 'app' ? '应用' : kind === 'plugin' ? '插件' : '主题') + '正在安装/更新中，请稍候重试'));
+  }
+  _inflight[key] = true;
+  function release() { delete _inflight[key]; }
+  return Promise.resolve().then(fn).then(function(r) { release(); return r; }, function(e) { release(); throw e; });
+}
+function isInflight(kind, name) { return !!_inflight[kind + ':' + name]; }
 
 // ========== 卸载 ==========
 // 分文件删除目录：环境的删除保护闸会拦截一次性大体积递归删除
@@ -1114,7 +1471,20 @@ function _runCleanupHook(appName, manifest, baseDir) {
   var hook = require(hookPath);
   if (typeof hook !== 'function') return Promise.resolve(false);
   return Promise.resolve()
-    .then(function() { return hook({ name: appName, manifest: manifest }); })
+    .then(function() {
+      // 清理钩子上下文：除了自身信息，还给出应用级存储的清理入口。
+      // 为什么默认不自动删：用户可能只是重装，数据留着更不烧心；
+      // 要彻底清干净的应用在自己的 cleanup.js 里调 ctx.appData.purge()。
+      var appData = require('./app-data');
+      return hook({
+        name: appName,
+        manifest: manifest,
+        appData: {
+          usage: function() { return appData.usage(appName); },
+          purge: function() { return appData.purgeApp(appName); }
+        }
+      });
+    })
     .then(function() {
       console.log('[market] 清理钩子执行完成:', appName);
       return true;
@@ -1122,11 +1492,14 @@ function _runCleanupHook(appName, manifest, baseDir) {
 }
 
 function uninstallApp(appName) {
+  // ⚠️ manifest 必须在函数作用域声明：后面的步骤回调也要用（尤其 backend.process），
+  //    之前把它声明在第一个 then 里，第二个 then 引用时抛 ReferenceError 并被空 catch 吞掉，
+  //    结果「进程型应用卸载后子进程一直在跑」。
+  var manifest = {};
   return Promise.resolve().then(function() {
     if (!/^[a-z][a-z0-9-]*$/.test(appName || '')) throw new Error('应用名非法');
     var manifestPath = path.join(marketAppsDir, appName, 'manifest.json');
     if (!fs.existsSync(manifestPath)) throw new Error('应用未安装: ' + appName);
-    var manifest = {};
     try { manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')); } catch (e) {}
     // 1. 卸载热挂载
     _removeMount(manifest);
@@ -1160,10 +1533,22 @@ function uninstallApp(appName) {
       // 7. 删除目录
       var finalDir = path.join(marketAppsDir, appName);
       _removeTree(finalDir);
-      // 8. 清缓存
+      // 8. 清缓存 + 撤掉该应用的定时任务与进程内事件订阅
       manifestLoader.clearCache();
-      console.log('[market] 应用已卸载:', appName);
-      return { name: appName };
+      try { require('./app-scheduler').unregister(appName); } catch (e) {}
+      try { require('./app-events').offOwner(appName); } catch (e) {}
+      // 9. 应用级存储：默认保留（重装可用）；部署者可用环境变量强制清除
+      var dataRetained = true;
+      if (process.env.MARKET_PURGE_APP_DATA_ON_UNINSTALL === '1') {
+        try {
+          require('./app-data').purgeApp(appName);
+          dataRetained = false;
+        } catch (e) {
+          console.warn('[market] 应用数据清理失败:', e.message);
+        }
+      }
+      console.log('[market] 应用已卸载:', appName, dataRetained ? '（数据已保留）' : '（数据已清除）');
+      return { name: appName, dataRetained: dataRetained };
     });
   });
 }
@@ -1370,17 +1755,7 @@ function installPluginFromSource(pluginName, sourceId) {
         fs.writeFileSync(dest, d.buf);
       }
       var finalDir = path.join(runtimePluginsDir, pluginName);
-      if (fs.existsSync(finalDir)) {
-        _removeTree(finalDir);
-      }
-      try {
-        fs.renameSync(tmpDir, finalDir);
-      } catch (renameErr) {
-        // Windows：旧目录被占用（EPERM）时退化为覆盖写入（安装兜底，非原子但可靠）
-        fs.mkdirSync(finalDir, { recursive: true });
-        fs.cpSync(tmpDir, finalDir, { recursive: true });
-        try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e2) {}
-      }
+      ctx.swap = _beginSwap(tmpDir, finalDir, pluginName);
     } catch (e) {
       try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e2) {}
       throw new Error('写入文件失败: ' + e.message);
@@ -1394,8 +1769,20 @@ function installPluginFromSource(pluginName, sourceId) {
       console.warn('[market] app_control 注册失败（表可能未初始化）:', e.message);
     }
     var mounted = _setMount(ctx.manifest, runtimePluginsDir);
-    if (!mounted) console.warn('[market] 插件后端挂载失败（重启后自动重试）');
+    if (!mounted) {
+      // 更新场景：挂载失败即回滚，别留下「新代码 + 无路由」的半死插件
+      if (ctx.swap && ctx.swap.backupDir) {
+        var rolled = false;
+        try { rolled = !!ctx.swap.rollback(); } catch (e2) {}
+        throw new Error('插件后端挂载失败' + (rolled ? '，已回滚到上一版本' : '') + '（重启后会自动重试）');
+      }
+      console.warn('[market] 插件后端挂载失败（重启后自动重试）');
+    }
+    if (ctx.swap && typeof ctx.swap.commit === 'function') {
+      try { ctx.swap.commit(); } catch (e) {}
+    }
     manifestLoader.clearCache();
+    try { recordMetric(ctx.manifest.name, ctx.swap && ctx.swap.backupDir ? 'update' : 'install'); } catch (e) {}
     console.log('[market] 插件已安装:', ctx.manifest.name, 'v' + (ctx.manifest.version || '0.0.0'));
     return {
       name: ctx.manifest.name,
@@ -1410,16 +1797,18 @@ function installPluginFromSource(pluginName, sourceId) {
 }
 
 function installPlugin(pluginName, sourceId) {
-  var sources = getSourceFallbacks(sourceId || 'gitee');
-  if (!sources.length) return Promise.reject(new Error('未知市场源: ' + sourceId));
-  function attempt(index, errors) {
-    return installPluginFromSource(pluginName, sources[index].id).catch(function(error) {
-      errors.push(sources[index].id + ': ' + error.message);
-      if (index + 1 < sources.length) return attempt(index + 1, errors);
-      throw new Error('所有市场源安装失败: ' + errors.join(' | '));
-    });
-  }
-  return attempt(0, []);
+  return _withInflight('plugin', pluginName, function() {
+    var sources = getSourceFallbacks(sourceId || 'gitee');
+    if (!sources.length) throw new Error('未知市场源: ' + sourceId);
+    function attempt(index, errors) {
+      return installPluginFromSource(pluginName, sources[index].id).catch(function(error) {
+        errors.push(sources[index].id + ': ' + error.message);
+        if (index + 1 < sources.length) return attempt(index + 1, errors);
+        throw new Error('所有市场源安装失败: ' + errors.join(' | '));
+      });
+    }
+    return attempt(0, []);
+  });
 }
 
 // 卸载插件：撤挂载 → 删目录 → 清缓存（保护：不允许卸载仍在运行的清单来源外目录）
@@ -1599,15 +1988,8 @@ function installThemeFromSource(themeId, sourceId) {
       };
       fs.writeFileSync(path.join(tmpDir, 'pack.json'), JSON.stringify(pack));
       var finalDir = path.join(marketThemesDir, themeId);
-      if (fs.existsSync(finalDir)) _removeTree(finalDir);
-      try {
-        fs.renameSync(tmpDir, finalDir);
-      } catch (renameErr) {
-        // Windows：旧目录被占用（EPERM）时退化为覆盖写入（安装兜底，非原子但可靠）
-        fs.mkdirSync(finalDir, { recursive: true });
-        fs.cpSync(tmpDir, finalDir, { recursive: true });
-        try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e2) {}
-      }
+      var swap = _beginSwap(tmpDir, finalDir, themeId);
+      try { swap.commit(); } catch (e) {}
     } catch (e) {
       try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e2) {}
       throw new Error('写入文件失败: ' + e.message);
@@ -1623,18 +2005,20 @@ function installThemeFromSource(themeId, sourceId) {
 }
 
 function installTheme(themeId, sourceId) {
-  var sources = getSourceFallbacks(sourceId || 'gitee');
-  if (!sources.length) return Promise.reject(new Error('未知市场源: ' + sourceId));
-  function attempt(index, errors) {
-    return installThemeFromSource(themeId, sources[index].id).catch(function(error) {
-      errors.push(sources[index].id + ': ' + error.message);
-      if (index + 1 >= sources.length) {
-        throw new Error('所有市场源均不可用：' + errors.join('；'));
-      }
-      return attempt(index + 1, errors);
-    });
-  }
-  return attempt(0, []);
+  return _withInflight('theme', themeId, function() {
+    var sources = getSourceFallbacks(sourceId || 'gitee');
+    if (!sources.length) throw new Error('未知市场源: ' + sourceId);
+    function attempt(index, errors) {
+      return installThemeFromSource(themeId, sources[index].id).catch(function(error) {
+        errors.push(sources[index].id + ': ' + error.message);
+        if (index + 1 >= sources.length) {
+          throw new Error('所有市场源均不可用：' + errors.join('；'));
+        }
+        return attempt(index + 1, errors);
+      });
+    }
+    return attempt(0, []);
+  });
 }
 
 function uninstallTheme(themeId) {
@@ -1701,7 +2085,39 @@ module.exports = {
     }
   },
   getSources: function() {
-    return DEFAULT_SOURCES.map(function(s) { return { id: s.id, label: s.label, type: s.type }; });
+    return listSources().map(function(s) {
+      return {
+        id: s.id,
+        label: s.label,
+        type: s.type,
+        builtin: !!s.builtin,
+        // base 一起下发：管理端要展示「这个源指向哪」，也便于排查配置错误
+        base: s.base
+      };
+    });
+  },
+  addSource: addSource,
+  removeSource: removeSource,
+  getSource: getSource,
+  // 第三方可观测：使用记录 / 错误归因 / 应用健康
+  recordMetric: recordMetric,
+  recordUsage: recordUsage,
+  recordAppError: recordAppError,
+  getAppHealth: getAppHealth,
+  listAppHealth: function() {
+    return listInstalled().map(function(a) {
+      try { return getAppHealth(a.name); } catch (e) { return null; }
+    }).filter(function(x) { return !!x; });
+  },
+  // 安装指标 / 健康度（本地记账，不上报中心）
+  getMetrics: function(name) {
+    try {
+      var db = require('../utils/db');
+      if (name) return db.prepare('SELECT * FROM market_app_metrics WHERE app_name = ?').get(name) || null;
+      return db.prepare('SELECT * FROM market_app_metrics').all();
+    } catch (e) {
+      return name ? null : [];
+    }
   },
   marketAppsDir: marketAppsDir,
   marketThemesDir: marketThemesDir,

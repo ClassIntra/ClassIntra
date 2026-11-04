@@ -1,6 +1,14 @@
 <template>
   <div class="weather-page" :style="pageBackground">
-    <WeatherAnimation :category="weatherCategory" :weather-code="current ? current.icon : ''" :is-night="isNight" />
+    <!-- 背景氛围层：光晕/地平线雾带/晨昏色调/暗角/噪点，全部静态绘制零动画开销 -->
+    <div class="bg-layers" :class="{ night: isNight }" aria-hidden="true">
+      <div class="bg-glow"></div>
+      <div class="bg-horizon"></div>
+      <div class="bg-phase-tint" :class="'phase-' + dayPhase"></div>
+      <div class="bg-vignette"></div>
+      <div class="bg-grain"></div>
+    </div>
+    <WeatherAnimation :category="weatherCategory" :weather-code="current ? current.icon : ''" :is-night="isNight" :paused="isScrolling" />
     <AppNavBar title="天气">
       <template slot="actions">
         <button class="nav-btn" @click="refreshAll" :disabled="loading">
@@ -20,14 +28,31 @@
     </div>
 
     <div v-else class="weather-main" :class="{ 'show': contentVisible }">
-      <div class="scroll-all">
+      <div class="scroll-all" @scroll="onScroll">
         <div class="hero">
           <div class="hero-location">{{ cityName }}</div>
           <div class="hero-temp">{{ current ? parseInt(current.temp, 10) : '--' }}°</div>
           <div class="hero-range" v-if="daily.length">
             最高 {{ parseInt(daily[0].tempMax, 10) }}° &nbsp;&nbsp; 最低 {{ parseInt(daily[0].tempMin, 10) }}°
           </div>
-          <div class="hero-condition">{{ current ? current.text : '--' }}</div>
+          <div class="hero-condition">
+            <WeatherIcon v-if="current" :code="current.icon" :size="30" :isNight="isNight" />
+            <span>{{ current ? current.text : '--' }}</span>
+          </div>
+          <div class="hero-stats" v-if="current">
+            <div class="hero-stat">
+              <span class="hs-label">体感</span>
+              <span class="hs-value">{{ feelsLikeText }}</span>
+            </div>
+            <div class="hero-stat">
+              <span class="hs-label">湿度</span>
+              <span class="hs-value">{{ humidityText }}</span>
+            </div>
+            <div class="hero-stat">
+              <span class="hs-label">{{ windLabel }}</span>
+              <span class="hs-value">{{ windText }}</span>
+            </div>
+          </div>
         </div>
 
         <RainAlert :data="minutelyData" :current-code="current ? current.icon : ''" />
@@ -38,7 +63,7 @@
               <div class="card-label">7日天气预报</div>
               <div class="daily-item" v-for="(d, i) in daily" :key="i">
                 <span class="d-day">{{ formatDailyDate(d.fxDate, i) }}</span>
-                <WeatherIcon :code="d.iconDay" :size="16" />
+                <WeatherIcon :code="d.iconDay" :size="20" />
                 <span class="d-lo">{{ parseInt(d.tempMin, 10) }}°</span>
                 <span class="d-bar"><span class="d-bar-fill" :style="tempBarStyle(d)"></span></span>
                 <span class="d-hi">{{ parseInt(d.tempMax, 10) }}°</span>
@@ -57,7 +82,7 @@
               <div class="hourly-scroll">
                 <div class="hourly-item" v-for="(h, i) in hourly" :key="i" :class="{ now: i === 0 }">
                   <span class="h-time">{{ formatHourTime(h.fxTime, i) }}</span>
-                  <WeatherIcon :code="h.icon" :size="22" :isNight="isHourNight(h.fxTime)" />
+                  <WeatherIcon :code="h.icon" :size="26" :isNight="isHourNight(h.fxTime)" />
                   <span class="h-temp">{{ parseInt(h.temp, 10) }}°</span>
                 </div>
               </div>
@@ -97,24 +122,38 @@ var CACHE_INDICES = 6 * 60 * 60 * 1000;
 var CACHE_WARNING = 10 * 60 * 1000;
 var CACHE_MINUTELY = 5 * 60 * 1000;
 
+// 背景=「渐变 + 氛围层」组合：渐变给主色调，氛围层（光晕/地平线/暗角/噪点）
+// 在 bg-layers 里统一叠加，模拟大气纵深；调色板对齐 iOS 天气的饱和度与明度节奏
 var DAY_GRADIENTS = {
-  sunny: 'linear-gradient(160deg, #2b5c9e 0%, #4a82ba 35%, #72a8d4 65%, #9ec9ea 100%)',
-  cloudy: 'linear-gradient(160deg, #3f4f5f 0%, #5a6d7d 35%, #7d92a3 70%, #a5b9c8 100%)',
-  overcast: 'linear-gradient(160deg, #2d3741 0%, #3d4a57 40%, #506070 75%, #8899aa 100%)',
-  rain: 'linear-gradient(160deg, #1a2332 0%, #27374a 35%, #3a4d63 65%, #52687f 100%)',
-  thunder: 'linear-gradient(160deg, #101520 0%, #1a2535 30%, #283848 60%, #3d5065 100%)',
-  snow: 'linear-gradient(160deg, #506578 0%, #7a93a8 45%, #a8becf 80%, #cddae8 100%)',
-  fog: 'linear-gradient(160deg, #3d4f5f 0%, #56697a 40%, #738899 75%, #95a8b8 100%)'
+  sunny: 'linear-gradient(172deg, #1d6fc0 0%, #3f8ecf 32%, #74b3e2 62%, #aed8f2 100%)',
+  cloudy: 'linear-gradient(172deg, #5b7a94 0%, #7f9cb3 34%, #a6bdce 66%, #cbdde8 100%)',
+  overcast: 'linear-gradient(172deg, #3e4e5e 0%, #586b7d 36%, #78909f 70%, #a2b5c3 100%)',
+  rain: 'linear-gradient(172deg, #2a3b52 0%, #3e5773 34%, #587893 66%, #7998b0 100%)',
+  thunder: 'linear-gradient(172deg, #141b2c 0%, #21304a 30%, #354963 62%, #516d84 100%)',
+  snow: 'linear-gradient(172deg, #5f7a94 0%, #88a5bd 38%, #b2c9da 70%, #d7e5ef 100%)',
+  fog: 'linear-gradient(172deg, #48596b 0%, #65798c 36%, #859aa9 68%, #aabbc7 100%)'
+};
+
+// 晨昏专属渐变：暖色直接融进底色（叠加橙层会与蓝互补变灰）；雨雪雷雾沿用常规渐变
+var DAWN_GRADIENTS = {
+  sunny: 'linear-gradient(172deg, #3a5580 0%, #6d7ba8 30%, #c08e96 58%, #f2b49a 84%, #f8ccb0 100%)',
+  cloudy: 'linear-gradient(172deg, #46506b 0%, #6d7492 30%, #a68e9a 62%, #d4b6b8 100%)',
+  overcast: 'linear-gradient(172deg, #3a4254 0%, #5c6178 32%, #8a7f8a 64%, #b5a3a8 100%)'
+};
+var DUSK_GRADIENTS = {
+  sunny: 'linear-gradient(172deg, #33507e 0%, #5d6e9e 28%, #b0767e 56%, #e8a06a 82%, #f4be8a 100%)',
+  cloudy: 'linear-gradient(172deg, #3a4258 0%, #5c5f7d 30%, #94707a 62%, #c29a88 100%)',
+  overcast: 'linear-gradient(172deg, #333a4d 0%, #545570 32%, #7f6b74 64%, #ab8d84 100%)'
 };
 
 var NIGHT_GRADIENTS = {
-  clear: 'linear-gradient(160deg, #0a1035 0%, #151b5e 25%, #22307a 50%, #334da8 80%, #536ebe 100%)',
-  cloudy: 'linear-gradient(160deg, #11162d 0%, #1a2055 30%, #283474 60%, #445577 100%)',
-  overcast: 'linear-gradient(160deg, #0d121f 0%, #182033 35%, #28354a 65%, #405068 100%)',
-  rain: 'linear-gradient(160deg, #080c14 0%, #101c2e 30%, #1c304d 60%, #305070 100%)',
-  thunder: 'linear-gradient(160deg, #05080d 0%, #0c1420 30%, #182430 60%, #283848 100%)',
-  snow: 'linear-gradient(160deg, #151b44 0%, #264088 40%, #4864b8 70%, #6e89cc 100%)',
-  fog: 'linear-gradient(160deg, #101420 0%, #1a2538 35%, #2d3d52 65%, #4a5c73 100%)'
+  clear: 'linear-gradient(172deg, #060b1f 0%, #0d1734 26%, #17244d 52%, #243767 78%, #3a5488 100%)',
+  cloudy: 'linear-gradient(172deg, #0c1122 0%, #161e39 30%, #212c4d 62%, #354260 100%)',
+  overcast: 'linear-gradient(172deg, #0a0f18 0%, #151d2a 34%, #232f3e 66%, #374755 100%)',
+  rain: 'linear-gradient(172deg, #060a12 0%, #0e1727 30%, #17293f 62%, #27425d 100%)',
+  thunder: 'linear-gradient(172deg, #030509 0%, #0a101c 30%, #152030 62%, #223244 100%)',
+  snow: 'linear-gradient(172deg, #0d1230 0%, #1b2651 38%, #2d4178 70%, #4b679a 100%)',
+  fog: 'linear-gradient(172deg, #0c1119 0%, #161f2c 34%, #263341 66%, #3d4d5b 100%)'
 };
 
 var API_NAMES = {
@@ -163,7 +202,8 @@ export default {
       lastUpdateTime: null,
       contentVisible: false,
       failedApis: [],
-      retryTimers: []
+      retryTimers: [],
+      isScrolling: false
     };
   },
   computed: {
@@ -194,11 +234,49 @@ export default {
       if (!this.current) return 'cloudy';
       return getWeatherCategory(this.current.icon);
     },
+    // 晨昏相位：日出/日落前后 60 分钟内叠加暖色调（dayPhase 驱动 bg-phase-tint）
+    dayPhase: function() {
+      if (this.isNight) return 'night';
+      if (this.sunrise && this.sunset) {
+        var now = new Date();
+        var cur = now.getHours() * 60 + now.getMinutes();
+        var sr = this.sunrise.split(':');
+        var ss = this.sunset.split(':');
+        var srMin = parseInt(sr[0], 10) * 60 + parseInt(sr[1], 10);
+        var ssMin = parseInt(ss[0], 10) * 60 + parseInt(ss[1], 10);
+        if (isNaN(srMin) || isNaN(ssMin)) return 'day';
+        if (Math.abs(cur - srMin) <= 60) return 'dawn';
+        if (Math.abs(cur - ssMin) <= 60) return 'dusk';
+      }
+      return 'day';
+    },
+    feelsLikeText: function() {
+      if (!this.current || this.current.feelsLike === undefined || this.current.feelsLike === '') return '--';
+      return Math.round(parseFloat(this.current.feelsLike)) + '°';
+    },
+    humidityText: function() {
+      if (!this.current || this.current.humidity === undefined || this.current.humidity === '') return '--';
+      return this.current.humidity + '%';
+    },
+    windLabel: function() {
+      return this.current && this.current.windDir ? this.current.windDir : '风';
+    },
+    windText: function() {
+      if (!this.current || !this.current.windScale) return '--';
+      return this.current.windScale + ' 级';
+    },
     pageBackground: function() {
       var cat = this.weatherCategory;
       if (this.isNight) {
         var nk = cat === 'sunny' ? 'clear' : cat;
         return { background: NIGHT_GRADIENTS[nk] || NIGHT_GRADIENTS.clear };
+      }
+      // 黄金时刻：日出/日落前后 60 分钟，晴天/多云/阴天换晨昏渐变
+      if (this.dayPhase === 'dawn' && DAWN_GRADIENTS[cat]) {
+        return { background: DAWN_GRADIENTS[cat] };
+      }
+      if (this.dayPhase === 'dusk' && DUSK_GRADIENTS[cat]) {
+        return { background: DUSK_GRADIENTS[cat] };
       }
       return { background: DAY_GRADIENTS[cat] || DAY_GRADIENTS.cloudy };
     }
@@ -222,12 +300,24 @@ export default {
     this.stopAutoRefresh();
     clearInterval(this._clock);
     this.clearRetryTimers();
+    if (this._scrollDebounce) clearTimeout(this._scrollDebounce);
     if (this._visibilityHandler) {
       document.removeEventListener('visibilitychange', this._visibilityHandler);
     }
   },
   methods: {
     apiDisplayName: function(key) { return API_NAMES[key] || key; },
+    // 滚动减载：滚动期间冻结装饰动画（低端机上 blur+动画+滚动同帧合成会卡），
+    // 停止滚动 160ms 后恢复
+    onScroll: function() {
+      var self = this;
+      if (!this.isScrolling) this.isScrolling = true;
+      if (this._scrollDebounce) clearTimeout(this._scrollDebounce);
+      this._scrollDebounce = setTimeout(function() {
+        self.isScrolling = false;
+        self._scrollDebounce = null;
+      }, 160);
+    },
     fetchWithCache: function(url, cacheKey, ttl) {
       var cached = apiCache.get(cacheKey);
       if (cached) return Promise.resolve(cached);
@@ -399,7 +489,7 @@ export default {
 <style scoped>
 .weather-page {
   width: 100%;
-  height: 100vh;
+  height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -408,6 +498,93 @@ export default {
   color: #fff;
   position: relative;
   isolation: isolate;
+}
+
+/* ===== 背景氛围层（全部静态，零动画开销） =====
+   叠加顺序（自下而上）：基础渐变(:style) → 动画层(z:-1) → 光晕/雾带/晨昏/暗角/噪点(z:0) → 内容(z:1) */
+.bg-layers {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.bg-layers > div {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+/* 日光/月光光晕：右上角柔光源，给渐变一个"光源方向" */
+.bg-glow {
+  background: radial-gradient(120% 85% at 78% -8%,
+    rgba(255, 255, 255, 0.26) 0%,
+    rgba(255, 255, 255, 0.10) 32%,
+    transparent 62%);
+}
+.bg-layers.night .bg-glow {
+  background: radial-gradient(110% 75% at 70% -6%,
+    rgba(168, 196, 255, 0.16) 0%,
+    rgba(140, 170, 240, 0.06) 34%,
+    transparent 60%);
+}
+/* 地平线雾带：底部渐亮的空气感 */
+.bg-horizon {
+  top: auto;
+  height: 46%;
+  background: linear-gradient(180deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.05) 55%,
+    rgba(255, 255, 255, 0.11) 100%);
+}
+.bg-layers.night .bg-horizon {
+  background: linear-gradient(180deg,
+    transparent 0%,
+    rgba(130, 160, 230, 0.04) 55%,
+    rgba(130, 160, 230, 0.09) 100%);
+}
+/* 晨昏暖色调：日出/日落前后 60 分钟叠加，2s 过渡与背景切换同节奏 */
+.bg-phase-tint {
+  opacity: 0;
+  transition: opacity 2s var(--ease-standard);
+}
+.bg-phase-tint.phase-dawn {
+  opacity: 1;
+  background: linear-gradient(180deg,
+    rgba(255, 196, 140, 0.16) 0%,
+    rgba(255, 168, 120, 0.07) 42%,
+    transparent 78%);
+}
+.bg-phase-tint.phase-dusk {
+  opacity: 1;
+  background: linear-gradient(180deg,
+    rgba(255, 158, 96, 0.18) 0%,
+    rgba(230, 120, 92, 0.08) 42%,
+    transparent 78%);
+}
+/* 暗角：边缘压暗聚拢视线 */
+.bg-vignette {
+  background: radial-gradient(145% 125% at 50% 38%,
+    transparent 55%,
+    rgba(4, 10, 26, 0.16) 88%,
+    rgba(4, 10, 26, 0.26) 100%);
+}
+/* 噪点抖动：消除渐变色带（banding 是"廉价感"主因之一） */
+.bg-grain {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: 0.045;
+}
+
+.app-nav-bar-wrapper,
+.loading-state,
+.error-state,
+.weather-main {
+  position: relative;
+  z-index: 1;
 }
 
 .nav-btn {
@@ -476,11 +653,12 @@ export default {
   height: 100%;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 0 14px 6px;
+  overscroll-behavior: contain;
+  padding: 0 14px 8px;
 }
-.scroll-all::-webkit-scrollbar { width: 2px; }
+.scroll-all::-webkit-scrollbar { width: 3px; }
 .scroll-all::-webkit-scrollbar-track { background: transparent; }
-.scroll-all::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: var(--radius-pill); }
+.scroll-all::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: var(--radius-pill); }
 
 .hero {
   display: flex;
@@ -514,11 +692,73 @@ export default {
   letter-spacing: 2px;
 }
 
+.hero-location,
+.hero-temp,
+.hero-range,
 .hero-condition {
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.18);
+}
+
+.hero-condition {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
   font-size: var(--font-size-subheadline);
-  font-weight: 300;
-  margin-top: 6px;
-  opacity: 0.7;
+  font-weight: 400;
+  margin-top: 10px;
+  opacity: 0.92;
+}
+
+.hero-stats {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  margin-top: 18px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 0.5px solid rgba(255, 255, 255, 0.14);
+  border-radius: var(--radius-lg);
+  padding: 10px 4px;
+  max-width: 340px;
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+  backdrop-filter: blur(10px) saturate(140%);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+}
+.hero-stat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  position: relative;
+}
+.hero-stat + .hero-stat::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 15%;
+  bottom: 15%;
+  width: 0.5px;
+  background: rgba(255, 255, 255, 0.18);
+}
+.hs-label {
+  font-size: var(--font-size-caption2);
+  font-weight: 400;
+  opacity: 0.55;
+  letter-spacing: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.hs-value {
+  font-size: var(--font-size-body);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .cards-grid {
@@ -545,15 +785,15 @@ export default {
 }
 
 .card {
-  background: rgba(255,255,255,0.08);
-  backdrop-filter: var(--glass-blur-thick);
-  -webkit-backdrop-filter: var(--glass-blur-thick);
-  border: 0.5px solid rgba(255,255,255,0.15);
+  background: rgba(255,255,255,0.09);
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  border: 0.5px solid rgba(255,255,255,0.18);
   border-radius: var(--radius-lg);
   padding: 12px 14px;
   min-width: 0;
   overflow: hidden;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), 0 2px 8px rgba(0,0,0,0.12);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.12), 0 2px 10px rgba(0,0,0,0.14);
 }
 
 .card-label {
@@ -570,44 +810,49 @@ export default {
   overflow-x: auto;
   padding-bottom: 2px;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
 }
 .hourly-scroll::-webkit-scrollbar { height: 2px; }
 .hourly-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: var(--radius-pill); }
 
 .hourly-item {
   flex-shrink: 0;
-  width: 44px;
+  width: 54px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1px;
-  padding: 3px 2px;
+  gap: 3px;
+  padding: 8px 2px;
   border-radius: var(--radius-md);
   transition: background var(--duration-normal) var(--ease-standard);
 }
-.hourly-item.now { background: rgba(255,255,255,0.07); }
-.h-time { font-size: var(--font-size-caption2); opacity: 0.4; }
+.hourly-item.now {
+  background: rgba(255,255,255,0.12);
+  box-shadow: inset 0 0 0 0.5px rgba(255,255,255,0.18);
+}
+.h-time { font-size: var(--font-size-caption2); opacity: 0.45; white-space: nowrap; }
 .h-icon {
-  width: 22px;
-  height: 22px;
+  width: 26px;
+  height: 26px;
   flex-shrink: 0;
 }
-.h-temp { font-size: var(--font-size-caption); font-weight: 500; }
+.h-temp { font-size: var(--font-size-caption); font-weight: 600; font-variant-numeric: tabular-nums; }
 
 .daily-item {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 0;
-  border-bottom: 0.5px solid rgba(255,255,255,0.06);
+  gap: 6px;
+  padding: 6px 0;
+  border-bottom: 0.5px solid rgba(255,255,255,0.07);
+  font-variant-numeric: tabular-nums;
 }
 .daily-item:last-child { border-bottom: none; }
-.d-day { width: 26px; font-size: var(--font-size-caption2); font-weight: 400; flex-shrink: 0; }
-.d-lo { width: 20px; font-size: var(--font-size-caption2); flex-shrink: 0; text-align: right; opacity: 0.42; }
+.d-day { width: 34px; font-size: var(--font-size-caption); font-weight: 400; flex-shrink: 0; }
+.d-lo { width: 24px; font-size: var(--font-size-caption); flex-shrink: 0; text-align: right; opacity: 0.45; }
 .d-bar {
   flex: 1;
-  height: 2.5px;
-  background: rgba(255,255,255,0.07);
+  height: 3px;
+  background: rgba(255,255,255,0.1);
   border-radius: var(--radius-pill);
   position: relative;
   overflow: hidden;
@@ -628,15 +873,8 @@ export default {
 }
 
 .air-card, .life-card {
-  background: rgba(255,255,255,0.08);
-  backdrop-filter: var(--glass-blur-thick);
-  -webkit-backdrop-filter: var(--glass-blur-thick);
-  border: 0.5px solid rgba(255,255,255,0.15);
-  border-radius: var(--radius-lg);
-  padding: 12px 14px;
-  min-width: 0;
-  overflow: hidden;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), 0 2px 8px rgba(0,0,0,0.12);
+  background: rgba(255,255,255,0.09);
+  border: 0.5px solid rgba(255,255,255,0.18);
 }
 
 .warning-card-wrap {
@@ -673,7 +911,9 @@ export default {
   .hero-location { font-size: var(--font-size-body); margin-bottom: 8px; letter-spacing: 3px; }
   .hero-temp { font-size: 80px; letter-spacing: -4px; }
   .hero-range { font-size: var(--font-size-caption); margin-top: 5px; }
-  .hero-condition { font-size: var(--font-size-sm); margin-top: 4px; }
+  .hero-condition { font-size: var(--font-size-sm); margin-top: 6px; gap: 7px; }
+  .hero-stats { margin-top: 12px; padding: 8px 4px; }
+  .hs-value { font-size: var(--font-size-caption); }
   .card { padding: 8px 10px; border-radius: var(--radius-md); min-width: 0; overflow: hidden; }
   .card-label { font-size: var(--font-size-caption2); margin-bottom: 2px; }
   .cards-grid { gap: 6px; }

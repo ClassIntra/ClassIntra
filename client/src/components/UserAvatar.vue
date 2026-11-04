@@ -55,14 +55,18 @@ export default {
   },
   computed: {
     avatarData: function() {
+      // 匿名时无视一切外部数据源：不显示任何真实头像
+      if (this.isAnonymous) return null;
       if (this.avatar) return this.avatar;
       return this.resolvedAvatar;
     },
     hasImage: function() {
       return !!(this.avatarData && this.avatarData.has_avatar && this.avatarData.hash);
     },
+    // ⚠️ 匿名场景绝不能显示图片头像：userId 在手也不许查、不许挂真实照片，
+    //    否则匿名帖直接泄露作者身份（isAnonymous 之前只影响文字回落，是个漏洞）
     showImage: function() {
-      return this.hasImage && !this.imageFailed;
+      return !this.isAnonymous && this.hasImage && !this.imageFailed;
     },
     imageUrl: function() {
       var base = pickUrl(this.avatarData, this.size);
@@ -101,6 +105,7 @@ export default {
   },
   watch: {
     userId: function() { this.loadAvatar(); },
+    isAnonymous: function() { this.loadAvatar(); },
     avatar: function() { this.imageFailed = false; this.imageRetry = 0; this.naturalWidth = 0; this.naturalHeight = 0; },
     // 换图（设置页刚改完 / 数据晚到）：旧 naturalWidth 会让 transform 短暂失准，
     // 先清零等新的 load 事件补上，中间用 opacity:0 过渡
@@ -119,7 +124,8 @@ export default {
       this.naturalHeight = 0;
       this.imageFailed = false;
       this.imageRetry = 0;
-      if (this.avatar || !this.userId || !this.lookup) return;
+      // 匿名头像（灰色 ?）：既不查真实头像数据，也不消费外部喂进来的
+      if (this.isAnonymous || this.avatar || !this.userId || !this.lookup) return;
       // 1) 缓存已热（别人先查过 / 上次进页面留下的）→ 立即同步，不必等网络
       var cached = getAvatar(this.userId);
       if (cached) this.resolvedAvatar = cached;
@@ -131,6 +137,7 @@ export default {
       }
     },
     onAvatarsUpdated: function() {
+      if (this.isAnonymous) return; // 匿名态不接收真实头像数据
       var cached = getAvatar(this.userId);
       if (cached) {
         if (cached !== this.resolvedAvatar) this.resolvedAvatar = cached;

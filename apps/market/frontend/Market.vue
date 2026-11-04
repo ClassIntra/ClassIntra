@@ -26,11 +26,33 @@
               <i class="fa-solid fa-rotate" :class="{ spinning: loading }"></i>
               刷新
             </button>
+            <!-- 市场源管理：第三方可自建 market 仓，班级直接接入 -->
+            <button v-if="isManager" type="button" class="refresh-btn" @click="openSourcePanel">
+              <i class="fa-solid fa-tower-broadcast"></i>
+              源
+            </button>
           </div>
         </div>
         <div class="market-search">
           <i class="fa-solid fa-magnifying-glass"></i>
           <input v-model="searchQuery" type="text" placeholder="搜索应用或插件…" />
+        </div>
+        <!-- 分类筛选：只在「应用」分区、且确实存在多个分组时出现 -->
+        <div v-if="activeTab === 'apps' && appGroups.length > 1" class="group-chips" role="group" aria-label="应用分类">
+          <button
+            type="button"
+            class="group-chip"
+            :class="{ 'group-chip--active': activeGroup === 'all' }"
+            @click="activeGroup = 'all'"
+          >全部 <span class="group-count">{{ catalogApps.length }}</span></button>
+          <button
+            v-for="group in appGroups"
+            :key="group.key"
+            type="button"
+            class="group-chip"
+            :class="{ 'group-chip--active': activeGroup === group.key }"
+            @click="activeGroup = group.key"
+          >{{ group.label }} <span class="group-count">{{ group.count }}</span></button>
         </div>
       </div>
 
@@ -78,7 +100,7 @@
           <p>未找到与「{{ searchQuery }}」匹配的应用或插件</p>
         </div>
 
-        <section v-show="activeTab === 'apps' && showSection(filteredCatalog)" class="market-section">
+        <section v-show="activeTab === 'apps' && showSection(filteredCatalog)" class="market-section" data-section="apps">
           <div class="section-heading">
             <div>
               <h2>可安装应用</h2>
@@ -109,7 +131,7 @@
                   v-for="cap in describeCaps(app.capabilities)"
                   :key="cap.name"
                   class="cap-chip"
-                  :class="{ 'cap-chip-notice': cap.level === 'notice' }"
+                  :class="{ 'cap-chip-notice': cap.level === 'notice', 'cap-chip-sensitive': cap.level === 'sensitive' }"
                   :title="cap.description"
                 >
                   <i class="fa-solid" :class="cap.icon"></i>{{ cap.label }}
@@ -171,12 +193,26 @@
                 </div>
                 <p>{{ app.description || '暂无应用描述' }}</p>
                 <span>当前版本 v{{ app.version || '0.0.0' }} · {{ app.author || 'ClassIntra 社区' }}</span>
+                <span v-if="healthMap[app.name]" class="health-line">
+                  <i class="fa-solid fa-chart-simple"></i>
+                  使用 {{ healthMap[app.name].usage.users }} 人 / {{ healthMap[app.name].usage.opens }} 次
+                  <template v-if="healthMap[app.name].errors.total">
+                    <i class="fa-solid fa-bug"></i>
+                    错误 {{ healthMap[app.name].errors.total }}（24h {{ healthMap[app.name].errors.last24h }}）
+                  </template>
+                  <template v-else>
+                    <i class="fa-solid fa-circle-check"></i> 无错误记录
+                  </template>
+                </span>
                 <small v-if="app.enabled === false" class="status-hint">暂停后全班成员都无法使用</small>
                 <small v-else class="status-hint">对全班成员生效</small>
               </div>
               <div class="installed-actions">
                 <button v-if="app.hasConfig" type="button" class="secondary-action" @click="openConfig(app)">
                   <i class="fa-solid fa-sliders"></i> 配置
+                </button>
+                <button v-if="hasSensitive(app)" type="button" class="secondary-action" @click="openPermPanel(app)">
+                  <i class="fa-solid fa-lock"></i> 权限
                 </button>
                 <button type="button" class="control-action" :class="app.enabled === false ? 'enable' : 'disable'" :disabled="actionLoading === app.name" @click="toggleApp(app)">
                   <span v-if="actionLoading === app.name" class="mini-spinner"></span>
@@ -428,7 +464,7 @@
           </div>
           <p class="detail-desc">{{ detailApp.description || '暂无应用描述' }}</p>
           <div v-if="detailApp.capabilities && detailApp.capabilities.length" class="detail-caps">
-            <span v-for="cap in describeCaps(detailApp.capabilities)" :key="cap.name" class="cap-chip" :class="{ 'cap-chip-notice': cap.level === 'notice' }" :title="cap.description">
+            <span v-for="cap in describeCaps(detailApp.capabilities)" :key="cap.name" class="cap-chip" :class="{ 'cap-chip-notice': cap.level === 'notice', 'cap-chip-sensitive': cap.level === 'sensitive' }" :title="cap.description">
               <i class="fa-solid" :class="cap.icon"></i>{{ cap.label }}
             </span>
           </div>
@@ -446,6 +482,108 @@
             <span v-if="actionLoading === detailApp.name" class="mini-spinner"></span>
             <span v-else>{{ installedMap[detailApp.name] ? '重新安装' : '安装' }}</span>
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 运行时权限：谁授予了哪些敏感能力，可逐条或整应用撤销 -->
+    <div v-if="permPanel.open" class="proxy-overlay" @click.self="closePermPanel">
+      <div class="proxy-panel perm-panel" role="dialog" aria-modal="true" aria-label="应用权限管理">
+        <div class="proxy-head">
+          <div class="proxy-head-text">
+            <h3><i class="fa-solid fa-lock"></i> 权限 · {{ permPanel.label }}</h3>
+            <p>敏感能力首次使用时由使用者授权，班管可随时撤销</p>
+          </div>
+          <button type="button" class="proxy-close" @click="closePermPanel"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+
+        <div class="perm-body">
+          <div v-if="permPanel.loading" class="cfg-loading"><span class="mini-spinner"></span> 正在读取授权…</div>
+          <p v-else-if="permPanel.error" class="source-error">{{ permPanel.error }}</p>
+          <template v-else>
+            <div class="perm-summary">
+              <span>已授予 {{ permPanel.total }} 条 · {{ permPanel.users.length }} 人</span>
+              <button v-if="permPanel.total" type="button" class="danger-action" :disabled="permPanel.saving" @click="revokePermAll">
+                <span v-if="permPanel.saving" class="mini-spinner"></span>
+                <span v-else>全部撤销</span>
+              </button>
+            </div>
+            <div v-if="!permPanel.users.length" class="perm-empty">
+              <i class="fa-solid fa-shield-halved"></i>
+              <p>还没有人授予敏感能力</p>
+              <small>应用第一次使用相机 / 麦克风 / 通知时会向使用者弹窗</small>
+            </div>
+            <ul v-else class="perm-list">
+              <li v-for="u in permPanel.users" :key="u.userId">
+                <div class="perm-user">
+                  <strong>{{ u.name }}</strong>
+                  <small>{{ u.userId }} · {{ formatPermTime(u.lastAt) }}</small>
+                </div>
+                <div class="perm-caps">
+                  <span v-for="c in u.capabilities" :key="c.capability" class="cap-chip">
+                    {{ capLabel(c.capability) }}
+                    <button type="button" class="perm-revoke" :disabled="permPanel.saving" :title="'撤销 ' + u.name + ' 的该项授权'" @click="revokePerm(u.userId, c.capability)">
+                      <i class="fa-solid fa-xmark"></i>
+                    </button>
+                  </span>
+                </div>
+              </li>
+            </ul>
+          </template>
+        </div>
+      </div>
+    </div>
+
+    <!-- 市场源管理：添加第三方自建市场源（管理员） -->
+    <div v-if="sourcePanelOpen" class="proxy-overlay" @click.self="closeSourcePanel">
+      <div class="proxy-panel source-panel" role="dialog" aria-modal="true" aria-label="市场源管理">
+        <div class="proxy-head">
+          <div class="proxy-head-text">
+            <h3><i class="fa-solid fa-tower-broadcast"></i> 市场源</h3>
+            <p>内置官方源不可删除；自建源由你主动信任</p>
+          </div>
+          <button type="button" class="proxy-close" @click="closeSourcePanel"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+
+        <div class="source-body">
+          <ul class="source-list">
+            <li v-for="item in sources" :key="item.id">
+              <div class="source-info">
+                <strong>{{ item.label }}</strong>
+                <code>{{ item.id }}</code>
+                <small>{{ item.base }}</small>
+              </div>
+              <span class="source-tag" :class="{ 'source-tag--builtin': item.builtin }">{{ item.builtin ? '内置' : '自定义' }}</span>
+              <button v-if="!item.builtin" type="button" class="source-del" :disabled="sourceSaving" @click="removeSource(item)">删除</button>
+            </li>
+          </ul>
+
+          <div class="source-form">
+            <h4>添加新源</h4>
+            <label>
+              <span>标识（kebab-case）</span>
+              <input v-model="sourceDraft.id" type="text" placeholder="my-market" autocomplete="off" />
+            </label>
+            <label>
+              <span>显示名</span>
+              <input v-model="sourceDraft.label" type="text" placeholder="我的班级市场" autocomplete="off" />
+            </label>
+            <label>
+              <span>index.json 所在目录（以 / 结尾）</span>
+              <input v-model="sourceDraft.base" type="text" placeholder="https://example.com/market/main/" autocomplete="off" />
+            </label>
+            <p v-if="sourceError" class="source-error">{{ sourceError }}</p>
+            <div class="source-actions">
+              <button type="button" class="app-action" :disabled="sourceSaving" @click="saveSource">
+                <span v-if="sourceSaving" class="mini-spinner"></span>
+                <span v-else>添加</span>
+              </button>
+            </div>
+            <p class="source-hint">
+              服务端会代拉该地址的 <code>index.json</code> 与安装包，等同于你主动信任该来源；
+              内网自建市场也可以填局域网地址。
+            </p>
+          </div>
         </div>
       </div>
     </div>
@@ -591,7 +729,18 @@ import api from '@/utils/api';
 import router from '@/router';
 import { marketRegistry } from '@/core/market-registry';
 import { describeCapabilities, countNotices } from '@shared/capability-catalog';
+
+// 敏感能力的中文名（与服务端 routes/app-permissions.js 的 SENSITIVE 列表保持一致）
+var SENSITIVE_CAP_LABELS = {
+  'device.camera': '相机',
+  'device.microphone': '麦克风',
+  'system.notification': '通知',
+  'system.clipboard.read': '剪贴板读取'
+};
 import { escapeHtml } from '@shared/html';
+
+// 应用分组的中文名（index.json 里用 group 字段声明，未知值回退「其他」）
+var GROUP_LABELS = { game: '游戏', tool: '工具', life: '生活', other: '其他' };
 
 export default {
   name: 'Market',
@@ -650,7 +799,18 @@ export default {
       proxyUserQuery: '',
       proxyUserResults: [],
       proxyUserSearching: false,
-      proxyUserTimer: null
+      proxyUserTimer: null,
+      // 市场源管理（第三方自建源）
+      sourcePanelOpen: false,
+      sourceSaving: false,
+      sourceError: '',
+      sourceDraft: { id: '', label: '', base: '' },
+      // 应用健康度（安装指标/使用/错误）：仅管理员可见
+      healthMap: {},
+      // 运行时权限面板（谁授予了哪些敏感能力）
+      permPanel: { open: false, app: '', label: '', loading: false, saving: false, error: '', users: [], total: 0 },
+      // 分类筛选（应用分区）
+      activeGroup: 'all'
     };
   },
   computed: {
@@ -663,7 +823,27 @@ export default {
       ];
     },
     filteredCatalog: function() {
-      return this.filterList(this.catalogApps);
+      var self = this;
+      var list = this.filterList(this.catalogApps);
+      if (self.activeGroup === 'all') return list;
+      return list.filter(function (app) {
+        return (app.group || 'other') === self.activeGroup;
+      });
+    },
+    // 分组清单（带计数）：顺序按目录里首次出现的顺序，保证稳定
+    appGroups: function() {
+      var map = {};
+      var order = [];
+      var apps = this.catalogApps || [];
+      for (var i = 0; i < apps.length; i++) {
+        var key = apps[i].group || 'other';
+        if (!map[key]) {
+          map[key] = { key: key, label: GROUP_LABELS[key] || '其他', count: 0 };
+          order.push(key);
+        }
+        map[key].count++;
+      }
+      return order.map(function (k) { return map[k]; });
     },
     filteredInstalledApps: function() {
       return this.filterList(this.installedApps);
@@ -698,6 +878,7 @@ export default {
     verifiedLabel: function() {
       if (this.catalogVerified === true) return '已验签';
       if (this.catalogVerified === 'local') return '本地源';
+      if (this.catalogVerified === 'custom') return '自建源';
       return '未验签';
     },
     filteredThemes: function() {
@@ -800,7 +981,7 @@ export default {
       var self = this;
       self.loading = true;
       self.error = '';
-      Promise.all([self.loadSources(), self.loadInstalled(), self.loadCatalog(), self.loadInstalledPlugins(), self.loadInstalledThemes()]).catch(function(error) {
+      Promise.all([self.loadSources(), self.loadInstalled(), self.loadCatalog(), self.loadInstalledPlugins(), self.loadInstalledThemes(), self.loadHealth()]).catch(function(error) {
         self.error = self.getErrorMessage(error, '市场数据加载失败');
       }).finally(function() {
         self.loading = false;
@@ -814,6 +995,144 @@ export default {
         if (self.sources.length && !self.sources.some(function(source) { return source.id === self.selectedSource; })) {
           self.selectedSource = self.sources[0].id;
         }
+      });
+    },
+    // ===== 运行时权限（敏感能力授权） =====
+    hasSensitive: function(app) {
+      var caps = Array.isArray(app && app.capabilities) ? app.capabilities : [];
+      for (var i = 0; i < caps.length; i++) {
+        if (SENSITIVE_CAP_LABELS[caps[i]]) return true;
+        // 父能力覆盖：声明 system.clipboard 的应用同样涉及「剪贴板读取」这项敏感权限
+        // （与服务端 routes/app-permissions.js 的 PARENT_CAPABILITY 保持一致）
+        if (caps[i] === 'system.clipboard') return true;
+      }
+      return false;
+    },
+    capLabel: function(capability) {
+      return SENSITIVE_CAP_LABELS[capability] || capability;
+    },
+    formatPermTime: function(ts) {
+      if (!ts) return '';
+      var d = new Date(ts);
+      return (d.getMonth() + 1) + '/' + d.getDate() + ' ' +
+        ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+    },
+    openPermPanel: function(app) {
+      this.permPanel = {
+        open: true,
+        app: app.name,
+        label: app.label || app.name,
+        loading: true,
+        saving: false,
+        error: '',
+        users: [],
+        total: 0
+      };
+      this.loadPerms(app.name);
+    },
+    closePermPanel: function() {
+      this.permPanel = { open: false, app: '', label: '', loading: false, saving: false, error: '', users: [], total: 0 };
+    },
+    loadPerms: function(name) {
+      var self = this;
+      return api.get('/app-permissions/admin/' + encodeURIComponent(name)).then(function(response) {
+        var data = (response.data && response.data.data) || {};
+        self.permPanel = Object.assign({}, self.permPanel, {
+          loading: false,
+          error: '',
+          users: Array.isArray(data.users) ? data.users : [],
+          total: data.totalGrants || 0
+        });
+      }).catch(function(error) {
+        self.permPanel = Object.assign({}, self.permPanel, {
+          loading: false,
+          error: (error && error.message) || '读取授权失败'
+        });
+      });
+    },
+    revokePerm: function(userId, capability) {
+      var self = this;
+      self.permPanel.saving = true;
+      return api.post('/app-permissions/admin/revoke', {
+        name: self.permPanel.app,
+        userId: userId,
+        capability: capability
+      }).then(function() {
+        self.permPanel.saving = false;
+        self.$store.commit('toast/SHOW_TOAST', { message: '已撤销该项授权', type: 'success' });
+        return self.loadPerms(self.permPanel.app);
+      }).catch(function(error) {
+        self.permPanel.saving = false;
+        self.$store.commit('toast/SHOW_TOAST', { message: (error && error.message) || '撤销失败', type: 'error' });
+      });
+    },
+    revokePermAll: function() {
+      var self = this;
+      self.permPanel.saving = true;
+      return api.post('/app-permissions/admin/revoke', { name: self.permPanel.app }).then(function() {
+        self.permPanel.saving = false;
+        self.$store.commit('toast/SHOW_TOAST', { message: '已撤销全部授权', type: 'success' });
+        return self.loadPerms(self.permPanel.app);
+      }).catch(function(error) {
+        self.permPanel.saving = false;
+        self.$store.commit('toast/SHOW_TOAST', { message: (error && error.message) || '撤销失败', type: 'error' });
+      });
+    },
+
+    // ===== 市场源管理（管理员） =====
+    openSourcePanel: function() {
+      this.sourceError = '';
+      this.sourceDraft = { id: '', label: '', base: '' };
+      this.sourcePanelOpen = true;
+      this.loadSources().catch(function() {});
+    },
+    closeSourcePanel: function() {
+      this.sourcePanelOpen = false;
+      this.sourceError = '';
+    },
+    saveSource: function() {
+      var self = this;
+      var draft = self.sourceDraft || {};
+      var id = String(draft.id || '').trim();
+      var label = String(draft.label || '').trim();
+      var base = String(draft.base || '').trim();
+      if (!/^[a-z][a-z0-9-]{1,31}$/.test(id)) {
+        self.sourceError = '标识需为 kebab-case（小写字母开头，2-32 位）';
+        return;
+      }
+      if (!label) {
+        self.sourceError = '显示名不能为空';
+        return;
+      }
+      if (!/^https?:\/\/.+/i.test(base)) {
+        self.sourceError = '地址需以 http:// 或 https:// 开头';
+        return;
+      }
+      self.sourceSaving = true;
+      self.sourceError = '';
+      api.post('/market/sources', { id: id, label: label, base: base }).then(function() {
+        self.$store.commit('toast/SHOW_TOAST', { message: '市场源已添加', type: 'success' });
+        self.sourceDraft = { id: '', label: '', base: '' };
+        return self.loadSources();
+      }).catch(function(error) {
+        self.sourceError = self.getErrorMessage(error, '添加市场源失败');
+      }).finally(function() {
+        self.sourceSaving = false;
+      });
+    },
+    removeSource: function(item) {
+      var self = this;
+      if (!item || item.builtin) return;
+      if (!window.confirm('删除市场源「' + (item.label || item.id) + '」？已安装的应用不受影响。')) return;
+      self.sourceSaving = true;
+      api.delete('/market/sources/' + encodeURIComponent(item.id)).then(function() {
+        self.$store.commit('toast/SHOW_TOAST', { message: '市场源已删除', type: 'success' });
+        if (self.selectedSource === item.id) self.selectedSource = 'gitee';
+        return self.loadSources().then(function() { return self.loadCatalog(); });
+      }).catch(function(error) {
+        self.$store.commit('toast/SHOW_TOAST', { message: self.getErrorMessage(error, '删除失败'), type: 'error' });
+      }).finally(function() {
+        self.sourceSaving = false;
       });
     },
     // 目录加载失败的显式提示（含源名——切源失败与加载失败不再静默）
@@ -831,6 +1150,21 @@ export default {
         self.catalogThemes = catalog && Array.isArray(catalog.themes) ? catalog.themes : [];
         self.catalogVerified = data && data.verified !== undefined ? data.verified : 'unsigned';
         self.catalogUpdatedAt = catalog && catalog.updated_at ? self.formatDate(catalog.updated_at) : '';
+      });
+    },
+    // ===== 应用健康度（管理员）=====
+    // 端点需要管理员权限；普通成员看不到健康数据，静默跳过（不把 403 显示成错误）
+    loadHealth: function() {
+      var self = this;
+      if (!self.isManager) return Promise.resolve();
+      return api.get('/market/app-health').then(function(response) {
+        var data = response.data && response.data.data;
+        var map = {};
+        var list = data && Array.isArray(data.apps) ? data.apps : [];
+        list.forEach(function(item) { if (item && item.name) map[item.name] = item; });
+        self.healthMap = map;
+      }).catch(function() {
+        self.healthMap = {};
       });
     },
     loadInstalled: function() {
@@ -1525,6 +1859,16 @@ h3 { color: var(--text-primary); font-size: 16px; }
 }
 .source-chip--active { background: var(--primary-color, #0A84FF); border-color: var(--primary-color, #0A84FF); color: #fff; font-weight: 600; }
 .source-chip:disabled { opacity: 0.5; }
+/* 分类筛选：比源按钮更轻，避免和顶部工具条抢视觉 */
+.group-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+.group-chip {
+  border: 1px solid transparent; border-radius: 999px;
+  padding: 6px 14px; background: rgba(120, 120, 128, 0.12); color: var(--text-secondary);
+  font-size: 13px; cursor: pointer; min-height: 32px;
+  transition: background var(--duration-fast, 0.15s) var(--ease-standard, ease), color var(--duration-fast, 0.15s) var(--ease-standard, ease);
+}
+.group-chip--active { background: var(--primary-color, #0A84FF); color: #fff; font-weight: 600; }
+.group-count { opacity: 0.7; font-size: 11px; margin-left: 2px; }
 .refresh-btn, .app-action, .secondary-action, .danger-action, .market-error button { border: 1px solid var(--separator-color); border-radius: var(--radius-md); padding: 9px 14px; background: var(--card-bg); color: var(--text-primary); cursor: pointer; }
 .refresh-btn { background: var(--primary-color); color: #fff; border-color: var(--primary-color); }
 button:disabled { opacity: .55; cursor: not-allowed; }
@@ -1564,6 +1908,7 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .cap-chip i { font-size: 10px; }
 /* notice 级：需要用户留意的能力，用警示色轻描边区分 */
 .cap-chip-notice { background: rgba(var(--warning-rgb, 255, 149, 0), 0.12); color: rgb(var(--warning-rgb, 255, 149, 0)); }
+.cap-chip-sensitive { background: rgba(var(--danger-rgb, 255, 59, 48), 0.12); color: rgb(var(--danger-rgb, 255, 59, 48)); font-weight: 600; }
 /* footer 用 margin-top:auto 钉在卡片底部，行内卡片等高、footer 对齐一致 */
 .app-card-footer { border-top: 1px solid var(--separator-color); padding-top: 14px; margin-top: auto; }
 .installed-label { color: var(--success-color); font-size: 12px; }
@@ -1590,6 +1935,7 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .status-badge.updatable { display: inline-flex; align-items: center; gap: 4px; color: var(--primary-color); background: var(--primary-light); }
 .status-badge.updatable i { font-size: 10px; }
 .status-hint { display: block; margin-top: 5px; color: var(--text-secondary); font-size: 11px; }
+.health-line { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 5px; font-size: 11px; color: var(--text-tertiary); }
 .control-action { border: 1px solid transparent; border-radius: var(--radius-md); padding: 9px 12px; background: transparent; cursor: pointer; }
 .control-action.enable { color: var(--success-color); border-color: rgba(52, 199, 89, .35); }
 .control-action.disable { color: var(--danger-color); border-color: rgba(255, 59, 48, .25); }
@@ -1634,6 +1980,43 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .cfg-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .cfg-hint { color: var(--text-tertiary); font-size: var(--font-size-xs); }
 .cfg-loading { display: flex; align-items: center; gap: 8px; color: var(--text-tertiary); font-size: var(--font-size-sm); padding: 8px 0; }
+
+/* ===== 市场源管理 ===== */
+.source-panel { width: min(680px, 92vw); }
+.source-body { display: flex; flex-direction: column; gap: 16px; padding: 4px 0 8px; }
+.source-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.source-list li { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--separator, rgba(0, 0, 0, 0.08)); border-radius: var(--ci-shape-md, 12px); background: var(--bg-secondary, rgba(0, 0, 0, 0.02)); }
+.source-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.source-info strong { font-size: 13px; color: var(--text-primary); }
+.source-info code { font-size: 11px; color: var(--text-tertiary); }
+.source-info small { font-size: 11px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.source-tag { font-size: 10px; padding: 2px 8px; border-radius: var(--ci-shape-pill, 999px); background: var(--primary-light); color: var(--primary-color); flex-shrink: 0; }
+.source-tag--builtin { background: rgba(0, 0, 0, 0.06); color: var(--text-secondary); }
+.source-del { border: none; background: transparent; color: var(--danger, #ff3b30); font-size: 12px; padding: 4px 8px; }
+.source-form { border-top: 1px solid var(--separator, rgba(0, 0, 0, 0.08)); padding-top: 14px; display: flex; flex-direction: column; gap: 10px; }
+.source-form h4 { margin: 0; font-size: 13px; color: var(--text-primary); }
+.source-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-secondary); }
+.source-form input { padding: 8px 10px; border: 1px solid var(--separator, rgba(0, 0, 0, 0.12)); border-radius: var(--ci-shape-sm, 8px); background: var(--bg-primary, #fff); color: var(--text-primary); font-size: 13px; }
+.source-error { margin: 0; color: var(--danger, #ff3b30); font-size: 12px; }
+.source-hint { margin: 0; font-size: 11px; color: var(--text-tertiary); line-height: 1.5; }
+.source-actions { display: flex; justify-content: flex-end; }
+
+/* ===== 运行时权限面板 ===== */
+.perm-panel { max-width: 520px; }
+.perm-body { padding: 14px 16px 18px; max-height: 62vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.perm-summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; font-size: 12px; color: var(--text-secondary); }
+.perm-empty { text-align: center; padding: 26px 10px; color: var(--text-secondary); }
+.perm-empty i { display: block; font-size: 26px; opacity: 0.45; margin-bottom: 8px; }
+.perm-empty p { margin: 0 0 4px; font-size: 13px; color: var(--text-primary); }
+.perm-empty small { font-size: 11px; opacity: 0.78; }
+.perm-list { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.perm-list li { padding: 10px 12px; border: 1px solid var(--hairline, rgba(120,120,128,0.18)); border-radius: 10px; }
+.perm-user { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.perm-user strong { font-size: 13px; }
+.perm-user small { font-size: 11px; color: var(--text-secondary); }
+.perm-caps { display: flex; flex-wrap: wrap; gap: 6px; }
+.perm-revoke { padding: 0 0 0 4px; border: none; background: transparent; color: inherit; opacity: 0.55; cursor: pointer; font-size: 10px; }
+.perm-revoke:hover { opacity: 1; color: #FF3B30; }
 
 /* ===== 兼容模式使用管理浮窗（web-proxy） ===== */
 .proxy-overlay {

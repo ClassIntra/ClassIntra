@@ -1151,9 +1151,18 @@ function serveCloudFile(req, res, file, fileHash) {
 
   var filePath = path.join(sharedDir, file.storage_path);
   if (!fs.existsSync(filePath)) {
-    // 物理文件丢失，标记为已删除
-    db.prepare('UPDATE cloud_files SET deleted = 1 WHERE hash = ?').run(fileHash);
-    return sendDeletedPlaceholder(res, file.mime_type);
+    // 物理字节缺失 ≠ 文件已删除。跨班场景里这往往只是字节还没同步过来
+    // （Syncthing 有延迟窗口，中继预取也还在路上）。
+    // 旧实现直接 UPDATE deleted=1，而后续回源落库用的是 INSERT OR IGNORE、不会复位
+    // deleted —— 于是这个 hash 在所有节点永久返回「文件已删除」：误判一次，永久损坏。
+    // 先按需回源一次；真拉不到，才判定为删除。
+    return backfillFromPeers(fileHash).then(function(rec) {
+      if (rec && fs.existsSync(path.join(sharedDir, rec.storage_path))) {
+        return serveCloudFile(req, res, rec, fileHash);
+      }
+      db.prepare('UPDATE cloud_files SET deleted = 1 WHERE hash = ?').run(fileHash);
+      return sendDeletedPlaceholder(res, file.mime_type);
+    });
   }
 
   // 下载模式：附件下发（浏览器原生下载进度，兼容旧内核 WebView 的 blob 下载缺陷）

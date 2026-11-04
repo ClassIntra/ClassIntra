@@ -153,9 +153,13 @@ $duration-stagger: 0.05s;
 //   通配选择器仅在降级条件命中时生效（低频：低端设备 / 滚动进行中），
 //   正常状态下不参与匹配，无性能代价。
 
-// 降级条件：三者任一命中
+// 降级条件：四者任一命中
+//   data-dragging：桌面横滑跟手翻页期间（2026-11-02）——页面在手指下移动时，
+//   dock/island 的 backdrop-filter 每帧都要重新模糊背后变化的画面，是滑页掉帧主源。
+//   只在「正在滑动」的窗口内生效，松手 320ms 后恢复，肉眼不可见。
 [data-perf="low"] *,
 [data-scrolling="1"] *,
+[data-dragging="1"] *,
 [data-glass="flat"] * {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;

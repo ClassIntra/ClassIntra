@@ -10,7 +10,13 @@
 var express = require('express');
 var router = express.Router();
 var auth = require('../middleware/auth');
+// 鉴权分层：
+//   /installed  —— 登录即可：客户端要靠它注册路由、渲染桌面图标，不能限班管
+//   /catalog、/sources、/plugins-installed、/themes-installed —— 仅班管：
+//     应用市场本身只对班管可见（manifest.visibleRoles=["classAdmin"]），
+//     商品目录与自建源地址属市场内部信息，学生没有必要也不应该拉到。
 var marketService = require('../core/market-service');
+var integrationEvents = require('../integrations/emit');
 
 function broadcastMarketChange(action, appName, result) {
   try {
@@ -27,8 +33,36 @@ function broadcastMarketChange(action, appName, result) {
 }
 
 // 可用市场源列表
-router.get('/sources', auth.requireAuth, function(req, res) {
+router.get('/sources', auth.requireAuth, auth.requireAdmin, function(req, res) {
   res.json({ code: 200, data: { sources: marketService.getSources() } });
+});
+
+// 添加自定义市场源（管理员）
+// 场景：第三方开发者自建一个 market 仓，班级想直接接入，而不必等官方合仓。
+router.post('/sources', auth.requireAuth, auth.requireAdmin, function(req, res) {
+  var body = req.body || {};
+  try {
+    var source = marketService.addSource({
+      id: body.id,
+      label: body.label,
+      base: body.base
+    }, req.user && req.user.user_id);
+    console.log('[market] 已添加自定义源:', source.id, source.base);
+    res.json({ code: 200, message: '市场源已添加', data: { source: source } });
+  } catch (e) {
+    res.status(400).json({ code: 400, message: e.message || '添加市场源失败' });
+  }
+});
+
+// 删除自定义市场源（管理员；内置源与环境变量源不可删）
+router.delete('/sources/:id', auth.requireAuth, auth.requireAdmin, function(req, res) {
+  try {
+    var result = marketService.removeSource(req.params.id);
+    console.log('[market] 已删除自定义源:', result.id);
+    res.json({ code: 200, message: '市场源已删除', data: result });
+  } catch (e) {
+    res.status(400).json({ code: 400, message: e.message || '删除市场源失败' });
+  }
 });
 
 // 已安装的第三方应用
@@ -51,7 +85,7 @@ router.get('/installed', auth.requireAuth, function(req, res) {
 });
 
 // 市场目录（支持 ?source=gitee|github|local，默认 gitee）
-router.get('/catalog', auth.requireAuth, function(req, res) {
+router.get('/catalog', auth.requireAuth, auth.requireAdmin, function(req, res) {
   var sourceId = req.query.source || 'gitee';
   marketService.getCatalogWithFallback(sourceId).then(function(result) {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
@@ -90,6 +124,7 @@ router.post('/install', auth.requireAuth, auth.requireAdmin, function(req, res) 
   if (!name) return res.status(400).json({ code: 400, message: '缺少应用名' });
   marketService.installApp(name, source).then(function(result) {
     broadcastMarketChange('installed', name, result);
+    integrationEvents.emit('market.app_installed', { name: name, version: result && result.version, source: source, operator: req.user && req.user.user_id });
     res.json({ code: 200, data: result, message: '安装成功' });
   }).catch(function(e) {
     console.error('[market] 安装失败:', name, e.message);
@@ -104,6 +139,7 @@ router.post('/update', auth.requireAuth, auth.requireAdmin, function(req, res) {
   if (!name) return res.status(400).json({ code: 400, message: '缺少应用名' });
   marketService.updateApp(name, source).then(function(result) {
     broadcastMarketChange('updated', name, result);
+    integrationEvents.emit('market.app_updated', { name: name, version: result && result.version, source: source, operator: req.user && req.user.user_id });
     res.json({ code: 200, data: result, message: '更新成功' });
   }).catch(function(e) {
     console.error('[market] 更新失败:', name, e.message);
@@ -117,6 +153,7 @@ router.post('/uninstall', auth.requireAuth, auth.requireAdmin, function(req, res
   if (!name) return res.status(400).json({ code: 400, message: '缺少应用名' });
   marketService.uninstallApp(name).then(function(result) {
     broadcastMarketChange('uninstalled', name, result);
+    integrationEvents.emit('market.app_uninstalled', { name: name, operator: req.user && req.user.user_id });
     res.json({ code: 200, data: result, message: '卸载成功' });
   }).catch(function(e) {
     console.error('[market] 卸载失败:', name, e.message);
@@ -127,7 +164,7 @@ router.post('/uninstall', auth.requireAuth, auth.requireAdmin, function(req, res
 // ========== 插件市场 ==========
 
 // 已安装插件列表
-router.get('/plugins-installed', auth.requireAuth, function(req, res) {
+router.get('/plugins-installed', auth.requireAuth, auth.requireAdmin, function(req, res) {
   res.json({ code: 200, data: marketService.listInstalledPlugins() });
 });
 
@@ -138,6 +175,7 @@ router.post('/install-plugin', auth.requireAuth, auth.requireAdmin, function(req
   if (!name) return res.status(400).json({ code: 400, message: '缺少插件名' });
   marketService.installPlugin(name, source).then(function(result) {
     broadcastMarketChange('plugin-installed', name, result);
+    integrationEvents.emit('market.plugin_installed', { name: name, version: result && result.version, source: source });
     res.json({ code: 200, data: result, message: '插件安装成功' });
   }).catch(function(e) {
     console.error('[market] 插件安装失败:', name, e.message);
@@ -151,6 +189,7 @@ router.post('/uninstall-plugin', auth.requireAuth, auth.requireAdmin, function(r
   if (!name) return res.status(400).json({ code: 400, message: '缺少插件名' });
   marketService.uninstallPlugin(name).then(function(result) {
     broadcastMarketChange('plugin-uninstalled', name, result);
+    integrationEvents.emit('market.plugin_uninstalled', { name: name });
     res.json({ code: 200, data: result, message: '插件卸载成功' });
   }).catch(function(e) {
     console.error('[market] 插件卸载失败:', name, e.message);
@@ -165,6 +204,11 @@ router.post('/plugin-toggle', auth.requireAuth, auth.requireAdmin, function(req,
   var enabled = !!(req.body && req.body.enabled);
   marketService.setPluginEnabled(name, enabled, req.user && req.user.user_id).then(function(result) {
     broadcastMarketChange(enabled ? 'plugin-enabled' : 'plugin-paused', name, result);
+    try {
+      var scheduler = require('../core/app-scheduler');
+      if (enabled) scheduler.syncApp(name);
+      else scheduler.unregister(name);
+    } catch (e) {}
     res.json({ code: 200, data: result, message: enabled ? '插件已启用' : '插件已暂停' });
   }).catch(function(e) {
     res.status(400).json({ code: 400, message: e.message || '操作失败' });
@@ -188,7 +232,7 @@ function broadcastThemeChange(action, themeId, result) {
 }
 
 // 已安装主题列表（需登录：所有用户都要能取到，用于主题选择 UI）
-router.get('/themes-installed', auth.requireAuth, function(req, res) {
+router.get('/themes-installed', auth.requireAuth, auth.requireAdmin, function(req, res) {
   res.json({ code: 200, data: { themes: marketService.listInstalledThemes() } });
 });
 
@@ -199,6 +243,7 @@ router.post('/install-theme', auth.requireAuth, auth.requireAdmin, function(req,
   if (!name) return res.status(400).json({ code: 400, message: '缺少主题 id' });
   marketService.installTheme(name, source).then(function(result) {
     broadcastThemeChange('installed', name, result);
+    integrationEvents.emit('market.theme_installed', { id: name, version: result && result.version, source: source });
     res.json({ code: 200, data: result, message: '主题安装成功' });
   }).catch(function(e) {
     console.error('[market] 主题安装失败:', name, e.message);
@@ -212,6 +257,7 @@ router.post('/uninstall-theme', auth.requireAuth, auth.requireAdmin, function(re
   if (!name) return res.status(400).json({ code: 400, message: '缺少主题 id' });
   marketService.uninstallTheme(name).then(function(result) {
     broadcastThemeChange('uninstalled', name, result);
+    integrationEvents.emit('market.theme_uninstalled', { id: name });
     res.json({ code: 200, data: result, message: '主题已卸载' });
   }).catch(function(e) {
     console.error('[market] 主题卸载失败:', name, e.message);
@@ -279,6 +325,94 @@ router.post('/app-config', auth.requireAuth, auth.requireAdmin, function(req, re
   } catch (e) {
     console.error('[market] 保存配置失败:', name, e.message);
     res.status(400).json({ code: 400, message: e.message || '保存配置失败' });
+  }
+});
+
+// ========== 定时任务（manifest.backend.jobs） ==========
+
+// 已注册任务与最近一次执行结果（管理员/班管）
+router.get('/app-jobs', auth.requireAuth, auth.requireAdmin, function(req, res) {
+  try {
+    var scheduler = require('../core/app-scheduler');
+    res.json({ code: 200, data: { jobs: scheduler.getStatus() } });
+  } catch (e) {
+    res.status(500).json({ code: 500, message: e.message || '读取任务状态失败' });
+  }
+});
+
+// ========== 应用级存储用量 / 彻底清理（管理员） ==========
+
+// 查看某个应用（或全部）占用的服务端存储
+router.get('/app-data-usage', auth.requireAuth, auth.requireAdmin, function(req, res) {
+  try {
+    var appData = require('../core/app-data');
+    var name = String(req.query.name || '');
+    if (name) return res.json({ code: 200, data: appData.usage(name) });
+    var list = marketService.listInstalled().map(function(a) { return appData.usage(a.name); });
+    res.json({ code: 200, data: { apps: list } });
+  } catch (e) {
+    res.status(500).json({ code: 500, message: e.message || '读取存储用量失败' });
+  }
+});
+
+// 彻底清除某应用的全部服务端数据（KV + 文件）。
+// 默认卸载不清数据；只有班管主动清或部署者设置环境变量时才删。
+router.post('/app-data-purge', auth.requireAuth, auth.requireAdmin, function(req, res) {
+  var name = String((req.body && req.body.name) || '');
+  if (!/^[a-z][a-z0-9-]*$/.test(name)) return res.status(400).json({ code: 400, message: '应用名非法' });
+  try {
+    var removed = require('../core/app-data').purgeApp(name);
+    console.log('[market] 已清除应用数据:', name, JSON.stringify(removed));
+    res.json({ code: 200, message: '数据已清除', data: removed });
+  } catch (e) {
+    res.status(500).json({ code: 500, message: e.message || '清除失败' });
+  }
+});
+
+// ========== 第三方可观测：使用心跳 / 错误上报 / 健康面板 ==========
+
+// 应用打开心跳（登录用户）：记录「谁在什么时候用过哪个应用」
+// 用途：管理端看活跃度；开发者排查「没人用」还是「坏了」。
+router.post('/app-usage', auth.requireAuth, function(req, res) {
+  var name = String((req.body && req.body.name) || '');
+  if (!name) return res.status(400).json({ code: 400, message: '缺少应用名' });
+  try {
+    marketService.recordUsage(name, req.user && req.user.user_id);
+    res.json({ code: 200, data: { ok: true } });
+  } catch (e) {
+    res.json({ code: 200, data: { ok: false } });
+  }
+});
+
+// 前端错误上报（登录用户）：错误按应用归因，供管理端健康面板展示
+// 限制：单条字段长度在 service 层截断；服务端每小时最多落 500 条。
+router.post('/app-error', auth.requireAuth, function(req, res) {
+  var body = req.body || {};
+  var name = String(body.name || '');
+  if (!name || !/^[a-z][a-z0-9-]*$/.test(name)) {
+    return res.status(400).json({ code: 400, message: '应用名非法' });
+  }
+  marketService.recordAppError(name, {
+    message: body.message,
+    stack: body.stack,
+    url: body.url,
+    userId: req.user && req.user.user_id
+  });
+  res.json({ code: 200, data: { ok: true } });
+});
+
+// 应用健康面板（管理员/班管）：安装指标 + 使用活跃度 + 错误数 + 进程状态
+router.get('/app-health', auth.requireAuth, auth.requireAdmin, function(req, res) {
+  var name = String(req.query.name || '');
+  try {
+    if (name) {
+      var one = marketService.getAppHealth(name);
+      if (!one) return res.status(404).json({ code: 404, message: '应用未安装: ' + name });
+      return res.json({ code: 200, data: { app: one } });
+    }
+    res.json({ code: 200, data: { apps: marketService.listAppHealth() } });
+  } catch (e) {
+    res.status(500).json({ code: 500, message: e.message || '读取健康数据失败' });
   }
 });
 

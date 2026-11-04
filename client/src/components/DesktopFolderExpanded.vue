@@ -36,7 +36,7 @@
           <AppIcon
             :app="appMeta(name)"
             :editing="editing"
-            :show-label="false"
+            :show-label="$store.state.settings.showIconLabels"
             @launch="onLaunchApp"
           />
         </div>
@@ -127,7 +127,9 @@ export default {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.4);
+  /* 底层（壁纸/图标/Dock）的模糊全部由宿主 .desktop--folder-open 直接 filter 完成
+     （不依赖 backdrop-filter：视频合成层采样不可靠，老内核/X5 也不稳），这里只叠轻遮罩 */
+  background: rgba(0, 0, 0, 0.3);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -142,15 +144,12 @@ export default {
   to { opacity: 1; }
 }
 
+/* 无卡片（iPadOS 式）：内容容器透明，图标直接浮在强模糊壁纸上。
+   保留 .folder-expanded-card 类名——openFolder 的原点写入与收起动画依赖它 */
 .folder-expanded-card {
-  width: 80%;
-  max-width: 480px;
-  background: var(--glass-bg, rgba(255, 255, 255, 0.85));
-  backdrop-filter: var(--glass-blur-container);
-  -webkit-backdrop-filter: var(--glass-blur-container);
-  border-radius: var(--radius-2xl);
-  box-shadow: var(--shadow-xl);
-  overflow: hidden;
+  width: 86%;
+  max-width: 560px;
+  background: transparent;
   animation: folderExpand 0.3s var(--ease-spring) forwards;
 }
 
@@ -163,17 +162,17 @@ export default {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 16px 20px;
-  border-bottom: 0.5px solid var(--separator-color);
+  padding: 0 4px 20px;
 }
 
 .folder-name-input {
   flex: 1;
   border: none;
   background: transparent;
-  font-size: var(--font-size-md);
-  font-weight: var(--font-weight-semibold);
-  color: var(--text-primary);
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text-on-wallpaper, #fff);
+  text-shadow: var(--text-shadow-wallpaper, 0 2px 8px rgba(0, 0, 0, 0.45));
   text-align: center;
   outline: none;
   padding: 4px 8px;
@@ -182,7 +181,7 @@ export default {
 }
 
 .folder-name-input:focus {
-  background: rgba(0, 0, 0, 0.05);
+  background: rgba(255, 255, 255, 0.14);
 }
 
 .folder-name-input[readonly] {
@@ -191,11 +190,11 @@ export default {
 
 /* 重命名按钮（编辑态显示，移动端可发现） */
 .folder-rename-btn {
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-sm);
-  background: var(--primary-light);
-  color: var(--primary-color);
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.16);
+  color: var(--text-on-wallpaper, #fff);
   border: none;
   cursor: pointer;
   display: flex;
@@ -204,40 +203,41 @@ export default {
   font-size: 12px;
   margin-left: 4px;
   -webkit-tap-highlight-color: transparent;
-  transition: transform var(--duration-fast) var(--ease-standard);
+  transition: transform var(--duration-fast) var(--ease-standard), background var(--duration-fast) var(--ease-standard);
 }
 .folder-rename-btn:active {
   transform: scale(0.94);
 }
 
 .folder-close-btn {
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   border-radius: var(--radius-pill);
   border: none;
-  background: rgba(0, 0, 0, 0.08);
-  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.16);
+  color: var(--text-on-wallpaper, #fff);
   font-size: 14px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   -webkit-tap-highlight-color: transparent;
-  transition: background var(--duration-fast) var(--ease-standard);
+  transition: background var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
 }
 
 .folder-close-btn:active {
-  background: rgba(0, 0, 0, 0.15);
+  background: rgba(255, 255, 255, 0.28);
+  transform: scale(0.94);
 }
 
 .folder-expanded-body {
-  padding: 24px 20px;
+  padding: 8px 0;
   display: flex;
   flex-wrap: wrap;
-  gap: 16px;
-  justify-content: flex-start;
+  gap: 22px;
+  justify-content: center;
   align-items: flex-start;
-  max-height: 60vh;
+  max-height: 56vh;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
@@ -245,29 +245,31 @@ export default {
 
 .folder-item {
   flex: 0 0 auto;
-  width: 76px;
+  width: 84px;
 }
 
 .folder-empty-hint {
   width: 100%;
   text-align: center;
-  color: var(--text-tertiary);
+  color: var(--text-on-wallpaper, #fff);
+  opacity: 0.85;
   font-size: var(--font-size-sm);
   padding: 40px 0;
 }
 
 .folder-expanded-footer {
-  padding: 12px 20px 16px;
+  padding: 22px 0 0;
   text-align: center;
-  border-top: 0.5px solid var(--separator-color);
 }
 
 .folder-action-btn {
   border: none;
-  background: transparent;
-  color: var(--danger-color);
+  background: rgba(255, 255, 255, 0.14);
+  color: #FF6B6B;
   font-size: var(--font-size-sm);
-  padding: 8px 16px;
+  font-weight: var(--font-weight-medium);
+  padding: 8px 18px;
+  border-radius: var(--radius-pill);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }

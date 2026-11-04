@@ -6,7 +6,7 @@
       <div v-if="isScroll" class="big-text-scroll">
         <div
           class="big-text-scroll-track big-text-text"
-          :class="{ 'is-centered': scrollSeconds <= 0 }"
+          :class="{ 'is-centered': scrollSeconds <= 0, 'is-scrolling': scrollSeconds > 0, 'is-reverse': isReversed }"
           :style="[textStyle, textEffectStyle, scrollAnimStyle]"
         >
           <span ref="seg" class="bt-seg">{{ scrollText }}</span>
@@ -50,6 +50,7 @@
     </div>
     <div class="big-text-hint" :style="{ color: chromeColor }" aria-hidden="true">
       <template v-if="dwellElapsed">轻触关闭（{{ remainSeconds }}s）</template>
+      <template v-else-if="lockRemainSeconds > 0">锁定中 · {{ lockRemainSeconds }}s 后可关闭</template>
       <template v-else>请阅读（{{ remainSeconds }}s）</template>
     </div>
   </div>
@@ -75,7 +76,9 @@
 
 var REF_WIDTH = 1080;      // 字号/速度的设计基准宽度
 var MIN_DWELL_RATIO = 0.9; // 文本宽度不足屏宽 90% 时不滚动
-var MIN_DWELL_MS = 5000;   // 最短驻留：与 BigTextOverlay 的关闭宽限一致
+// 禁止关闭的兜底时长：仅用于「指令里没带 lock_seconds」的老广播，
+// 正常情况一律以下发的 lock_seconds 为准（与 BigTextOverlay 同一口径）。
+var DEFAULT_LOCK_SECONDS = 5;
 var DURATION_MIN = 3;      // 与服务端 LIMITS.durationMin 一致
 var DURATION_MAX = 600;
 
@@ -116,7 +119,13 @@ export default {
       //    全靠它重算，用 Date.now() 直接算会让 computed 永远停在首次求值。
       remainMs: 0,
       startedAt: 0,
-      tickTimer: null
+      tickTimer: null,
+      // ⚠️ 有意不用 `_` 前缀：Vue 2 不代理以 `_`/`$` 开头的 data（isReserved），
+      //    this._measureRetry 会读不到初值 → undefined，而 `undefined < 12`
+      //    是 false，重试会被直接跳过（这个坑在 island-gestures 里是侥幸没踩响）。
+      //    用普通名才能拿到 data 里声明的 0。
+      measureRetry: 0,
+      measureRaf: null
     };
   },
   computed: {
@@ -234,10 +243,22 @@ export default {
 
     // 走马灯：匀速向左，位移 = 一整段（-50%），第二段顶上形成无缝循环。
     // scrollSeconds <= 0 表示内容本来就放得下，不滚动、居中静态显示。
+    //
+    // ⚠️ 关键帧名绝不能在这里拼！`<style scoped>` 里的 @keyframes 会被
+    //    vue-loader 重写成 `bt-marquee-<hash>`（产物里已实证 4 个不同哈希），
+    //    而内联 style 是运行时字符串、编译期不会被重写 —— 写死 'bt-marquee'
+    //    会永远匹配不到，走马灯纹丝不动。所以这里只下发时长变量，
+    //    animation-name 交给下面的 .is-scrolling 规则（同处 scoped，名字自动对齐）。
+    // 反向滚动：文字从左往右移动（默认 left = 文字向左移、内容从右侧进场）。
+    // 只认 'right'，其它值（含老广播里没有这个字段的情况）一律按 left 处理。
+    isReversed: function() {
+      return this.c.scroll_direction === 'right';
+    },
+
     scrollAnimStyle: function() {
       if (this.scrollSeconds <= 0) return {};
       return {
-        animation: 'bt-marquee ' + this.scrollSeconds + 's linear infinite',
+        '--bt-scroll-duration': this.scrollSeconds + 's',
         animationPlayState: this.playing ? 'running' : 'paused'
       };
     },
@@ -272,12 +293,26 @@ export default {
       return Math.max(0, Math.ceil(this.remainMs / 1000));
     },
 
-    // 是否已过最短驻留期：决定提示文案（请阅读 → 轻触关闭）
+    // 禁止关闭时长（毫秒）：管理端下发，缺失时按兜底 5s
+    lockMs: function() {
+      var s = parseInt(this.c.lock_seconds, 10);
+      if (isNaN(s)) s = DEFAULT_LOCK_SECONDS;
+      return Math.max(0, s) * 1000;
+    },
+
+    // 还要多久才允许关闭（秒）；0 = 已解锁。用于把「点了没反应」变成可见的倒计时
+    lockRemainSeconds: function() {
+      if (this.lockMs <= 0) return 0;
+      var left = this.lockMs - (this.countdownTotal - this.remainMs);
+      return left > 0 ? Math.ceil(left / 1000) : 0;
+    },
+
+    // 是否已解锁：决定提示文案（锁定中 → 轻触关闭）
     dwellElapsed: function() {
       if (this.remainMs <= 0) return true;
       // ⚠️ countdownTotal 是 computed（属性），不能加括号调用 —— 曾写成
       //    this.countdownTotal() 报「is not a function」，整个舞台渲染崩掉。
-      return (this.countdownTotal - this.remainMs) >= MIN_DWELL_MS;
+      return (this.countdownTotal - this.remainMs) >= this.lockMs;
     },
 
     progressStyle: function() {
@@ -398,24 +433,77 @@ export default {
      */
     updateScrollDuration: function() {
       var self = this;
+      this.stopMeasure();
       if (!this.isScroll) {
         this.scrollSeconds = 0;
         return;
       }
+      this.measureRetry = 0;
       this.$nextTick(function() {
-        var el = self.$refs.seg;
-        if (!el) return;
-        var scale = self.scaleFactor || 1;
-        var rendered = el.getBoundingClientRect().width || 0;
-        var w1080 = rendered / scale;            // 折算回 1080 基准
-        if (w1080 <= REF_WIDTH * MIN_DWELL_RATIO) {
-          self.scrollSeconds = 0;                // 放得下就不滚，避免无意义晃动
-          return;
-        }
-        var speed = parseInt(self.c.scroll_speed, 10) || 60;
-        // 段间距 12%（129.6px @1080）计入总距离，保证首尾拼接后节奏均匀
-        self.scrollSeconds = Math.max(6, Math.round((w1080 + REF_WIDTH * 0.12) / speed));
+        self.measureScroll();
       });
+    },
+
+    /**
+     * 实测文本宽度 → 折算回 1080 基准 → 换算滚动一轮的时长。
+     *
+     * ⚠️ 宽度为 0 时**绝不能**当成「放得下」：v-if 刚插入还没布局、父级暂时
+     *    隐藏、字体尚未就绪都会测到 0；一旦据此判成不滚，后面再也不会重测，
+     *    表现就是「明明选了走马灯却纹丝不动」。所以宽度 0 时跨帧重试，
+     *    等真实宽度出现（上限 12 帧 ≈ 200ms，够覆盖布局与首屏字体）。
+     */
+    measureScroll: function() {
+      var self = this;
+      if (!this.isScroll) return;
+      var el = this.$refs.seg;
+      if (!el) return;
+      var scale = this.scaleFactor || 1;
+      var rendered = el.getBoundingClientRect().width || 0;
+      if (rendered <= 0) {
+        if (this.measureRetry < 12) {
+          this.measureRetry++;
+          this.measureRaf = window.requestAnimationFrame(function() {
+            self.measureScroll();
+          });
+        }
+        return;
+      }
+      this.measureRetry = 0;
+      var w1080 = rendered / scale;            // 折算回 1080 基准
+      if (w1080 <= REF_WIDTH * MIN_DWELL_RATIO) {
+        this.scrollSeconds = 0;                // 放得下就不滚，避免无意义晃动
+        this.reportScrollMetrics(w1080);
+        return;
+      }
+      var speed = parseInt(this.c.scroll_speed, 10) || 60;
+      // 段间距 12%（129.6px @1080）计入总距离，保证首尾拼接后节奏均匀
+      this.scrollSeconds = Math.max(6, Math.round((w1080 + REF_WIDTH * 0.12) / speed));
+      this.reportScrollMetrics(w1080);
+    },
+
+    /**
+     * 把「滚完一整轮要多久」报给父组件（管理端用它做时长联动提示）。
+     *
+     * 必须由舞台自己报：管理端若另写一套估算公式，就会和设备上真实看到的
+     * 对不上，「预览即真机」的前提也没了。seconds = 0 表示这条实际不会滚动。
+     */
+    reportScrollMetrics: function(w1080) {
+      var w = w1080 || 0;
+      this.$emit('scroll-metrics', {
+        seconds: this.scrollSeconds,
+        textWidth1080: Math.round(w),
+        // 一并报出滚动总距离（含段间距），管理端反推速度时就不必重复
+        // 「+12% 屏宽」这个口径 —— 少一处魔法数就少一处两边漂移的机会
+        distance1080: Math.round(w + REF_WIDTH * 0.12)
+      });
+    },
+
+    // 取消在途测量：restart 会被 deep watch 连续触发，不取消会留下野 rAF
+    stopMeasure: function() {
+      if (this.measureRaf) {
+        window.cancelAnimationFrame(this.measureRaf);
+        this.measureRaf = null;
+      }
     },
 
     dotStyle: function(i) {
@@ -429,10 +517,22 @@ export default {
     }
   },
   mounted: function() {
+    var self = this;
     this.restart();
     this.startCountdown();
+    // 自定义字体加载完成后文本宽度会变（可能从「放得下」变成「需要滚」，
+    // 也可能反过来），首测若赶在字体就绪之前就白测了 —— 就绪后补测一次。
+    if (typeof document !== 'undefined' && document.fonts && document.fonts.ready) {
+      try {
+        document.fonts.ready.then(function() {
+          if (self._isDestroyed) return;
+          self.updateScrollDuration();
+        });
+      } catch (e) { /* 老 WebView 无 document.fonts，忽略即可 */ }
+    }
   },
   beforeDestroy: function() {
+    this.stopMeasure();
     this.stopCarousel();
     this.stopCountdown();
   }
@@ -521,9 +621,31 @@ export default {
   padding-right: 0;
 }
 
+/* 动画名必须留在 scoped 样式里声明：只有这样，vue-loader 重写 @keyframes 名字时
+   才会同步改写本规则的 animation-name，两者始终配对。
+   时长由内联 --bt-scroll-duration 下发（JS 只发变量、不拼 animation 简写）。 */
+.big-text-scroll-track.is-scrolling {
+  animation-name: bt-marquee;
+  animation-duration: var(--bt-scroll-duration, 12s);
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
 @keyframes bt-marquee {
   0%   { transform: translateX(0); }
   100% { transform: translateX(-50%); }
+}
+
+/* 反向：文字从左往右移动。起点 -50%（第二段开头正好顶上），终点 0 ——
+   与正共用同一组两段拼接，接缝位置完全对齐，只是行进方向相反。
+   三个类的特异性高于上面两个类，animation-name 在此被覆盖，其余属性继承。 */
+.big-text-scroll-track.is-scrolling.is-reverse {
+  animation-name: bt-marquee-reverse;
+}
+
+@keyframes bt-marquee-reverse {
+  0%   { transform: translateX(-50%); }
+  100% { transform: translateX(0); }
 }
 
 /* ========== 副内容 / 署名 / 圆点 ========== */

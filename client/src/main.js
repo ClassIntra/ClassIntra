@@ -104,6 +104,7 @@ import { getIntegrationManager } from '@/integrations';
 import { getRuntimeKernel } from '@/core/runtime-kernel';
 import { getPerfPolicy } from '@/core/perf-policy';
 import { createContext } from '@/core/market-sdk';
+import { report as reportMarketError } from '@/core/market-error-report';
 import api from '@/utils/api';
 import wsManager from '@/utils/websocket';
 import realtime from '@/utils/realtime';
@@ -118,16 +119,20 @@ import './styles/global.scss';
 Vue.config.productionTip = false;
 Vue.config.errorHandler = function(err, vm, info) {
   console.error('[Vue Error]', info, err);
+  // 归因：只有堆栈指向 /market-static/<当前应用>/ 时才记到第三方头上
+  reportMarketError(err, { source: 'vue', info: info });
   globalErrorHandler.handle(err);
 };
 
 window.onerror = function(msg, url, line, col, error) {
   console.error('[Global Error]', msg, url, line, col, error);
+  reportMarketError(error || msg, { source: 'window', url: url });
   globalErrorHandler.handle(error || msg);
 };
 
 window.addEventListener('unhandledrejection', function(event) {
   console.error('[Unhandled Rejection]', event.reason);
+  reportMarketError(event.reason, { source: 'promise' });
   globalErrorHandler.handle(event.reason);
 });
 
@@ -261,6 +266,39 @@ boot.onStage('sdk', 'sdkExpose', function() {
     console.error('[main] 搜索源装配失败:', e);
   }
 
+  // 打开另一个应用（context.system.openApp）：先查市场应用，再查官方应用路由表。
+  // 参数走 query（对目标应用可见、可分享、刷新不丢），复杂对象 JSON 序列化。
+  function openAppByName(name, params) {
+    if (!name) return Promise.reject(new Error('缺少应用名'));
+    var route = '';
+    try {
+      var installed = marketRegistry.getInstalled(name);
+      if (installed && installed.route) route = installed.route;
+    } catch (e) {}
+    if (!route) {
+      var routes = Object.keys(ROUTE_APP_MAP);
+      for (var i = 0; i < routes.length; i++) {
+        if (ROUTE_APP_MAP[routes[i]] === name) { route = routes[i]; break; }
+      }
+    }
+    if (!route) return Promise.reject(new Error('应用不存在或未启用: ' + name));
+
+    var query = {};
+    if (params && typeof params === 'object') {
+      Object.keys(params).forEach(function(key) {
+        var value = params[key];
+        if (value === null || value === undefined) return;
+        query[key] = (typeof value === 'object') ? JSON.stringify(value) : String(value);
+      });
+    }
+    return router.push({ path: route, query: query }).then(function() {
+      return true;
+    }).catch(function(err) {
+      // 已经在目标页（同路由同参数）不算失败
+      return !!(err && err.name === 'NavigationDuplicated');
+    });
+  }
+
   var marketSdk = {
     version: '1',
     apps: {},
@@ -300,6 +338,31 @@ boot.onStage('sdk', 'sdkExpose', function() {
         modal: Vue.prototype.$modal,
         manifest: appManifest || null,
         appVersion: (appManifest && appManifest.version) || '0.0.0',
+        // 跨应用打开（context.system.openApp）
+        openApp: openAppByName,
+        // 全局搜索注册表（context.system.registerSearchProvider）
+        searchRegistry: getSearchRegistry(),
+        // 可接收分享的应用清单（context.system.share 据此弹出宿主的分享面板）
+        getShareTargets: function() {
+          try {
+            var apps = marketRegistry.getInstalledApps() || [];
+            var list = [];
+            for (var i = 0; i < apps.length; i++) {
+              var a = apps[i];
+              if (!a || a.enabled === false || !a.shareTarget) continue;
+              list.push({
+                name: a.name,
+                label: a.label || a.name,
+                icon: a.icon || '',
+                color: a.color || '',
+                title: (a.shareTarget && a.shareTarget.title) || ''
+              });
+            }
+            return list;
+          } catch (e) {
+            return [];
+          }
+        },
         // 让 SDK 能拿到该应用的资源审计器（记录 storage 前缀）
         getAuditor: function(name) {
           return kernel.getAuditor(name);
@@ -319,6 +382,21 @@ boot.onStage('sdk', 'sdkExpose', function() {
       if (!kernel.getMachine(appName)) {
         kernel.attachLifecycle(appName, {});
       }
+
+      // 开发者调试出口：控制台执行
+      //   localStorage.setItem('ci:devtools', '1')  // 打开
+      //   localStorage.removeItem('ci:devtools')    // 关闭
+      // 之后可在控制台直接摸当前应用的 context（调 store / compat / ui 验证行为）。
+      // 默认关闭：不给普通用户多一个全局句柄。
+      try {
+        if (localStorage.getItem('ci:devtools') === '1') {
+          window.__ciContexts = window.__ciContexts || {};
+          window.__ciContexts[appName] = context;
+          window.__ciLastContext = context;
+          // 搜索注册表也一起暴露，便于验证 provider / 市场应用是否真的被收录
+          window.__ciSearch = getSearchRegistry();
+        }
+      } catch (e) {}
 
       return context;
     },
@@ -386,9 +464,15 @@ boot.onStage('realtime', 'connect', function() {
 // ---------- 阶段：market ----------
 boot.onStage('market', 'refreshApps', function() {
   var initialPath = window.location.pathname + window.location.search + window.location.hash;
+  // 未登录时 /market/installed 必 401，启动期直接跳过（返回空数组），
+  // 登录成功后由 App.vue token watcher 补拉，避免 401 噪音与空市场。
+  if (!localStorage.getItem('token')) {
+    return Promise.resolve([]);
+  }
   return marketRegistry.refresh().then(function(apps) {
     router.registerMarketApps(apps);
     // 全局悬浮层 + 市场小组件 + 市场主题随清单同步（不阻断启动：失败只影响各自能力）
+    // 注：曾尝试把悬浮层延后到首帧后，实测只快 158ms 却让桌宠晚出现 1.5s（观感变差），已回滚。
     syncOverlays(apps);
     syncMarketWidgets(apps);
     syncMarketThemes().catch(function() {});

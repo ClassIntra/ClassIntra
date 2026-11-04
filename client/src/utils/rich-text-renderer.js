@@ -135,14 +135,47 @@ function generateMediaHtml(url, type) {
       '<text x=%22100%22 y=%22140%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%2213%22 font-family=%22sans-serif%22>文件已删除</text>' +
       '</svg>';
     var deletedPlaceholder = 'data:image/svg+xml,' + deletedSvg;
+    // 失败重试（跨班图片的关键兜底）：
+    // 跨班文件的字节靠后台回源，首次请求常常「还没到」→ 404。旧实现一失败就
+    // 把 src 永久换成占位图，于是「文件已删除」一旦出现就再也回不来 —— 即使几秒后
+    // 字节已到位，用户不刷新页面永远看不到图。这里改为有限次重试（带 cache-buster
+    // 绕开被缓存的 404），全部失败后才降级成占位图。
+    var retryScript =
+      'var _i=this,_n=parseInt(_i.getAttribute(\'data-ci-retry\')||\'0\',10);' +
+      'if(_i.src.indexOf(\'data:image/svg+xml\')===-1){' +
+        'if(_n<3){' +
+          '_i.setAttribute(\'data-ci-retry\',String(_n+1));' +
+          'setTimeout(function(){' +
+            'var _u=_i.getAttribute(\'data-media-url\')||_i.src;' +
+            '_i.src=_u+\'?w=800&_r=\'+Date.now();' +
+          '},[600,1500,3000][_n]);' +
+        '}else{' +
+          '_i.src=\'' + deletedPlaceholder + '\';' +
+          '_i.classList.add(\'msg-image-deleted\');' +
+        '}' +
+      '}';
     return '<img class="msg-image msg-media" data-media-url="' + url + '" data-media-type="image" src="' + src + '" alt="图片" loading="lazy" decoding="async" width="240" height="180" ' +
-      'onerror="if(this.src.indexOf(\'data:image/svg+xml\')===-1){this.src=\'' + deletedPlaceholder + '\';this.classList.add(\'msg-image-deleted\');}" />';
+      'onerror="' + retryScript + '" />';
   }
   if (type === 'video') {
     return '<div class="msg-media-wrapper msg-video-wrapper msg-media" data-media-url="' + url + '" data-media-type="video">' +
       '<video class="msg-video" data-media-url="' + url + '" data-media-type="video" src="' + url + '" preload="metadata" playsinline webkit-playsinline muted></video>' +
       '<div class="msg-media-play"><i class="fa-solid fa-play"></i></div>' +
       '</div>';
+  }
+  if (type === 'file') {
+    // 普通附件卡片：点击直接下载。
+    // 刻意不加 msg-media class —— ChatBubble 的点击委托会把所有 .msg-media 送进
+    // 全屏媒体预览并 preventDefault，附件走了那条路就永远下载不了。
+    var extLabel = '';
+    var dot = url.lastIndexOf('.');
+    if (dot > -1 && url.length - dot <= 6) extLabel = url.substring(dot + 1).toUpperCase();
+    return '<a class="msg-file-card" data-media-url="' + url + '" data-media-type="file" ' +
+      'href="' + url + '?download=1" target="_blank" rel="noopener" download>' +
+      '<i class="fa-solid fa-paperclip"></i>' +
+      '<span class="msg-file-ext">' + (extLabel ? escapeHtml(extLabel) : '文件') + '</span>' +
+      '<span class="msg-file-hint">点击下载</span>' +
+      '</a>';
   }
   if (type === 'audio') {
     // 微信式语音条 UI（播放按钮 + 波形 + 时长 + 进度）
@@ -189,12 +222,15 @@ function renderRichText(content, options) {
   var enableMedia = options.enableMedia !== false;
   var linksAsText = options.linksAsText === true;
 
-  // Step 0: 处理云盘媒体标签 [cloud-img:hash.ext] / [cloud-video:hash.ext] / [cloud-audio:hash.ext]
+  // Step 0: 处理云盘媒体标签
+  //   [cloud-img:hash.ext] / [cloud-video:hash.ext] / [cloud-audio:hash.ext] / [cloud-file:hash.ext]
+  // cloud-file 是普通附件（zip/docx/xlsx/pdf…）：它不是图片，早期被一律打成 cloud-img，
+  // 于是渲染成 <img src="….zip?w=800"> → 必然 404 → 显示「文件已删除」。
   var cloudTagItems = [];
   var text = content;
-  text = text.replace(/\[cloud-(img|video|audio):([a-f0-9]{64}(?:\.\w+)?)\]/g, function(match, tag, identifier) {
+  text = text.replace(/\[cloud-(img|video|audio|file):([a-f0-9]{64}(?:\.\w+)?)\]/g, function(match, tag, identifier) {
     var url = '/api/cloud/files/' + identifier;
-    var type = tag === 'img' ? 'image' : tag === 'video' ? 'video' : 'audio';
+    var type = tag === 'img' ? 'image' : tag === 'video' ? 'video' : tag === 'audio' ? 'audio' : 'file';
     var idx = cloudTagItems.length;
     cloudTagItems.push({ url: url, type: type });
     return '%%CLOUDTAG' + idx + '%%';

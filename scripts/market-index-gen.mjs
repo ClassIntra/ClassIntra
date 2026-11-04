@@ -75,6 +75,11 @@ function scanSection(sectionRoot, kind) {
       description: manifest.description || '',
       author: manifest.author || '',
       icon: manifest.icon && manifest.icon.startsWith('./') ? `${kind}/${name}/` + manifest.icon.replace(/^\.\//, '') : (manifest.icon || undefined),
+      // 能力清单从 manifest 自动带入：否则详情页「会用到什么」永远是空的，
+      // 班管在安装前看不到真实披露（这一步以前靠手填，漏一次就静默缺失）。
+      capabilities: Array.isArray(manifest.capabilities) && manifest.capabilities.length
+        ? manifest.capabilities.slice()
+        : undefined,
       files,
       hashes
     });

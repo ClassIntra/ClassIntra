@@ -88,11 +88,11 @@ export default {
   opacity: 0.7;
 }
 
-/* 图标容器 */
+/* 图标容器：尺寸由宿主 --app-icon-size 驱动（桌面设置三档），60px 为缺省标准档 */
 .app-icon-img-wrap {
   position: relative;
-  width: 60px;
-  height: 60px;
+  width: var(--app-icon-size, 60px);
+  height: var(--app-icon-size, 60px);
   border-radius: var(--radius-lg);
   overflow: visible;  /* 允许角标溢出 */
   display: flex;
@@ -108,6 +108,13 @@ export default {
   border-radius: var(--radius-lg);
   pointer-events: none;
   -webkit-user-drag: none;
+}
+
+/* PC 悬停轻抬（触屏 sticky hover 防残留，仅精确指针生效） */
+@media (hover: hover) and (pointer: fine) {
+  .app-icon:hover .app-icon-img-wrap {
+    transform: scale(1.06);
+  }
 }
 
 /* 标签 */

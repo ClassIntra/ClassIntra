@@ -90,6 +90,25 @@ var server = http.createServer(function (req, res) {
 });
 
 // 无 'upgrade' 监听：WebSocket 升级请求（聊天/实时）到此即被断开
+// 侦听失败要说人话：
+//   EACCES     = 端口被别的程序占用（Windows 常见）或落在系统保留范围
+//   EADDRINUSE = 端口已被占用
+// 之前没有 error 处理，异常直接冒泡成「未捕获异常」，PM2 只看到崩溃计数、
+// 日志里全是堆栈，没人知道只是端口冲突 —— 曾因此空转 150+ 次重启。
+server.on('error', function (err) {
+  var code = err && err.code;
+  if (code === 'EACCES') {
+    console.error('[TunnelGateway] 端口 ' + PORT + ' 侦听被拒绝（EACCES）：' +
+      '多半已被其他程序占用，或落在 Windows 保留端口范围内。' +
+      '请换一个 TUNNEL_GATEWAY_PORT（并同步改 frpc.ini 的 local_port）。');
+  } else if (code === 'EADDRINUSE') {
+    console.error('[TunnelGateway] 端口 ' + PORT + ' 已被占用（EADDRINUSE）。');
+  } else {
+    console.error('[TunnelGateway] 侦听失败:', (err && err.message) || err);
+  }
+  process.exit(1);
+});
+
 server.listen(PORT, '127.0.0.1', function () {
   console.log('[TunnelGateway] 127.0.0.1:' + PORT + ' -> 127.0.0.1:' + UPSTREAM_PORT + '（白名单: ' + ALLOWED_API_PREFIXES.join(', ') + '，页面: cloud-lite.html）');
 });

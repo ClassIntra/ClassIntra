@@ -7,7 +7,11 @@ var state = {
   // aiChat 通知已随 ai-chat 应用下线移除；旧 localStorage 里残留的 aiChat 键会被忽略
   notifications: (function() { try { var saved = localStorage.getItem('notifications'); return saved ? JSON.parse(saved) : { chat: true, broadcast: true, community: true, system: true }; } catch(e) { return { chat: true, broadcast: true, community: true, system: true }; } })(),
   // 桌面布局模式：'grid'（iPad 桌面图标 + Dock）| 'dock'（仅 Dock）
-  desktopLayout: localStorage.getItem('desktopLayout') || 'grid'
+  desktopLayout: localStorage.getItem('desktopLayout') || 'grid',
+  // 桌面网格图标是否显示文字标签（dock 恒无标签；默认不显示——纯图形更干净，开关在桌面设置）
+  showIconLabels: localStorage.getItem('showIconLabels') === 'true',
+  // 桌面图标尺寸档位：'small' | 'standard' | 'large'（dock 尺寸独立不受影响）
+  iconSize: (function() { var v = localStorage.getItem('iconSize'); return (v === 'small' || v === 'large') ? v : 'standard'; })()
 };
 
 var getters = {
@@ -16,7 +20,9 @@ var getters = {
   currentTheme: function(state) { return getTheme(state.theme); },
   wallpaper: function(state) { return state.wallpaper; },
   notifications: function(state) { return state.notifications; },
-  desktopLayout: function(state) { return state.desktopLayout; }
+  desktopLayout: function(state) { return state.desktopLayout; },
+  showIconLabels: function(state) { return state.showIconLabels; },
+  iconSize: function(state) { return state.iconSize; }
 };
 
 var mutations = {
@@ -47,6 +53,14 @@ var mutations = {
   SET_DESKTOP_LAYOUT: function(state, layout) {
     state.desktopLayout = layout;
     localStorage.setItem('desktopLayout', layout);
+  },
+  SET_SHOW_ICON_LABELS: function(state, val) {
+    state.showIconLabels = !!val;
+    localStorage.setItem('showIconLabels', state.showIconLabels ? 'true' : 'false');
+  },
+  SET_ICON_SIZE: function(state, size) {
+    state.iconSize = (size === 'small' || size === 'large') ? size : 'standard';
+    localStorage.setItem('iconSize', state.iconSize);
   }
 };
 
@@ -58,6 +72,8 @@ var actions = {
     context.commit('SET_THEME', theme);
     context.commit('SET_WALLPAPER', wallpaper);
     context.commit('SET_DESKTOP_LAYOUT', desktopLayout);
+    context.commit('SET_SHOW_ICON_LABELS', localStorage.getItem('showIconLabels') === 'true');
+    context.commit('SET_ICON_SIZE', localStorage.getItem('iconSize') || 'standard');
   },
   // 切换主题：提交 mutation（即时生效）+ 最佳努力持久化到服务端
   setTheme: function(context, theme) {

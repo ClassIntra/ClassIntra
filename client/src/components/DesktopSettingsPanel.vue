@@ -10,6 +10,44 @@
         </AppNavBar>
         <div class="settings-panel-body">
           <div class="settings-content">
+            <!-- 桌面布局分组 -->
+            <div class="settings-section">
+              <div class="settings-section-title">桌面布局</div>
+              <div class="settings-card">
+                <div class="settings-switch-row">
+                  <i class="fa-solid fa-table-cells-large action-icon"></i>
+                  <span class="action-text">布局模式</span>
+                  <div class="size-segmented">
+                    <button
+                      class="size-seg-btn"
+                      :class="{ 'size-seg-btn--active': desktopLayout === 'grid' }"
+                      @click="onSelectLayout('grid')"
+                    >网格</button>
+                    <button
+                      class="size-seg-btn"
+                      :class="{ 'size-seg-btn--active': desktopLayout === 'dock' }"
+                      @click="onSelectLayout('dock')"
+                    >仅 Dock</button>
+                  </div>
+                </div>
+                <div class="settings-action-divider" style="margin-left: 16px;"></div>
+                <div class="settings-switch-row">
+                  <i class="fa-solid fa-table-columns action-icon"></i>
+                  <span class="action-text">图标密度</span>
+                  <div class="size-segmented">
+                    <button
+                      v-for="opt in densityOptions"
+                      :key="opt.value"
+                      class="size-seg-btn"
+                      :class="{ 'size-seg-btn--active': gridRows === opt.value }"
+                      @click="onSelectDensity(opt.value)"
+                    >{{ opt.label }}</button>
+                  </div>
+                </div>
+              </div>
+              <p class="settings-section-tip">密度为 6 列 × 行数；行数较多时建议搭配小图标。收缩时放不下的图标会自动移往其他位置。</p>
+            </div>
+
             <!-- 桌面操作分组 -->
             <div class="settings-section">
               <div class="settings-section-title">桌面页面</div>
@@ -59,6 +97,33 @@
               <p class="settings-section-tip" v-if="currentWidgets.length === 0">
                 当前页暂无小组件，点击"添加小组件"选择。
               </p>
+            </div>
+
+            <!-- 桌面外观分组 -->
+            <div class="settings-section">
+              <div class="settings-section-title">桌面外观</div>
+              <div class="settings-card">
+                <div class="settings-switch-row">
+                  <i class="fa-solid fa-tag action-icon"></i>
+                  <span class="action-text">显示图标标签</span>
+                  <IOSSwitch :value="showIconLabels" @input="onToggleIconLabels" />
+                </div>
+                <div class="settings-action-divider" style="margin-left: 16px;"></div>
+                <div class="settings-switch-row">
+                  <i class="fa-solid fa-up-right-and-down-left-from-center action-icon"></i>
+                  <span class="action-text">图标大小</span>
+                  <div class="size-segmented">
+                    <button
+                      v-for="opt in iconSizeOptions"
+                      :key="opt.value"
+                      class="size-seg-btn"
+                      :class="{ 'size-seg-btn--active': iconSize === opt.value }"
+                      @click="onSelectIconSize(opt.value)"
+                    >{{ opt.label }}</button>
+                  </div>
+                </div>
+              </div>
+              <p class="settings-section-tip">开启后桌面图标下方显示应用名称；图标大小即时生效（Dock 不受影响）。</p>
             </div>
 
             <!-- 主题分组（架构预留） -->
@@ -125,9 +190,20 @@
                   <div class="widget-picker-info">
                     <span class="widget-picker-name">{{ w.name }}</span>
                     <span class="widget-picker-desc">{{ w.description }}</span>
-                    <span class="widget-picker-size">默认 {{ w.defaultSize.w }}×{{ w.defaultSize.h }}</span>
+                    <span class="widget-picker-size">
+                      默认 {{ w.defaultSize.w }}×{{ w.defaultSize.h }}<template v-if="w.widenable"> · 可加宽至 {{ widenSize(w).w }}×{{ w.defaultSize.h }}</template>
+                    </span>
                   </div>
-                  <i class="fa-solid fa-plus widget-picker-add"></i>
+                  <div class="widget-picker-actions">
+                    <button
+                      v-if="w.widenable"
+                      class="widget-picker-wide"
+                      @click.stop="onAddWidget(w.id, { wide: true })"
+                    >
+                      <i class="fa-solid fa-arrows-left-right"></i> 加宽
+                    </button>
+                    <i class="fa-solid fa-plus widget-picker-add"></i>
+                  </div>
                 </div>
               </div>
             </div>
@@ -140,12 +216,13 @@
 
 <script>
 import AppNavBar from './AppNavBar.vue';
+import IOSSwitch from './ios/IOSSwitch.vue';
 import { listWidgets, getWidget as getWidgetDef } from '@/core/widget-aggregator';
 import { listThemes } from '@/core/theme-engine';
 
 export default {
   name: 'DesktopSettingsPanel',
-  components: { AppNavBar: AppNavBar },
+  components: { AppNavBar: AppNavBar, IOSSwitch: IOSSwitch },
   props: {
     visible: { type: Boolean, default: false },
     totalPages: { type: Number, default: 1 },
@@ -154,7 +231,18 @@ export default {
   },
   data: function() {
     return {
-      showWidgetPicker: false
+      showWidgetPicker: false,
+      iconSizeOptions: [
+        { value: 'small', label: '小' },
+        { value: 'standard', label: '标准' },
+        { value: 'large', label: '大' }
+      ],
+      densityOptions: [
+        { value: 4, label: '6×4' },
+        { value: 5, label: '6×5' },
+        { value: 6, label: '6×6' },
+        { value: 7, label: '6×7' }
+      ]
     };
   },
   computed: {
@@ -184,6 +272,22 @@ export default {
     // 可用主题列表
     availableThemes: function() {
       return listThemes();
+    },
+    // 桌面网格图标是否显示文字标签
+    showIconLabels: function() {
+      return this.$store.state.settings.showIconLabels;
+    },
+    // 图标尺寸档位
+    iconSize: function() {
+      return this.$store.state.settings.iconSize;
+    },
+    // 桌面布局模式（grid / dock）
+    desktopLayout: function() {
+      return this.$store.state.settings.desktopLayout;
+    },
+    // 图标密度（行数）
+    gridRows: function() {
+      return this.$store.getters['desktop/gridRows'];
     }
   },
   methods: {
@@ -221,12 +325,20 @@ export default {
       var def = getWidgetDef(type);
       return def ? def.name : type;
     },
-    onAddWidget: function(type) {
-      this.$store.dispatch('desktop/addWidget', {
-        pageId: this.currentPageId,
-        type: type
-      });
+    onAddWidget: function(type, opts) {
+      var payload = { pageId: this.currentPageId, type: type };
+      // 加宽 2×（widenable widget）：宽度翻倍并夹紧 maxSize，高度维持默认
+      if (opts && opts.wide) {
+        payload.w = this.widenSize(getWidgetDef(type)).w;
+      }
+      this.$store.dispatch('desktop/addWidget', payload);
       this.showWidgetPicker = false;
+    },
+    // 加宽后的尺寸：默认宽 ×2 夹紧 maxSize
+    widenSize: function(def) {
+      if (!def) return { w: 4, h: 2 };
+      var maxW = (def.maxSize && def.maxSize.w) || 4;
+      return { w: Math.min((def.defaultSize.w || 2) * 2, maxW), h: def.defaultSize.h || 2 };
     },
     onRemoveWidget: function(widgetId) {
       this.$store.dispatch('desktop/removeWidget', {
@@ -237,6 +349,26 @@ export default {
     // ===== 主题 =====
     onSelectTheme: function(themeId) {
       this.$store.dispatch('settings/setTheme', themeId);
+    },
+    // ===== 桌面外观 =====
+    onToggleIconLabels: function(val) {
+      this.$store.commit('settings/SET_SHOW_ICON_LABELS', val);
+    },
+    onSelectIconSize: function(size) {
+      this.$store.commit('settings/SET_ICON_SIZE', size);
+    },
+    // ===== 桌面布局 =====
+    onSelectLayout: function(mode) {
+      this.$store.commit('settings/SET_DESKTOP_LAYOUT', mode);
+    },
+    // 图标密度（行数）：收缩时自动腾挪放不下的图标（返回迁移数供 toast）
+    onSelectDensity: function(rows) {
+      var self = this;
+      this.$store.dispatch('desktop/setGridRows', rows).then(function(moved) {
+        if (moved > 0 && self.$store.state.toast) {
+          self.$store.commit('toast/SHOW_TOAST', { message: '已将 ' + moved + ' 个图标移往其他位置', type: 'info' });
+        }
+      });
     }
   }
 };
@@ -373,6 +505,41 @@ export default {
   height: 0.5px;
   background: var(--separator-color);
   margin-left: 48px;
+}
+
+/* 开关行（iOS 设置列表样式：图标 + 文案 + 右侧拨动/分段） */
+.settings-switch-row {
+  display: flex;
+  align-items: center;
+  padding: 10px 16px;
+}
+
+/* 图标大小三段选择器（iOS segmented control） */
+.size-segmented {
+  display: flex;
+  background: var(--separator-color);
+  border-radius: var(--radius-pill);
+  padding: 2px;
+  flex-shrink: 0;
+}
+
+.size-seg-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
+}
+
+.size-seg-btn--active {
+  background: var(--card-bg);
+  color: var(--text-primary);
+  font-weight: var(--font-weight-medium);
+  box-shadow: var(--shadow-sm);
 }
 
 .action-icon {
@@ -583,6 +750,29 @@ export default {
 .widget-picker-add {
   color: var(--primary-color);
   font-size: 16px;
+}
+
+.widget-picker-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.widget-picker-wide {
+  border: 1px solid var(--separator-color);
+  background: transparent;
+  color: var(--primary-color);
+  font-size: var(--font-size-caption1, 12px);
+  padding: 5px 10px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  margin-right: 10px;
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+
+.widget-picker-wide:active {
+  background: var(--separator-color);
 }
 
 /* 选择器滑入动画 */

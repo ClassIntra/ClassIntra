@@ -38,8 +38,10 @@
  */
 import BigTextStage from './BigTextStage.vue';
 
-// 最短驻留：这段时间内忽略一切关闭手势，防止「强制全屏」被一划就没
-var MIN_DWELL_MS = 5000;
+// 禁止关闭的兜底时长（秒）：服务端会下发 lock_seconds 覆盖它。
+// ⚠️ 保留兜底是因为端上可能收到老指令（迁移前发的、没有这个字段的大字），
+//    那时按老行为锁 5 秒；服务端正常下发时以 lock_seconds 为准。
+var DEFAULT_LOCK_SECONDS = 5;
 
 export default {
   name: 'BigTextOverlay',
@@ -57,6 +59,8 @@ export default {
         display_mode: 'static',
         switch_interval: 5,
         scroll_speed: 60,
+        scroll_direction: 'left',
+        lock_seconds: DEFAULT_LOCK_SECONDS,
         effect: 'none',
         bg_color: '#101828',
         bg_gradient: null,
@@ -91,6 +95,10 @@ export default {
         display_mode: payload.display_mode || 'static',
         switch_interval: Math.max(2, Math.min(60, parseInt(payload.switch_interval, 10) || 5)),
         scroll_speed: Math.max(20, Math.min(200, parseInt(payload.scroll_speed, 10) || 60)),
+        // 只认 'right'，其余（含老广播没这字段）一律按默认的从右往左
+        scroll_direction: payload.scroll_direction === 'right' ? 'right' : 'left',
+        // 禁止关闭时长（秒）：服务端已钳到 [0, duration]，这里只防脏值
+        lock_seconds: this.normalizeLockSeconds(payload.lock_seconds),
         effect: payload.effect || 'none',
         bg_color: payload.bg_color || '#101828',
         bg_gradient: payload.bg_gradient || null,
@@ -124,6 +132,17 @@ export default {
       this.visible = false;
     },
 
+    /**
+     * 禁止关闭时长（秒）归一：缺失/非法 → 兜底 5；负数 → 0（允许立刻关闭）。
+     * 上限不在端上加码 —— 服务端已按本次 duration 钳过，端上再夹一次
+     * 反而会在 duration 被改动时和真实意图对不上。
+     */
+    normalizeLockSeconds: function(v) {
+      var n = parseInt(v, 10);
+      if (isNaN(n)) return DEFAULT_LOCK_SECONDS;
+      return Math.max(0, n);
+    },
+
     syncViewport: function() {
       if (typeof window === 'undefined') return;
       this.viewportW = window.innerWidth || 1080;
@@ -147,12 +166,16 @@ export default {
     },
 
     /**
-     * 最短驻留保护：前 MIN_DWELL_MS 内忽略一切关闭手势。
-     * 否则「强制全屏」会被一弹就划掉，失去管控意义；
-     * 保留逃生口是怕发错内容把设备锁死，故设 5s 宽限后放行。
+     * 禁止关闭保护：lock_seconds 这段时间内忽略一切关闭手势（点击/触摸）。
+     *
+     * 锁定时长由管理端按场景设定（服务端已钳到 [0, duration]）：
+     *   0   → 允许立刻关闭（普通提醒）
+     *   全程 → 到点自动收起前都点不掉（紧急通知）
+     * 之所以仍保留「到点自动收起」这个逃生口，是怕发错内容把设备彻底锁死。
      */
     dismissIfAllowed: function() {
-      if (Date.now() - this.startedAt < MIN_DWELL_MS) return;
+      var lockMs = (this.current.lock_seconds || 0) * 1000;
+      if (lockMs > 0 && Date.now() - this.startedAt < lockMs) return;
       this.hide(this.current.id);
     }
   },

@@ -6,6 +6,7 @@ var router = express.Router();
 var auth = require('../../../server/src/middleware/auth');
 var db = require('../../../server/src/utils/db');
 var time = require('../../../server/src/utils/time');
+var repeatUtils = require('./repeat-utils');
 
 // 转换时间字段为 ISO 字符串
 function convertTimes(row) {
@@ -18,37 +19,6 @@ function convertTimesArray(rows) {
   for (var i = 0; i < rows.length; i++) convertTimes(rows[i]);
 }
 
-// 计算重复事件的下次发生日期（YYYY-MM-DD）
-function getNextOccurrence(targetDate, repeatType) {
-  if (repeatType === 'none' || !repeatType) return targetDate;
-  var parts = targetDate.split('-');
-  var year = parseInt(parts[0], 10);
-  var month = parseInt(parts[1], 10);
-  var day = parseInt(parts[2], 10);
-  var now = new Date();
-  var nowYear = now.getFullYear();
-  if (repeatType === 'yearly') {
-    // 找到 >= 今年的下一个发生日期
-    for (var y = nowYear; y <= nowYear + 1; y++) {
-      var next = y + '-' + (month < 10 ? '0' + month : month) + '-' + (day < 10 ? '0' + day : day);
-      if (next >= targetDate && new Date(next) >= new Date(now.getFullYear(), now.getMonth(), now.getDate())) {
-        return next;
-      }
-    }
-    return targetDate;
-  } else if (repeatType === 'monthly') {
-    // 找到下个月的发生日期
-    var nextMonth = new Date(now.getFullYear(), now.getMonth(), day);
-    if (nextMonth < now) {
-      nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, day);
-    }
-    var nm = nextMonth.getMonth() + 1;
-    var nd = nextMonth.getDate();
-    return nextMonth.getFullYear() + '-' + (nm < 10 ? '0' + nm : nm) + '-' + (nd < 10 ? '0' + nd : nd);
-  }
-  return targetDate;
-}
-
 // GET /api/countdown/events — 查询当前用户全部倒数日（置顶优先，按日期排序）
 router.get('/events', auth.requireAuth, function(req, res) {
   var userId = req.user.user_id;
@@ -57,7 +27,7 @@ router.get('/events', auth.requireAuth, function(req, res) {
     // 计算重复事件的下次发生日期
     for (var i = 0; i < rows.length; i++) {
       if (rows[i].repeat_type && rows[i].repeat_type !== 'none') {
-        rows[i].next_date = getNextOccurrence(rows[i].target_date, rows[i].repeat_type);
+        rows[i].next_date = repeatUtils.getNextOccurrence(rows[i].target_date, rows[i].repeat_type);
       } else {
         rows[i].next_date = rows[i].target_date;
       }
@@ -84,7 +54,7 @@ router.get('/events/for-calendar', auth.requireAuth, function(req, res) {
     for (var i = 0; i < rows.length; i++) {
       var r = rows[i];
       // 计算重复事件的下次发生日期
-      var effDate = (r.repeat_type && r.repeat_type !== 'none') ? getNextOccurrence(r.target_date, r.repeat_type) : r.target_date;
+      var effDate = (r.repeat_type && r.repeat_type !== 'none') ? repeatUtils.getNextOccurrence(r.target_date, r.repeat_type) : r.target_date;
       if (effDate && effDate.substring(0, 7) === month) {
         result.push({
           id: 'cd_' + r.id,           // 加 cd_ 前缀避免与日历事件 id 冲突
@@ -218,7 +188,7 @@ router.get('/reminders/due', auth.requireAuth, function(req, res) {
     // 标记为已提醒；重复事件重置 target_date 到下次并重置 reminded
     for (var i = 0; i < rows.length; i++) {
       if (rows[i].repeat_type && rows[i].repeat_type !== 'none') {
-        var nextDate = getNextOccurrence(rows[i].target_date, rows[i].repeat_type);
+        var nextDate = repeatUtils.getNextOccurrence(rows[i].target_date, rows[i].repeat_type);
         if (nextDate !== rows[i].target_date) {
           db.prepare('UPDATE countdown_events SET target_date = ?, reminded = 0, updated_at = datetime(\'now\') WHERE id = ?').run(nextDate, rows[i].id);
           // 更新返回数据中的 target_date 为下次日期（前端展示用原始日期计算）

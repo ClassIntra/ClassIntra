@@ -40,6 +40,8 @@ var FIELD_DEFS = {
   layout: { type: 'object', required: false, description: '布局偏好：mode(fullscreen/sheet/window) / resizable / minWidth / minHeight' },
   visibleRoles: { type: 'array', required: false, default: [], description: '可见角色白名单（空数组=所有角色可见）：classAdmin / admin / officer / student' },
   config: { type: 'array', required: false, default: [], description: '配置项声明 [{key,label,type,required,default,description}]：安装时引导管理员填写，值存数据库 app_config 表（读取回退：DB → process.env → default）' }
+,
+  shareTarget: { type: 'object', required: false, description: '接收分享声明 { title, accept: ["text","url"] }：让本应用出现在宿主的分享面板里' }
 };
 
 // 配置项类型枚举（type 字段；secret 在管理端回显时打码）
@@ -64,16 +66,23 @@ var CURRENT_SDK_VERSION = '1';
 var KNOWN_CAPABILITIES = [
   // 数据
   'data.storage', 'data.realtime', 'data.http',
+  // data.store：服务端 KV / 文件（跟账号走，换设备可取回）
+  'data.store',
   // 系统
-  'system.notification', 'system.clipboard', 'system.share', 'system.navigate',
+  'system.notification', 'system.clipboard', 'system.share', 'system.shareTarget', 'system.navigate',
+  // 系统级操作：桌面角标 / 打开其他应用 / 被全局搜索收录
+  'system.badge', 'system.openApp', 'system.search',
   // 界面
   'ui.toast', 'ui.modal', 'ui.sheet',
   // ui.overlay：声明 frontend.overlay 后可在任意页面挂载全局悬浮层（宿主 z-index 9400）
   'ui.overlay',
   // 应用自身
   'app.config', 'app.storage',
+  // economy.wallet：读写当前用户的学元账户（平台统一虚拟货币，不与现实货币兑换）
+  'economy.wallet',
   // 设备
-  'device.info', 'device.filePicker', 'device.camera'
+  'device.info', 'device.filePicker', 'device.camera', 'device.microphone',
+  'device.vibrate', 'device.network', 'device.screen'
 ];
 
 // ========== 布局模式 ==========

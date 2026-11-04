@@ -192,6 +192,7 @@ ClassIntra/
 │   ├── resource/frontend/  # 资源仓库 + 云盘
 │   ├── settings/frontend/   # 个人设置
 │   ├── timetable/frontend/  # 课程表 + 小组件
+│   ├── wallet/frontend/    # 学元钱包（余额/津贴/转账/红包）
 │   ├── weather/frontend/    # 天气系统
 │   ├── admin/frontend/      # 管理后台
 │   └── integration/frontend/ # 第三方应用集成入口

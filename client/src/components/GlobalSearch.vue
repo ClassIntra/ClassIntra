@@ -72,7 +72,7 @@
             >
               <div class="result-icon-wrap" :style="item.iconColor ? { background: item.iconColor } : {}">
                 <img v-if="item.icon && item.icon.startsWith('/') && !item.icon.endsWith('.png')" :src="item.icon" class="result-icon-img" alt="" />
-                <img v-else-if="item.icon && item.icon.startsWith('/')" :src="item.icon" class="result-icon-img" alt="" />
+                <img v-else-if="item.icon && item.icon.startsWith('/')" :src="resultIcon(item)" class="result-icon-img" alt="" />
                 <i v-else-if="item.icon" :class="item.icon" class="result-icon-fa" aria-hidden="true"></i>
                 <i v-else class="fas fa-arrow-right result-icon-fa" aria-hidden="true"></i>
               </div>
@@ -106,6 +106,7 @@
 
 <script>
 import { getSearchRegistry } from '@/core/search-registry';
+import { resolveIconPath } from '@/utils/icon-resolver.js';
 
 var DEBOUNCE_MS = 300;
 
@@ -164,6 +165,10 @@ export default {
     }
   },
   methods: {
+    // 结果图标：官方 PNG 按 DPR 选尺寸（与桌面图标同源）
+    resultIcon: function(item) {
+      return resolveIconPath(item && item.icon);
+    },
     open: function() {
       this.visible = true;
       this.query = '';

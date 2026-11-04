@@ -12,7 +12,47 @@
   "frontend": {
     "route": "/calendar",
     "routeName": "Calendar",
-    "component": "./frontend/Calendar.vue"
+    "component": "./frontend/Calendar.vue",
+    "widgets": [
+      {
+        "id": "clock",
+        "name": "时钟",
+        "component": "./frontend/widgets/ClockWidget.vue",
+        "defaultSize": {
+          "w": 2,
+          "h": 1
+        },
+        "minSize": {
+          "w": 2,
+          "h": 1
+        },
+        "maxSize": {
+          "w": 4,
+          "h": 2
+        },
+        "description": "大字时钟与日期",
+        "widenable": true
+      },
+      {
+        "id": "calendar-today",
+        "name": "今日日程",
+        "component": "./frontend/widgets/CalendarTodayWidget.vue",
+        "defaultSize": {
+          "w": 2,
+          "h": 2
+        },
+        "minSize": {
+          "w": 2,
+          "h": 2
+        },
+        "maxSize": {
+          "w": 4,
+          "h": 3
+        },
+        "description": "今天的日程一览",
+        "widenable": true
+      }
+    ]
   },
   "backend": {
     "mountPath": "/api/calendar",

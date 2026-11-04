@@ -6,7 +6,7 @@
  * 可变项（全部服务端钳制 + 白名单，防止前端传异常值把设备界面搞崩）：
  *   内容 / 副内容 / 显示时长
  *   展示模式 static | carousel（多行轮播）| scroll（单行走马灯）
- *   轮播间隔 / 走马灯速度
+ *   轮播间隔 / 走马灯速度 / 走马灯方向（left 向左 | right 向右）
  *   背景色 / 背景渐变 / 字体颜色 / 文字渐变 / 字体 / 字号 / 字重 / 对齐
  *   特效 none | gradient_text | gradient_bg | rainbow | neon
  *   是否显示发送者
@@ -60,6 +60,8 @@ var FONT_FAMILIES = {
 var FONT_WEIGHTS = ['400', '500', '600', '700', '900'];
 var TEXT_ALIGNS = ['center', 'left', 'right'];
 var DISPLAY_MODES = ['static', 'carousel', 'scroll'];
+// 走马灯滚动方向：left = 文字向左移动（默认，内容从右侧进场）
+var SCROLL_DIRECTIONS = ['left', 'right'];
 var EFFECTS = ['none', 'gradient_text', 'gradient_bg', 'rainbow', 'neon'];
 
 function clampInt(v, min, max, fallback) {
@@ -143,13 +145,21 @@ function normalizeStyle(body) {
   var fontColor = normalizeHexColor(body.font_color, '#ffffff');
   var effect = EFFECTS.indexOf(String(body.effect)) !== -1 ? String(body.effect) : 'none';
   var displayMode = DISPLAY_MODES.indexOf(String(body.display_mode)) !== -1 ? String(body.display_mode) : 'static';
+  var scrollDirection = SCROLL_DIRECTIONS.indexOf(String(body.scroll_direction)) !== -1 ? String(body.scroll_direction) : 'left';
   var fontFamily = FONT_FAMILIES.hasOwnProperty(String(body.font_family || '')) ? String(body.font_family || '') : '';
 
+  var duration = clampInt(body.duration, LIMITS.durationMin, LIMITS.durationMax, 10);
+  // 禁止关闭时长：上限就是本次显示时长（超过它毫无意义 —— 到点大字自己就收起了），
+  // 默认取 min(5, duration)，保证 duration 很短（如 3s）时默认值也不会越界。
+  var lockSeconds = clampInt(body.lock_seconds, 0, duration, Math.min(5, duration));
+
   return {
-    duration: clampInt(body.duration, LIMITS.durationMin, LIMITS.durationMax, 10),
+    duration: duration,
+    lock_seconds: lockSeconds,
     display_mode: displayMode,
     switch_interval: clampInt(body.switch_interval, LIMITS.switchIntervalMin, LIMITS.switchIntervalMax, 5),
     scroll_speed: clampInt(body.scroll_speed, LIMITS.scrollSpeedMin, LIMITS.scrollSpeedMax, 60),
+    scroll_direction: scrollDirection,
     effect: effect,
     bg_color: bgColor,
     bg_gradient: normalizeGradient(body.bg_gradient, bgColor, '#1D2939'),
@@ -188,10 +198,10 @@ router.post('/', auth.requirePermission('manage_big_text'), function(req, res) {
 
   var insert = db.prepare(
     'INSERT INTO big_text_broadcasts ' +
-    '(content, sub_content, show_sender, display_mode, switch_interval, scroll_speed, effect, ' +
-    ' text_gradient, bg_gradient, duration, bg_color, font_color, font_family, font_size, font_weight, text_align, ' +
+    '(content, sub_content, show_sender, display_mode, switch_interval, scroll_speed, scroll_direction, effect, ' +
+    ' text_gradient, bg_gradient, duration, lock_seconds, bg_color, font_color, font_family, font_size, font_weight, text_align, ' +
     ' target_type, target_class, target_ids, created_by, created_by_name, created_at) ' +
-    'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   );
   var result = insert.run(
     content,
@@ -200,10 +210,12 @@ router.post('/', auth.requirePermission('manage_big_text'), function(req, res) {
     style.display_mode,
     style.switch_interval,
     style.scroll_speed,
+    style.scroll_direction,
     style.effect,
     style.text_gradient ? JSON.stringify(style.text_gradient) : '',
     style.bg_gradient ? JSON.stringify(style.bg_gradient) : '',
     style.duration,
+    style.lock_seconds,
     style.bg_color,
     style.font_color,
     style.font_family,

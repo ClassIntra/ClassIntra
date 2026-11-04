@@ -7,7 +7,51 @@ import { APP_REGISTRY } from '@/core/app-registry';
 // 网格规格
 var MAX_PAGES = 9;
 var MAX_DOCK = 12;  // Dock 可滚动扩展，上限 12
-var SLOTS_PER_PAGE = 24;
+// 桌面网格：6 列固定，行数可变（4~7，随 layout.rows 持久化）
+var GRID_COLS = 6;
+var GRID_ROWS_MIN = 4;
+var GRID_ROWS_MAX = 7;
+// 兼容旧网格代码的最小页容量（6×4=24，与重构前常量同值）
+var SLOTS_PER_PAGE = GRID_COLS * GRID_ROWS_MIN;
+
+function layoutRows(layout) {
+  var r = layout && parseInt(layout.rows, 10);
+  if (!(r >= GRID_ROWS_MIN && r <= GRID_ROWS_MAX)) r = 4;
+  return r;
+}
+function gridSlotCount(layout) { return GRID_COLS * layoutRows(layout); }
+// 大文件夹尺寸 → 跨格数（'1x1' 不落字段，缺省 1×1）
+function folderSpanWH(size) {
+  if (size === '2x2') return { w: 2, h: 2 };
+  if (size === '2x4') return { w: 4, h: 2 };
+  return { w: 1, h: 1 };
+}
+// 计算一页内大文件夹覆盖的槽位索引（不含文件夹自身槽位）与跨度。
+// folders 取 layout.folders（size 字段）；rows 为当前网格行数。
+// 越界（右/下出网格）视为非法 → 该 folder 按 1×1 处理。
+function pageFolderCoverage(page, folders, rows) {
+  var covered = {};
+  var spans = {};
+  if (!page || !Array.isArray(page.slots)) return { covered: covered, spans: spans };
+  for (var i = 0; i < page.slots.length; i++) {
+    var s = page.slots[i];
+    if (!s || s.type !== 'folder') continue;
+    var f = folders && folders[s.id];
+    var span = folderSpanWH(f && f.size);
+    if (span.w < 2 && span.h < 2) continue;
+    var c0 = i % GRID_COLS;
+    var r0 = Math.floor(i / GRID_COLS);
+    if (c0 + span.w > GRID_COLS || r0 + span.h > rows) continue;  // 越界 → 1×1
+    spans[i] = { w: span.w, h: span.h };
+    for (var dr = 0; dr < span.h; dr++) {
+      for (var dc = 0; dc < span.w; dc++) {
+        if (dr === 0 && dc === 0) continue;
+        covered[i + dr * GRID_COLS + dc] = true;
+      }
+    }
+  }
+  return { covered: covered, spans: spans };
+}
 
 // localStorage 缓存键
 var LS_CACHE_KEY = 'classintra_desktop_layout';
@@ -35,14 +79,15 @@ function _restoreSource(layout, from, movedItem, srcAppName) {
       layout.folders[from.folderId].apps.push(srcAppName);
     } else {
       // 文件夹已解散，放回第一页空槽
-      if (layout.pages[0]) pushToFirstEmptySlot(layout.pages[0], srcAppName);
+      if (layout.pages[0]) pushToFirstEmptySlot(layout.pages[0], srcAppName, layout.folders, gridSlotCount(layout));
     }
   }
 }
 
 // 根据 enabledAppNames 生成默认布局
 // 默认 Dock: chat/community/notes/settings（若启用）；非 Dock 应用按顺序填 page-0
-function buildDefaultLayout(enabledAppNames) {
+function buildDefaultLayout(enabledAppNames, rows) {
+  rows = (rows >= GRID_ROWS_MIN && rows <= GRID_ROWS_MAX) ? rows : 4;
   var names = enabledAppNames || [];
   var dockCandidates = ['chat', 'community', 'notes', 'settings'];
   var dock = dockCandidates.filter(function(n) {
@@ -53,13 +98,15 @@ function buildDefaultLayout(enabledAppNames) {
     return dock.indexOf(n) === -1;
   });
 
-  var slots = new Array(SLOTS_PER_PAGE).fill(null);
-  for (var i = 0; i < nonDockApps.length && i < SLOTS_PER_PAGE; i++) {
+  var slotCount = GRID_COLS * rows;
+  var slots = new Array(slotCount).fill(null);
+  for (var i = 0; i < nonDockApps.length && i < slotCount; i++) {
     slots[i] = { type: 'app', name: nonDockApps[i] };
   }
 
   return {
     version: 2,
+    rows: rows,
     pages: [{ id: 'page-0', slots: slots }],
     dock: dock,
     pinnedApps: [],
@@ -94,25 +141,28 @@ function cleanLayoutApps(layout, enabledAppNames) {
 }
 
 function normalizeLayout(serverLayout, enabledAppNames) {
+  // 图标密度（行数）随布局持久化：旧布局无 rows 默认 4（6×4）
+  var rows = (serverLayout && (serverLayout.rows === 4 || serverLayout.rows === 5 || serverLayout.rows === 6 || serverLayout.rows === 7)) ? serverLayout.rows : 4;
+  var slotCount = GRID_COLS * rows;
   if (!serverLayout || typeof serverLayout !== 'object') {
-    return buildDefaultLayout(enabledAppNames);
+    return buildDefaultLayout(enabledAppNames, rows);
   }
   // 基础校验，不合法则回退默认
   if (!Array.isArray(serverLayout.pages) || serverLayout.pages.length < 1) {
-    return buildDefaultLayout(enabledAppNames);
+    return buildDefaultLayout(enabledAppNames, rows);
   }
   // 确保 pages 数量在 1-9
   var pages = serverLayout.pages.slice(0, MAX_PAGES);
-  // 规范化每页 slots 长度
+  // 规范化每页 slots 长度（行数变化时旧布局自动补空行/截断）
   pages = pages.map(function(page, pi) {
-    var slots = Array.isArray(page.slots) ? page.slots.slice(0, SLOTS_PER_PAGE) : [];
-    while (slots.length < SLOTS_PER_PAGE) slots.push(null);
+    var slots = Array.isArray(page.slots) ? page.slots.slice(0, slotCount) : [];
+    while (slots.length < slotCount) slots.push(null);
     return {
       id: typeof page.id === 'string' ? page.id : ('page-' + pi),
       slots: slots
     };
   });
-  if (pages.length < 1) pages = [{ id: 'page-0', slots: new Array(SLOTS_PER_PAGE).fill(null) }];
+  if (pages.length < 1) pages = [{ id: 'page-0', slots: new Array(slotCount).fill(null) }];
 
   var dock = Array.isArray(serverLayout.dock) ? serverLayout.dock.slice(0, MAX_DOCK).filter(function(n) { return n !== null && n; }) : [];
   // 旧版本默认 pinnedApps: ['settings']，现已取消该固定（让设置图标可拖动）
@@ -144,19 +194,49 @@ function normalizeLayout(serverLayout, enabledAppNames) {
       if (!existingApps[appName]) {
         var placed = false;
         for (var pp = 0; pp < pages.length; pp++) {
-          if (pushToFirstEmptySlot(pages[pp], appName)) { placed = true; break; }
+          if (pushToFirstEmptySlot(pages[pp], appName, folders, slotCount)) { placed = true; break; }
         }
         if (!placed && pages.length < MAX_PAGES) {
-          var newPage = { id: 'page-' + Date.now() + '-' + pages.length, slots: new Array(SLOTS_PER_PAGE).fill(null) };
-          pushToFirstEmptySlot(newPage, appName);
+          var newPage = { id: 'page-' + Date.now() + '-' + pages.length, slots: new Array(slotCount).fill(null) };
+          pushToFirstEmptySlot(newPage, appName, folders, slotCount);
           pages.push(newPage);
         }
       }
     }
   }
 
+  // 大文件夹合法性兜底：size 非法 / 覆盖格越界或被占 → 回退 1×1
+  Object.keys(folders).forEach(function(fid) {
+    var f = folders[fid];
+    if (f.size && f.size !== '2x2' && f.size !== '2x4') delete f.size;
+    if (!f.size) return;
+    var span = folderSpanWH(f.size);
+    var ok = false;
+    for (var pi = 0; pi < pages.length && !ok; pi++) {
+      var slots = pages[pi].slots;
+      for (var si = 0; si < slots.length; si++) {
+        var sl = slots[si];
+        if (!sl || sl.type !== 'folder' || sl.id !== fid) continue;
+        var c0 = si % GRID_COLS;
+        var r0 = Math.floor(si / GRID_COLS);
+        if (c0 + span.w > GRID_COLS || r0 + span.h > rows) break;
+        ok = true;
+        for (var dr = 0; dr < span.h && ok; dr++) {
+          for (var dc = 0; dc < span.w && ok; dc++) {
+            if (dr === 0 && dc === 0) continue;
+            if (slots[si + dr * GRID_COLS + dc] !== null) ok = false;
+          }
+        }
+        if (ok) return;  // 该 folder 合法，保留 size
+        break;
+      }
+    }
+    if (!ok) delete f.size;  // 覆盖格被占/越界/槽位丢失 → 回退 1×1
+  });
+
   return {
     version: 2,
+    rows: rows,
     pages: pages,
     dock: dock,
     pinnedApps: pinnedApps,
@@ -217,6 +297,8 @@ var getters = {
   totalPages: function(state) {
     return state.layout ? state.layout.pages.length : 0;
   },
+  // 图标密度（行数），列固定 6
+  gridRows: function(state) { return layoutRows(state.layout); },
   // 当前页
   currentPage: function(state) { return state.currentPage; },
   // 当前页 slots
@@ -402,7 +484,7 @@ var mutations = {
               layout.folders[from.folderId].apps.push(swappedName);
             } else {
               // 文件夹已解散，放回当前页末尾空槽
-              pushToFirstEmptySlot(layout.pages[state.currentPage], swappedName);
+              pushToFirstEmptySlot(layout.pages[state.currentPage], swappedName, layout.folders, gridSlotCount(layout));
             }
           }
         } else if (target.type === 'folder' && !isFolderItem) {
@@ -442,7 +524,7 @@ var mutations = {
               layout.dock[from.index] = oldDockApp;
             } else {
               // 跨区域：旧应用放回当前页空槽
-              pushToFirstEmptySlot(layout.pages[state.currentPage], oldDockApp);
+              pushToFirstEmptySlot(layout.pages[state.currentPage], oldDockApp, layout.folders, gridSlotCount(layout));
             }
           }
         }
@@ -721,7 +803,7 @@ var mutations = {
     if (state.layout.pages.length >= MAX_PAGES) return;
     var layout = cloneLayout(state.layout);
     var newId = 'page-' + Date.now();
-    layout.pages.push({ id: newId, slots: new Array(SLOTS_PER_PAGE).fill(null) });
+    layout.pages.push({ id: newId, slots: new Array(gridSlotCount(layout)).fill(null) });
     state.layout = layout;
     state.currentPage = layout.pages.length - 1;
   },
@@ -765,9 +847,11 @@ var mutations = {
     state.layout = layout;
   },
 
-  // 重置为默认布局
-  RESET_LAYOUT: function(state, enabledAppNames) {
-    state.layout = buildDefaultLayout(enabledAppNames);
+  // 重置为默认布局（保留图标密度——rows 是用户的空间偏好，不随重置丢失）
+  RESET_LAYOUT: function(state, payload) {
+    var enabled = payload && payload.enabled !== undefined ? payload.enabled : payload;
+    var rows = payload && payload.rows;
+    state.layout = buildDefaultLayout(enabled, rows);
     state.currentPage = 0;
     state.openFolderId = null;
     state.isEditMode = false;
@@ -776,20 +860,95 @@ var mutations = {
     state.draggingApp = null;
   },
 
-  // 整理桌面：压缩当前页空缺
+  // 图标密度变更：payload 为已 regrid 的完整布局（含 rows）
+  SET_GRID_ROWS: function(state, layout) {
+    if (!layout || !layout.pages) return;
+    state.layout = layout;
+    state.currentPage = Math.min(state.currentPage, layout.pages.length - 1);
+  },
+
+  // 整理桌面：压缩当前页空缺（跳过大文件夹覆盖格——它们必须保持为空）
   TIDY_PAGE: function(state, pageIndex) {
     if (!state.layout) return;
     var layout = cloneLayout(state.layout);
     var page = layout.pages[pageIndex];
     if (page) {
-      var nonEmpty = page.slots.filter(function(s) { return s !== null; });
-      var newSlots = new Array(SLOTS_PER_PAGE).fill(null);
-      for (var i = 0; i < nonEmpty.length; i++) {
-        newSlots[i] = nonEmpty[i];
+      var cov = pageFolderCoverage(page, layout.folders, layoutRows(layout)).covered;
+      var nonEmpty = [];
+      for (var i = 0; i < page.slots.length; i++) {
+        if (page.slots[i] !== null && !cov[i]) nonEmpty.push(page.slots[i]);
+      }
+      var newSlots = new Array(page.slots.length).fill(null);
+      var filled = 0;
+      for (var j = 0; j < newSlots.length && filled < nonEmpty.length; j++) {
+        if (!cov[j]) {
+          newSlots[j] = nonEmpty[filled];
+          filled++;
+        }
       }
       page.slots = newSlots;
       state.layout = layout;
     }
+  },
+
+  // 大文件夹尺寸循环（1x1 → 2x2 → 2x4 → 1x1）：
+  // payload.nextSize 缺省时按顺序取下一档；覆盖格被占/越界则静默放弃（组件层负责校验与 toast）
+  RESIZE_FOLDER: function(state, payload) {
+    if (!state.layout) return;
+    var folder = state.layout.folders && state.layout.folders[payload.folderId];
+    if (!folder) return;
+    var order = ['1x1', '2x2', '2x4'];
+    var cur = order.indexOf(folder.size || '1x1');
+    var nextSize = payload.nextSize || order[(cur + 1) % order.length];
+    if (nextSize === (folder.size || '1x1')) return;
+    var layout = cloneLayout(state.layout);
+    var page = layout.pages[payload.pageIndex];
+    if (!page || !Array.isArray(page.slots)) return;
+    var folder2 = layout.folders[payload.folderId];
+    if (!folder2) return;
+    var span = folderSpanWH(nextSize);
+    var idx = payload.index;
+    var rows = layoutRows(layout);
+    if (idx % GRID_COLS + span.w > GRID_COLS || Math.floor(idx / GRID_COLS) + span.h > rows) return;
+
+    // 覆盖格被占 → 自动腾挪（HarmonyOS 语义）：容量预检保证原子性，优先挪到本页空位
+    var occupied = [];
+    for (var dr = 0; dr < span.h; dr++) {
+      for (var dc = 0; dc < span.w; dc++) {
+        if (dr === 0 && dc === 0) continue;
+        var cell = idx + dr * GRID_COLS + dc;
+        if (page.slots[cell]) occupied.push({ index: cell, slot: page.slots[cell] });
+      }
+    }
+    if (occupied.length > 0) {
+      var freeCount = 0;
+      for (var pi = 0; pi < layout.pages.length; pi++) {
+        var pg = layout.pages[pi];
+        var cov2 = pageFolderCoverage(pg, layout.folders, rows).covered;
+        for (var si = 0; si < pg.slots.length; si++) {
+          if (!pg.slots[si] && !cov2[si]) freeCount++;
+        }
+      }
+      if (freeCount < occupied.length) return;  // 全局无处腾挪 → 放弃
+      for (var k = 0; k < occupied.length; k++) {
+        page.slots[occupied[k].index] = null;
+      }
+      for (var k2 = 0; k2 < occupied.length; k2++) {
+        // 容量已预检不会失败；兜底：放回原格
+        if (!placeAppAnywhere(layout, occupied[k2].slot, payload.pageIndex)) {
+          page.slots[occupied[k2].index] = occupied[k2].slot;
+        }
+      }
+    }
+
+    folder2.size = nextSize === '1x1' ? undefined : nextSize;
+    for (var dr2 = 0; dr2 < span.h; dr2++) {
+      for (var dc2 = 0; dc2 < span.w; dc2++) {
+        if (dr2 === 0 && dc2 === 0) continue;
+        page.slots[idx + dr2 * GRID_COLS + dc2] = null;
+      }
+    }
+    state.layout = layout;
   }
 };
 
@@ -797,9 +956,13 @@ var mutations = {
 // item 支持两种形式：
 //   - 字符串（应用名）→ 包装为 {type:'app', name}
 //   - 对象 {type, name|id}（已有 slot 引用）→ 直接放入
-function pushToFirstEmptySlot(page, item) {
+function pushToFirstEmptySlot(page, item, folders, slotCount) {
   if (!page || !item) return false;
-  for (var i = 0; i < page.slots.length; i++) {
+  // 跳过大文件夹覆盖格（它们必须保持为空，否则 tile 会压住图标）
+  var cov = (folders && slotCount) ? pageFolderCoverage(page, folders, Math.floor(slotCount / GRID_COLS)).covered : {};
+  var limit = slotCount || page.slots.length;
+  for (var i = 0; i < limit && i < page.slots.length; i++) {
+    if (cov[i]) continue;
     if (page.slots[i] === null) {
       if (typeof item === 'object') {
         page.slots[i] = item;
@@ -817,26 +980,68 @@ function pushToFirstEmptySlot(page, item) {
 // 返回 true 表示成功放置
 function placeAppAnywhere(layout, item, preferPageIndex) {
   if (!layout || !item) return false;
+  var slotCount = gridSlotCount(layout);
+  var folders = layout.folders;
+  // 大文件夹引用落位兜底：放置后覆盖非法则回退 1×1
+  var isFolderRef = item && typeof item === 'object' && item.type === 'folder';
   // 1. 优先放指定页
   if (preferPageIndex !== undefined && layout.pages[preferPageIndex]) {
-    if (pushToFirstEmptySlot(layout.pages[preferPageIndex], item)) return true;
+    if (pushToFirstEmptySlot(layout.pages[preferPageIndex], item, folders, slotCount)) {
+      if (isFolderRef) sanitizeLargeFolders(layout.pages, layout.folders, layoutRows(layout));
+      return true;
+    }
   }
   // 2. 尝试其他已有页面
   for (var i = 0; i < layout.pages.length; i++) {
     if (i === preferPageIndex) continue;
-    if (pushToFirstEmptySlot(layout.pages[i], item)) return true;
+    if (pushToFirstEmptySlot(layout.pages[i], item, folders, slotCount)) {
+      if (isFolderRef) sanitizeLargeFolders(layout.pages, layout.folders, layoutRows(layout));
+      return true;
+    }
   }
   // 3. 所有页面都满，新增页面
   if (layout.pages.length < MAX_PAGES) {
     var newPage = {
       id: 'page-' + Date.now() + '-' + layout.pages.length,
-      slots: new Array(SLOTS_PER_PAGE).fill(null)
+      slots: new Array(slotCount).fill(null)
     };
-    pushToFirstEmptySlot(newPage, item);
+    pushToFirstEmptySlot(newPage, item, folders, slotCount);
     layout.pages.push(newPage);
+    if (isFolderRef) sanitizeLargeFolders(layout.pages, layout.folders, layoutRows(layout));
     return true;
   }
   return false;  // 已达最大页数且无空槽
+}
+
+// 大文件夹合法性兜底（运行时腾挪路径复用）：覆盖越界/被占/size 非法 → 回退 1×1
+function sanitizeLargeFolders(pages, folders, rows) {
+  Object.keys(folders).forEach(function(fid) {
+    var f = folders[fid];
+    if (f.size && f.size !== '2x2' && f.size !== '2x4') delete f.size;
+    if (!f.size) return;
+    var span = folderSpanWH(f.size);
+    var ok = false;
+    for (var pi = 0; pi < pages.length && !ok; pi++) {
+      var slots = pages[pi].slots;
+      for (var si = 0; si < slots.length; si++) {
+        var sl = slots[si];
+        if (!sl || sl.type !== 'folder' || sl.id !== fid) continue;
+        var c0 = si % GRID_COLS;
+        var r0 = Math.floor(si / GRID_COLS);
+        if (c0 + span.w > GRID_COLS || r0 + span.h > rows) break;
+        ok = true;
+        for (var dr = 0; dr < span.h && ok; dr++) {
+          for (var dc = 0; dc < span.w && ok; dc++) {
+            if (dr === 0 && dc === 0) continue;
+            if (slots[si + dr * GRID_COLS + dc] !== null) ok = false;
+          }
+        }
+        if (ok) return;
+        break;
+      }
+    }
+    if (!ok) delete f.size;
+  });
 }
 
 // 模块级 debounce 定时器
@@ -928,10 +1133,52 @@ var actions = {
   toggleEditMode: function(context) {
     context.commit('SET_EDIT_MODE', !context.state.isEditMode);
   },
-  // 重置布局并保存
+  // 重置布局并保存（保留当前密度）
   resetLayout: function(context, enabledAppNames) {
-    context.commit('RESET_LAYOUT', enabledAppNames);
+    context.commit('RESET_LAYOUT', { enabled: enabledAppNames, rows: layoutRows(context.state.layout) });
     context.dispatch('saveDesktopLayout');
+  },
+
+  // 调整图标密度（行数 4~7）：收缩时先腾挪溢出槽内容，扩张补空行。
+  // 返回迁移的图标数（0 表示无迁移），供面板 toast
+  setGridRows: function(context, rows) {
+    rows = (rows >= GRID_ROWS_MIN && rows <= GRID_ROWS_MAX) ? rows : 4;
+    var layout = context.state.layout;
+    var curRows = layoutRows(layout);
+    if (!layout || rows === curRows) return 0;
+    var moved = 0;
+    var clones = cloneLayout(layout);
+    // 收缩：把每页溢出槽的非空内容先腾挪（folder 引用整槽迁移，迁移后覆盖非法自动回退 1×1）
+    if (rows < curRows) {
+      var keep = GRID_COLS * rows;
+      for (var pi = 0; pi < clones.pages.length; pi++) {
+        var slots = clones.pages[pi].slots;
+        for (var si = keep; si < slots.length; si++) {
+          var s = slots[si];
+          if (!s) continue;
+          slots[si] = null;
+          if (placeAppAnywhere(clones, s, pi)) {
+            moved++;
+          } else {
+            // 全局无处安放（极端满载）：放回原位，中止收缩
+            slots[si] = s;
+          }
+        }
+      }
+      if (moved > 0) sanitizeLargeFolders(clones.pages, clones.folders, rows);
+    }
+    // regrid 到目标行数
+    var target = GRID_COLS * rows;
+    clones.rows = rows;
+    for (var pj = 0; pj < clones.pages.length; pj++) {
+      var arr = clones.pages[pj].slots.slice(0, target);
+      while (arr.length < target) arr.push(null);
+      clones.pages[pj].slots = arr;
+    }
+    context.commit('SET_GRID_ROWS', clones);
+    try { localStorage.setItem('gridRows', String(rows)); } catch (e) {}
+    context.dispatch('saveDesktopLayout');
+    return moved;
   },
   // 删除页面并保存
   removePage: function(context, pageIndex) {
@@ -944,6 +1191,12 @@ var actions = {
   addWidget: function(context, payload) {
     var widgetDef = getWidgetDef(payload.type);
     var defaultSize = (widgetDef && widgetDef.defaultSize) || { w: 2, h: 2 };
+    var maxSize = (widgetDef && widgetDef.maxSize) || { w: 4, h: 4 };
+    // 防御性夹紧：显式 w/h 不得越过 maxSize（picker 的加宽选项已先行夹紧，此处兜底）
+    var w = payload.w || defaultSize.w;
+    var h = payload.h || defaultSize.h;
+    w = Math.max(1, Math.min(w, maxSize.w));
+    h = Math.max(1, Math.min(h, maxSize.h));
     var widget = {
       id: 'w_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
       type: payload.type,
@@ -951,8 +1204,8 @@ var actions = {
       // 据此在应用禁用/卸载后清掉布局里失效的 widget 引用
       appName: (widgetDef && widgetDef._app) || '',
       slot: 0,
-      w: payload.w || defaultSize.w,
-      h: payload.h || defaultSize.h,
+      w: w,
+      h: h,
       config: payload.config || {}
     };
     context.commit('ADD_WIDGET', { pageId: payload.pageId, widget: widget });
@@ -1019,4 +1272,4 @@ export default {
   actions: actions
 };
 
-export { APP_REGISTRY, MAX_PAGES, MAX_DOCK, SLOTS_PER_PAGE };
+export { APP_REGISTRY, MAX_PAGES, MAX_DOCK, GRID_COLS, GRID_ROWS_MIN, GRID_ROWS_MAX };

@@ -896,6 +896,13 @@ router.post('/announcements', auth.requirePermission('manage_announcements'), fu
       "INSERT INTO announcements (title, content, type, author_id, author_name, pinned, created_at) VALUES (?, ?, ?, ?, ?, 0, datetime('now'))"
     ).run(title.trim(), content.trim(), type, req.user.user_id, authorName);
     logAction(req.user.user_id, 'create_announcement', String(result.lastInsertRowid), type + ': ' + title.trim());
+    // 出站 Webhook：外部系统（大屏 / 班级门户）可订阅公告事件
+    require('../integrations/emit').emit('announcement.published', {
+      id: result.lastInsertRowid,
+      title: title.trim(),
+      type: type,
+      author_id: req.user.user_id || ''
+    });
     res.json({ code: 200, message: '公告发布成功', data: { id: result.lastInsertRowid } });
   } catch (e) {
     res.status(500).json({ code: 500, message: '发布公告失败' });
@@ -2246,9 +2253,26 @@ router.put('/app-control/:appName', auth.requirePermission('manage_app_control')
         updatedBy: req.user.user_id || ''
       });
     } catch (broadcastError) {}
+    // 出站 Webhook：应用启停对外可见（外部门户据此收起 / 恢复入口）
+    require('../integrations/emit').emit(enabled === 1 ? 'app.enabled' : 'app.disabled', {
+      name: appName,
+      label: validApp.label || appName,
+      source: validApp.source || 'builtin',
+      operator: req.user.user_id || ''
+    });
+    // 启停联动定时任务：停用即撤掉任务，启用时按 manifest 重新注册
+    try {
+      var scheduler = require('../core/app-scheduler');
+      if (enabled === 1) scheduler.syncApp(appName);
+      else scheduler.unregister(appName);
+    } catch (schedError) {
+      console.warn('[Admin] 定时任务同步失败:', schedError.message);
+    }
     // 独立端口型市场应用：启停联动子进程（停用杀进程，启用拉起）
     try {
-      var marketService = require('../core/market-service');
+      // ⚠️ 不要再写 `var marketService = require(...)`：`var` 会提升到函数作用域，
+      // 把顶层那个 marketService 遮蔽成 undefined，导致上面查找第三方应用时
+      // marketService.listInstalled() 直接 500（第三方禁用失效的根因）。
       marketService.refreshProcessState(appName, enabled === 1);
     } catch (procError) {
       console.warn('[Admin] 进程型应用启停联动失败:', procError.message);

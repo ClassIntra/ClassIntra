@@ -9,6 +9,9 @@
       </div>
       <div class="nav-center">
         <h1 v-if="!largeTitle || collapsed" class="nav-title">{{ title }}</h1>
+        <!-- 应用经 hostNavbar.setStatus 注入的状态段（如棋类的「轮到黑方 · 红方」），
+             紧跟标题右侧的灰色小字；无注入时为空 -->
+        <slot name="center-extra"></slot>
       </div>
       <div class="nav-right">
         <slot name="actions"></slot>
@@ -95,8 +98,12 @@ export default {
 .nav-left {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
+  /* ⚠️ 基线 Chrome 80 不支持 flex gap（84 才有），间距用相邻兄弟 margin */
   min-width: 80px;
+}
+
+.nav-left > * + * {
+  margin-left: var(--spacing-sm);
 }
 
 .nav-btn {
@@ -133,6 +140,25 @@ export default {
   text-align: left;
   padding-left: var(--spacing-sm);
   overflow: hidden;
+  /* 标题与注入的状态段同行排布（Chrome 80 无 flex gap，间距走 margin） */
+  display: flex;
+  align-items: center;
+}
+
+.nav-center > * {
+  -ms-flex-negative: 0;
+  flex-shrink: 0;
+}
+
+/* 注入的状态段容器：允许收缩截断，标题永远优先保完整；有内容时与标题拉开 10px */
+.nav-center > .runtime-nav-status {
+  -ms-flex: 0 1 auto;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.nav-center > .runtime-nav-status:not(:empty) {
+  margin-left: 10px;
 }
 
 .nav-title {
@@ -150,9 +176,13 @@ export default {
 .nav-right {
   display: flex;
   align-items: center;
-  gap: 8px;
+  /* ⚠️ 基线 Chrome 80 无 flex gap：注入的连接灯/按钮组间距用 margin */
   min-width: 80px;
   justify-content: flex-end;
+}
+
+.nav-right > * + * {
+  margin-left: 8px;
 }
 
 /* iOS Large Title Mode */

@@ -80,6 +80,7 @@
           <div
             class="content-list scrollbar-thin"
             :style="pullRefreshStyle"
+            :data-cover-tick="coverTick"
             @scroll="onPostsScroll"
             @touchstart="onPullStart"
             @touchmove="onPullMove"
@@ -1208,10 +1209,13 @@ import 'highlight.js/styles/github-dark.min.css';
 import LatexRenderer from '@/utils/latex-renderer';
 import { getMediaTypeByName } from '@/utils/media-recorder.js';
 import { IOS_PALETTE, hashColor } from '@/utils/ios-palette';
-import { generateTextCover } from '@/utils/cover-generator';
+import { generateTextCover, peekTextCover } from '@/utils/cover-generator';
 import { filterRenderable } from '@/utils/emoji-support';
 
 var TAG_COLORS = IOS_PALETTE;
+
+// 封面延后生成期间的透明占位（1×1 透明 GIF）：封面框自身有底色，不会出现破图
+var TRANSPARENT_PX = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
 // 帖子摘要：剥媒体标记/链接后取前 48 字（文字封面用）
 function postCoverExcerpt(post) {
@@ -1390,6 +1394,8 @@ export default {
       forumView: (function() { try { return localStorage.getItem('classintra_community_forum_view') === 'list' ? 'list' : 'waterfall'; } catch (e) { return 'waterfall'; } })(),
       // 视口尺寸变化计数：waterfallColumns 依赖非响应式的 window.innerWidth，靠它触发重算
       viewportTick: 0,
+      // 封面延后生成的完成计数：自增即触发一次重渲染，把占位替换成真封面
+      coverTick: 0,
       postsPage: 1,
       postsHasMore: true,
       postsLoadingMore: false,
@@ -1627,6 +1633,8 @@ export default {
   },
   created: function() {
     var self = this;
+    // 非响应式：登记「封面还没生成、已排队」的帖子 id（响应式会让 delete 失效且徒增开销）
+    self._deferCovers = {};
     self.initData();
     window.addEventListener('resize', self.onViewportResize);
     // 拉取部署方可配置项（食堂列表）；失败静默回落内置默认值
@@ -1905,12 +1913,96 @@ export default {
       }
     },
     textCoverUrl: function(post) {
+      var text = String(post.title || post.content || '帖').replace(/\[[^\]]*\]/g, '').trim();
+      var seed = String(post.id || post.content || 'x');
+      var cached = peekTextCover(text, seed);
+      if (cached) return cached;
+      // 延后生成中的帖子先给透明占位（封面框自带底色，观感是「还没上色」而非破图），
+      // 生成完成后 coverTick 自增触发一次重渲染换真图。见 _queueCovers。
+      if (this._deferCovers && this._deferCovers[post.id]) return TRANSPARENT_PX;
       return generateTextCover(
-        String(post.title || post.content || '帖').replace(/\[[^\]]*\]/g, '').trim(),
+        text,
         post.is_anonymous ? '' : (post.net_name || ''),
         hashColor(String(post.user_id || post.id || 'x')),
-        String(post.id || post.content || 'x')
+        seed
       );
+    },
+    // 首屏封面：可见的前 6 张同步生成（首屏观感不变），其余延后到空闲——
+    // 冷缓存下一次生成 20 张会在 6x 设备上合成 ~900ms 长任务（实测首进社区的最大停顿）。
+    _prepareFirstScreenCovers: function(posts) {
+      var self = this;
+      if (!posts || !posts.length) return;
+      posts.slice(0, 6).forEach(function(p) {
+        try {
+          generateTextCover(
+            String(p.title || p.content || '帖').replace(/\[[^\]]*\]/g, '').trim(),
+            p.is_anonymous ? '' : (p.net_name || ''),
+            hashColor(String(p.user_id || p.id || 'x')),
+            String(p.id || p.content || 'x')
+          );
+        } catch (e) {}
+      });
+      if (posts.length > 6) self._queueCovers(posts.slice(6));
+    },
+    // 分帧追加一页帖子：每帧 4 条，封面生成随批次延后
+    _appendPostsChunked: function(posts) {
+      var self = this;
+      if (!posts || !posts.length) { self.postsLoadingMore = false; return; }
+      var i = 0;
+      var CHUNK = 4;
+      var step = function() {
+        var chunk = posts.slice(i, i + CHUNK);
+        i += CHUNK;
+        self.$store.commit('community/APPEND_POSTS', chunk);
+        self._queueCovers(chunk);
+        if (i < posts.length) requestAnimationFrame(step);
+        else self.postsLoadingMore = false;
+      };
+      requestAnimationFrame(step);
+    },
+    // 新一页帖子到达后，把封面生成挪到空闲时段（首屏仍是同步生成，保证首屏立即有图）。
+    // 背景：loadMorePosts 一次插入 10 条，每条同步跑 canvas + toDataURL，在 6x 降频
+    // 设备上合成一个 500ms 级长任务，正好压在用户滚动的手指上——这就是「滚动一顿一顿」。
+    _queueCovers: function(posts) {
+      var self = this;
+      if (!posts || !posts.length || !this._deferCovers) return;
+      var pending = [];
+      posts.forEach(function(p) {
+        if (!p || p.id == null) return;
+        var text = String(p.title || p.content || '帖').replace(/\[[^\]]*\]/g, '').trim();
+        var seed = String(p.id || p.content || 'x');
+        if (peekTextCover(text, seed)) return;
+        self._deferCovers[p.id] = true;
+        pending.push({ post: p, text: text, seed: seed });
+      });
+      if (!pending.length) return;
+      var schedule = function(fn) {
+        if (typeof window.requestIdleCallback === 'function') window.requestIdleCallback(fn, { timeout: 1500 });
+        else setTimeout(fn, 120);
+      };
+      var pump = function() {
+        // 正在滑动就让路：toDataURL 不可中断，只要在滚动期间跑就一定掉帧。
+        // 停手 250ms 后再补（新帖在屏幕外，用户看不到这段延迟）。
+        if (self._scrollActive) { setTimeout(pump, 250); return; }
+        var start = Date.now();
+        var changed = false;
+        while (pending.length && Date.now() - start < 8) {
+          var item = pending.shift();
+          try {
+            generateTextCover(
+              item.text,
+              item.post.is_anonymous ? '' : (item.post.net_name || ''),
+              hashColor(String(item.post.user_id || item.post.id || 'x')),
+              item.seed
+            );
+          } catch (e) {}
+          delete self._deferCovers[item.post.id];
+          changed = true;
+        }
+        if (changed) self.coverTick++;   // 触发一次重渲染，拿到新生成的封面
+        if (pending.length) schedule(pump);
+      };
+      schedule(pump);
     },
     tagPillStyle: function(tag) {
       var hex = hashColor(String(tag));
@@ -2050,7 +2142,8 @@ export default {
       self.loading = true;
       self.$store.dispatch('community/fetchPosts', { page: 1, sort: self.sortMode }).then(function() {
         self.loading = false;
-        self.postsHasMore = self.posts.length >= 20;
+        self.postsHasMore = self.posts.length >= 10;
+        self._prepareFirstScreenCovers(self.posts);
         self.loadUserLevels(self.posts);
       });
       self.$store.dispatch('community/fetchGroups');
@@ -2068,7 +2161,8 @@ export default {
         this.loading = true;
         this.$store.dispatch('community/fetchPosts', { page: 1, sort: mode }).then(function() {
           self.loading = false;
-          self.postsHasMore = self.posts.length >= 20;
+          self.postsHasMore = self.posts.length >= 10;
+          self._prepareFirstScreenCovers(self.posts);
           self.loadUserLevels(self.posts);
         });
       }
@@ -2082,23 +2176,38 @@ export default {
       this.viewportTick++;
     },
     onPostsScroll: function(event) {
-      var container = event.target;
-      if (container.scrollTop + container.clientHeight >= container.scrollHeight - 100) {
-        if (!this.postsLoadingMore && this.postsHasMore) {
-          this.loadMorePosts();
+      // 2026-11-02 性能：滚动事件每帧可达数次，原实现每次都读 scrollTop/scrollHeight
+      // （图片刚解码时布局脏 → 每次读都强制 reflow，6x 降频下 self time 855ms/3s）。
+      // 改为 rAF 合帧：一帧最多读一次，触底判定逻辑不变。
+      var self = this;
+      this._postsScrollTarget = event.target;
+      this._scrollActive = true;
+      if (this._scrollIdleTimer) clearTimeout(this._scrollIdleTimer);
+      this._scrollIdleTimer = setTimeout(function() {
+        self._scrollIdleTimer = null;
+        self._scrollActive = false;
+      }, 250);
+      if (this._postsScrollRaf) return;
+      this._postsScrollRaf = requestAnimationFrame(function() {
+        self._postsScrollRaf = 0;
+        var container = self._postsScrollTarget;
+        if (!container) return;
+        if (container.scrollTop + container.clientHeight >= container.scrollHeight - 100) {
+          if (!self.postsLoadingMore && self.postsHasMore) {
+            self.loadMorePosts();
+          }
         }
-      }
+      });
     },
     loadMorePosts: function() {
       var self = this;
       if (self.postsLoadingMore || !self.postsHasMore) return;
       self.postsPage++;
       self.postsLoadingMore = true;
-      self.$store.dispatch('community/fetchPostsPage', { page: self.postsPage, sort: self.sortMode }).then(function(result) {
-        if (!result || !result.has_more) {
-          self.postsHasMore = false;
-        }
-        self.postsLoadingMore = false;
+      self.$store.dispatch('community/fetchPostsPage', { page: self.postsPage, sort: self.sortMode, raw: true }).then(function(result) {
+        self.postsHasMore = !!(result && result.has_more);
+        // 分帧插入：一次 4 条，避免「插入 10 张卡片」在弱设备上合成一个长任务
+        self._appendPostsChunked((result && result.posts) || []);
       }).catch(function() {
         self.postsLoadingMore = false;
         self.postsHasMore = false;

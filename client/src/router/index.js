@@ -152,6 +152,15 @@ router.beforeEach(function(to, from, next) {
   }
 
   if (to.meta.requiresAuth && !token) {
+    // 保存回跳目标：外部链接直达应用（如 /gomoku?room=A12）时若未登录会先到登录页，
+    // 登录成功后必须回到原目标，否则「点链接进房间」这个场景会退化成「登录后到桌面」。
+    // 只接受站内相对路径（不以 // 开头），避免被构造成开放重定向。
+    try {
+      var back = to.fullPath;
+      if (back && back.charAt(0) === '/' && back.indexOf('//') !== 0) {
+        localStorage.setItem('ci:redirect-after-login', back);
+      }
+    } catch (e) {}
     next({ name: 'Login' });
     return;
   }

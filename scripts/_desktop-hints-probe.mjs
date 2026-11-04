@@ -4,12 +4,12 @@
 // 前置：classintra-server 已在 127.0.0.1:9001 运行；client/dist 为本次构建产物。
 //
 // 断言清单：
-//   A. 空页引导：已知的空页显示 .desktop-page-empty-hint；ADD_PAGE 后数量 +1、REMOVE_PAGE 复原
+//   A. 空页无提示（2026-11-01 用户要求移除中央提示——本组为回归守卫）
 //   B. 溢出提示：向首版面注入 5 个 2×2 小组件（占 20 格）→ 编辑态出现溢出提示且数量正确；清理后消失
 //   C. 文件夹原点：打开文件夹后卡片 transform-origin 指向 tile 方向（父侧 nextTick 直设）
 //   全程只用 commit（mutation），不 dispatch 任何带 saveDesktopLayout 副作用的 action（编辑态除外）
 import { spawn } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -108,22 +108,14 @@ function check(name, ok, detail) {
   ok ? pass++ : fail++;
 }
 
-// ===== A. 空页引导 =====
-const filled0 = await evalJS(`${deskVm} ? ${deskVm}.isPageEmpty(0) : null`);
-const baseHints = await countHints();
-check('A0 空页判定与提示数量一致', typeof filled0 === 'boolean' && baseHints >= 0, `isPageEmpty(0)=${filled0}, 提示数=${baseHints}`);
-
-const totalBefore = await evalJS(`${store}.getters['desktop/totalPages']`);
+// ===== A. 空页无提示（回归守卫：中央提示已按用户要求移除） =====
+const hintsOnEmpty = await countHints();
+check('A1 空页（含加删页后）不显示任何提示', hintsOnEmpty === 0, `提示数=${hintsOnEmpty}`);
 await evalJS(`${store}.commit('desktop/ADD_PAGE')`);
 await sleep(400);
-const totalAfter = await evalJS(`${store}.getters['desktop/totalPages']`);
-const hintsAfter = await countHints();
-check('A1 加页后空页提示 +1', totalAfter === totalBefore + 1 && hintsAfter === baseHints + 1, `页数 ${totalBefore}→${totalAfter}, 提示 ${baseHints}→${hintsAfter}`);
-
-await evalJS(`${store}.commit('desktop/REMOVE_PAGE', ${totalAfter - 1})`);
+await evalJS(`${store}.commit('desktop/REMOVE_PAGE', ${store}.getters['desktop/totalPages'] - 1)`);
 await sleep(400);
-const hintsRestored = await countHints();
-check('A2 删页后提示数量复原', hintsRestored === baseHints, `${hintsRestored}`);
+check('A2 加删页后仍无提示', (await countHints()) === 0);
 
 // ===== B. 小组件溢出提示 =====
 const hiddenBefore = await evalJS(`${deskVm} ? ${deskVm}.hiddenIconsCount(0) : null`);
@@ -217,6 +209,76 @@ if (!folderId) {
   })()`);
   const vmPropsOk = !!(vmDiag && vmDiag.name === 'DesktopFolderExpanded' && vmDiag.hasFolder && typeof vmDiag.editing === 'boolean');
   check('C2 展开组件实例可达且 props 可读（穿透 transition）', vmPropsOk, JSON.stringify(vmDiag));
+  // C3 大文件夹：2×2 跨格 + mini 直启 + TIDY 不破坏（展开期间执行）
+  const fLoc = await evalJS(`(function(){
+    var s = ${store};
+    var pages = s.state.desktop.layout.pages;
+    for (var pi = 0; pi < pages.length; pi++) {
+      var slots = pages[pi].slots || [];
+      for (var si = 0; si < slots.length; si++) {
+        var sl = slots[si];
+        if (sl && sl.type === 'folder' && sl.id === '${folderId}') return { pi: pi, si: si };
+      }
+    }
+    return null;
+  })()`);
+  check('C3a 定位文件夹槽位', !!(fLoc && fLoc.pi >= 0), JSON.stringify(fLoc));
+  if (fLoc && fLoc.pi >= 0) {
+    // 应用守恒快照（放大前）：腾挪后总数必须一致（不丢图标）
+    const appSnapshot = await evalJS(`(function(){
+      var s = ${store};
+      var names = [];
+      s.state.desktop.layout.pages.forEach(function(p){ (p.slots||[]).forEach(function(sl){ if (sl && sl.type==='app') names.push(sl.name); }); });
+      Object.keys(s.state.desktop.layout.folders||{}).forEach(function(fid){ (s.state.desktop.layout.folders[fid].apps||[]).forEach(function(n){ names.push(n); });
+      s.state.desktop.layout.dock.forEach(function(n){ names.push(n); }); });
+      return names.sort().join(',');
+    })()`);
+    await evalJS(`${store}.commit('desktop/RESIZE_FOLDER', { folderId: '${folderId}', pageIndex: ${fLoc.pi}, index: ${fLoc.si}, nextSize: '2x2' })`);
+    // 直启会切路由 → Desktop 重挂载会从服务端重拉布局，先保存再验证
+    await evalJS(`${store}.dispatch('desktop/saveDesktopLayout')`);
+    await sleep(900);
+    const bigTile = await evalJS(`(function(){
+      var el = document.querySelector('[data-flip-key="page-folder-${folderId}"]');
+      return el ? Math.round(el.getBoundingClientRect().width) : null;
+    })()`);
+    check('C3b 2×2 跨格生效（tile 宽 >100px）', bigTile !== null && bigTile > 100, String(bigTile));
+    const covInfo = await evalJS(`(function(){
+      var root = document.querySelector('#app').__vue__; var d = null;
+      (function w(l){ (l||[]).forEach(function(v){ if(!d && typeof v.launchApp==='function') d=v; if(v.$children) w(v.$children); }); })(root.$children);
+      var pv = d.pagesView[${fLoc.pi}];
+      return { covered: Object.keys(pv.covered || {}).length, span: !!(pv.spans && pv.spans[${fLoc.si}]) };
+    })()`);
+    check('C3c 覆盖格=3 且 span 记录', covInfo.covered === 3 && covInfo.span === true, JSON.stringify(covInfo));
+    const appAfter = await evalJS(`(function(){
+      var s = ${store};
+      var names = [];
+      s.state.desktop.layout.pages.forEach(function(p){ (p.slots||[]).forEach(function(sl){ if (sl && sl.type==='app') names.push(sl.name); }); });
+      Object.keys(s.state.desktop.layout.folders||{}).forEach(function(fid){ (s.state.desktop.layout.folders[fid].apps||[]).forEach(function(n){ names.push(n); });
+      s.state.desktop.layout.dock.forEach(function(n){ names.push(n); }); });
+      return names.sort().join(',');
+    })()`);
+    check('C3c2 自动腾挪后应用守恒（不丢图标）', appAfter === appSnapshot, appAfter.slice(0, 60));
+    // mini 直启：点大 tile 第一格 → 路由跳转
+    await evalJS(`(function(){
+      var cell = document.querySelector('.folder-tile--large .folder-tile-app--launch') || document.querySelector('.folder-tile--large .folder-tile-app');
+      if (cell) cell.click();
+      return 'ok';
+    })()`);
+    await sleep(1000);
+    const launched = await evalJS(`location.pathname !== '/'`);
+    check('C3d 大文件夹 mini 图标直启', launched === true, await evalJS('location.pathname'));
+    // 发射后不管：router 返回的 Promise 解析值含 route 深对象，returnByValue 序列化会崩
+    await evalJS(`document.querySelector('#app').__vue__.$router.push('/').catch(function(){}); 'ok'`);
+    await sleep(600);
+    // TIDY 不破坏大文件夹
+    await evalJS(`${store}.commit('desktop/TIDY_PAGE', ${fLoc.pi})`);
+    await sleep(300);
+    const sizeKept = await evalJS(`(function(){ try { var f = ${store}.state.desktop.layout.folders['${folderId}']; return f && f.size; } catch (e) { return { __err: String(e) }; } })()`);
+    check('C3e TIDY 后大文件夹尺寸保持 2×2', sizeKept === '2x2', String(sizeKept));
+    await evalJS(`${store}.commit('desktop/RESIZE_FOLDER', { folderId: '${folderId}', pageIndex: ${fLoc.pi}, index: ${fLoc.si}, nextSize: '1x1' })`);
+    await evalJS(`${store}.dispatch('desktop/saveDesktopLayout')`);
+    await sleep(900);
+  }
   await evalJS(`${deskVm}.closeFolder()`);
   await sleep(400);
   if (stagedFolder) {
@@ -227,5 +289,55 @@ if (!folderId) {
 }
 
 console.log(`\n结果：${pass} 通过 / ${fail} 失败`);
+
+// ===== D. 新增官方 widgets 冒烟（时钟/天气/今日日程/音乐播控） =====
+// 注意：C3d 的路由切换会触发 Desktop 重挂载 → loadDesktopLayout 异步落地会冲掉内存内新增的
+// widget，因此采用「加 → 等 → 没渲染就重加」的轮询（ADD 前先 REMOVE 防重复堆积）
+const WIDGET_IDS = ['clock', 'weather-now', 'calendar-today', 'music-mini'];
+const wRootsExpr = `(function(){
+  return {
+    clock: !!document.querySelector('.clock-widget'),
+    weather: !!document.querySelector('.weather-now-widget'),
+    calendar: !!document.querySelector('.calendar-today-widget'),
+    music: !!document.querySelector('.music-mini-widget')
+  };
+})()`;
+function wAddAll() {
+  // 走标准 mutation（响应式安全）；先移除防重复堆积
+  return evalJS(`(function(){
+    var s = ${store};
+    var ids = ['clock', 'weather-now', 'calendar-today', 'music-mini'];
+    for (var i = 0; i < ids.length; i++) {
+      s.commit('desktop/REMOVE_WIDGET', { pageId: 'page-0', widgetId: 'probe-d-' + ids[i] });
+      s.commit('desktop/ADD_WIDGET', { pageId: 'page-0', widget: { id: 'probe-d-' + ids[i], type: ids[i], slot: 0, w: 2, h: 2, config: {} } });
+    }
+    return 'ok';
+  })()`);
+}
+let wRoots = await evalJS(wRootsExpr);
+for (var wAttempt = 0; wAttempt < 8 && !(wRoots && wRoots.clock && wRoots.weather && wRoots.calendar && wRoots.music); wAttempt++) {
+  await wAddAll();
+  await sleep(700);
+  wRoots = await evalJS(wRootsExpr);
+}
+check('D1 四个新组件渲染（时钟/天气/日程/播控）', !!(wRoots && wRoots.clock && wRoots.weather && wRoots.calendar && wRoots.music), JSON.stringify(wRoots));
+await evalJS(`${store}.commit('desktop/SET_CURRENT_PAGE', 0)`);
+await sleep(600);
+const wShot = await send('Page.captureScreenshot', { format: 'png' });
+writeFileSync('D:/tmp/desktop-shots/widgets-page.png', Buffer.from(wShot.data, 'base64'));
+for (var dj = 0; dj < 5; dj++) {
+  await evalJS(`(function(){
+    var s = ${store};
+    var ids = ['clock', 'weather-now', 'calendar-today', 'music-mini'];
+    for (var i = 0; i < ids.length; i++) {
+      s.commit('desktop/REMOVE_WIDGET', { pageId: 'page-0', widgetId: 'probe-d-' + ids[i] });
+    }
+    return 'ok';
+  })()`);
+  await sleep(300);
+  var clean = !(await evalJS(`!!document.querySelector('.clock-widget')`));
+  if (clean) break;
+}
+check('D5 清理无残留', clean);
 ws.close();
 process.exit(fail > 0 ? 1 : 0);

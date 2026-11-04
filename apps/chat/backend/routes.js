@@ -432,17 +432,22 @@ router.get('/private/:userId', function(req, res) {
     if (limit > 100) limit = 100;
     var beforeId = req.query.before_id ? parseInt(req.query.before_id) : null;
     var rows;
+    // ⚠️ private_messages 表没有 sender_name 列，必须 LEFT JOIN users 补名字：
+    //    否则历史消息气泡头像拿到空名字 → 文字回落成 '?'（对方没设头像时暴露）。
+    //    跨班用户不在本机 users 表 → sender_name 为空，由前端 peerName 兜底。
     if (beforeId) {
       rows = db.prepare(
-        'SELECT id, sender_id, receiver_id, content, type, extra_json, read, recalled, created_at FROM private_messages ' +
-        'WHERE ((sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)) AND id < ? ' +
-        'ORDER BY id DESC LIMIT ?'
+        'SELECT m.id, m.sender_id, m.receiver_id, m.content, m.type, m.extra_json, m.read, m.recalled, m.created_at, COALESCE(u.net_name, u.real_name, \'\') AS sender_name ' +
+        'FROM private_messages m LEFT JOIN users u ON u.user_id = m.sender_id ' +
+        'WHERE ((m.sender_id = ? AND m.receiver_id = ?) OR (m.sender_id = ? AND m.receiver_id = ?)) AND m.id < ? ' +
+        'ORDER BY m.id DESC LIMIT ?'
       ).all(req.user.user_id, targetUserId, targetUserId, req.user.user_id, beforeId, limit);
     } else {
       rows = db.prepare(
-        'SELECT id, sender_id, receiver_id, content, type, extra_json, read, recalled, created_at FROM private_messages ' +
-        'WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?) ' +
-        'ORDER BY id DESC LIMIT ?'
+        'SELECT m.id, m.sender_id, m.receiver_id, m.content, m.type, m.extra_json, m.read, m.recalled, m.created_at, COALESCE(u.net_name, u.real_name, \'\') AS sender_name ' +
+        'FROM private_messages m LEFT JOIN users u ON u.user_id = m.sender_id ' +
+        'WHERE (m.sender_id = ? AND m.receiver_id = ?) OR (m.sender_id = ? AND m.receiver_id = ?) ' +
+        'ORDER BY m.id DESC LIMIT ?'
       ).all(req.user.user_id, targetUserId, targetUserId, req.user.user_id, limit);
     }
     var messages = [];
@@ -453,6 +458,7 @@ router.get('/private/:userId', function(req, res) {
         id: rows[i].id,
         sender_id: rows[i].sender_id,
         receiver_id: rows[i].receiver_id,
+        sender_name: rows[i].sender_name || '',
         content: rows[i].content,
         type: rows[i].type,
         read: rows[i].read,

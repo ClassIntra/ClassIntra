@@ -13,6 +13,33 @@
     @retry="retry"
     @back="onShellBack"
   >
+    <!-- 应用经 context.ui.hostNavbar 注入的右侧动作（棋类的和棋/离开、连接灯等）。
+         element 型动作（应用自带 DOM 节点）挂进 navHostSlot 容器；
+         配置型动作（label/onClick）走下面的 v-for 按钮。
+         插槽内容编译于本组件作用域，scoped 样式可直接命中。 -->
+    <!-- 应用经 hostNavbar.setStatus 注入的状态段容器（挂在 nav-center 内，
+         紧跟标题右侧）。ci-host-navbar 同样是应用侧 CSS 的桥接锚点，勿删。 -->
+    <template #nav-center>
+      <div ref="navStatusSlot" class="runtime-nav-status ci-host-navbar" data-role="host-navbar-status"></div>
+    </template>
+    <template #nav-right>
+      <!-- ⚠️ ci-host-navbar：应用侧 CSS 的桥接锚点——搬进宿主导航栏的节点
+           （象棋/五子棋的按钮组、连接灯）靠它维持原「标题栏内」的紧凑外观，
+           与 .chess-statusbar/.gomoku-statusbar 兜底选择器成对出现。勿删。 -->
+      <div ref="navHostSlot" class="runtime-nav-host-slot ci-host-navbar" data-role="host-navbar-slot"></div>
+      <button
+        v-for="item in navbarActions"
+        :key="item.id"
+        type="button"
+        class="runtime-nav-action"
+        :class="'is-' + item.variant"
+        :disabled="item.disabled"
+        @click="onNavAction(item)"
+      >
+        <i v-if="item.icon" :class="item.icon"></i>
+        <span v-if="item.label">{{ item.label }}</span>
+      </button>
+    </template>
     <div ref="container" class="market-runtime-container">
       <!-- 静态站形态（frontend.static）：iframe 加载，零适配迁入。
            同源（/market-static）→ 站内可直接读 localStorage('token') 调 /api，无需注入 -->
@@ -34,6 +61,8 @@ import { marketRegistry } from '@/core/market-registry';
 import { getRuntimeKernel } from '@/core/runtime-kernel';
 import { getTokenInjector } from '@/core/token-injector';
 import { getThemeEngine } from '@/core/theme-engine';
+import { setActiveApp, getActiveApp, reportUsage } from '@/core/market-error-report';
+import * as navbarStore from '@/core/app-navbar-store';
 
 export default {
   name: 'MarketRuntime',
@@ -51,6 +80,9 @@ export default {
       appTitle: '',
       // 应用是否隐藏系统导航栏（默认显示，保障「出得去」）
       hideNavbar: false,
+      // 应用经 hostNavbar 注入的标题覆盖与右侧动作（见 app-navbar-store.js）
+      navbarTitle: '',
+      navbarActions: [],
       // 当前生命周期的对外投影（供 AppShell 展示状态页）
       lifecycleState: 'idle'
     };
@@ -63,7 +95,8 @@ export default {
       return 'active';
     },
     effectiveTitle: function() {
-      return this.appTitle || this.appName;
+      // 应用可用 hostNavbar.setTitle 覆盖（如「中国象棋 · 房 1234」），空串交还 manifest
+      return this.navbarTitle || this.appTitle || this.appName;
     },
     showNavbar: function() {
       return !this.hideNavbar;
@@ -78,6 +111,31 @@ export default {
   },
   mounted: function() {
     this.mountApp();
+    // 宿主导航栏注入通道：订阅 store，应用 setTitle/setActions 后同步到本组件渲染。
+    // MarketRuntime 是唯一渲染出口 —— AppShell 的 nav-right 插槽一直空着，
+    // 这正是第三方被迫 navbar:'custom' 自绘整套标题栏的根源。
+    var self = this;
+    self._offNavbar = navbarStore.subscribe(function(snapshot) {
+      // 配置型动作 → v-for 渲染；element 型动作 → 原样挂进容器（appendChild
+      // 自带「从原位置摘除」语义，应用侧的显隐/禁用逻辑照常作用于这些节点）
+      self.navbarActions = snapshot.actions.filter(function(a) { return !a.element; });
+      self.$nextTick(function() {
+        if (self._isDestroyed) return;
+        var host = self.$refs.navHostSlot;
+        if (!host) return;   // 宿主导航栏被隐藏（navbar:'custom'）→ 无处挂载
+        host.innerHTML = '';
+        snapshot.actions.forEach(function(a) {
+          if (a.element) host.appendChild(a.element);
+        });
+        // 状态段（nav-center 内，紧跟标题右侧）：同一套 DOM 搬运语义
+        var statusHost = self.$refs.navStatusSlot;
+        if (statusHost) {
+          statusHost.innerHTML = '';
+          if (snapshot.statusEl) statusHost.appendChild(snapshot.statusEl);
+        }
+      });
+      self.navbarTitle = snapshot.title;
+    });
     // 静态站 RPC 桥：iframe 内 <script src="/ci-adapter.js"> 的调用代理到系统
     //（校验来源：只信自己 iframe 的 contentWindow）
     this._onFrameMessage = this.handleFrameMessage.bind(this);
@@ -89,6 +147,12 @@ export default {
   beforeDestroy: function() {
     window.removeEventListener('message', this._onFrameMessage);
     document.removeEventListener('visibilitychange', this._onVisibilityChange);
+    if (this._offNavbar) {
+      try { this._offNavbar(); } catch (e) {}
+      this._offNavbar = null;
+    }
+    // 清掉当前应用注入的导航栏内容，防止漏进下一个打开的应用
+    navbarStore.clear();
     this.unmountApp();
   },
   watch: {
@@ -141,6 +205,9 @@ export default {
             } catch (e2) {}
           });
         } catch (e) {}
+        // 可观测：静态站也算「用过这个应用」
+        setActiveApp(appName);
+        reportUsage(appName);
         return;
       }
 
@@ -191,6 +258,9 @@ export default {
               }).catch(function() {
                 self.lifecycleState = 'error';
               });
+              // 可观测：标记当前应用 + 使用心跳（错误归因依赖这个标记）
+              setActiveApp(appName);
+              reportUsage(appName);
             } catch (error) {
               self.error = '应用运行时启动失败，请重试。';
             }
@@ -215,6 +285,12 @@ export default {
         self.lifecycleState = 'idle';
       }
       marketRegistry.unmount(this.appName, this.$refs.container);
+      // 离开应用：清掉归因标记，避免宿主错误被算到这个应用头上
+      if (getActiveApp() === this.appName) setActiveApp('');
+      // 清掉本应用注入的导航栏内容（切换应用时防止旧按钮漏进新应用）
+      navbarStore.clear(this.appName);
+      this.navbarActions = [];
+      this.navbarTitle = '';
       // 清理注入的令牌
       try {
         if (this.$refs.container) getTokenInjector().clean(this.$refs.container);
@@ -294,6 +370,14 @@ export default {
       this.mountApp();
     },
 
+    // hostNavbar 注入动作的点击分发（onClick 是应用注册的回调）
+    onNavAction: function(item) {
+      if (!item || item.disabled || typeof item.onClick !== 'function') return;
+      try { item.onClick(); } catch (e) {
+        console.error('[market:' + this.appName + '] 导航栏动作异常:', e);
+      }
+    },
+
     onShellBack: function() {
       // 允许应用拦截返回（如棋盘未保存时的二次确认）
       var def = this.mountedDefinition;
@@ -328,5 +412,67 @@ export default {
   border: none;
   display: block;
   background: var(--bg-color, #fff);
+}
+
+/* hostNavbar 注入槽：应用 DOM 节点（按钮组/连接灯）的挂载容器，
+   横向排列、间距用 margin（Chrome 80 基线无 flex gap） */
+.runtime-nav-host-slot {
+  display: inline-flex;
+  align-items: center;
+}
+.runtime-nav-host-slot > * + * {
+  margin-left: 10px;
+}
+
+/* hostNavbar setStatus 状态段槽（nav-center 内）：内容是应用自己的节点，
+   这里只管排布——允许收缩截断，标题永远优先保完整 */
+.runtime-nav-status {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* hostNavbar 注入的导航栏动作按钮：对齐 AppNavBar 的 nav-btn 视觉（主色文字按钮） */
+.runtime-nav-action {
+  display: inline-flex;
+  align-items: center;
+  /* ⚠️ 基线 Chrome 80 不支持 flex gap（84 才有），图标/文字间距用 margin 补 */
+  border: 0;
+  background: transparent;
+  color: var(--primary-color, #007aff);
+  font: inherit;
+  font-size: var(--font-size-body, 17px);
+  padding: 6px 8px;
+  margin-left: 2px;
+  cursor: pointer;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+  border-radius: var(--radius-sm, 8px);
+  transition: opacity var(--duration-fast, 0.15s) var(--ease-standard, ease);
+}
+.runtime-nav-action:active {
+  opacity: 0.6;
+}
+.runtime-nav-action:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.runtime-nav-action i {
+  font-size: 14px;
+}
+.runtime-nav-action i + span {
+  margin-left: 5px;
+}
+/* 变体：tinted 底色按钮、danger 红色（如「离开房间」） */
+.runtime-nav-action.is-tinted {
+  background: rgba(120, 120, 128, 0.14);
+  padding: 5px 12px;
+}
+.runtime-nav-action.is-danger {
+  color: var(--danger-color, #ff3b30);
+}
+.runtime-nav-action.is-danger.is-tinted {
+  background: rgba(255, 59, 48, 0.12);
 }
 </style>

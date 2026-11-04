@@ -265,12 +265,19 @@ ParticleEngine.start = function(eng) {
   ParticleEngine.loop(eng);
 };
 
+// 软暂停：滚动期间冻结粒子更新（保留最后一帧），恢复时从当前帧继续，不重新播种
+ParticleEngine.setPaused = function(eng, paused) {
+  eng.paused = !!paused;
+  if (!paused) eng.lastTime = performance.now();  // 防止恢复瞬间 dt 突跳
+};
+
 ParticleEngine.loop = function(eng) {
   if (!eng.running) return;
   eng.raf = requestAnimationFrame(function() { ParticleEngine.loop(eng); });
   var now = performance.now();
   var dt = Math.min((now - eng.lastTime) / 16.67, 3);
   eng.lastTime = now;
+  if (eng.paused) return;  // 冻结：跳过更新与绘制，保留画布最后一帧
   eng.globalTime += dt;
   if (eng.type === ParticleEngine.RAIN) {
     ParticleEngine.updateRain(eng, dt);

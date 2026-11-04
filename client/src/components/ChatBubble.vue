@@ -149,6 +149,24 @@
         </div>
         <div class="forward-action">点击加入对局 <i class="fa-solid fa-chevron-right"></i></div>
       </div>
+      <!-- 学元转账 / 红包卡片：在聊天页内打开全屏支付页，不跳应用。
+           用文本前缀而不是新 msg_type，是为了不碰 WS 协议与历史消息兼容 —— 
+           旧客户端收到也只会当成一行普通文本。 -->
+      <div
+        v-else-if="payCard"
+        class="bubble-content pay-card"
+        :class="['pay-card--' + payCard.kind, { 'pay-card--own': isOwn }]"
+        @click="onPayCardClick"
+      >
+        <span class="pay-card-ico" :class="'pay-card-ico--' + payCard.kind">
+          <i :class="payCard.kind === 'packet' ? 'fa-solid fa-envelope-open-text' : 'fa-solid fa-money-bill-transfer'"></i>
+        </span>
+        <span class="pay-card-main">
+          <span class="pay-card-title">{{ payCardTitle }}</span>
+          <span class="pay-card-sub">{{ payCardSub }}</span>
+        </span>
+        <span class="pay-card-act">{{ payCardAction }}</span>
+      </div>
       <div v-else class="bubble-content" :class="{ 'bubble-media': isMediaOnly && message.recalled !== 1 }">
         <div v-if="message.reply_to" class="reply-quote" @click="onReplyQuoteClick">
           <div class="reply-quote-name">{{ message.reply_to.user_name }}</div>
@@ -269,6 +287,12 @@ export default {
     senderTitle: {
       type: String,
       default: ''
+    },
+    // 私聊对方的展示名兜底：历史消息（尤其跨班用户）可能不带 sender_name，
+    // 空名字会让头像文字回落成 '?'，这里用会话联系人的名字顶上
+    peerName: {
+      type: String,
+      default: ''
     }
   },
   data: function() {
@@ -284,12 +308,59 @@ export default {
     };
   },
   computed: {
+    // 学元转账/红包卡片（内容前缀约定，见模板注释）
+    payCard: function() {
+      var c = String(this.message.content || '');
+      if (c.indexOf('[[pay:') !== 0) return null;
+      var m = /^\[\[pay:(transfer|packet)\]\]([\s\S]*)$/.exec(c);
+      if (!m) return null;
+      var d = {};
+      try { d = JSON.parse(m[2]); } catch (e) { return null; }
+      if (!d || typeof d !== 'object') return null;
+      return { kind: m[1], data: d };
+    },
+    payCardTitle: function() {
+      var c = this.payCard;
+      if (!c) return '';
+      if (c.kind === 'packet') return c.data.note || '恭喜发财';
+      return '转账 ' + Number(c.data.amount || 0).toFixed(2) + ' 学元';
+    },
+    payCardSub: function() {
+      var c = this.payCard;
+      if (!c) return '';
+      if (c.kind === 'packet') {
+        var kind = c.data.kind || 'normal';
+        var tail = this.isOwn ? '等同学来领' : '点开领取';
+        if (kind === 'designated') {
+          return '专属红包 · 只发给选中的同学 · ' + (this.isOwn ? '等 TA 来领' : (c.data.for_me ? '是发给你的' : tail));
+        }
+        if (kind === 'phrase') {
+          return '口令「' + (c.data.note || '') + '」· 共 ' + (c.data.count || 1) + ' 个 · ' + tail;
+        }
+        if (c.data.scope === 'cross' && c.data.code) {
+          return '红包码 ' + c.data.code + ' · 共 ' + (c.data.count || 1) + ' 个 · ' + tail;
+        }
+        return '共 ' + (c.data.count || 1) + ' 个 · ' + tail;
+      }
+      var who = this.isOwn ? ('给 ' + (c.data.to_name || c.data.to || '同学')) : '给你的转账';
+      return who + (c.data.note ? ' · ' + c.data.note : '');
+    },
+    payCardAction: function() {
+      var c = this.payCard;
+      if (!c) return '';
+      if (c.kind === 'packet') return this.isOwn ? '已发出' : '领取';
+      return '查看';
+    },
     // 发送者身份：气泡头像与个人主页共用。群消息用 sender_id，私聊/自己的用 user_id
     senderId: function() {
       return this.message.sender_id || this.message.user_id || '';
     },
     senderName: function() {
-      return this.message.sender_name || '';
+      if (this.message.sender_name) return this.message.sender_name;
+      // 私聊里消息缺 sender_name（历史接口旧数据 / 跨班用户本机无资料）：
+      // 对方的气泡用会话联系人名字兜底，避免头像回落成问号
+      if (this.isPrivate && !this.isOwn && this.peerName) return this.peerName;
+      return '';
     },
     // 纯媒体消息（除媒体标记外无正文）：气泡去衬底，媒体贴边无框呈现
     isMediaOnly: function() {
@@ -445,6 +516,15 @@ export default {
     this.audioManager.cleanup();
   },
   methods: {
+    onPayCardClick: function() {
+      if (!this.payCard) return;
+      this.$emit('pay-card', {
+        kind: this.payCard.kind,
+        data: this.payCard.data,
+        own: this.isOwn,
+        senderName: this.message.sender_name || this.peerName || ''
+      });
+    },
     onAvatarClick: function() {
       if (!this.senderId) return;
       this.$emit('open-profile', this.senderId);
@@ -1444,6 +1524,42 @@ export default {
   cursor: pointer;
 }
 
+/* 普通附件卡片（zip/docx/xlsx…）：不是图片，不能按图片渲染，
+   否则请求 404 会被渲染成「文件已删除」。点击直接下载。 */
+.chat-bubble >>> .msg-file-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 10px 14px;
+  margin: 2px 0;
+  border-radius: var(--radius-lg);
+  background: var(--bg-secondary, rgba(0, 0, 0, 0.06));
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.chat-bubble >>> .msg-file-card i {
+  font-size: 15px;
+  opacity: 0.75;
+}
+
+.chat-bubble >>> .msg-file-ext {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.chat-bubble >>> .msg-file-hint {
+  font-size: 12px;
+  opacity: 0.6;
+}
+
+.own-bubble >>> .msg-file-card {
+  background: rgba(255, 255, 255, 0.18);
+}
+
 /* 纯媒体气泡：去衬底与内边距，媒体即气泡（Telegram 式无框呈现） */
 .chat-bubble .bubble-content.bubble-media {
   padding: 0;
@@ -1487,4 +1603,70 @@ export default {
   to { background-position: -200% 0; }
 }
 
+
+/* ===== 学元转账 / 红包卡片（聊天内） ===== */
+.pay-card {
+  display: flex;
+  align-items: center;
+  min-width: 196px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.pay-card--transfer {
+  background: linear-gradient(135deg, #FFF3E0, #FFE2BF);
+  border: 1px solid rgba(224, 139, 30, 0.28);
+}
+.pay-card--packet {
+  background: linear-gradient(135deg, #F0564C, #D93B32);
+  border: 1px solid rgba(190, 40, 32, 0.5);
+  color: #fff;
+}
+.pay-card--own.pay-card--packet { opacity: 0.92; }
+.pay-card-ico {
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 10px;
+  border-radius: 50%;
+  font-size: 14px;
+}
+.pay-card-ico--transfer { background: rgba(224, 139, 30, 0.18); color: #C8731A; }
+.pay-card-ico--packet { background: rgba(255, 255, 255, 0.22); color: #FFF3D6; }
+.pay-card-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.pay-card-title {
+  font-size: var(--font-size-subheadline);
+  font-weight: 600;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.pay-card-sub {
+  margin-top: 3px;
+  font-size: 11px;
+  opacity: 0.78;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.pay-card-act {
+  flex: 0 0 auto;
+  margin-left: 10px;
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  opacity: 0.86;
+}
+.pay-card--packet .pay-card-act {
+  padding: 3px 8px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.2);
+}
 </style>

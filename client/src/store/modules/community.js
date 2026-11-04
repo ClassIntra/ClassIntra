@@ -133,11 +133,15 @@ var actions = {
     });
   },
   fetchPostsPage: function(context, params) {
-    return api.get('/community/posts', { params: { page: params.page || 1, limit: 20, sort: params.sort || 'latest' } }).then(function(response) {
+    return api.get('/community/posts', { params: { page: params.page || 1, limit: 10, sort: params.sort || 'latest' } }).then(function(response) {
       var data = response.data.data;
       var newPosts = data.posts || [];
+      // raw=true：调用方自己分帧追加（一次插 10 张卡片在弱设备上是一个 300ms 级长任务）
+      if (params.raw) {
+        return { posts: newPosts, has_more: newPosts.length >= 10 };
+      }
       context.commit('APPEND_POSTS', newPosts);
-      return { has_more: newPosts.length >= 20 };
+      return { has_more: newPosts.length >= 10 };
     });
   },
   createPost: function(context, data) {

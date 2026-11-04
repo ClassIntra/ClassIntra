@@ -449,6 +449,35 @@
               </div>
             </div>
 
+            <!-- 禁止关闭时长 -->
+            <div class="bt-field">
+              <label class="bt-label">禁止关闭 <span class="bt-hint">这段时间内学生轻触无法关闭</span></label>
+              <div class="bt-chip-row">
+                <button
+                  v-for="s in bigTextLockOptions"
+                  :key="s"
+                  class="bt-chip"
+                  :class="{ active: isBigTextLockActive(s) }"
+                  @click="bigTextForm.lockSeconds = Math.min(s, bigTextForm.duration)"
+                >{{ s === 999 ? '全程' : s + ' 秒' }}</button>
+                <input
+                  type="number"
+                  class="bt-number"
+                  min="0"
+                  :max="bigTextForm.duration"
+                  v-model.number="bigTextForm.lockSeconds"
+                  aria-label="禁止关闭时长（秒）"
+                >
+                <span class="bt-unit">秒</span>
+              </div>
+              <p class="bt-hint-line">
+                {{ bigTextLockLabel }}。
+                <span v-if="bigTextForm.lockSeconds > bigTextForm.duration" class="bt-warn">
+                  已超过显示时长，会按 {{ bigTextForm.duration }}s 生效。
+                </span>
+              </p>
+            </div>
+
             <!-- 展示方式 -->
             <div class="bt-field">
               <label class="bt-label">展示方式</label>
@@ -467,7 +496,12 @@
                     <button type="button" class="bt-link-btn" @click="fixBigTextCarouselDuration">补到 {{ bigTextCarouselGap.need }}s</button>
                   </span>
                 </template>
-                <template v-else>多行合并成一条持续横向滚动，适合放不下的长句。</template>
+                <template v-else>
+                  单行横向循环滚动，适合放不下的长句。
+                  <span v-if="bigTextLines.length > 1" class="bt-warn">
+                    当前 {{ bigTextLines.length }} 行会合并成一条长句（用全角空格连接）一起滚动，换行不保留。
+                  </span>
+                </template>
               </p>
             </div>
 
@@ -480,11 +514,32 @@
             </div>
 
             <div class="bt-field" v-if="bigTextForm.displayMode === 'scroll'">
+              <label class="bt-label">滚动方向</label>
+              <div class="bt-chip-row">
+                <button class="bt-chip" :class="{ active: bigTextForm.scrollDirection === 'left' }" @click="bigTextForm.scrollDirection = 'left'">从右往左</button>
+                <button class="bt-chip" :class="{ active: bigTextForm.scrollDirection === 'right' }" @click="bigTextForm.scrollDirection = 'right'">从左往右</button>
+              </div>
+            </div>
+
+            <div class="bt-field" v-if="bigTextForm.displayMode === 'scroll'">
               <label class="bt-label">滚动速度</label>
               <div class="bt-chip-row">
                 <input type="number" class="bt-number" min="20" max="200" step="10" v-model.number="bigTextForm.scrollSpeed">
                 <span class="bt-unit">像素 / 秒</span>
               </div>
+              <p class="bt-hint-line">
+                <template v-if="bigTextScrollSeconds <= 0">
+                  <span class="bt-warn">这段文字放得下，设备端不会滚动（居中静态显示）。</span>
+                </template>
+                <template v-else>
+                  滚完一轮约 {{ bigTextScrollSeconds }}s。
+                  <span v-if="bigTextScrollGap" class="bt-warn">
+                    只显示 {{ bigTextForm.duration }}s 的话看不到后半段 ——
+                    <button type="button" class="bt-link-btn" @click="fixBigTextScrollDuration">补到 {{ bigTextScrollGap.need }}s</button>
+                    <button v-if="bigTextScrollGap.speedOk" type="button" class="bt-link-btn" @click="fixBigTextScrollSpeed">或提速到 {{ bigTextScrollGap.speed }} px/s</button>
+                  </span>
+                </template>
+              </p>
             </div>
 
             <!-- 副内容与署名 -->
@@ -660,6 +715,7 @@
                   :stage-width="bigTextPreviewW"
                   :stage-height="bigTextPreviewH"
                   :playing="bigTextPreviewPlaying"
+                  @scroll-metrics="onBigTextScrollMetrics"
                 />
                 <span v-if="!bigTextForm.content.trim()" class="bt-preview-placeholder">在左侧输入内容</span>
               </div>
@@ -1574,7 +1630,7 @@
           </div>
           <ul class="bt-confirm-list">
             <li>发送给：<strong>{{ bigTextTargetLabel }}</strong></li>
-            <li>显示时长：<strong>{{ bigTextForm.duration }} 秒</strong>（前 5 秒无法关闭）</li>
+            <li>显示时长：<strong>{{ bigTextForm.duration }} 秒</strong>（{{ bigTextLockLabel }}）</li>
             <li>展示方式：<strong>{{ bigTextModeLabel }}</strong></li>
             <li v-if="bigTextForm.subContent">副内容：{{ bigTextForm.subContent }}</li>
           </ul>
@@ -1734,6 +1790,8 @@ export default {
         displayMode: 'static',
         switchInterval: 5,
         scrollSpeed: 60,
+        scrollDirection: 'left',
+        lockSeconds: 5,
         effect: 'none',
         gradientFrom: '#FFD166',
         gradientTo: '#EF476F',
@@ -1779,6 +1837,14 @@ export default {
       bigTextPreviewH: 465,
       // 校园平板实测视口 1043×787（4:3），预览按同一比例才谈得上「等比」
       bigTextPreviewAspect: 75,
+      // 走马灯实测指标：由预览里的 BigTextStage 通过 scroll-metrics 上报。
+      // ⚠️ 必须用它而不是自己估算 —— 另写一套公式就会和设备上看到的对不上。
+      // seconds <= 0 表示内容放得下，设备端实际不会滚动。
+      bigTextScrollSeconds: 0,
+      bigTextScrollWidth: 0,
+      bigTextScrollDistance: 0,
+      // 禁止关闭时长快捷档：999 是「全程」的哨兵值，点击时按当前显示时长夹住
+      bigTextLockOptions: [0, 5, 15, 999],
       showBigTextConfirm: false,
       bigTextFonts: [
         { value: '', label: '系统默认' },
@@ -2050,6 +2116,8 @@ export default {
         display_mode: f.displayMode,
         switch_interval: f.switchInterval,
         scroll_speed: f.scrollSpeed,
+        scroll_direction: f.scrollDirection,
+        lock_seconds: f.lockSeconds,
         effect: f.effect,
         bg_color: f.bgColor,
         bg_gradient: { from: f.gradientFrom, to: f.gradientTo, angle: 135 },
@@ -2092,6 +2160,20 @@ export default {
     },
 
     /**
+     * 禁止关闭时长的确认文案。
+     * 锁全程必须说得直白 —— 班管如果不知道学生点不掉，就会误以为功能坏了。
+     */
+    bigTextLockLabel: function() {
+      var s = parseInt(this.bigTextForm.lockSeconds, 10);
+      if (isNaN(s)) s = 5;
+      s = Math.max(0, s);
+      var d = parseInt(this.bigTextForm.duration, 10) || 0;
+      if (s <= 0) return '学生可随时轻触关闭';
+      if (d > 0 && s >= d) return '全程无法关闭（到点自动收起）';
+      return '前 ' + s + ' 秒无法关闭';
+    },
+
+    /**
      * 轮播「时长不够看完」检测：duration < 条数 × 间隔时，后面的条学生根本看不到。
      * 返回 { need, shown, total } 供警告文案与「一键补时长」使用；不缺口返回 null。
      */
@@ -2105,6 +2187,31 @@ export default {
       var duration = parseInt(f.duration, 10) || 0;
       if (duration >= need) return null;
       return { need: need, shown: Math.max(1, Math.floor(duration / interval)), total: total };
+    },
+
+    /**
+     * 走马灯「显示时长不够滚完一轮」检测。
+     *
+     * 大字驻留 10s 而滚完一轮要 50s 时，学生只看得到开头一小段 —— 这种哑火
+     * 在编辑页完全看不出来，管理端却是最该知道的地方，所以在这里量化出来。
+     *
+     * 距离与秒数都取自舞台上报的实测值（不在这里重算），保证和设备上一致。
+     * speedOk=false 表示即使拉到最快 200px/s 也滚不完，只能加时长。
+     */
+    bigTextScrollGap: function() {
+      var f = this.bigTextForm;
+      if (f.displayMode !== 'scroll') return null;
+      var seconds = this.bigTextScrollSeconds || 0;
+      if (seconds <= 0) return null;              // 压根不滚，交给另一条提示说明
+      var duration = parseInt(f.duration, 10) || 0;
+      if (duration >= seconds) return null;
+      var distance = this.bigTextScrollDistance || 0;
+      var speed = distance > 0 ? Math.ceil(distance / Math.max(1, duration)) : 0;
+      return {
+        need: seconds,
+        speed: Math.max(20, Math.min(200, speed)),
+        speedOk: speed > 0 && speed >= 20 && speed <= 200
+      };
     },
 
     // 封禁到期时间（分钟 → 本地时间字符串），时长=0 表示永久不返回
@@ -3016,6 +3123,44 @@ export default {
       this.bigTextForm.duration = Math.min(600, gap.need);
     },
 
+    /**
+     * 接收预览舞台实测上报的走马灯指标。
+     * 只在预览组件里挂监听，设备端不会触发 —— 管理端的告警完全建立在真实测量上。
+     */
+    onBigTextScrollMetrics: function(m) {
+      if (!m) return;
+      this.bigTextScrollSeconds = m.seconds || 0;
+      this.bigTextScrollWidth = m.textWidth1080 || 0;
+      this.bigTextScrollDistance = m.distance1080 || 0;
+    },
+
+    // 一键补时长：把驻留时间拉到刚好够滚完一轮
+    fixBigTextScrollDuration: function() {
+      var gap = this.bigTextScrollGap;
+      if (!gap) return;
+      this.bigTextForm.duration = Math.min(600, gap.need);
+    },
+
+    /**
+     * 「全程」档是否被选中：哨兵值 999 会被夹成 duration，所以不能按相等判断。
+     *
+     * ⚠️ 必须放 methods 而不是 computed —— 它要接参数。computed 会被 Vue 当
+     *    getter 直接执行（入参 undefined），模板里再 `isBigTextLockActive(s)`
+     *    就会报「is not a function」，整个大字面板被 ErrorBoundary 吞掉。
+     */
+    isBigTextLockActive: function(s) {
+      var f = this.bigTextForm;
+      if (s === 999) return f.lockSeconds >= f.duration;
+      return f.lockSeconds === s && s <= f.duration;
+    },
+
+    // 一键提速：让它在现有时长内滚完一轮（速度上限 200px/s，拉不满就只能加时长）
+    fixBigTextScrollSpeed: function() {
+      var gap = this.bigTextScrollGap;
+      if (!gap || !gap.speedOk) return;
+      this.bigTextForm.scrollSpeed = gap.speed;
+    },
+
     // 预览播放/暂停：轮播与走马灯只在播放时动，方便核对节奏
     toggleBigTextPreviewPlay: function() {
       this.bigTextPreviewPlaying = !this.bigTextPreviewPlaying;
@@ -3077,6 +3222,8 @@ export default {
       f.displayMode = item.display_mode || 'static';
       f.switchInterval = item.switch_interval || 5;
       f.scrollSpeed = item.scroll_speed || 60;
+      f.scrollDirection = item.scroll_direction === 'right' ? 'right' : 'left';
+      f.lockSeconds = item.lock_seconds === undefined ? 5 : Math.max(0, parseInt(item.lock_seconds, 10) || 0);
       f.effect = item.effect || 'none';
       f.duration = item.duration || 10;
       f.bgColor = item.bg_color || '#101828';
@@ -3106,6 +3253,8 @@ export default {
         display_mode: f.displayMode,
         switch_interval: f.switchInterval,
         scroll_speed: f.scrollSpeed,
+        scroll_direction: f.scrollDirection,
+        lock_seconds: f.lockSeconds,
         effect: f.effect,
         duration: f.duration,
         bg_color: f.bgColor,
@@ -3160,6 +3309,17 @@ export default {
         self.bigTextPresets = data.list || [];
       }).catch(function(err) {
         console.error('大字策略加载失败:', err);
+        // ⚠️ 这里原来只写 console：接口 403/500 时界面上只剩一句「还没有保存过策略」，
+        //    管理员看到的就是「策略功能无效」，而真实原因（缺 manage_big_text 权限 /
+        //    服务异常）没有任何人能看到。失败必须发声，否则等于功能不存在。
+        var code = err && err.response && err.response.status;
+        var msg = (err && err.response && err.response.data && err.response.data.message) || '';
+        self.$store.commit('toast/SHOW_TOAST', {
+          message: code === 403
+            ? ('策略不可用：' + (msg || '当前账号缺少大字广播权限'))
+            : ('策略加载失败：' + (msg || '服务异常')),
+          type: 'error'
+        });
       });
     },
 
@@ -3171,6 +3331,8 @@ export default {
         display_mode: f.displayMode,
         switch_interval: f.switchInterval,
         scroll_speed: f.scrollSpeed,
+        scroll_direction: f.scrollDirection,
+        lock_seconds: f.lockSeconds,
         effect: f.effect,
         bg_color: f.bgColor,
         font_color: f.fontColor,
@@ -3214,6 +3376,8 @@ export default {
       f.displayMode = style.display_mode || 'static';
       f.switchInterval = style.switch_interval || 5;
       f.scrollSpeed = style.scroll_speed || 60;
+      f.scrollDirection = style.scroll_direction === 'right' ? 'right' : 'left';
+      f.lockSeconds = style.lock_seconds === undefined ? 5 : Math.max(0, parseInt(style.lock_seconds, 10) || 0);
       f.effect = style.effect || 'none';
       f.duration = style.duration || 10;
       f.bgColor = style.bg_color || '#101828';
@@ -3261,6 +3425,8 @@ export default {
         displayMode: 'static',
         switchInterval: 5,
         scrollSpeed: 60,
+        scrollDirection: 'left',
+        lockSeconds: 5,
         effect: 'none',
         gradientFrom: '#FFD166',
         gradientTo: '#EF476F',
