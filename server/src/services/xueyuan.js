@@ -6,20 +6,22 @@
 // ---- 双资金池（2026-11-04 起）----
 // 学元按来源拆成两个池，从记账层就分开，避免「赠送 → 提现」套现：
 //   cash  充值学元：班管线下收现金后录入，可转账、发红包、投资、提现
-//   grant 赠送学元：开户礼金 / 每日津贴 / 教师发放 / 成就奖励，只能用于投资
+//   grant 赠送学元：开户礼金 / 每日津贴 / 教师发放 / 成就奖励 / 投资收益，只能用于投资
 // 所有支出必须显式声明资金池；未声明时按「赠送优先」处理（兼容旧调用）。
 //
 // ---- 与现实货币的比率 ----
-// 默认 1 元 = 1 学元（100 分）。可在配置或环境变量里改（1 / 10 / 100），
+// 默认 1 元 = 100 学元（100 分 = 1 学元）。可在配置或环境变量里改（1 / 10 / 100），
 // 但充值、提现、流水展示统一走 yuanRate()，不允许各页面自己换算。
 //
-// ---- 三条硬规则（改代码前先看这三条）----
+// ---- 四条硬规则（改代码前先看这四条）----
 // 1. **复式记账，借贷必平**。每笔业务写 xy_tx + ≥2 条 xy_entry，SUM(delta)=0。
 //    任何「只加不减」的实现都是发币，必须走 mint()（对手方是 @system:mint）。
 // 2. **金额一律整数分**。对外接口收「学元」小数，进来立刻转分；
 //    内部绝不用浮点参与运算。
 // 3. **幂等靠 ref**。发钱、发津贴、成交结算、充值、提现都必须带稳定 ref，
 //    重试/并发不会重复入账（ref 上有唯一索引）。
+// 4. **投资收益不可提现**。卖出回款必须走 creditTrade()：本金回 cash、收益进 grant；
+//    直接 credit() 会把收益打进 cash，破坏「收益不可提现」的结构性保证。
 //
 // ---- 为什么余额字段和分录可能对不上 ----
 // 正常情况下 balance == SUM(entry.delta)。如果对不上，说明有人绕过本服务
@@ -39,26 +41,30 @@ var POOL = {
   SYSTEM: 'system'
 };
 
-// 新账户赠金：1000 学元（给新生一笔启动资金去体验投资）
-var WELCOME_CENT = 100000;
-// 每日助学津贴：10 学元；连续第 7 天起 20 学元
-var DAILY_CENT = 1000;
-var DAILY_BONUS_CENT = 2000;
+// 学元与现实货币比率：1 元 = 100 学元（默认）。
+// 金额常量统一以「人民币元」定义，再按当前比率折算成分：
+// 调整汇率只改变学元面额，真实货币约束（充值/转账/提现上限）不变。
+var YUAN_RATE = 100;
+
+// 新账户赠金：10 元（1:100 下为 1000 学元，给新生一笔启动资金去体验投资）
+var WELCOME_CENT = yuanToCent(10);
+// 每日助学津贴：1 元（100 学元）；连续第 7 天起 2 元（200 学元）
+var DAILY_CENT = yuanToCent(1);
+var DAILY_BONUS_CENT = yuanToCent(2);
 var DAILY_BONUS_FROM_DAY = 7;
-// 单笔转账上限：500 学元（防手滑把全副身家一次转错人）
-var MAX_TRANSFER_CENT = 50000;
-// 单笔业务上限：10 万学元
-var MAX_TX_CENT = 10000000;
+// 单笔转账上限：500 元（防手滑把全副身家一次转错人）
+var MAX_TRANSFER_CENT = yuanToCent(500);
+// 单笔业务上限：100 万学元。必须 ≥ 单笔充值上限（2000 元 = 20 万学元），
+// 否则班管一次录入大额充值时会被记账内核拦截。
+var MAX_TX_CENT = 100000000;
 // 单账户余额上限：100 万学元（溢出保护）
 var MAX_BALANCE_CENT = 100000000;
 // 单笔线下充值上限：2000 元等值（校园场景足够，异常大额走多次录入）
-var MAX_RECHARGE_CENT = 200000;
+var MAX_RECHARGE_CENT = yuanToCent(2000);
 // 单笔提现上限：1000 元等值；且提现总额不得超过累计净充值
-var MAX_WITHDRAW_CENT = 100000;
+var MAX_WITHDRAW_CENT = yuanToCent(1000);
 // 提现最小额：1 元等值
-var MIN_WITHDRAW_CENT = 100;
-// 学元与现实货币比率：1 元 = 1 学元
-var YUAN_RATE = 1;
+var MIN_WITHDRAW_CENT = yuanToCent(1);
 
 var SYSTEM_MINT = '@system:mint';
 var SYSTEM_FEE = '@system:fee';
@@ -72,6 +78,7 @@ var KINDS = {
   admin_deduct: '教师扣减',
   transfer: '同学转账',
   trade: '交易结算',
+  profit: '投资收益',
   fee: '交易费用',
   reward: '任务奖励',
   refund: '退款',
@@ -783,8 +790,8 @@ function settleHold(opts) {
 }
 
 // 冻结资金入账（卖出成交后收到钱）：直接入 balance，不涉及 frozen。
-// 默认入充值池：投资回款可继续流转；提现仍受「累计净充值」上限约束，
-// 赠送学元无法通过卖出提现套利。
+// 只用于退款 / 一般回款；**交易回款必须走 creditTrade()**，
+// 否则投资收益会进充值池，破坏「收益不可提现」的结构性保证。
 function credit(userId, amountCent, opts) {
   var o = opts || {};
   var pool = o.pool === POOL.GRANT ? POOL.GRANT : POOL.CASH;
@@ -804,6 +811,66 @@ function credit(userId, amountCent, opts) {
     meta: o.meta,
     at: o.at
   });
+}
+
+// 交易回款：本金回到充值池（cash），投资收益进入赠送池（grant）。
+// 这样卖出赚到的钱在记账层就不可提现、不可转账/红包/跨班，只能继续投资。
+// opts:
+//   principalCent 本金（分）；缺省 = amountCent（全额视为本金回款，兼容旧调用）
+//   ref           幂等键（强烈建议）；两腿各自加 :principal / :profit 后缀
+//   其余同 credit
+function creditTrade(userId, amountCent, opts) {
+  var o = opts || {};
+  var uid = String(userId || '');
+  if (!isValidUserId(uid) || isSystem(uid)) throw new Error('入账账户非法');
+  if (typeof amountCent !== 'number' || amountCent <= 0 || Math.floor(amountCent) !== amountCent) {
+    throw new Error('入账金额必须为正整数分');
+  }
+  var principal = typeof o.principalCent === 'number' ? Math.round(o.principalCent) : amountCent;
+  if (!isFinite(principal) || principal < 0 || principal > amountCent || Math.floor(principal) !== principal) {
+    throw new Error('本金金额非法（应在 0 与入账金额之间）');
+  }
+  var profit = amountCent - principal;
+  var ref = o.ref ? String(o.ref) : null;
+
+  ensureSystemAccount('@system:settle', now());
+
+  var out = { principal_tx: null, profit_tx: null };
+  var run = db.transaction(function () {
+    // 本金腿：回充值池，可继续流转 / 提现（但整账户提现仍受净充值上限约束）
+    if (principal > 0) {
+      out.principal_tx = post({
+        entries: [
+          { user_id: '@system:settle', delta: -principal, pool: POOL.SYSTEM },
+          { user_id: uid, delta: principal, pool: POOL.CASH }
+        ],
+        kind: 'trade',
+        ref: ref ? ref + ':principal' : null,
+        app: o.app,
+        memo: o.memo,
+        meta: o.meta,
+        at: o.at
+      });
+    }
+    // 收益腿：进赠送池，只能投资，从记账层堵死提现路径
+    if (profit > 0) {
+      out.profit_tx = post({
+        entries: [
+          { user_id: '@system:settle', delta: -profit, pool: POOL.SYSTEM },
+          { user_id: uid, delta: profit, pool: POOL.GRANT }
+        ],
+        kind: 'profit',
+        ref: ref ? ref + ':profit' : null,
+        app: o.app,
+        memo: o.memo,
+        meta: o.meta,
+        at: o.at
+      });
+    }
+  });
+  run();
+  out.account = viewAccount(uid);
+  return out;
 }
 
 // ---------- 线下充值 / 提现 ----------
@@ -1368,6 +1435,7 @@ module.exports = {
   release: release,
   settleHold: settleHold,
   credit: credit,
+  creditTrade: creditTrade,
   recharge: recharge,
   requestWithdraw: requestWithdraw,
   reviewWithdraw: reviewWithdraw,

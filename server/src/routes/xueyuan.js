@@ -31,7 +31,7 @@ var db = require('../utils/db');
 // 未预期异常才是 500 —— 这样前端能把「余额不足」和「服务器挂了」分开。
 function fail(res, err) {
   var msg = err && err.message ? err.message : '操作失败';
-  var known = /余额不足|可用学元不足|可提现学元不足|不足|超过上限|不能超过|非法|不存在|已被冻结|至少|不能为空|尚未开通|已关闭|未知的业务类型|不平衡|重复出现|不能给自己|必须|请填写|请选择|一次最多|无法|不能|已有一笔|已处理|只能撤销/.test(msg);
+  var known = /余额不足|可用学元不足|可提现学元不足|充值未生效|不足|超过上限|不能超过|非法|不存在|已被冻结|至少|不能为空|尚未开通|已关闭|未知的业务类型|不平衡|重复出现|不能给自己|必须|请填写|请选择|一次最多|无法|不能|已有一笔|已处理|只能撤销/.test(msg);
   if (!known) console.error('[xueyuan] 未预期错误:', err);
   return res.status(known ? 400 : 500).json({ code: known ? 400 : 500, message: msg });
 }
@@ -88,7 +88,7 @@ router.get('/config', function (req, res) {
       name: '学元',
       code: 'XY',
       cent_per_yuan: xy.CENT_PER_YUAN,
-      // 与现实货币比率：1 元 = N 学元。默认 1:1，充值/提现都按这个换算。
+      // 与现实货币比率：1 元 = N 学元。默认 1:100，充值/提现都按这个换算。
       yuan_rate: xy.yuanRate(),
       welcome: xy.fromCent(xy.LIMITS.WELCOME_CENT),
       daily: xy.fromCent(xy.LIMITS.DAILY_CENT),
@@ -409,6 +409,11 @@ router.post('/admin/recharge', requireTreasury, function (req, res) {
       } catch (e) {
         skipped.push({ user_id: uid, reason: e.message });
       }
+    }
+
+    // 一个人都没充上时必须报错，不能返回 200 让班管误以为已到账
+    if (!done.length && skipped.length) {
+      throw new Error('充值未生效：' + skipped[0].reason + '（' + skipped[0].user_id + '）');
     }
 
     res.json({

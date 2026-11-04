@@ -20,7 +20,7 @@ var db = require('../utils/db');
 var xueyuan = require('./xueyuan');
 var peers = require('./peers');
 
-var MAX_TOTAL_CENT = 50000;      // 500 学元，与单笔转账上限一致
+var MAX_TOTAL_CENT = xueyuan.yuanToCent(500);   // 500 元等值，与单笔转账上限一致
 var MAX_COUNT = 20;
 var TTL = 24 * 3600 * 1000;
 // 红包码字符集：去掉 0/O/1/I/L 这类肉眼易混的字符（要在教室里口头报出来）
@@ -124,7 +124,7 @@ function create(sender, totalCent, count, note, appName, opts) {
   var kind = ['normal', 'designated', 'phrase'].indexOf(o.kind) >= 0 ? o.kind : 'normal';
   var total = Math.round(Number(totalCent) || 0);
   if (total < 1) throw new Error('红包金额至少 0.01 学元');
-  if (total > MAX_TOTAL_CENT) throw new Error('单个红包不能超过 ' + (MAX_TOTAL_CENT / 100) + ' 学元');
+  if (total > MAX_TOTAL_CENT) throw new Error('单个红包不能超过 ' + xueyuan.fromCent(MAX_TOTAL_CENT) + ' 学元');
 
   var targets = Array.isArray(o.targets) ? o.targets.map(function (x) { return String(x || '').trim(); })
     .filter(function (x) { return /^\d{4,12}$/.test(x); }) : [];

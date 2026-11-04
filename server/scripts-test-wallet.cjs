@@ -140,9 +140,9 @@ async function main() {
   ok('返回可用与冻结', d1.account && typeof d1.account.available === 'number' && typeof d1.account.frozen === 'number',
     { available: d1.account && d1.account.available, frozen: d1.account && d1.account.frozen });
   ok('今日津贴未领', d1.daily && d1.daily.claimed === false, d1.daily);
-  eq('津贴基础金额 10 学元', d1.daily && d1.daily.amount, 10);
+  eq('津贴基础金额 100 学元', d1.daily && d1.daily.amount, 100);
   ok('带学元来源清单', Array.isArray(d1.sources) && d1.sources.length >= 6, (d1.sources || []).length);
-  ok('带限额（转账 500）', d1.limits && d1.limits.transfer === 500, d1.limits);
+  ok('带限额（转账 50000）', d1.limits && d1.limits.transfer === 50000, d1.limits);
   ok('最近流水含开户赠金', (d1.recent || []).some(function (x) { return x.kind === 'welcome'; }),
     (d1.recent || []).map(function (x) { return x.kind; }).join(','));
 
@@ -150,15 +150,15 @@ async function main() {
   console.log('\n=== 2. 每日津贴 ===');
   var c1 = await api('POST', '/api/wallet/daily');
   eq('领取津贴 200', c1.status, 200);
-  ok('首次领取到账 10 学元', c1.body.data.duplicate === false && c1.body.data.amount === 10,
+  ok('首次领取到账 100 学元', c1.body.data.duplicate === false && c1.body.data.amount === 100,
     { dup: c1.body.data.duplicate, amount: c1.body.data.amount });
   eq('连签 1 天', c1.body.data.streak, 1);
-  eq('余额 1000 → 1010', c1.body.data.account.balance, 1010);
+  eq('余额 1000 → 1100', c1.body.data.account.balance, 1100);
 
   var c2 = await api('POST', '/api/wallet/daily');
   ok('重复领取不重复发钱', c2.body.data.duplicate === true && c2.body.data.amount === 0,
     { dup: c2.body.data.duplicate, amount: c2.body.data.amount });
-  eq('重复领取后余额仍 1010', c2.body.data.account.balance, 1010);
+  eq('重复领取后余额仍 1100', c2.body.data.account.balance, 1100);
 
   var w2 = await api('GET', '/api/wallet');
   ok('概览里今日津贴变为已领', w2.body.data.daily.claimed === true, w2.body.data.daily);
@@ -174,7 +174,7 @@ async function main() {
     rows.map(function (r) { return r.kind; }).join(','));
   ok('每笔带余额快照（可对账）', rows.every(function (r) { return typeof r.balance_after === 'number'; }),
     rows.map(function (r) { return r.balance_after; }));
-  eq('最新一笔余额 = 当前余额', rows[0].balance_after, 1010);
+  eq('最新一笔余额 = 当前余额', rows[0].balance_after, 1100);
 
   var lIn = await api('GET', '/api/wallet/ledger?limit=10&direction=in');
   ok('收入筛选只有正数', (lIn.body.data.list || []).every(function (r) { return r.delta_cent > 0; }),
@@ -208,31 +208,40 @@ async function main() {
 
   var rc = await api('POST', '/api/xueyuan/admin/recharge', {
     token: TADMIN,
-    body: { userIds: ['251901', '251902', '251903'], yuan: 1000, memo: '校园卡线下充值', requestId: 'rc-wallet' }
+    body: { userIds: ['251901', '251902', '251903'], yuan: 10, memo: '校园卡线下充值', requestId: 'rc-wallet' }
   });
   eq('班管录入线下充值 200', rc.status, 200);
   eq('三人充值成功', (rc.body.data.done || []).length, 3);
-  eq('充值按 1:1 换算', rc.body.data.rate, 1);
+  eq('充值按 1:100 换算', rc.body.data.rate, 100);
 
   var wRc = (await api('GET', '/api/wallet')).body.data.account;
   eq('充值进入充值学元', wRc.cash, 1000);
-  eq('赠送学元不受影响', wRc.grant, 1010);
-  eq('总余额 = 1010 赠送 + 1000 充值', wRc.balance, 2010);
+  eq('赠送学元不受影响', wRc.grant, 1100);
+  eq('总余额 = 1100 赠送 + 1000 充值', wRc.balance, 2100);
   eq('可提现额度只认充值学元', wRc.withdrawable, 1000);
 
   var rcAgain = await api('POST', '/api/xueyuan/admin/recharge', {
     token: TADMIN,
-    body: { userIds: ['251901'], yuan: 1000, memo: '重复请求号', requestId: 'rc-wallet' }
+    body: { userIds: ['251901'], yuan: 10, memo: '重复请求号', requestId: 'rc-wallet' }
   });
   var wRc2 = (await api('GET', '/api/wallet')).body.data.account;
   ok('同一请求号重复充值不重复入账',
-    wRc2.balance === 2010 && rcAgain.body.data.done[0].duplicate === true,
+    wRc2.balance === 2100 && rcAgain.body.data.done[0].duplicate === true,
     { balance: wRc2.balance, dup: rcAgain.body.data.done[0].duplicate });
 
   var rcForbidden = await api('POST', '/api/xueyuan/admin/recharge', {
     token: T2, body: { userIds: ['251901'], yuan: 10 }
   });
   ok('普通学生不能录充值（403）', rcForbidden.status === 403, rcForbidden.body.message);
+
+  // 再给 A 追加一笔 2000 元（单笔上限）充值：后面要连续发大额转账验证「当日额度」，
+  // 需要足够多的充值学元做支撑。
+  var rcMore = await api('POST', '/api/xueyuan/admin/recharge', {
+    token: TADMIN,
+    body: { userIds: ['251901'], yuan: 2000, memo: '额度回归垫资', requestId: 'rc-wallet-quota' }
+  });
+  eq('追加充值 200', rcMore.status, 200);
+  eq('追加充值到账 200000 学元', (await api('GET', '/api/wallet')).body.data.account.cash, 201000);
 
   // ================= 5. 支付密码 =================
   console.log('\n=== 5. 支付密码 ===');
@@ -279,15 +288,15 @@ async function main() {
     body: { to: '251902', amount: 50, memo: '请你喝水', request_id: 'req-1', pin: PIN }
   });
   eq('转账 200', tr1.status, 200);
-  eq('转出后余额 2010 → 1960', tr1.body.data.account.balance, 1960);
-  eq('只扣充值学元 1000 → 950', tr1.body.data.account.cash, 950);
-  eq('赠送学元不被挪用', tr1.body.data.account.grant, 1010);
+  eq('转出后余额 202100 → 202050', tr1.body.data.account.balance, 202050);
+  eq('只扣充值学元 201000 → 200950', tr1.body.data.account.cash, 200950);
+  eq('赠送学元不被挪用', tr1.body.data.account.grant, 1100);
   eq('收款方昵称回填', tr1.body.data.to_name, '测试2');
 
   var tr2 = await api('POST', '/api/wallet/transfer', {
     body: { to: '251902', amount: 50, memo: '请你喝水', request_id: 'req-1', pin: PIN }
   });
-  ok('同一 request_id 重放不重复扣钱（幂等）', tr2.body.data.duplicate === true && tr2.body.data.account.balance === 1960,
+  ok('同一 request_id 重放不重复扣钱（幂等）', tr2.body.data.duplicate === true && tr2.body.data.account.balance === 202050,
     { dup: tr2.body.data.duplicate, balance: tr2.body.data.account.balance });
 
   var wB = await api('GET', '/api/wallet', { token: T2 });
@@ -297,9 +306,17 @@ async function main() {
   eq('不能给自己转账', trSelf.status, 400);
   var trGhost = await api('POST', '/api/wallet/transfer', { body: { to: '999999', amount: 1, pin: PIN } });
   ok('学号不存在被拒', trGhost.status === 400 && /没找到/.test(trGhost.body.message), trGhost.body.message);
-  var trBig = await api('POST', '/api/wallet/transfer', { body: { to: '251902', amount: 600, pin: PIN } });
-  ok('超过单笔上限（500）被拒', trBig.status === 400 && /单笔/.test(trBig.body.message), trBig.body.message);
-  var trQuota = await api('POST', '/api/wallet/transfer', { body: { to: '251902', amount: 3000, pin: PIN } });
+  var trBig = await api('POST', '/api/wallet/transfer', { body: { to: '251902', amount: 60000, pin: PIN } });
+  ok('超过单笔上限（50000）被拒', trBig.status === 400 && /单笔/.test(trBig.body.message), trBig.body.message);
+
+  // 当日额度：先成功转 3 笔 50000（含前面 50，累计 150050），下一笔 50000 才会顶破 200000
+  for (var fi = 0; fi < 3; fi++) {
+    var trFill = await api('POST', '/api/wallet/transfer', {
+      body: { to: '251902', amount: 50000, request_id: 'req-fill-' + fi, pin: PIN }
+    });
+    eq('额度填充转账 #' + (fi + 1) + ' 200', trFill.status, 200);
+  }
+  var trQuota = await api('POST', '/api/wallet/transfer', { body: { to: '251902', amount: 50000, pin: PIN } });
   ok('超过当日转出额度被拒', trQuota.status === 400 && /额度/.test(trQuota.body.message), trQuota.body.message);
   var trZero = await api('POST', '/api/wallet/transfer', { body: { to: '251902', amount: 0, pin: PIN } });
   eq('金额 0 被拒', trZero.status, 400);
@@ -312,9 +329,9 @@ async function main() {
   ok('发红包返回 id 与冻结金额', packetId > 0 && pk1.body.data.total === 30, pk1.body.data);
 
   var wAfterPacket = await api('GET', '/api/wallet');
-  eq('发红包后余额不变（冻结而非扣款）', wAfterPacket.body.data.account.balance, 1960);
+  eq('发红包后余额不变（冻结而非扣款）', wAfterPacket.body.data.account.balance, 52050);
   eq('冻结金额 30', wAfterPacket.body.data.account.frozen, 30);
-  eq('可用余额 1930', wAfterPacket.body.data.account.available, 1930);
+  eq('可用余额 52020', wAfterPacket.body.data.account.available, 52020);
 
   var pListB = await api('GET', '/api/wallet/packets', { token: T2 });
   ok('同学能看到可领红包', (pListB.body.data.available || []).some(function (p) { return p.id === packetId; }),
@@ -339,14 +356,14 @@ async function main() {
   var wEnd = await api('GET', '/api/wallet');
   ok('红包领完后发送者冻结归零', wEnd.body.data.account.frozen === 0, wEnd.body.data.account.frozen);
   ok('发送者余额减少（只减被领走的，未领完的会退还）',
-    wEnd.body.data.account.balance < 1960 && wEnd.body.data.account.balance >= 1930,
+    wEnd.body.data.account.balance < 52050 && wEnd.body.data.account.balance >= 52020,
     wEnd.body.data.account.balance);
 
   // 余额守恒：A 减少的 = B + C 增加的
   var wB2 = await api('GET', '/api/wallet', { token: T2 });
   var wC2 = await api('GET', '/api/wallet', { token: T3 });
-  var aOut = 1960 - wEnd.body.data.account.balance;
-  var bIn = wB2.body.data.account.balance - 2050;
+  var aOut = 52050 - wEnd.body.data.account.balance;
+  var bIn = wB2.body.data.account.balance - 152050;
   var cIn = wC2.body.data.account.balance - 2000;
   ok('红包金额守恒（A 支出 = B + C 收入，误差 < 0.01）',
     Math.abs(aOut - (bIn + cIn)) < 0.01,

@@ -15,7 +15,7 @@
 // 安全：
 //   · 请求必须带 HMAC(RELAY_SECRET) + 时间戳（±5 分钟），防重放与伪造
 //   · 收款人只认收款码 token（由收款方班级签发），不接受请求体自报的学号
-//   · 单笔上限 200 学元（跨班额度，本班内是 500）
+//   · 单笔上限 200 元等值（跨班额度，本班内是 500 元）
 
 var crypto = require('crypto');
 var http = require('http');
@@ -26,7 +26,7 @@ var xy = require('./xueyuan');
 var payCode = require('./pay-code');
 var peers = require('./peers');
 
-var MAX_CROSS_CENT = 20000;        // 200 学元
+var MAX_CROSS_CENT = xy.yuanToCent(200);   // 200 元等值
 var NET_TIMEOUT = 8000;
 var SIG_WINDOW = 5 * 60 * 1000;
 var RETRY_GAP = 60 * 1000;
@@ -160,7 +160,7 @@ async function pay(opts) {
 
   if (!token) throw new Error('缺少收款码');
   if (!(amount > 0)) throw new Error('金额至少 0.01 学元');
-  if (amount > MAX_CROSS_CENT) throw new Error('跨班单笔不能超过 ' + (MAX_CROSS_CENT / 100) + ' 学元');
+  if (amount > MAX_CROSS_CENT) throw new Error('跨班单笔不能超过 ' + xy.fromCent(MAX_CROSS_CENT) + ' 学元');
   if (to === uid) throw new Error('不能给自己转账');
 
   // 冻结（可用不足会抛）。跨班转账只能动用充值学元：赠送学元仅可投资

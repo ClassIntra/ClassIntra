@@ -33,9 +33,9 @@ var packetCross = require('../services/packet-cross');
 var peers = require('../services/peers');
 var db = require('../utils/db');
 
-// 风控额度：本班单日转出总额（含转账/红包/跨班）2000 学元。
-// 单笔上限在 xueyuan 里是 500；日累计是为了挡住「拆成很多笔」的异常行为。
-var MAX_DAILY_OUT_CENT = 200000;
+// 风控额度：本班单日转出总额 2000 元等值（1:100 下为 200000 学元）。
+// 单笔上限在 xueyuan 里是 500 元等值；日累计是为了挡住「拆成很多笔」的异常行为。
+var MAX_DAILY_OUT_CENT = xy.yuanToCent(2000);
 
 function dayStartMs() {
   var d = new Date(Date.now() + 8 * 3600 * 1000);
@@ -67,16 +67,16 @@ function guardPay(uid, pin, amountCent) {
   var used = dailyOutCent(uid);
   if (used + amountCent > MAX_DAILY_OUT_CENT) {
     var left = Math.max(0, MAX_DAILY_OUT_CENT - used);
-    var e2 = new Error('今日转出额度只剩 ' + (left / 100).toFixed(2) + ' 学元（每日上限 ' + (MAX_DAILY_OUT_CENT / 100) + '）');
+    var e2 = new Error('今日转出额度只剩 ' + xy.fromCent(left).toFixed(2) + ' 学元（每日上限 ' + xy.fromCent(MAX_DAILY_OUT_CENT) + ' 学元）');
     e2.quota = true;
     throw e2;
   }
   return true;
 }
 
-var DAILY_CENT = 1000;
-var DAILY_BONUS_CENT = 2000;
-var DAILY_BONUS_FROM_DAY = 7;
+var DAILY_CENT = xy.LIMITS.DAILY_CENT;
+var DAILY_BONUS_CENT = xy.LIMITS.DAILY_BONUS_CENT;
+var DAILY_BONUS_FROM_DAY = xy.LIMITS.DAILY_BONUS_FROM_DAY;
 var OFFSET = 8 * 3600 * 1000;   // 全平台按东八区记账
 
 // 业务错误 400 / 未预期 500，前端据此区分「余额不足」与「服务器挂了」
@@ -137,9 +137,9 @@ function dailyState(userId) {
   return {
     claimed: !!hit,
     streak: streak,
-    amount: hit ? 0 : (nextDay >= DAILY_BONUS_FROM_DAY ? DAILY_BONUS_CENT / 100 : DAILY_CENT / 100),
-    base: DAILY_CENT / 100,
-    bonus: DAILY_BONUS_CENT / 100,
+    amount: hit ? 0 : (nextDay >= DAILY_BONUS_FROM_DAY ? xy.fromCent(DAILY_BONUS_CENT) : xy.fromCent(DAILY_CENT)),
+    base: xy.fromCent(DAILY_CENT),
+    bonus: xy.fromCent(DAILY_BONUS_CENT),
     bonus_from: DAILY_BONUS_FROM_DAY,
     next_day: nextDay
   };
@@ -150,9 +150,9 @@ function sourceList() {
   var rate = xy.yuanRate();
   return [
     { icon: 'wallet', name: '线下充值', amount: '1 元 = ' + rate + ' 学元', note: '找班管交现金，录入后到账；可转账、投资、提现' },
-    { icon: 'gift', name: '开户赠金', amount: '1000 学元', note: '首次开通学元账户自动到账，属赠送学元，只能投资' },
+    { icon: 'gift', name: '开户赠金', amount: xy.fromCent(xy.LIMITS.WELCOME_CENT) + ' 学元', note: '首次开通学元账户自动到账，属赠送学元，只能投资' },
     { icon: 'practice', name: '投资练习金', amount: '9000 学元', note: '第一次进入「学元证券」自动发放，只能投资' },
-    { icon: 'daily', name: '每日助学津贴', amount: '10 学元（连签第 7 天起 20）', note: '每天在钱包点一次，断签重新计' },
+    { icon: 'daily', name: '每日助学津贴', amount: xy.fromCent(xy.LIMITS.DAILY_CENT) + ' 学元（连签第 7 天起 ' + xy.fromCent(xy.LIMITS.DAILY_BONUS_CENT) + '）', note: '每天在钱包点一次，断签重新计' },
     { icon: 'medal', name: '交易成就', amount: '5–100 学元', note: '在学元证券解锁成就时发放' },
     { icon: 'trophy', name: '跨班对决奖励', amount: '100 学元', note: '每周五胜方班级的活跃同学' },
     { icon: 'teacher', name: '班管发放', amount: '不定', note: '老师奖励，属赠送学元，只能投资' },
@@ -520,18 +520,18 @@ router.get('/', function (req, res) {
         sources: sourceList(),
         // 可提现额度：只有「累计线下充值 - 累计已提现」以内的充值学元能提，
         // 防止「赠金投资赚钱 → 卖出 → 提现」把系统赠金套成现金。
-        withdrawable: xy.withdrawableCent(uid) / 100,
+        withdrawable: xy.fromCent(xy.withdrawableCent(uid)),
         yuan_rate: xy.yuanRate(),
         limits: {
-          transfer: xy.LIMITS.MAX_TRANSFER_CENT / 100,
-          recharge: xy.LIMITS.MAX_RECHARGE_CENT / 100,
-          withdraw: xy.LIMITS.MAX_WITHDRAW_CENT / 100,
-          withdraw_min: xy.LIMITS.MIN_WITHDRAW_CENT / 100,
-          packet_total: yuanbao.MAX_TOTAL_CENT / 100,
+          transfer: xy.fromCent(xy.LIMITS.MAX_TRANSFER_CENT),
+          recharge: xy.fromCent(xy.LIMITS.MAX_RECHARGE_CENT),
+          withdraw: xy.fromCent(xy.LIMITS.MAX_WITHDRAW_CENT),
+          withdraw_min: xy.fromCent(xy.LIMITS.MIN_WITHDRAW_CENT),
+          packet_total: xy.fromCent(yuanbao.MAX_TOTAL_CENT),
           packet_count: yuanbao.MAX_COUNT,
-          cross: crossPay.MAX_CROSS_CENT / 100,
-          daily_out: MAX_DAILY_OUT_CENT / 100,
-          daily_left: Math.max(0, MAX_DAILY_OUT_CENT - dailyOutCent(uid)) / 100
+          cross: xy.fromCent(crossPay.MAX_CROSS_CENT),
+          daily_out: xy.fromCent(MAX_DAILY_OUT_CENT),
+          daily_left: xy.fromCent(Math.max(0, MAX_DAILY_OUT_CENT - dailyOutCent(uid)))
         }
       }
     });

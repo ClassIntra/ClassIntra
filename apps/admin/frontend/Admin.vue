@@ -215,7 +215,7 @@
           <div class="section-toolbar">
             <div class="toolbar-left">
               <h3 class="sub-title">学元发行与对账</h3>
-              <span class="xy-rate">1 元 = {{ xySummary ? xySummary.yuan_rate : 1 }} 学元</span>
+              <span class="xy-rate">1 元 = {{ xySummary ? xySummary.yuan_rate : 100 }} 学元</span>
             </div>
             <div class="toolbar-right">
               <button class="action-btn" :disabled="xyLoading" @click="loadXueyuan">
@@ -291,8 +291,8 @@
                 </button>
               </div>
               <p class="xy-foot-tip">
-                按 1 元 = {{ xySummary ? xySummary.yuan_rate : 1 }} 学元换算，单人单次上限
-                {{ xySummary && xySummary.limits ? xySummary.limits.max_recharge : 2000 }} 学元。
+                按 1 元 = {{ xySummary ? xySummary.yuan_rate : 100 }} 学元换算，单人单次上限
+                {{ xySummary && xySummary.limits ? xySummary.limits.max_recharge : 200000 }} 学元。
                 重复提交会按请求号去重，不会重复入账。
               </p>
             </div>

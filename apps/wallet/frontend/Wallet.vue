@@ -631,12 +631,12 @@ export default {
         frozen_grant: 0
       },
       withdrawable: 0,
-      yuanRate: 1,
-      daily: { claimed: true, amount: 0, streak: 0, base: 10, bonus: 20, bonus_from: 7, next_day: 1 },
+      yuanRate: 100,
+      daily: { claimed: true, amount: 0, streak: 0, base: 100, bonus: 200, bonus_from: 7, next_day: 1 },
       week: { in: 0, out: 0, count: 0 },
       month: { in: 0, out: 0, count: 0 },
       sources: [],
-      limits: { transfer: 500, packet_total: 500, packet_count: 20, recharge: 2000, withdraw: 1000, withdraw_min: 1 },
+      limits: { transfer: 50000, packet_total: 50000, packet_count: 20, recharge: 200000, withdraw: 100000, withdraw_min: 100 },
       packetBadge: 0,
 
       withdrawals: [],

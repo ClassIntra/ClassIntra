@@ -63,19 +63,20 @@ xy.ensureAccount(D);
 
 console.log('\n=== 赠送学元不可转账 / 不可提现 ===');
 throws('纯赠送账户转账被拒', function () { xy.transfer({ from: D, to: A, amountCent: 100 }); }, /充值学元余额不足/);
-throws('纯赠送账户提现被拒', function () { xy.requestWithdraw({ user: D, amountCent: 100, requestId: 'wd:zero' }); }, /可提现学元不足/);
+throws('纯赠送账户提现被拒', function () { xy.requestWithdraw({ user: D, amountCent: 10000, requestId: 'wd:zero' }); }, /可提现学元不足/);
 
 console.log('\n=== 线下充值（仅班管录入） ===');
-var recA = xy.recharge({ user: A, yuan: 1000, operator: A, requestId: 'rc:a' });
+// 2026-11-04 起默认 1 元 = 100 学元；用 10 元换 1000 学元，保持下面金额口径稳定
+var recA = xy.recharge({ user: A, yuan: 10, operator: A, requestId: 'rc:a' });
 eq('A 充值到账 1000 学元', recA.account.cash, 1000);
-var recA2 = xy.recharge({ user: A, yuan: 1000, operator: A, requestId: 'rc:a' });
+var recA2 = xy.recharge({ user: A, yuan: 10, operator: A, requestId: 'rc:a' });
 eq('同请求号重复充值不重复入账', recA2.account.cash, 1000);
 eq('重复充值标记 duplicate', recA2.duplicate, true);
 throws('充值人数值非法', function () { xy.recharge({ user: A, yuan: 0, operator: A }); }, /正整数分/);
 throws('充值操作人非法', function () { xy.recharge({ user: A, yuan: 10, operator: '@system:mint' }); }, /操作人非法/);
 eq('充值只进充值池', xy.viewAccount(A).grant, 1000);
-xy.recharge({ user: B, yuan: 1000, operator: A, requestId: 'rc:b' });
-xy.recharge({ user: C, yuan: 1000, operator: A, requestId: 'rc:c' });
+xy.recharge({ user: B, yuan: 10, operator: A, requestId: 'rc:b' });
+xy.recharge({ user: C, yuan: 10, operator: A, requestId: 'rc:c' });
 
 console.log('\n=== 转账（只走充值学元） ===');
 var t = xy.transfer({ from: A, to: B, amountCent: 15000, memo: '还你的笔' });
@@ -85,7 +86,7 @@ eq('付款方总余额 1850', xy.viewAccount(A).balance, 1850);
 eq('收款方充值池 1150', xy.viewAccount(B).cash, 1150);
 eq('付款方赠送池不变', xy.viewAccount(A).grant, 1000);
 throws('给自己转账被拒', function () { xy.transfer({ from: A, to: A, amountCent: 100 }); }, /自己/);
-throws('超额转账被拒', function () { xy.transfer({ from: A, to: B, amountCent: 60000 }); }, /不能超过/);
+throws('超额转账被拒', function () { xy.transfer({ from: A, to: B, amountCent: 6000000 }); }, /不能超过/);
 throws('金额为 0 被拒', function () { xy.transfer({ from: A, to: B, amountCent: 0 }); }, /正整数/);
 throws('未开户对象被拒', function () { xy.transfer({ from: A, to: '999999', amountCent: 100 }); }, /尚未开通/);
 
@@ -117,13 +118,13 @@ eq('两次返回同一 tx_id', d1.tx_id, d2.tx_id);
 
 console.log('\n=== 津贴 ===');
 var day = xy.claimDaily(A);
-eq('首日津贴 10 学元', day.amount, 10);
+eq('首日津贴 100 学元', day.amount, 100);
 eq('streak=1', day.streak, 1);
-eq('津贴进入赠送池', xy.viewAccount(A).grant, 1000);
+eq('津贴进入赠送池', xy.viewAccount(A).grant, 1090);
 var day2 = xy.claimDaily(A);
 eq('当日重复领取标记 duplicate', day2.duplicate, true);
 eq('当日重复领取金额 0', day2.amount, 0);
-eq('余额只加了一次', xy.viewAccount(A).balance, 1350);
+eq('余额只加了一次', xy.viewAccount(A).balance, 1440);
 
 console.log('\n=== 冻结与结算 ===');
 var before = xy.getAccount(B).balance;
@@ -157,11 +158,11 @@ ok('成交额进入 @system:settle', settleAcc.balance === 47500, settleAcc);
 
 console.log('\n=== 提现申请、撤销与审批 ===');
 eq('A 可提现额度 = 净充值 350', xy.viewAccount(A).withdrawable, 350);
-throws('提现超过单笔上限被拒', function () { xy.requestWithdraw({ user: A, amountCent: 150000, requestId: 'wd:max' }); }, /不能超过/);
+throws('提现超过单笔上限被拒', function () { xy.requestWithdraw({ user: A, amountCent: 20000000, requestId: 'wd:max' }); }, /不能超过/);
 var w1 = xy.requestWithdraw({ user: A, amountCent: 30000, memo: '买书', requestId: 'wd:a1' });
 eq('提现冻结充值池', w1.account.frozen_cash, 300);
 eq('提现后充值可用 50', w1.account.available_cash, 50);
-throws('同时只能有一笔待审批', function () { xy.requestWithdraw({ user: A, amountCent: 1000, requestId: 'wd:a2' }); }, /已有一笔/);
+throws('同时只能有一笔待审批', function () { xy.requestWithdraw({ user: A, amountCent: 10000, requestId: 'wd:a2' }); }, /已有一笔/);
 eq('待审批列表 1 笔', xy.listWithdrawals({ status: 'pending' }).length, 1);
 var c1 = xy.cancelWithdraw(w1.withdraw.id, { user: A });
 eq('撤销后状态 cancelled', c1.withdraw.status, 'cancelled');
@@ -172,17 +173,40 @@ var w2 = xy.requestWithdraw({ user: A, amountCent: 30000, memo: '买书', reques
 var r2 = xy.reviewWithdraw(w2.withdraw.id, true, { reviewer: A, memo: '已当面支付' });
 eq('审批通过状态 paid', r2.withdraw.status, 'paid');
 eq('审批后充值池扣 300 剩 50', r2.account.cash, 50);
-eq('审批后赠送池不变', r2.account.grant, 1000);
+eq('审批后赠送池不变', r2.account.grant, 1090);
 eq('审批后冻结清零', r2.account.frozen_cash, 0);
 eq('净充值扣减后可提现 50', r2.account.withdrawable, 50);
 throws('超出净充值部分不可提现', function () { xy.requestWithdraw({ user: A, amountCent: 10000, requestId: 'wd:a4' }); }, /可提现学元不足/);
 throws('已处理的提现单不可重复审批', function () { xy.reviewWithdraw(w2.withdraw.id, true, { reviewer: A }); }, /已处理/);
 
+console.log('\n=== 投资收益结构性不可提现 ===');
+// 此时 A：充值池 50、赠送池 1090，可提现额度被充值池卡在 50
+eq('操作前可提现 50', xy.viewAccount(A).withdrawable, 50);
+var ct1 = xy.creditTrade(A, 10000, { principalCent: 5000, ref: 'test:trade:1', app: 'stock' });
+eq('本金回充值池', xy.viewAccount(A).cash, 100);
+eq('收益进赠送池', xy.viewAccount(A).grant, 1140);
+eq('卖出后总余额 1240', xy.viewAccount(A).balance, 1240);
+ok('两腿各生成一笔分录', ct1.principal_tx.tx_id > 0 && ct1.profit_tx.tx_id > 0, ct1);
+
+var ct2 = xy.creditTrade(A, 10000, { principalCent: 0, ref: 'test:trade:2', app: 'stock' });
+eq('纯收益不回充值池', xy.viewAccount(A).cash, 100);
+eq('纯收益进赠送池', xy.viewAccount(A).grant, 1240);
+eq('纯收益不增加可提现额度', xy.viewAccount(A).withdrawable, 100);
+throws('超出可提现部分仍被拒', function () {
+  xy.requestWithdraw({ user: A, amountCent: 15000, requestId: 'wd:profit' });
+}, /可提现学元不足/);
+
+var ct1b = xy.creditTrade(A, 10000, { principalCent: 5000, ref: 'test:trade:1', app: 'stock' });
+ok('同 ref 重放两腿都判重', ct1b.principal_tx.duplicate === true && ct1b.profit_tx.duplicate === true, ct1b);
+eq('重放后余额不变', xy.viewAccount(A).balance, 1340);
+throws('本金超过回款被拒', function () { xy.creditTrade(A, 10000, { principalCent: 20000 }); }, /本金金额非法/);
+throws('回款金额非整数分被拒', function () { xy.creditTrade(A, 10.5, { principalCent: 0 }); }, /正整数分/);
+
 console.log('\n=== 系统守恒 ===');
 var total = db.prepare("SELECT COALESCE(SUM(balance),0) AS s FROM xy_account").get().s;
 eq('全体账户余额之和 = 0', total, 0);
 var mintAcc = xy.getAccount('@system:mint');
-eq('铸币账户 = 已发行 - 已提现', mintAcc.balance, -(4 * 100000 + 3 * 100000 + 1000 - 30000));
+eq('铸币账户 = 已发行 - 已提现', mintAcc.balance, -(4 * 100000 + 3 * 100000 + 10000 - 30000));
 var cashTotal = db.prepare("SELECT COALESCE(SUM(cash_balance),0) AS s FROM xy_account").get().s;
 var grantTotal = db.prepare("SELECT COALESCE(SUM(grant_balance),0) AS s FROM xy_account").get().s;
 var userTotal = db.prepare("SELECT COALESCE(SUM(balance),0) AS s FROM xy_account WHERE user_id NOT LIKE '@%'").get().s;
