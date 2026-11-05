@@ -259,6 +259,20 @@
                   <div class="stat-label">待审批提现（{{ xyMoney(xySummary && xySummary.pending_withdraw_cent / 100) }} 学元）</div>
                 </div>
               </div>
+              <div class="stat-card">
+                <div class="stat-icon"><i class="fa-solid fa-chart-line"></i></div>
+                <div class="stat-info">
+                  <div class="stat-value">{{ xyMoney(xySummary && xySummary.settle_deficit_cent / 100) }}</div>
+                  <div class="stat-label">投资盘赤字（凭空多出的学元）</div>
+                </div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-icon"><i class="fa-solid fa-seedling"></i></div>
+                <div class="stat-info">
+                  <div class="stat-value">{{ xyMoney(xySummary && xySummary.gift_issued_total) }}</div>
+                  <div class="stat-label">累计赠金发行（不含充值）</div>
+                </div>
+              </div>
             </div>
 
             <div class="xy-audit" :class="xyAudit && xyAudit.ok ? 'ok' : 'bad'">

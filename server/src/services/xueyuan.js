@@ -49,9 +49,12 @@ var YUAN_RATE = 1000;
 
 // 新账户赠金：10 元（1:1000 下为 10000 学元，给新生一笔启动资金去体验投资）
 var WELCOME_CENT = yuanToCent(10);
-// 每日助学津贴：1 元（1000 学元）；连续第 7 天起 2 元（2000 学元）
-var DAILY_CENT = yuanToCent(1);
-var DAILY_BONUS_CENT = yuanToCent(2);
+// 每日助学津贴：0.2 元（1:1000 下为 200 学元）；连续第 7 天起 0.4 元（400 学元）
+// 2026-11-05 收紧：原来是 1 元/天，一个 40 人班一年要发约 2.9 万元等值，
+// 是真实充值规模的十倍以上，会让教师发放的奖励失去稀缺感。降到 1/5 后，
+// 全班一年赠金与班级实际充值规模同量级。
+var DAILY_CENT = yuanToCent(0.2);
+var DAILY_BONUS_CENT = yuanToCent(0.4);
 var DAILY_BONUS_FROM_DAY = 7;
 // 单笔转账上限：500 元（防手滑把全副身家一次转错人）
 var MAX_TRANSFER_CENT = yuanToCent(500);
@@ -1315,6 +1318,36 @@ function summary(opts) {
   ).get();
   var txToday = db.prepare('SELECT COUNT(*) AS c FROM xy_tx WHERE created_at >= ?').get(todayStart).c;
 
+  // ---- 发行/回收监控（2026-11-05）----
+  // 学元总量只由「铸币 - 回收」决定：转账、红包、跨班都是零和，充值有等额真钱对冲。
+  // 下面三个系统账户的余额是判断有没有「隐性发币」的关键：
+  //   @system:mint   铸币镜像：余额 = -(累计发行 - 累计回收)，负数越大发得越多
+  //   @system:settle 投资盘托管池：买卖各自与它结算，市场整体上涨时卖出多于买入，
+  //                 余额会变负 —— 这部分学元没有对应的买入资金，是对账抓不到的隐性铸币
+  //   @system:fee    手续费沉淀：已退出流通，属于回收
+  var sysBalances = {};
+  db.prepare(
+    "SELECT user_id, balance FROM xy_account WHERE user_id IN ('@system:mint','@system:settle','@system:fee')"
+  ).all().forEach(function (row) { sysBalances[row.user_id] = row.balance; });
+
+  // 累计赠金发行（不含线下充值：充值是等额真钱对冲，不产生通胀）
+  var giftIssuedTotal = db.prepare(
+    "SELECT COALESCE(SUM(amount), 0) AS s FROM xy_tx WHERE kind IN ('welcome','daily','admin_grant','reward')"
+  ).get().s;
+  // 投资盘已付出的收益（对手方是 settle 池）
+  var profitPaidTotal = db.prepare(
+    "SELECT COALESCE(SUM(amount), 0) AS s FROM xy_tx WHERE kind = 'profit'"
+  ).get().s;
+  // 手续费累计沉淀
+  var feeSunkTotal = db.prepare(
+    "SELECT COALESCE(SUM(amount), 0) AS s FROM xy_tx WHERE kind = 'fee'"
+  ).get().s;
+  // 主动回收：教师扣减 + 提现
+  var burnTotal = db.prepare(
+    "SELECT COALESCE(SUM(amount), 0) AS s FROM xy_tx WHERE kind IN ('admin_deduct','withdraw')"
+  ).get().s;
+  var settleBalance = sysBalances['@system:settle'] || 0;
+
   return {
     accounts: accounts,
     circulation_cent: circulation,
@@ -1338,6 +1371,19 @@ function summary(opts) {
     pending_withdraw_cent: pendingWithdraw.s,
     tx_today: txToday,
     avg_balance: accounts ? Math.round(circulation / accounts) / CENT_PER_YUAN : 0,
+    // 发行/回收监控（字段含义见上方注释）
+    settle_balance_cent: settleBalance,
+    settle_balance: fromCent(settleBalance),
+    // 投资盘赤字 = 已经凭空发出去、但买入资金从未覆盖过的学元
+    settle_deficit_cent: Math.max(0, -settleBalance),
+    settle_deficit: fromCent(Math.max(0, -settleBalance)),
+    fee_sink: fromCent(sysBalances['@system:fee'] || 0),
+    gift_issued_total: fromCent(giftIssuedTotal),
+    profit_paid_total: fromCent(profitPaidTotal),
+    fee_total: fromCent(feeSunkTotal),
+    burn_total: fromCent(burnTotal),
+    // 非充值渠道的净发行：赠金 + 投资收益 - 主动回收 - 手续费沉淀
+    net_issued_total: fromCent(giftIssuedTotal + profitPaidTotal - burnTotal - feeSunkTotal),
     daily_cent: DAILY_CENT,
     welcome_cent: WELCOME_CENT,
     yuan_rate: yuanRate(),
