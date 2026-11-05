@@ -77,6 +77,7 @@ function nowMs() { return Date.now(); }
 
 // 签名内容固定字段顺序，避免 JSON 键序不同导致验签失败
 // from_base / from_server 参与签名：对端靠它们回连与登记，不能被人中间改掉
+// cash_cent / grant_cent 也参与签名：防止中途把赠送学元改成充值学元（后者可提现）
 function canonical(p) {
   return [
     String(p.ts || ''),
@@ -85,7 +86,9 @@ function canonical(p) {
     String(p.token || ''),
     String(p.amount_cent || 0),
     String(p.from_server || ''),
-    String(p.from_base || '')
+    String(p.from_base || ''),
+    String(p.cash_cent === undefined ? '_' : p.cash_cent),
+    String(p.grant_cent === undefined ? '_' : p.grant_cent)
   ].join('|');
 }
 
@@ -100,12 +103,27 @@ function rawVerify(text, sig) {
   try { return crypto.timingSafeEqual(a, b); } catch (e) { return false; }
 }
 
+// 老版本对端只签前 7 个字段（没有分池信息）。两个班滚动升级期间仍要能收款，
+// 因此验签时新旧两种 canonical 都试；新版本发起的请求只认新签名。
+function legacyCanonical(p) {
+  return [
+    String(p.ts || ''),
+    String(p.ref || ''),
+    String(p.from || ''),
+    String(p.token || ''),
+    String(p.amount_cent || 0),
+    String(p.from_server || ''),
+    String(p.from_base || '')
+  ].join('|');
+}
+
 function sign(p) {
   return rawSign(canonical(p));
 }
 
 function verifySig(p, sig) {
-  return rawVerify(canonical(p), sig);
+  if (rawVerify(canonical(p), sig)) return true;
+  return rawVerify(legacyCanonical(p), sig);
 }
 
 function postJson(base, path, body) {
@@ -147,6 +165,23 @@ function findTx(ref) {
   return db.prepare('SELECT * FROM xy_cross_tx WHERE ref = ?').get(String(ref));
 }
 
+// 跨班记录的冻结拆分。历史记录 pool 存单池名（'cash'/'grant'），新记录存 JSON；
+// 单池历史记录的冻结额整体归属该池。
+function txPoolSplit(amountCent, raw) {
+  var s = String(raw || '');
+  if (s === 'cash') return { cash: amountCent, grant: 0 };
+  if (s === 'grant') return { cash: 0, grant: amountCent };
+  try {
+    var o = JSON.parse(s);
+    return {
+      cash: Math.max(0, Math.round(Number(o.cash) || 0)),
+      grant: Math.max(0, Math.round(Number(o.grant) || 0))
+    };
+  } catch (e) {
+    return { cash: 0, grant: amountCent };
+  }
+}
+
 // ---- 付款方：发起跨班转账 ----
 // opts: { userId, to, token, base, amountCent, memo, fromName }
 async function pay(opts) {
@@ -163,8 +198,10 @@ async function pay(opts) {
   if (amount > MAX_CROSS_CENT) throw new Error('跨班单笔不能超过 ' + xy.fromCent(MAX_CROSS_CENT) + ' 学元');
   if (to === uid) throw new Error('不能给自己转账');
 
-  // 冻结（可用不足会抛）。跨班转账只能动用充值学元：赠送学元仅可投资
-  xy.hold(uid, amount, { pool: 'cash' });
+  // 冻结（可用不足会抛）。资金拆分：充值学元优先，不足由赠送学元补足
+  var parts = xy.splitPayable(uid, amount);
+  if (parts.cash > 0) xy.hold(uid, parts.cash, { pool: 'cash' });
+  if (parts.grant > 0) xy.hold(uid, parts.grant, { pool: 'grant' });
 
   var fromBase = '';
   try { fromBase = payCode.normalizeBase(opts.fromBase || ''); } catch (e) { fromBase = ''; }
@@ -173,8 +210,8 @@ async function pay(opts) {
   var t = nowMs();
   db.prepare([
     'INSERT INTO xy_cross_tx (ref, from_user, to_user, to_server, to_base, to_token, from_base, amount_cent, memo, status, attempts, created_at, updated_at, pool)',
-    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, 'cash')"
-  ].join('\n')).run(ref, uid, to, '', base, token, fromBase, amount, memo, t, t);
+    'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, \'pending\', 0, ?, ?, ?)'
+  ].join('\n')).run(ref, uid, to, '', base, token, fromBase, amount, memo, t, t, JSON.stringify(parts));
 
   var payload = {
     ts: t,
@@ -185,7 +222,9 @@ async function pay(opts) {
     from_base: fromBase,
     token: token,
     amount_cent: amount,
-    memo: memo
+    memo: memo,
+    cash_cent: parts.cash,
+    grant_cent: parts.grant
   };
   payload.sig = sign(payload);
 
@@ -224,18 +263,32 @@ function settle(ref, peerTx) {
   var tx = findTx(ref);
   if (!tx || tx.status !== 'pending') return;
   db.transaction(function () {
-    // 解冻 + 回收（钱离开本班账本，对端会 mint 一笔等额）
-    var pool = tx.pool === 'cash' ? 'cash' : 'grant';
-    xy.release(tx.from_user, tx.amount_cent, { pool: pool });
-    xy.burn({
-      from: tx.from_user,
-      amountCent: tx.amount_cent,
-      pool: pool,
-      kind: 'transfer',
-      ref: 'cross:' + ref,
-      app: 'wallet',
-      memo: '跨班转出 · ' + (tx.to_user || '')
-    });
+    // 解冻 + 回收（钱离开本班账本，对端会 mint 一笔等额）。按冻结时的池精确释放
+    var parts = txPoolSplit(tx.amount_cent, tx.pool);
+    if (parts.cash > 0) {
+      xy.release(tx.from_user, parts.cash, { pool: 'cash' });
+      xy.burn({
+        from: tx.from_user,
+        amountCent: parts.cash,
+        pool: 'cash',
+        kind: 'transfer',
+        ref: 'cross:' + ref + ':cash',
+        app: 'wallet',
+        memo: '跨班转出 · ' + (tx.to_user || '')
+      });
+    }
+    if (parts.grant > 0) {
+      xy.release(tx.from_user, parts.grant, { pool: 'grant' });
+      xy.burn({
+        from: tx.from_user,
+        amountCent: parts.grant,
+        pool: 'grant',
+        kind: 'transfer',
+        ref: 'cross:' + ref + ':grant',
+        app: 'wallet',
+        memo: '跨班转出 · ' + (tx.to_user || '')
+      });
+    }
     db.prepare("UPDATE xy_cross_tx SET status = 'paid', peer_tx = ?, updated_at = ? WHERE ref = ? AND status = 'pending'")
       .run(String(peerTx || ''), nowMs(), ref);
   })();
@@ -245,8 +298,9 @@ function refund(ref, reason) {
   var tx = findTx(ref);
   if (!tx || tx.status !== 'pending') return;
   db.transaction(function () {
-    var pool = tx.pool === 'cash' ? 'cash' : 'grant';
-    xy.release(tx.from_user, tx.amount_cent, { pool: pool });
+    var parts = txPoolSplit(tx.amount_cent, tx.pool);
+    if (parts.cash > 0) xy.release(tx.from_user, parts.cash, { pool: 'cash' });
+    if (parts.grant > 0) xy.release(tx.from_user, parts.grant, { pool: 'grant' });
     db.prepare("UPDATE xy_cross_tx SET status = 'refunded', error = ?, updated_at = ? WHERE ref = ? AND status = 'pending'")
       .run(String(reason || '').slice(0, 120), nowMs(), ref);
   })();
@@ -320,24 +374,63 @@ function receive(payload) {
   }
 
   try {
-    var r = xy.mint({
-      to: to,
-      amountCent: amount,
-      pool: 'cash',
-      kind: 'transfer',
-      ref: 'cross:' + String(p.ref || ''),
-      app: 'wallet',
-      memo: '跨班转入 · ' + (String(p.from_name || p.from || '').slice(0, 20) || '同学')
-    });
+    // 按付款方班级回传的拆分入账：赠送学元跨班后仍是赠送学元，不会变成可提现余额。
+    // 老版本对端不带分池字段（当时跨班只允许充值学元），整笔按 cash 入账。
+    var cashCent = 0;
+    var grantCent = 0;
+    var legacy = typeof p.cash_cent === 'undefined' && typeof p.grant_cent === 'undefined';
+    if (legacy) {
+      cashCent = amount;
+    } else {
+      cashCent = Math.max(0, Math.round(Number(p.cash_cent) || 0));
+      grantCent = Math.max(0, Math.round(Number(p.grant_cent) || 0));
+      if (cashCent + grantCent !== amount) {
+        return { code: 400, message: '分池金额与总额不一致' };
+      }
+    }
+
+    var memo = '跨班转入 · ' + (String(p.from_name || p.from || '').slice(0, 20) || '同学');
+    var refBase = 'cross:' + String(p.ref || '');
+    var txId = '';
+    var allDup = true;
+    var minted = 0;
+    if (cashCent > 0) {
+      var rc = xy.mint({
+        to: to,
+        amountCent: cashCent,
+        pool: 'cash',
+        kind: 'transfer',
+        ref: refBase + (legacy ? '' : ':cash'),
+        app: 'wallet',
+        memo: memo
+      });
+      txId = txId || (rc && (rc.tx_id || rc.id)) || '';
+      allDup = allDup && !!(rc && rc.duplicate);
+      minted++;
+    }
+    if (grantCent > 0) {
+      var rg = xy.mint({
+        to: to,
+        amountCent: grantCent,
+        pool: 'grant',
+        kind: 'transfer',
+        ref: refBase + ':grant',
+        app: 'wallet',
+        memo: memo
+      });
+      txId = txId || (rg && (rg.tx_id || rg.id)) || '';
+      allDup = allDup && !!(rg && rg.duplicate);
+      minted++;
+    }
     payCode.touch(p.token);
     return {
       code: 200,
-      message: r && r.duplicate ? '已入账（重复请求）' : '入账成功',
+      message: minted > 0 && allDup ? '已入账（重复请求）' : '入账成功',
       data: {
-        tx_id: (r && (r.tx_id || r.id)) || '',
+        tx_id: txId,
         to: to,
         amount: amount / 100,
-        duplicate: !!(r && r.duplicate),
+        duplicate: minted > 0 && allDup,
         server_id: peers.serverId()
       }
     };
@@ -362,6 +455,7 @@ async function retryOnce() {
       var tx = rows[i];
       // 重试必须带**原 token**：收款码是签发时落库的，不能拿「收款人当前最新的码」猜
       // （用户可能已经重新生成过，新旧 token 指向不同的码）
+      var parts = txPoolSplit(tx.amount_cent, tx.pool);
       var payload = {
         ts: nowMs(),
         ref: tx.ref,
@@ -371,7 +465,9 @@ async function retryOnce() {
         from_base: tx.from_base || '',
         token: tx.to_token || '',
         amount_cent: tx.amount_cent,
-        memo: tx.memo || ''
+        memo: tx.memo || '',
+        cash_cent: parts.cash,
+        grant_cent: parts.grant
       };
       payload.sig = sign(payload);
       await deliver(tx.ref, tx.to_base, payload);

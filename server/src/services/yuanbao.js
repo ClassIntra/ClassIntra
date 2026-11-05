@@ -88,6 +88,37 @@ function addColumn(table, col, decl) {
   } catch (e) { /* 并发/已存在都忽略 */ }
 }
 
+// 红包冻结的资金池拆分。历史红包 pool 存的是单池名（'cash'/'grant'），
+// 新红包存 JSON（{"cash":x,"grant":y}）。两种格式都要能读：
+// 单池历史数据的剩余冻结额整体归该池，因为每次领取都是按池精确释放的。
+function poolSplit(p) {
+  var raw = String(p.pool || '');
+  if (raw === 'cash') return { cash: p.remaining_cent, grant: 0 };
+  if (raw === 'grant') return { cash: 0, grant: p.remaining_cent };
+  try {
+    var o = JSON.parse(raw);
+    return {
+      cash: Math.max(0, Math.round(Number(o.cash) || 0)),
+      grant: Math.max(0, Math.round(Number(o.grant) || 0))
+    };
+  } catch (e) {
+    return { cash: 0, grant: p.remaining_cent };
+  }
+}
+
+// 本次领取从红包冻结里释放多少：现金优先，与创建时的拆分顺序对称。
+// rest 是释放后剩余的冻结拆分，回写到 xy_packet.pool。
+function takeSplit(p, amount) {
+  var ps = poolSplit(p);
+  var useCash = Math.min(ps.cash, amount);
+  var useGrant = amount - useCash;
+  return {
+    cash: useCash,
+    grant: useGrant,
+    rest: { cash: ps.cash - useCash, grant: ps.grant - useGrant }
+  };
+}
+
 // 生成不重复的 6 位口令（32^6 ≈ 10 亿，两个班撞车概率可忽略；仍做一次查重）
 function newCode() {
   for (var attempt = 0; attempt < 20; attempt++) {
@@ -167,8 +198,10 @@ function create(sender, totalCent, count, note, appName, opts) {
   var id = 0;
   var code = '';
   var tx = db.transaction(function () {
-    // 红包只能在同学间流转，因此只允许冻结充值学元；赠送学元仅可用于投资
-    xueyuan.hold(sender, total, { pool: 'cash' });
+    // 红包资金：充值学元优先，不足由赠送学元补足（与转账同一套规则）
+    var parts = xueyuan.splitPayable(sender, total);
+    if (parts.cash > 0) xueyuan.hold(sender, parts.cash, { pool: 'cash' });
+    if (parts.grant > 0) xueyuan.hold(sender, parts.grant, { pool: 'grant' });
     if (scope === 'cross') code = newCode();
     var info = db.prepare([
       'INSERT INTO xy_packet (sender, total_cent, count, note, remaining_cent, remaining_count, status, created_at, expire_at, scope, code, server_id, kind, passphrase, pool)',
@@ -176,7 +209,7 @@ function create(sender, totalCent, count, note, appName, opts) {
     ].join('\n')).run(String(sender), total, n,
       kind === 'phrase' ? passphrase : String(note || '').slice(0, 40),
       total, n, now, now + TTL, scope, code || null, peers.serverId(), kind,
-      kind === 'phrase' ? passphrase : null, 'cash');
+      kind === 'phrase' ? passphrase : null, JSON.stringify(parts));
     id = info.lastInsertRowid;
     if (kind === 'designated') {
       var ins = db.prepare('INSERT INTO xy_packet_target (packet_id, user_id, amount_cent) VALUES (?, ?, ?)');
@@ -273,30 +306,28 @@ function claim(packetId, userId, appName, opts) {
       amount = pickAmount(p);
     }
 
-    var pool = p.pool === 'cash' ? 'cash' : 'grant';
-    xueyuan.release(p.sender, amount, { pool: pool });   // 先解冻，再转出（转账失败会抛，事务回滚解冻）
-    if (pool === 'cash') {
-      xueyuan.transfer({
-        from: p.sender,
-        to: String(userId),
-        amountCent: amount,
-        ref: 'packet:' + p.id + ':' + userId,
-        app: appName || 'wallet',
-        memo: '红包 · ' + (p.note || '恭喜发财')
-      });
-    } else {
-      // 兼容迁移前发出的在途红包：当时只有一个池，按原池完成，不再套用新规则
-      xueyuan.post({
-        entries: [
-          { user_id: p.sender, delta: -amount, pool: 'grant' },
-          { user_id: String(userId), delta: amount, pool: 'grant' }
-        ],
-        kind: 'transfer',
-        ref: 'packet:' + p.id + ':' + userId,
-        app: appName || 'wallet',
-        memo: '红包 · ' + (p.note || '恭喜发财')
-      });
+    var take = takeSplit(p, amount);
+    // 先按池解冻，再按同样的池转出（转账失败会抛，事务回滚解冻）
+    if (take.cash > 0) xueyuan.release(p.sender, take.cash, { pool: 'cash' });
+    if (take.grant > 0) xueyuan.release(p.sender, take.grant, { pool: 'grant' });
+    var entries = [];
+    if (take.cash > 0) {
+      entries.push({ user_id: p.sender, delta: -take.cash, pool: 'cash' });
+      entries.push({ user_id: String(userId), delta: take.cash, pool: 'cash' });
     }
+    if (take.grant > 0) {
+      entries.push({ user_id: p.sender, delta: -take.grant, pool: 'grant' });
+      entries.push({ user_id: String(userId), delta: take.grant, pool: 'grant' });
+    }
+    xueyuan.post({
+      entries: entries,
+      kind: 'transfer',
+      ref: 'packet:' + p.id + ':' + userId,
+      app: appName || 'wallet',
+      memo: '红包 · ' + (p.note || '恭喜发财')
+    });
+    db.prepare('UPDATE xy_packet SET pool = ? WHERE id = ?')
+      .run(JSON.stringify(take.rest), p.id);
     db.prepare([
       'UPDATE xy_packet SET remaining_cent = remaining_cent - ?, remaining_count = remaining_count - 1,',
       "  status = CASE WHEN remaining_count - 1 <= 0 THEN 'done' ELSE status END",
@@ -324,6 +355,32 @@ function claim(packetId, userId, appName, opts) {
   return out;
 }
 
+// 重复领取（跨班重试）时，从账本反查当时实际回收的资金拆分。
+// 新版按池写两条回收交易（ref ...:cash / ...:grant），xy_tx.amount 就是该池金额；
+// 老版是单条无后缀（ref ...:<学号>），资金池记在分录的 pool 上。
+// 都查不到时整笔按充值学元返回 —— 与老对端的入账口径保持一致。
+function burnSplitOf(packetId, claimerId, totalCent) {
+  var total = Math.max(0, Math.round(Number(totalCent) || 0));
+  var cash = 0;
+  var grant = 0;
+  try {
+    var rows = db.prepare([
+      'SELECT t.amount AS amount, e.pool AS pool',
+      'FROM xy_tx t JOIN xy_entry e ON e.tx_id = t.id AND e.delta < 0',
+      'WHERE t.ref IN (?, ?, ?)'
+    ].join('\n')).all(
+      'xpacket:' + packetId + ':' + claimerId + ':cash',
+      'xpacket:' + packetId + ':' + claimerId + ':grant',
+      'xpacket:' + packetId + ':' + claimerId);
+    for (var i = 0; i < rows.length; i++) {
+      var n = Math.max(0, Math.round(Number(rows[i].amount) || 0));
+      if (String(rows[i].pool) === 'cash') cash += n; else grant += n;
+    }
+  } catch (e) { /* 查不到就回退 */ }
+  if (total <= 0 || cash + grant !== total) return { cash: total, grant: 0 };
+  return { cash: cash, grant: grant };
+}
+
 // 跨班领取（发送方一侧）
 // 领取人不在本班账本里，所以不能 transfer —— 用「解冻 + 回收」让钱离开本班，
 // 由领取方班级 mint 一笔等额（ref 幂等）。两边的领取记录都以本表为准，重复请求返回同一金额。
@@ -341,10 +398,14 @@ function claimRemote(packetId, claimerId, callerServer, callerName, opts) {
     var prev = db.prepare('SELECT * FROM xy_packet_claim WHERE packet_id = ? AND user_id = ?')
       .get(packetId, String(claimerId));
     if (prev) {
+      var prevSplit = burnSplitOf(p.id, claimerId, prev.amount_cent);
       out = {
         duplicate: true,
         amount_cent: prev.amount_cent,
         amount: prev.amount_cent / 100,
+        // 重试也要回传当初的按池拆分，否则领取方会按错误池入账
+        cash_cent: prevSplit.cash,
+        grant_cent: prevSplit.grant,
         packet_id: p.id,
         note: p.note || '',
         sender: p.sender,
@@ -376,17 +437,34 @@ function claimRemote(packetId, claimerId, callerServer, callerName, opts) {
       amount = pickAmount(p);
     }
 
-    var pool = p.pool === 'cash' ? 'cash' : 'grant';
-    xueyuan.release(p.sender, amount, { pool: pool });
-    xueyuan.burn({
-      from: p.sender,
-      amountCent: amount,
-      pool: pool,
-      kind: 'transfer',
-      ref: 'xpacket:' + p.id + ':' + claimerId,
-      app: 'wallet',
-      memo: '跨班红包 · ' + (p.note || '恭喜发财')
-    });
+    var take = takeSplit(p, amount);
+    // 跨班领取：解冻后回收，由领取方班级 mint 等额；按池分两笔，便于对账追溯
+    if (take.cash > 0) {
+      xueyuan.release(p.sender, take.cash, { pool: 'cash' });
+      xueyuan.burn({
+        from: p.sender,
+        amountCent: take.cash,
+        pool: 'cash',
+        kind: 'transfer',
+        ref: 'xpacket:' + p.id + ':' + claimerId + ':cash',
+        app: 'wallet',
+        memo: '跨班红包 · ' + (p.note || '恭喜发财')
+      });
+    }
+    if (take.grant > 0) {
+      xueyuan.release(p.sender, take.grant, { pool: 'grant' });
+      xueyuan.burn({
+        from: p.sender,
+        amountCent: take.grant,
+        pool: 'grant',
+        kind: 'transfer',
+        ref: 'xpacket:' + p.id + ':' + claimerId + ':grant',
+        app: 'wallet',
+        memo: '跨班红包 · ' + (p.note || '恭喜发财')
+      });
+    }
+    db.prepare('UPDATE xy_packet SET pool = ? WHERE id = ?')
+      .run(JSON.stringify(take.rest), p.id);
     db.prepare([
       'UPDATE xy_packet SET remaining_cent = remaining_cent - ?, remaining_count = remaining_count - 1,',
       "  status = CASE WHEN remaining_count - 1 <= 0 THEN 'done' ELSE status END",
@@ -406,6 +484,9 @@ function claimRemote(packetId, claimerId, callerServer, callerName, opts) {
       duplicate: false,
       amount_cent: amount,
       amount: amount / 100,
+      // 资金来源拆分：对端班级据此按池入账，保证赠送学元跨班后仍不可提现
+      cash_cent: take.cash,
+      grant_cent: take.grant,
       packet_id: p.id,
       note: p.note || '',
       sender: p.sender,
@@ -551,7 +632,9 @@ function sweepExpired() {
   for (var i = 0; i < rows.length; i++) {
     var p = rows[i];
     try {
-      xueyuan.release(p.sender, p.remaining_cent, { pool: p.pool === 'cash' ? 'cash' : 'grant' });
+      var ps = poolSplit(p);
+      if (ps.cash > 0) xueyuan.release(p.sender, ps.cash, { pool: 'cash' });
+      if (ps.grant > 0) xueyuan.release(p.sender, ps.grant, { pool: 'grant' });
       db.prepare("UPDATE xy_packet SET status = 'expired', remaining_count = 0 WHERE id = ?").run(p.id);
       n++;
     } catch (e) { /* 下一轮再试 */ }

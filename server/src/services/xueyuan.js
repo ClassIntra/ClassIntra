@@ -6,7 +6,8 @@
 // ---- 双资金池（2026-11-04 起）----
 // 学元按来源拆成两个池，从记账层就分开，避免「赠送 → 提现」套现：
 //   cash  充值学元：班管线下收现金后录入，可转账、发红包、投资、提现
-//   grant 赠送学元：开户礼金 / 每日津贴 / 教师发放 / 成就奖励 / 投资收益，只能用于投资
+//   grant 赠送学元：开户礼金 / 每日津贴 / 教师发放 / 成就奖励 / 投资收益，
+//         可转账、发红包、扫码支付、投资，但**不可提现**（提现只认累计净充值）
 // 所有支出必须显式声明资金池；未声明时按「赠送优先」处理（兼容旧调用）。
 //
 // ---- 与现实货币的比率 ----
@@ -478,7 +479,7 @@ function post(opts) {
 // 铸币：对手方固定为 @system:mint。
 // 这是**唯一**能让学元总量变多的入口，调用点必须是有明确经济含义的
 // （赠金、津贴、教师发放、线下充值），不要拿它当「改余额」的快捷方式。
-// pool 缺省为赠送池：系统发放默认只能用于投资，避免凭空产生可提现余额。
+// pool 缺省为赠送池：系统发放不计入可提现额度，避免凭空产生可提现余额。
 function mint(opts) {
   var o = opts || {};
   var to = String(o.to || '');
@@ -530,8 +531,32 @@ function burn(opts) {
   });
 }
 
+// 计算一笔对外支出（转账/红包/跨班）的扣款拆分：充值学元优先，不足部分由赠送学元补足。
+// 2026-11-05 放开赠送学元支付：赠送与投资收益可用于同学转账、红包、扫码付款；
+// 提现仍然只认充值学元 —— 那条防线在 withdrawableCent（累计净充值）上，与本函数无关。
+// 返回 { cash, grant } 两段金额，调用方按池分别记账/冻结。
+function splitPayable(userId, amountCent) {
+  var uid = String(userId);
+  var acc = db.prepare([
+    'SELECT cash_balance, grant_balance, frozen_cash, frozen_grant, frozen, status',
+    'FROM xy_account WHERE user_id = ?'
+  ].join('\n')).get(uid);
+  if (!acc) throw new Error('账户不存在');
+  if (acc.status === 'frozen') throw new Error('账户已被冻结');
+  var cashAvail = Math.max(0, (acc.cash_balance || 0) - (acc.frozen_cash || 0));
+  var grantAvail = Math.max(0, (acc.grant_balance || 0) - (acc.frozen_grant || 0));
+  var useCash = Math.min(cashAvail, amountCent);
+  var useGrant = amountCent - useCash;
+  if (useGrant > grantAvail) {
+    throw new Error('可用学元不足（充值 ' + fromCent(cashAvail) + ' + 赠送 ' + fromCent(grantAvail) +
+      ' 学元，另有 ' + fromCent(acc.frozen || 0) + ' 学元被冻结）');
+  }
+  return { cash: useCash, grant: useGrant };
+}
+
 // 同学之间转账。收方必须已开户（否则钱会掉进一个还不存在的账户里）。
-// 转账只允许使用充值学元：赠送学元只能用于投资，不允许在同学间流转套现。
+// 扣款：充值学元优先，不足由赠送学元补足；收款方按同一资金池入账，
+// 赠送学元不会因为转手就变成可提现的充值学元。
 function transfer(opts) {
   var o = opts || {};
   var from = String(o.from || '');
@@ -551,11 +576,19 @@ function transfer(opts) {
     throw new Error('对方尚未开通学元账户');
   }
 
+  var parts = splitPayable(from, amountCent);
+  var entries = [];
+  if (parts.cash > 0) {
+    entries.push({ user_id: from, delta: -parts.cash, pool: POOL.CASH });
+    entries.push({ user_id: to, delta: parts.cash, pool: POOL.CASH });
+  }
+  if (parts.grant > 0) {
+    entries.push({ user_id: from, delta: -parts.grant, pool: POOL.GRANT });
+    entries.push({ user_id: to, delta: parts.grant, pool: POOL.GRANT });
+  }
+
   return post({
-    entries: [
-      { user_id: from, delta: -amountCent, pool: POOL.CASH },
-      { user_id: to, delta: amountCent, pool: POOL.CASH }
-    ],
+    entries: entries,
     kind: 'transfer',
     ref: o.ref,
     app: o.app,
@@ -852,7 +885,7 @@ function creditTrade(userId, amountCent, opts) {
         at: o.at
       });
     }
-    // 收益腿：进赠送池，只能投资，从记账层堵死提现路径
+    // 收益腿：进赠送池，从记账层堵死提现路径（可用于支付，但不可提现）
     if (profit > 0) {
       out.profit_tx = post({
         entries: [
@@ -1431,6 +1464,7 @@ module.exports = {
   mint: mint,
   burn: burn,
   transfer: transfer,
+  splitPayable: splitPayable,
   hold: hold,
   release: release,
   settleHold: settleHold,

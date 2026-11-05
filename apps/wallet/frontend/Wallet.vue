@@ -35,7 +35,7 @@
                 可用 {{ money(account.available_grant) }}
                 <em v-if="account.frozen_grant"> · 冻结 {{ money(account.frozen_grant) }}</em>
               </span>
-              <span class="bp-tag">只能投资</span>
+              <span class="bp-tag">不可提现</span>
             </div>
           </div>
 
@@ -292,7 +292,7 @@
         <div class="sources">
           <div class="src-head">
             <span>学元从哪来</span>
-            <span class="src-note">赠送学元只能投资 · 充值请找班管</span>
+            <span class="src-note">赠送学元不可提现 · 充值请找班管</span>
           </div>
           <div class="src-grid">
             <div v-for="s in sources" :key="s.name" class="src-item">
@@ -350,7 +350,7 @@
           <input v-model="transfer.memo" maxlength="30" placeholder="选填，对方能看到" />
         </div>
         <div class="pay-hint">
-          可用充值学元 {{ money(account.available_cash) }} · 单笔最多 {{ money(limits.transfer) }} 学元。赠送学元只能投资，不能转账。
+          可用学元 {{ money(account.available) }}（充值 {{ money(account.available_cash) }} + 赠送 {{ money(account.available_grant) }}） · 单笔最多 {{ money(limits.transfer) }} 学元。
         </div>
         <button class="pay-primary" :disabled="transfer.busy" @click="transferNext">下一步</button>
       </div>
@@ -430,7 +430,7 @@
             同学领红包时必须<b>原样输入口令</b>；发到聊天里，让大家照着输。24 小时没领完自动退回。
           </template>
           <template v-else>
-            红包只用充值学元，发出去先冻结，同学领到才真正扣款；{{ limits.packet_count }} 个封顶。
+            红包先用充值学元、不足由赠送学元补足，发出去先冻结，同学领到才真正扣款；{{ limits.packet_count }} 个封顶。
             <template v-if="packet.scope === 'cross'"><br />跨班红包会生成 6 位红包码，同学在「红包 → 输入红包码」里领取。</template>
             24 小时没领完自动退回。
           </template>
@@ -549,7 +549,7 @@
         </div>
         <div class="rc-split">
           <div class="rc-split-item cash"><i class="fa-solid fa-wallet"></i><b>充值学元</b><span>转账 / 红包 / 跨班 / 投资 / 提现</span></div>
-          <div class="rc-split-item grant"><i class="fa-solid fa-gift"></i><b>赠送学元</b><span>只能投资，不能转账或提现</span></div>
+          <div class="rc-split-item grant"><i class="fa-solid fa-gift"></i><b>赠送学元</b><span>可转账 / 红包 / 跨班 / 投资，不可提现</span></div>
         </div>
         <div class="pay-hint">
           单次充值上限 {{ money(limits.recharge) }} 学元。充值记录可查，班管乱录会被审计对账发现。
@@ -1053,7 +1053,7 @@ export default {
       var amount = toNum(f.amount);
       if (!(amount > 0)) return self.toast('金额要大于 0', 'error');
       if (amount > self.limits.transfer) return self.toast('单笔最多 ' + self.money(self.limits.transfer) + ' 学元', 'error');
-      if (amount > self.account.available_cash) return self.toast('可用充值学元不够（赠送学元不能转账）', 'error');
+      if (amount > self.account.available) return self.toast('可用学元不够（冻结部分不可用）', 'error');
 
       var to = String(f.to || '').trim();
       if (!to || !f.peerName) return self.toast('先选一位收款的同学', 'error');
@@ -1138,7 +1138,7 @@ export default {
           return self.toast('写一句口令，领红包的时候要输的', 'error');
         }
       }
-      if (total > self.account.available_cash) return self.toast('可用充值学元不够（赠送学元不能发红包）', 'error');
+      if (total > self.account.available) return self.toast('可用学元不够（冻结部分不可用）', 'error');
       if (!self.payPinSet.set) {
         self.openPinSet();
         self.toast('先设置支付密码，再回来发红包', 'info');

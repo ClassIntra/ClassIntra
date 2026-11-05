@@ -280,7 +280,7 @@
             <div class="xy-card">
               <div class="xy-card-head">
                 <h4><i class="fa-solid fa-cash-register"></i> 线下充值</h4>
-                <p>先当面收现金，再录系统。充值学元可转账、红包、跨班、投资、提现；教师发放的赠送学元只能投资。</p>
+                <p>先当面收现金，再录系统。充值学元可转账、红包、跨班、投资、提现；教师发放的赠送学元也可支付，但不可提现。</p>
               </div>
               <div class="xy-form">
                 <input v-model="xyRecharge.userInput" class="search-input xy-input-wide" placeholder="用户ID，多人用空格或逗号分隔（最多 50 人）" />

@@ -503,6 +503,31 @@ async function main() {
   ok('本班能查到跨班记录', (crossList.body.data.list || []).some(function (x) { return x.status === 'paid'; }),
     (crossList.body.data.list || []).length);
 
+  // 跨班也走「充值优先、赠送补足」：新同学只有开户赠金，
+  // 验证赠送学元跨班后仍然是赠送学元，不会在对班变成可提现余额
+  db.prepare([
+    'INSERT OR IGNORE INTO users (net_name, real_name, user_id, gender, password_hash, status, is_admin, info_json, created_at)',
+    "VALUES (?, ?, ?, '男', ?, 'active', 0, '{}', ?)"
+  ].join('\n')).run('新同学', '新同学', '251904', loginHash, nowIso);
+  var T4 = jwt.sign({ user_id: '251904', is_admin: 0, is_class_admin: 0, role: 'student' },
+    'wallet-test-secret', { expiresIn: '2h' });
+  var w4a = (await api('GET', '/api/wallet', { token: T4 })).body.data.account;
+  eq('新同学没有充值学元', w4a.cash, 0);
+  eq('新同学只有开户赠送 1000', w4a.grant, 1000);
+  await api('POST', '/api/wallet/pay-pin', { token: T4, body: { pin: PIN, password: 'test1234' } });
+  var peerAcctA = (await api('GET', '/api/wallet', { token: peerToken, base: PEER_BASE })).body.data.account;
+  var crossGrant = await api('POST', '/api/wallet/cross/send', {
+    token: T4, body: { code: peerQr.body.data.code, amount: 10, pin: PIN, memo: '跨班赠送学元' }
+  });
+  if (crossGrant.status !== 200) console.log('    [诊断] 赠送学元跨班 →', JSON.stringify(crossGrant.body));
+  eq('纯赠送账户跨班 200', crossGrant.status, 200);
+  var w4b = (await api('GET', '/api/wallet', { token: T4 })).body.data.account;
+  eq('本班充值池不动', w4b.cash, 0);
+  eq('本班赠送池 -10', w4b.grant, 990);
+  var peerAcctB = (await api('GET', '/api/wallet', { token: peerToken, base: PEER_BASE })).body.data.account;
+  eq('对班充值池不变', peerAcctB.cash, peerAcctA.cash);
+  eq('对班赠送池 +10', peerAcctB.grant, peerAcctA.grant + 10);
+
   // 安全：伪造签名必须被拒
   var forged = await fetch(PEER_BASE + '/api/wallet/cross/pay', {
     method: 'POST',

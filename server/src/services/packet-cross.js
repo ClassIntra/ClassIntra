@@ -144,12 +144,14 @@ async function resolveOwner(locator, baseHint) {
   return null;
 }
 
-function mintFor(row, amountCent, packetId, note, senderName) {
-  var ref = 'xpacket:' + (row.owner_server || row.owner_base) + ':' + packetId + ':' + row.user_id;
+// 对端领取成功后，在本班 mint 等额学元。pool 由发送方班级回传（cash/grant），
+// ref 带池后缀保证两笔入账各自幂等；老对端不返回拆分会走 legacy（无后缀，保持旧 ref）。
+function mintFor(row, amountCent, pool, packetId, note, senderName, refSuffix) {
+  var ref = 'xpacket:' + (row.owner_server || row.owner_base) + ':' + packetId + ':' + row.user_id + (refSuffix || '');
   return xy.mint({
     to: row.user_id,
     amountCent: amountCent,
-    pool: 'cash',
+    pool: pool === 'cash' ? 'cash' : 'grant',
     kind: 'transfer',
     ref: ref,
     app: 'wallet',
@@ -191,9 +193,25 @@ async function attempt(row) {
     ].join('\n')).run(d.packet_id || null, amountCent, String(d.note || '').slice(0, 40),
       String(d.sender_name || '').slice(0, 30), nowMs(), row.ref);
 
-    // 入账（幂等）：即使这一步失败，记录已是 assigned，后台会补
-    mintFor({ owner_server: d.server_id || row.owner_server, owner_base: row.owner_base, user_id: row.user_id },
-      amountCent, d.packet_id, d.note, d.sender_name);
+    // 入账（幂等）：即使这一步失败，记录已是 assigned，后台会补。
+    // 按发送方回传的资金池拆分入账；老对端没有拆分字段时按充值学元整笔入账，
+    // 且沿用旧 ref，避免历史 pending 重试时重复发放。
+    var cashCent = 0;
+    var grantCent = 0;
+    var legacy = typeof d.cash_cent === 'undefined' && typeof d.grant_cent === 'undefined';
+    if (legacy) {
+      cashCent = amountCent;
+    } else {
+      cashCent = Math.max(0, Math.round(Number(d.cash_cent) || 0));
+      grantCent = Math.max(0, Math.round(Number(d.grant_cent) || 0));
+      if (cashCent + grantCent !== amountCent) {   // 对端拆分异常时以金额正确优先
+        cashCent = amountCent;
+        grantCent = 0;
+      }
+    }
+    var rowFor = { owner_server: d.server_id || row.owner_server, owner_base: row.owner_base, user_id: row.user_id };
+    if (cashCent > 0) mintFor(rowFor, cashCent, 'cash', d.packet_id, d.note, d.sender_name, legacy ? '' : ':cash');
+    if (grantCent > 0) mintFor(rowFor, grantCent, 'grant', d.packet_id, d.note, d.sender_name, legacy ? '' : ':grant');
     db.prepare("UPDATE xy_cross_packet SET status = 'paid', updated_at = ? WHERE ref = ?").run(nowMs(), row.ref);
 
     return {

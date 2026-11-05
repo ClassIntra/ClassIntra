@@ -100,7 +100,7 @@ router.get('/config', function (req, res) {
       min_withdraw: xy.fromCent(xy.LIMITS.MIN_WITHDRAW_CENT),
       pools: {
         cash: '充值学元：可转账、发红包、投资、提现',
-        grant: '赠送学元：仅可用于投资，不可提现'
+        grant: '赠送学元：可转账、红包、扫码支付、投资，不可提现'
       },
       kinds: xy.KINDS
     }

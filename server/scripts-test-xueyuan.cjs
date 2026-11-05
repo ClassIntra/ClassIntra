@@ -1,9 +1,9 @@
 // 学元内核自测（独立临时库，绝不碰生产数据）
 // 用法：node server/scripts-test-xueyuan.cjs
 //
-// 覆盖：开户赠金幂等 / 双资金池隔离 / 线下充值幂等 / 转账（仅充值学元）/
-//       提现申请·撤销·审批 / 津贴连签 / 冻结与结算 / 复式记账拒绝不平衡 /
-//       ref 幂等（含并发重试路径）/ 对账不变量 audit。
+// 覆盖：开户赠金幂等 / 双资金池隔离 / 线下充值幂等 / 转账（充值优先、赠送补足）/
+//       提现申请·撤销·审批（仅充值学元可提现）/ 津贴连签 / 冻结与结算 /
+//       复式记账拒绝不平衡 / ref 幂等（含并发重试路径）/ 对账不变量 audit。
 
 var fs = require('fs');
 var os = require('os');
@@ -63,8 +63,7 @@ xy.ensureAccount(B);
 xy.ensureAccount(C);
 xy.ensureAccount(D);
 
-console.log('\n=== 赠送学元不可转账 / 不可提现 ===');
-throws('纯赠送账户转账被拒', function () { xy.transfer({ from: D, to: A, amountCent: 100 }); }, /充值学元余额不足/);
+console.log('\n=== 赠送学元不可提现 ===');
 throws('纯赠送账户提现被拒', function () { xy.requestWithdraw({ user: D, amountCent: 10000, requestId: 'wd:zero' }); }, /可提现学元不足/);
 
 console.log('\n=== 线下充值（仅班管录入） ===');
@@ -81,7 +80,7 @@ eq('充值只进充值池', xy.viewAccount(A).grant, 1000);
 xy.recharge({ user: B, yuan: 10, operator: A, requestId: 'rc:b' });
 xy.recharge({ user: C, yuan: 10, operator: A, requestId: 'rc:c' });
 
-console.log('\n=== 转账（只走充值学元） ===');
+console.log('\n=== 转账（充值优先、赠送补足） ===');
 var t = xy.transfer({ from: A, to: B, amountCent: 15000, memo: '还你的笔' });
 ok('转账返回 tx_id', t.tx_id > 0);
 eq('付款方充值池 850', xy.viewAccount(A).cash, 850);
@@ -93,10 +92,10 @@ throws('超额转账被拒', function () { xy.transfer({ from: A, to: B, amountC
 throws('金额为 0 被拒', function () { xy.transfer({ from: A, to: B, amountCent: 0 }); }, /正整数/);
 throws('未开户对象被拒', function () { xy.transfer({ from: A, to: '999999', amountCent: 100 }); }, /尚未开通/);
 
-// A 充值池只剩 850，先转满单笔上限 500，再转 500 就该被拒
+// A 充值池只剩 850，转 500 全部走充值池，赠送池不动
 xy.transfer({ from: A, to: B, amountCent: 50000 });
 eq('转出 500 后充值池剩 350', xy.viewAccount(A).cash, 350);
-throws('充值池不足被拒', function () { xy.transfer({ from: A, to: B, amountCent: 50000 }); }, /充值学元余额不足/);
+eq('充值池够用时不动赠送池', xy.viewAccount(A).grant, 1000);
 
 console.log('\n=== 记账内核 ===');
 throws('分录不平衡被拒', function () {
@@ -137,10 +136,15 @@ eq('可用额减少', xy.getAccount(B).available, before - 50000);
 eq('默认冻结赠送池', xy.viewAccount(B).frozen_grant, 500);
 eq('充值池未被冻结', xy.viewAccount(B).frozen_cash, 0);
 
-// 红包/跨班只冻充值池：C 充了 1000，冻结 800 后充值可用只剩 200，转 500 必须失败
+// 红包/跨班只冻充值池：C 充了 1000，冻结 800 后可用充值只剩 200。
+// 新规则下转账会先花剩余充值、再由赠送补足，但不能动被冻结的部分：
+// 可用充值 200 + 赠送 1000 = 1200，转 1300 必须失败
 xy.hold(C, 80000, { pool: 'cash' });
 eq('C 冻结充值池后可用充值 200', xy.viewAccount(C).available_cash, 200);
-throws('充值池可用不足被拒', function () { xy.transfer({ from: C, to: A, amountCent: 50000 }); }, /充值学元可用不足/);
+var splitC = xy.splitPayable(C, 50000);
+eq('拆分不吃冻结：可用充值只算 200', splitC.cash, 20000);
+eq('拆分差额由赠送补 300', splitC.grant, 30000);
+throws('冻结的充值学元不可用', function () { xy.transfer({ from: C, to: A, amountCent: 130000 }); }, /可用学元不足/);
 xy.release(C, 80000, { pool: 'cash' });
 eq('C 解冻后充值可用恢复', xy.viewAccount(C).available_cash, 1000);
 
@@ -204,6 +208,27 @@ ok('同 ref 重放两腿都判重', ct1b.principal_tx.duplicate === true && ct1b
 eq('重放后余额不变', xy.viewAccount(A).balance, 1340);
 throws('本金超过回款被拒', function () { xy.creditTrade(A, 10000, { principalCent: 20000 }); }, /本金金额非法/);
 throws('回款金额非整数分被拒', function () { xy.creditTrade(A, 10.5, { principalCent: 0 }); }, /正整数分/);
+
+console.log('\n=== 赠送学元可支付（放开后） ===');
+// D 只有赠送学元（1000），现在可以转账；收款方同样进赠送池，转手不会变成可提现余额
+var aGrant0 = xy.viewAccount(A).grant;
+xy.transfer({ from: D, to: A, amountCent: 10000 });
+eq('纯赠送账户可转账', xy.viewAccount(D).grant, 900);
+eq('收款方进赠送池', xy.viewAccount(A).grant, aGrant0 + 100);
+
+// C：充值 1000 + 赠送 1000，转 1500 → 充值优先扣完，差额由赠送补足
+var parts = xy.splitPayable(C, 150000);
+eq('拆分：先扣充值 1000', parts.cash, 100000);
+eq('拆分：赠送补 500', parts.grant, 50000);
+var bCash0 = xy.viewAccount(B).cash;
+var bGrant0 = xy.viewAccount(B).grant;
+xy.transfer({ from: C, to: B, amountCent: 150000 });
+eq('付款方充值池清零', xy.viewAccount(C).cash, 0);
+eq('付款方赠送池剩 500', xy.viewAccount(C).grant, 500);
+eq('收款方充值池 +1000', xy.viewAccount(B).cash, bCash0 + 1000);
+eq('收款方赠送池 +500', xy.viewAccount(B).grant, bGrant0 + 500);
+throws('两种学元都不够时被拒', function () { xy.transfer({ from: C, to: A, amountCent: 60000 }); }, /可用学元不足/);
+throws('赠送学元仍不可提现', function () { xy.requestWithdraw({ user: C, amountCent: 10000, requestId: 'wd:grant' }); }, /可提现学元不足/);
 
 console.log('\n=== 系统守恒 ===');
 var total = db.prepare("SELECT COALESCE(SUM(balance),0) AS s FROM xy_account").get().s;

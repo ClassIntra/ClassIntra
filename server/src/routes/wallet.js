@@ -149,14 +149,14 @@ function dailyState(userId) {
 function sourceList() {
   var rate = xy.yuanRate();
   return [
-    { icon: 'wallet', name: '线下充值', amount: '1 元 = ' + rate + ' 学元', note: '找班管交现金，录入后到账；可转账、投资、提现' },
-    { icon: 'gift', name: '开户赠金', amount: xy.fromCent(xy.LIMITS.WELCOME_CENT) + ' 学元', note: '首次开通学元账户自动到账，属赠送学元，只能投资' },
-    { icon: 'practice', name: '投资练习金', amount: '9000 学元', note: '第一次进入「学元证券」自动发放，只能投资' },
+    { icon: 'wallet', name: '线下充值', amount: '1 元 = ' + rate + ' 学元', note: '找班管交现金，录入后到账；可转账、红包、投资、提现' },
+    { icon: 'gift', name: '开户赠金', amount: xy.fromCent(xy.LIMITS.WELCOME_CENT) + ' 学元', note: '首次开通学元账户自动到账，属赠送学元，可支付但不可提现' },
+    { icon: 'practice', name: '投资练习金', amount: '9000 学元', note: '第一次进入「学元证券」自动发放，可投资 / 支付，但不可提现' },
     { icon: 'daily', name: '每日助学津贴', amount: xy.fromCent(xy.LIMITS.DAILY_CENT) + ' 学元（连签第 7 天起 ' + xy.fromCent(xy.LIMITS.DAILY_BONUS_CENT) + '）', note: '每天在钱包点一次，断签重新计' },
     { icon: 'medal', name: '交易成就', amount: '5–100 学元', note: '在学元证券解锁成就时发放' },
     { icon: 'trophy', name: '跨班对决奖励', amount: '100 学元', note: '每周五胜方班级的活跃同学' },
-    { icon: 'teacher', name: '班管发放', amount: '不定', note: '老师奖励，属赠送学元，只能投资' },
-    { icon: 'swap', name: '同学转账 / 红包', amount: '不定', note: '只流转充值学元，不产生新学元' }
+    { icon: 'teacher', name: '班管发放', amount: '不定', note: '老师奖励，属赠送学元，可支付但不可提现' },
+    { icon: 'swap', name: '同学转账 / 红包', amount: '不定', note: '两种学元都能转，不产生新学元' }
   ];
 }
 
