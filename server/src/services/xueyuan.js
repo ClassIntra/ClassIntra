@@ -975,7 +975,16 @@ function settleHold(opts) {
         at: o.at
       });
     }
-    return getAccount(uid);
+    var account = getAccount(uid);
+    // 这次成交实际从各池扣了多少（含费用）。持仓层按此记录成本来源，
+    // 卖出时才能把本金原路退回，而不是一律变成充值学元。
+    account.spent = {
+      cash_cent: cashSpend,
+      grant_cent: grantSpend,
+      cash_fee_cent: cashFee,
+      grant_fee_cent: grantFee
+    };
+    return account;
   });
 
   return settle();
@@ -1005,11 +1014,13 @@ function credit(userId, amountCent, opts) {
   });
 }
 
-// 交易回款：本金回到充值池（cash），投资收益进入赠送池（grant）。
-// 这样卖出赚到的钱在记账层就不可提现、不可转账/红包/跨班，只能继续投资。
+// 交易回款：本金按买入时的资金来源分别回到充值池/赠送池，投资收益进入赠送池。
+// 这样卖出赚到的钱在记账层就不可提现、不可转账/红包/跨班，只能继续投资；
+// 用赠送学元买的仓位，卖出本金也回赠送池，不会「倒一手变成充值学元」。
 // opts:
-//   principalCent 本金（分）；缺省 = amountCent（全额视为本金回款，兼容旧调用）
-//   ref           幂等键（强烈建议）；两腿各自加 :principal / :profit 后缀
+//   principalCent     本金（分）；缺省 = amountCent（全额视为本金回款，兼容旧调用）
+//   principalCashCent 本金中「充值来源」的部分（分）；缺省 = principalCent（全回充值池，兼容旧调用）
+//   ref               幂等键（强烈建议）；各腿后缀 :principal / :principal:grant / :profit
 //   其余同 credit
 function creditTrade(userId, amountCent, opts) {
   var o = opts || {};
@@ -1022,22 +1033,43 @@ function creditTrade(userId, amountCent, opts) {
   if (!isFinite(principal) || principal < 0 || principal > amountCent || Math.floor(principal) !== principal) {
     throw new Error('本金金额非法（应在 0 与入账金额之间）');
   }
+  var principalCash = typeof o.principalCashCent === 'number' ? Math.round(o.principalCashCent) : principal;
+  if (!isFinite(principalCash) || principalCash < 0 || principalCash > principal || Math.floor(principalCash) !== principalCash) {
+    throw new Error('本金资金来源非法（充值部分应在 0 与本金额之间）');
+  }
+  var principalGrant = principal - principalCash;
   var profit = amountCent - principal;
   var ref = o.ref ? String(o.ref) : null;
 
   ensureSystemAccount('@system:settle', now());
 
-  var out = { principal_tx: null, profit_tx: null };
+  var out = { principal_tx: null, principal_grant_tx: null, profit_tx: null };
   var run = db.transaction(function () {
-    // 本金腿：回充值池，可继续流转 / 提现（但整账户提现仍受净充值上限约束）
-    if (principal > 0) {
+    // 本金腿：按买入资金来源原路退回
+    // 充值来源回充值池（可继续流转 / 提现，但整账户提现仍受净充值上限约束）
+    if (principalCash > 0) {
       out.principal_tx = post({
         entries: [
-          { user_id: '@system:settle', delta: -principal, pool: POOL.SYSTEM },
-          { user_id: uid, delta: principal, pool: POOL.CASH }
+          { user_id: '@system:settle', delta: -principalCash, pool: POOL.SYSTEM },
+          { user_id: uid, delta: principalCash, pool: POOL.CASH }
         ],
         kind: 'trade',
         ref: ref ? ref + ':principal' : null,
+        app: o.app,
+        memo: o.memo,
+        meta: o.meta,
+        at: o.at
+      });
+    }
+    // 赠送来源回赠送池：堵死「赠送 → 买股 → 卖出 → 充值学元」这条洗钱路径
+    if (principalGrant > 0) {
+      out.principal_grant_tx = post({
+        entries: [
+          { user_id: '@system:settle', delta: -principalGrant, pool: POOL.SYSTEM },
+          { user_id: uid, delta: principalGrant, pool: POOL.GRANT }
+        ],
+        kind: 'trade',
+        ref: ref ? ref + ':principal:grant' : null,
         app: o.app,
         memo: o.memo,
         meta: o.meta,

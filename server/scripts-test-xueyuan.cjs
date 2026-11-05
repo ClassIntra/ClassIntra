@@ -203,9 +203,22 @@ throws('超出可提现部分仍被拒', function () {
   xy.requestWithdraw({ user: A, amountCent: 15000, requestId: 'wd:profit' });
 }, /可提现学元不足/);
 
+// 本轮新增：本金按买入资金来源回流。赠送资金买的股票，卖出本金必须回赠送池，
+// 否则「赠送 → 买股 → 卖出」会把它洗成可提现的充值学元。
+var ct3 = xy.creditTrade(A, 10000, {
+  principalCent: 10000, principalCashCent: 0, ref: 'test:trade:3', app: 'stock'
+});
+eq('本金全部回赠送池', xy.viewAccount(A).grant, 1260);
+eq('本金回赠送池不增加充值池', xy.viewAccount(A).cash, 100);
+eq('本金回赠送池不增加可提现额度', xy.viewAccount(A).withdrawable, 100);
+ok('赠送本金腿单独成账', !!(ct3.principal_grant_tx && ct3.principal_grant_tx.tx_id > 0), ct3);
+throws('本金来源拆分越界被拒', function () {
+  xy.creditTrade(A, 10000, { principalCent: 5000, principalCashCent: 6000 });
+}, /资金来源/);
+
 var ct1b = xy.creditTrade(A, 10000, { principalCent: 5000, ref: 'test:trade:1', app: 'stock' });
 ok('同 ref 重放两腿都判重', ct1b.principal_tx.duplicate === true && ct1b.profit_tx.duplicate === true, ct1b);
-eq('重放后余额不变', xy.viewAccount(A).balance, 1260);
+eq('重放后余额不变', xy.viewAccount(A).balance, 1360);
 throws('本金超过回款被拒', function () { xy.creditTrade(A, 10000, { principalCent: 20000 }); }, /本金金额非法/);
 throws('回款金额非整数分被拒', function () { xy.creditTrade(A, 10.5, { principalCent: 0 }); }, /正整数分/);
 
