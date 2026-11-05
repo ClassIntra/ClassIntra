@@ -41,6 +41,26 @@ module.exports = {
     sub: process.env.QWEATHER_SUB || '',
     privateKey: process.env.QWEATHER_PRIVATE_KEY || ''
   },
+  // 学元经济参数。全部以「人民币元」为单位定义，由 services/xueyuan.js 按
+  // yuanRate 折算成「学元分」—— 调 yuanRate 只改面额，不改这些真实货币约束。
+  //
+  // ⚠️ yuanRate 一旦产生过充值就**不能再改**：存量余额与提现承诺都按旧比率计，
+  //    改它等于单方面重估负债（升则违约，降则凭空多欠）。详见 xueyuan.js 文件头。
+  xueyuan: {
+    yuanRate: Number(process.env.XUEYUAN_YUAN_RATE || 1000),
+    // 开户礼金
+    welcomeYuan: Number(process.env.XUEYUAN_WELCOME_YUAN || 10),
+    // 每日助学津贴 / 连签第 7 天起的加成
+    dailyYuan: Number(process.env.XUEYUAN_DAILY_YUAN || 0.2),
+    dailyBonusYuan: Number(process.env.XUEYUAN_DAILY_BONUS_YUAN || 0.4),
+    dailyBonusFromDay: Number(process.env.XUEYUAN_DAILY_BONUS_FROM_DAY || 7),
+    // 单笔线下充值上限 + 每人每学期累计充值配额（防「氪金一次清空货架」）
+    maxRechargeYuan: Number(process.env.XUEYUAN_MAX_RECHARGE_YUAN || 200),
+    rechargeQuotaYuan: Number(process.env.XUEYUAN_RECHARGE_QUOTA_YUAN || 300),
+    // 教师发放：单次上限 + 每人每日累计上限（防一笔打乱整个价格体系）
+    maxGrantYuan: Number(process.env.XUEYUAN_MAX_GRANT_YUAN || 0.5),
+    grantDailyCapYuan: Number(process.env.XUEYUAN_GRANT_DAILY_CAP_YUAN || 2)
+  },
   resourcesDir: path.resolve(process.env.RESOURCES_DIR || path.join(__dirname, '../../../Resources')),
   dbPath: path.resolve(process.env.DB_PATH || path.join(__dirname, '../../database/classintra.db')),
   relay: {

@@ -45,28 +45,42 @@ var POOL = {
 // 学元与现实货币比率：1 元 = 1000 学元（默认）。
 // 金额常量统一以「人民币元」定义，再按当前比率折算成分：
 // 调整汇率只改变学元面额，真实货币约束（充值/转账/提现上限）不变。
+//
+// ⚠️ 但「不变」只对**未发生的业务**成立。一旦账上有了充值学元，汇率就同时是
+//    负债的计量单位：1000 改成 2000，1 元的欠款变成 0.5 元（学生认为你违约）；
+//    改成 500，1 元变成 2 元（你凭空多欠一倍，直接亏本）。所以：
+//    **有过充值之后，yuanRate 只能保持不变，改它必须配合一次性重估全部余额。**
 var YUAN_RATE = 1000;
 
 // 新账户赠金：10 元（1:1000 下为 10000 学元，给新生一笔启动资金去体验投资）
-var WELCOME_CENT = yuanToCent(10);
+var WELCOME_CENT = yuanToCent(cfgNum('welcomeYuan', 10));
 // 每日助学津贴：0.2 元（1:1000 下为 200 学元）；连续第 7 天起 0.4 元（400 学元）
 // 2026-11-05 收紧：原来是 1 元/天，一个 40 人班一年要发约 2.9 万元等值，
 // 是真实充值规模的十倍以上，会让教师发放的奖励失去稀缺感。降到 1/5 后，
 // 全班一年赠金与班级实际充值规模同量级。
-var DAILY_CENT = yuanToCent(0.2);
-var DAILY_BONUS_CENT = yuanToCent(0.4);
-var DAILY_BONUS_FROM_DAY = 7;
+var DAILY_CENT = yuanToCent(cfgNum('dailyYuan', 0.2));
+var DAILY_BONUS_CENT = yuanToCent(cfgNum('dailyBonusYuan', 0.4));
+var DAILY_BONUS_FROM_DAY = Math.max(1, Math.round(cfgNum('dailyBonusFromDay', 7)));
 // 单笔转账上限：500 元（防手滑把全副身家一次转错人）
 var MAX_TRANSFER_CENT = yuanToCent(500);
-// 单笔业务上限：1 万元人民币等值。必须 ≥ 单笔充值上限（2000 元），
+// 单笔业务上限：1 万元人民币等值。必须 ≥ 单笔充值上限，
 // 否则班管一次录入大额充值时会被记账内核拦截；用元定义可让汇率调整不影响人民币约束。
 var MAX_TX_CENT = yuanToCent(10000);
 // 单账户余额上限：1 万元人民币等值（溢出/异常保护）
 var MAX_BALANCE_CENT = yuanToCent(10000);
-// 单笔线下充值上限：2000 元等值（校园场景足够，异常大额走多次录入）
-var MAX_RECHARGE_CENT = yuanToCent(2000);
-// 单人单次教师发放上限：10 元等值（防止班管手滑一次性发空班费）
-var MAX_GRANT_CENT = yuanToCent(10);
+// 单笔线下充值上限：200 元等值。
+// 2026-11-05 从 2000 收紧：一次能充 200 万学元，等于允许「一次氪金清空整间网店」，
+// 会把班级经济变成比谁家长钱包厚。异常大额走多次录入或学期配额审批。
+var MAX_RECHARGE_CENT = yuanToCent(cfgNum('maxRechargeYuan', 200));
+// 每人每学期累计充值配额：300 元等值。
+// 单笔上限只能防「一笔太大」，防不住「拆成十笔」。学期总额才是真正的护栏。
+var RECHARGE_QUOTA_CENT = yuanToCent(cfgNum('rechargeQuotaYuan', 300));
+// 单人单次教师发放上限：0.5 元等值。
+// 2026-11-05 从 10 元收紧：一笔 10 元 = 50 天津贴，一次点击就能把价格体系打乱。
+// 发放应当是「细水长流的激励」，不是「一次性发钱」。
+var MAX_GRANT_CENT = yuanToCent(cfgNum('maxGrantYuan', 0.5));
+// 每人每日累计发放上限：2 元等值。防「拆成 20 笔 0.5 元」绕过单次上限。
+var GRANT_DAILY_CAP_CENT = yuanToCent(cfgNum('grantDailyCapYuan', 2));
 // 单笔提现上限：1000 元等值；且提现总额不得超过累计净充值
 var MAX_WITHDRAW_CENT = yuanToCent(1000);
 // 提现最小额：1 元等值
@@ -99,6 +113,43 @@ var USER_ID_RE = /^[A-Za-z0-9_.@:-]{1,64}$/;
 // ---------- 工具 ----------
 
 function now() { return Date.now(); }
+
+// 读 config.xueyuan 里的数值项。缺失/非法时退回内置默认值，
+// 这样「配置文件没写」和「写错了」都不会把经济参数变成 NaN。
+function cfgNum(key, fallback) {
+  var v = config && config.xueyuan ? Number(config.xueyuan[key]) : NaN;
+  return isFinite(v) ? v : fallback;
+}
+
+// 中国时区某一天的 00:00（服务器可能跑在 UTC，津贴与配额都按学校时区切日）
+function dayStartMs(ts) {
+  var t = ts || now();
+  var d = new Date(t + 8 * 3600 * 1000);
+  d.setUTCHours(0, 0, 0, 0);
+  return d.getTime() - 8 * 3600 * 1000;
+}
+
+// 学期区间：9/1–次年 1/31 为秋季（S1），2/1–8/31 为春季（S2）。
+// 只在「充值配额」这种需要按学期累计的地方使用，不参与津贴切日。
+function semesterRange(ts) {
+  var t = ts || now();
+  var d = new Date(t + 8 * 3600 * 1000);
+  var y = d.getUTCFullYear();
+  var m = d.getUTCMonth() + 1;
+  var startYear;
+  var key;
+  if (m >= 9) {
+    startYear = y; key = y + '-S1';
+  } else if (m === 1) {
+    startYear = y - 1; key = (y - 1) + '-S1';
+  } else {
+    startYear = y; key = y + '-S2';
+  }
+  var startUtc = (m >= 9 || m === 1)
+    ? Date.UTC(startYear, 8, 1)   // 9 月 1 日
+    : Date.UTC(startYear, 1, 1);  // 2 月 1 日
+  return { key: key, startMs: startUtc - 8 * 3600 * 1000 };
+}
 
 // 学元 → 分。接受数字或字符串；非法返回 null。
 function toCent(yuan) {
@@ -536,6 +587,75 @@ function burn(opts) {
   });
 }
 
+// ---------- 配额（护栏） ----------
+// 单笔上限只能防「一笔太大」，防不住「拆成很多小笔」。下面两个函数把
+// 「累计口径」补齐，并统一在写账之前拦截 —— 拦在路由层会漏掉第三方应用调用。
+
+// 某人本学期的累计充值（分）。读 xy_recharge 而不是聚合流水，
+// 因为充值有独立业务表，按学期过滤更快也更准。
+function rechargedInSemesterCent(userId, ts) {
+  ensureSchema();
+  var r = semesterRange(ts);
+  var row = db.prepare(
+    'SELECT COALESCE(SUM(amount_cent), 0) AS s FROM xy_recharge WHERE user_id = ? AND created_at >= ?'
+  ).get(String(userId), r.startMs);
+  return Number(row.s) || 0;
+}
+
+// 某人今天已经收到的教师发放（分）。只统计 admin_grant，
+// 不把 reward（成就/任务奖励）算进来 —— 那属于另一个发行口，各有各的配额。
+function grantedTodayCent(userId, ts) {
+  ensureSchema();
+  return Number(db.prepare([
+    'SELECT COALESCE(SUM(e.delta), 0) AS s FROM xy_entry e',
+    'JOIN xy_tx t ON t.id = e.tx_id',
+    "WHERE e.user_id = ? AND e.delta > 0 AND t.kind = 'admin_grant' AND t.created_at >= ?"
+  ].join('\n')).get(String(userId), dayStartMs(ts)).s) || 0;
+}
+
+// 教师发放：单次上限 + 每人每日累计上限。
+// 这是唯一带着「财政纪律」的发行口，reason 会原样进流水，方便事后追账。
+function grant(opts) {
+  var o = opts || {};
+  var to = String(o.to || '');
+  var amountCent = o.amountCent;
+  if (!isValidUserId(to) || isSystem(to)) throw new Error('发放账户非法');
+  if (typeof amountCent !== 'number' || amountCent <= 0 || Math.floor(amountCent) !== amountCent) {
+    throw new Error('发放金额必须是正整数分');
+  }
+
+  // 幂等优先：同一个 ref 重放时直接交给 mint 的重复分支，
+  // 否则重试会被下面两条配额判成「超限」，客户端就永远收不到 duplicate 响应。
+  if (o.ref && db.prepare('SELECT 1 FROM xy_tx WHERE ref = ?').get(String(o.ref))) {
+    return mint({
+      to: to, amountCent: amountCent, kind: 'admin_grant', pool: POOL.GRANT,
+      ref: o.ref, app: o.app, operator: o.operator, memo: o.memo, meta: o.meta, at: o.at
+    });
+  }
+
+  if (amountCent > MAX_GRANT_CENT) {
+    throw new Error('单人单次发放不能超过 ' + fromCent(MAX_GRANT_CENT) + ' 学元');
+  }
+  var used = grantedTodayCent(to);
+  if (used + amountCent > GRANT_DAILY_CAP_CENT) {
+    throw new Error('超过每人每日发放上限：今天已发 ' + fromCent(used) +
+      ' 学元，上限 ' + fromCent(GRANT_DAILY_CAP_CENT) + ' 学元');
+  }
+
+  return mint({
+    to: to,
+    amountCent: amountCent,
+    kind: 'admin_grant',
+    pool: POOL.GRANT,
+    ref: o.ref,
+    app: o.app,
+    operator: o.operator,
+    memo: o.memo,
+    meta: o.meta,
+    at: o.at
+  });
+}
+
 // 计算一笔对外支出（转账/红包/跨班）的扣款拆分：充值学元优先，不足部分由赠送学元补足。
 // 2026-11-05 放开赠送学元支付：赠送与投资收益可用于同学转账、红包、扫码付款；
 // 提现仍然只认充值学元 —— 那条防线在 withdrawableCent（累计净充值）上，与本函数无关。
@@ -555,6 +675,40 @@ function splitPayable(userId, amountCent) {
   if (useGrant > grantAvail) {
     throw new Error('可用学元不足（充值 ' + fromCent(cashAvail) + ' + 赠送 ' + fromCent(grantAvail) +
       ' 学元，另有 ' + fromCent(acc.frozen || 0) + ' 学元被冻结）');
+  }
+  return { cash: useCash, grant: useGrant };
+}
+
+// 分池扣款，但限制「赠送学元最多抵扣 amountCent × maxGrantRatio」。
+// 网店专用：赠送学元是零成本铸币，实物商品若全额收赠送学元就是纯亏；
+// 把抵扣上限压到「批发毛利率」以内，现金池就一定能覆盖商品成本。
+// 现金不足时**不**自动吃赠送池 —— 那正是要防的漏洞，必须让学生先充值。
+function splitPayOrder(userId, amountCent, maxGrantRatio) {
+  var uid = String(userId);
+  if (typeof amountCent !== 'number' || amountCent <= 0 || Math.floor(amountCent) !== amountCent) {
+    throw new Error('支付金额必须是正整数分');
+  }
+  var ratio = Number(maxGrantRatio);
+  if (!isFinite(ratio) || ratio < 0) ratio = 0;
+  if (ratio > 1) ratio = 1;
+
+  var acc = db.prepare([
+    'SELECT cash_balance, grant_balance, frozen_cash, frozen_grant, frozen, status',
+    'FROM xy_account WHERE user_id = ?'
+  ].join('\n')).get(uid);
+  if (!acc) throw new Error('账户不存在');
+  if (acc.status === 'frozen') throw new Error('账户已被冻结');
+
+  var cashAvail = Math.max(0, (acc.cash_balance || 0) - (acc.frozen_cash || 0));
+  var grantAvail = Math.max(0, (acc.grant_balance || 0) - (acc.frozen_grant || 0));
+  var grantCap = Math.floor(amountCent * ratio);
+  var useGrant = Math.min(grantAvail, grantCap);
+  var useCash = amountCent - useGrant;
+
+  if (useCash > cashAvail) {
+    throw new Error('充值学元不足：本单最多可用赠送学元 ' + fromCent(grantCap) +
+      ' 学元（上限 ' + Math.round(ratio * 100) + '%），还差 ' +
+      fromCent(useCash - cashAvail) + ' 学元充值余额');
   }
   return { cash: useCash, grant: useGrant };
 }
@@ -941,6 +1095,13 @@ function recharge(opts) {
     if (existed) {
       return { duplicate: true, recharge: mapRecharge(existed), account: viewAccount(uid) };
     }
+  }
+
+  // 学期累计配额：必须放在幂等判断之后，否则重放同一笔充值会被误判超限。
+  var usedQuota = rechargedInSemesterCent(uid);
+  if (usedQuota + amountCent > RECHARGE_QUOTA_CENT) {
+    throw new Error('超过本学期充值配额：已充 ' + centToYuan(usedQuota, rate) +
+      ' 元，上限 ' + centToYuan(RECHARGE_QUOTA_CENT, rate) + ' 元');
   }
 
   var tx = db.transaction(function() {
@@ -1391,6 +1552,9 @@ function summary(opts) {
       max_transfer: fromCent(MAX_TRANSFER_CENT),
       max_balance: fromCent(MAX_BALANCE_CENT),
       max_recharge: fromCent(MAX_RECHARGE_CENT),
+      recharge_quota: fromCent(RECHARGE_QUOTA_CENT),
+      max_grant: fromCent(MAX_GRANT_CENT),
+      grant_daily_cap: fromCent(GRANT_DAILY_CAP_CENT),
       max_withdraw: fromCent(MAX_WITHDRAW_CENT),
       min_withdraw: fromCent(MIN_WITHDRAW_CENT)
     },
@@ -1409,6 +1573,150 @@ function summary(opts) {
         };
       });
     })()
+  };
+}
+
+// ---------- 币值健康度 ----------
+// 回答三个问题：钱印得是不是太快、有没有回笼、承诺能不能兑付。
+// 只做「读」和「判断」，不改任何账，因此可以安全地暴露给班管面板。
+function health(opts) {
+  ensureSchema();
+  var o = opts || {};
+  var days = Math.min(Math.max(parseInt(o.days, 10) || 30, 1), 180);
+  var since = dayStartMs(now() - (days - 1) * 86400000);
+  var rate = yuanRate();
+
+  var view = db.prepare([
+    'SELECT COUNT(*) AS c,',
+    'COALESCE(SUM(balance), 0) AS circ,',
+    'COALESCE(SUM(cash_balance), 0) AS cash,',
+    'COALESCE(SUM(grant_balance), 0) AS grant,',
+    'COALESCE(SUM(frozen), 0) AS frozen',
+    "FROM xy_account WHERE user_id NOT LIKE '@%'"
+  ].join(' ')).get();
+
+  function sumSince(kinds, fromMs) {
+    var ph = [];
+    for (var i = 0; i < kinds.length; i++) ph.push('?');
+    var stmt = db.prepare('SELECT COALESCE(SUM(amount), 0) AS s FROM xy_tx WHERE kind IN (' +
+      ph.join(',') + ') AND created_at >= ?');
+    return Number(stmt.get.apply(stmt, kinds.concat([fromMs])).s) || 0;
+  }
+
+  // 平均值往往小于 1 分钱等值，centToYuan 会round成 0.00，这里保留 4 位。
+  function toYuan4(cent) {
+    return Math.round((Number(cent) || 0) / CENT_PER_YUAN / rate * 10000) / 10000;
+  }
+
+  var minted = sumSince(['welcome', 'daily', 'admin_grant', 'reward'], since);
+  var sunk = sumSince(['fee', 'admin_deduct'], since);
+  var recharged = sumSince(['recharge'], since);
+  var withdrawn = sumSince(['withdraw'], since);
+
+  // 刚性兑付敞口：逐个账户取 min(可用现金学元, 累计净充值)，
+  // 与 withdrawableCent 用同一口径，避免面板上的数字和学生的提现按钮对不上。
+  var accounts = db.prepare("SELECT user_id, cash_balance FROM xy_account WHERE user_id NOT LIKE '@%'").all();
+  var withdrawable = 0;
+  for (var i = 0; i < accounts.length; i++) {
+    if ((Number(accounts[i].cash_balance) || 0) > 0) withdrawable += withdrawableCent(accounts[i].user_id);
+  }
+
+  var pending = db.prepare(
+    "SELECT COUNT(*) AS c, COALESCE(SUM(amount_cent), 0) AS s FROM xy_withdraw WHERE status = 'pending'"
+  ).get();
+
+  var nAcc = Number(view.c) || 0;
+  var circ = Number(view.circ) || 0;
+  var mintPerDay = minted / days;
+  var mintPerStudentDay = nAcc ? mintPerDay / nAcc : 0;
+  var sinkRatio = minted > 0 ? sunk / minted : (sunk > 0 ? 1 : 0);
+  var grantShare = circ > 0 ? (Number(view.grant) || 0) / circ : 0;
+  var avgBalance = nAcc ? circ / nAcc : 0;
+  // 货币深度：人均余额相当于多少天的收入。太高说明钱在账户里沉淀，
+  // 学生没有消费出口（网店开张前这就是常态，不算病）。
+  var depthDays = mintPerStudentDay > 0 ? avgBalance / mintPerStudentDay : 0;
+
+  var warnings = [];
+  function warn(level, code, text) { warnings.push({ level: level, code: code, text: text }); }
+
+  if (nAcc > 0 && mintPerStudentDay > yuanToCent(1)) {
+    warn('risk', 'mint_too_fast',
+      '人均日铸币 ' + toYuan4(mintPerStudentDay) + ' 元，超过 1 元/天，等于每天白送一支笔');
+  }
+  if (minted > 0 && sinkRatio < 0.2) {
+    warn('watch', 'weak_sink',
+      '近 ' + days + ' 天回笼率仅 ' + (sinkRatio * 100).toFixed(1) + '%：只有发行没有销毁，长期会积压成「钱多货少」');
+  }
+  if (grantShare > 0.8 && circ > 0) {
+    warn('watch', 'grant_heavy',
+      '流通中 ' + Math.round(grantShare * 100) + '% 是不可提现的赠送学元：价格体系主要由铸币支撑');
+  }
+  if (withdrawable > 0 && Number(view.cash) < withdrawable) {
+    warn('risk', 'reserve_short',
+      '现金池 ' + fromCent(Number(view.cash)) + ' 学元，低于可提现总额 ' + fromCent(withdrawable) + ' 学元');
+  }
+  if (Number(pending.s) > Number(view.cash)) {
+    warn('risk', 'pending_over_cash',
+      '待审批提现 ' + fromCent(Number(pending.s)) + ' 学元，已超过账上现金学元');
+  }
+  if (nAcc > 0 && minted === 0 && circ > 0) {
+    warn('watch', 'no_mint',
+      '近 ' + days + ' 天没有任何发行：津贴可能已被关闭，学生失去了持续收入');
+  }
+
+  var level = 'ok';
+  for (var k = 0; k < warnings.length; k++) {
+    if (warnings[k].level === 'risk') { level = 'risk'; break; }
+    level = 'watch';
+  }
+
+  return {
+    window_days: days,
+    level: level,
+    accounts: nAcc,
+    // 存量
+    circulation_cent: circ,
+    circulation: fromCent(circ),
+    circulation_yuan: centToYuan(circ, rate),
+    cash_cent: Number(view.cash) || 0,
+    cash: fromCent(Number(view.cash) || 0),
+    cash_yuan: centToYuan(Number(view.cash) || 0, rate),
+    grant_cent: Number(view.grant) || 0,
+    grant: fromCent(Number(view.grant) || 0),
+    grant_share: Math.round(grantShare * 1000) / 1000,
+    avg_balance: fromCent(avgBalance),
+    avg_balance_yuan: toYuan4(avgBalance),
+    // 流量
+    minted_cent: minted,
+    minted: fromCent(minted),
+    minted_yuan: centToYuan(minted, rate),
+    sunk_cent: sunk,
+    sunk: fromCent(sunk),
+    recharge_cent: recharged,
+    recharge_yuan: centToYuan(recharged, rate),
+    withdrawn_cent: withdrawn,
+    withdrawn_yuan: centToYuan(withdrawn, rate),
+    mint_per_day: fromCent(mintPerDay),
+    mint_per_student_day_yuan: toYuan4(mintPerStudentDay),
+    sink_ratio: Math.round(sinkRatio * 1000) / 1000,
+    depth_days: Math.round(depthDays),
+    // 兑付
+    withdrawable_cent: withdrawable,
+    withdrawable: fromCent(withdrawable),
+    withdrawable_yuan: centToYuan(withdrawable, rate),
+    pending_withdraw_count: Number(pending.c) || 0,
+    pending_withdraw: fromCent(Number(pending.s) || 0),
+    // 纪律
+    yuan_rate: rate,
+    limits: {
+      daily_yuan: centToYuan(DAILY_CENT, rate),
+      welcome_yuan: centToYuan(WELCOME_CENT, rate),
+      max_recharge_yuan: centToYuan(MAX_RECHARGE_CENT, rate),
+      recharge_quota_yuan: centToYuan(RECHARGE_QUOTA_CENT, rate),
+      max_grant_yuan: centToYuan(MAX_GRANT_CENT, rate),
+      grant_daily_cap_yuan: centToYuan(GRANT_DAILY_CAP_CENT, rate)
+    },
+    warnings: warnings
   };
 }
 
@@ -1511,8 +1819,14 @@ module.exports = {
   post: post,
   mint: mint,
   burn: burn,
+  grant: grant,
   transfer: transfer,
   splitPayable: splitPayable,
+  splitPayOrder: splitPayOrder,
+  rechargedInSemesterCent: rechargedInSemesterCent,
+  grantedTodayCent: grantedTodayCent,
+  semesterRange: semesterRange,
+  dayStartMs: dayStartMs,
   hold: hold,
   release: release,
   settleHold: settleHold,
@@ -1528,13 +1842,16 @@ module.exports = {
   history: history,
   leaderboard: leaderboard,
   summary: summary,
+  health: health,
   audit: audit,
   LIMITS: {
     MAX_TRANSFER_CENT: MAX_TRANSFER_CENT,
     MAX_TX_CENT: MAX_TX_CENT,
     MAX_BALANCE_CENT: MAX_BALANCE_CENT,
     MAX_RECHARGE_CENT: MAX_RECHARGE_CENT,
+    RECHARGE_QUOTA_CENT: RECHARGE_QUOTA_CENT,
     MAX_GRANT_CENT: MAX_GRANT_CENT,
+    GRANT_DAILY_CAP_CENT: GRANT_DAILY_CAP_CENT,
     MAX_WITHDRAW_CENT: MAX_WITHDRAW_CENT,
     MIN_WITHDRAW_CENT: MIN_WITHDRAW_CENT,
     WELCOME_CENT: WELCOME_CENT,

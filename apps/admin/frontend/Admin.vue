@@ -275,6 +275,27 @@
               </div>
             </div>
 
+            <!-- 币值健康度：印钞速度 / 回笼率 / 兑付敞口，只读建议 -->
+            <div v-if="xyHealth" class="xy-health" :class="'lv-' + xyHealth.level">
+              <div class="xy-health-head">
+                <i class="fa-solid fa-heart-pulse"></i>
+                <b>币值健康度</b>
+                <span class="xy-health-badge">{{ healthLevelText(xyHealth.level) }}</span>
+                <span class="xy-health-win">近 {{ xyHealth.window_days }} 天 · {{ xyHealth.accounts }} 个账户</span>
+              </div>
+              <div class="xy-health-metrics">
+                <span>人均日铸币 <b>{{ xyHealth.mint_per_student_day_yuan }}</b> 元</span>
+                <span>回笼率 <b>{{ pct(xyHealth.sink_ratio) }}</b></span>
+                <span>赠送学元占比 <b>{{ pct(xyHealth.grant_share) }}</b></span>
+                <span>货币深度 <b>{{ xyHealth.depth_days }}</b> 天</span>
+                <span>可提现敞口 <b>{{ xyMoney(xyHealth.withdrawable) }}</b> 学元</span>
+              </div>
+              <ul v-if="xyHealth.warnings && xyHealth.warnings.length" class="xy-health-warn">
+                <li v-for="w in xyHealth.warnings" :key="w.code" :class="w.level">{{ w.text }}</li>
+              </ul>
+              <p v-else class="xy-health-ok">发行速度、回笼与兑付敞口都在安全区间。</p>
+            </div>
+
             <div class="xy-audit" :class="xyAudit && xyAudit.ok ? 'ok' : 'bad'">
               <i :class="xyAudit && xyAudit.ok ? 'fa-solid fa-circle-check' : 'fa-solid fa-triangle-exclamation'"></i>
               <span class="xy-audit-main">
@@ -305,9 +326,11 @@
                 </button>
               </div>
               <p class="xy-foot-tip">
-                按 1 元 = {{ xySummary ? xySummary.yuan_rate : 1000 }} 学元换算，单人单次上限
-                {{ xySummary && xySummary.limits ? xySummary.limits.max_recharge : 2000000 }} 学元。
-                重复提交会按请求号去重，不会重复入账。
+                按 1 元 = {{ xySummary ? xySummary.yuan_rate : 1000 }} 学元换算。单人单笔上限
+                {{ xySummary && xySummary.limits ? xySummary.limits.max_recharge : 200000 }} 学元，
+                每学期累计上限
+                {{ xySummary && xySummary.limits ? xySummary.limits.recharge_quota : 300000 }} 学元
+                —— 拆成多笔也会被拦。重复提交会按请求号去重，不会重复入账。
               </p>
             </div>
 
@@ -1954,6 +1977,7 @@ export default {
       // 学元管理
       xyLoading: false,
       xySummary: null,
+      xyHealth: null,
       xyAudit: null,
       xyPending: [],
       xyWithdrawals: [],
@@ -2665,6 +2689,14 @@ export default {
       if (!isFinite(n)) return '0.00';
       return n.toFixed(2);
     },
+    healthLevelText: function(lv) {
+      if (lv === 'risk') return '需要处理';
+      if (lv === 'watch') return '需要关注';
+      return '正常';
+    },
+    pct: function(v) {
+      return Math.round((Number(v) || 0) * 100) + '%';
+    },
     xyWithdrawStatus: function(s) {
       if (s === 'pending') return '待审批';
       if (s === 'paid') return '已提现';
@@ -2678,16 +2710,20 @@ export default {
       Promise.all([
         api.get('/xueyuan/admin/overview', { params: { recentLimit: 10 } }),
         api.get('/xueyuan/admin/withdrawals', { params: { limit: 30 } }),
-        api.get('/xueyuan/admin/recharges', { params: { limit: 30 } })
+        api.get('/xueyuan/admin/recharges', { params: { limit: 30 } }),
+        // 健康度失败不能让整页挂掉：它是「建议」，不是「账本」
+        api.get('/xueyuan/admin/health', { params: { days: 30 } }).catch(function() { return null; })
       ]).then(function(results) {
         var overview = (results[0].data && results[0].data.data) || {};
         var wd = (results[1].data && results[1].data.data) || {};
         var rc = (results[2].data && results[2].data.data) || {};
+        var hl = results[3] && results[3].data && results[3].data.data;
         self.xySummary = overview.summary || null;
         self.xyAudit = overview.audit || null;
         self.xyPending = wd.pending || [];
         self.xyWithdrawals = wd.list || [];
         self.xyRecharges = rc.list || [];
+        self.xyHealth = hl || null;
       }).catch(function(err) {
         var msg = (err.response && err.response.data && err.response.data.message) || '学元数据加载失败';
         self.$toast && self.$toast.error(msg);
@@ -7518,6 +7554,51 @@ export default {
   color: #D08A17;
   font-size: var(--font-size-caption2);
 }
+.xy-health {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  font-size: var(--font-size-caption1);
+}
+.xy-health.lv-risk { border-color: rgba(228, 87, 79, 0.35); }
+.xy-health.lv-watch { border-color: rgba(208, 138, 23, 0.35); }
+.xy-health-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 9px;
+}
+.xy-health-head > i { color: #D08A17; }
+.xy-health-badge {
+  padding: 1px 7px;
+  border-radius: 7px;
+  font-size: var(--font-size-caption2);
+  background: rgba(46, 158, 91, 0.14);
+  color: var(--success-color);
+}
+.xy-health.lv-watch .xy-health-badge {
+  background: rgba(208, 138, 23, 0.16);
+  color: #D08A17;
+}
+.xy-health.lv-risk .xy-health-badge {
+  background: rgba(228, 87, 79, 0.14);
+  color: var(--danger-color);
+}
+.xy-health-win { margin-left: auto; opacity: 0.6; font-size: var(--font-size-caption2); }
+.xy-health-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  opacity: 0.85;
+  line-height: 1.7;
+}
+.xy-health-metrics b { font-variant-numeric: tabular-nums; }
+.xy-health-warn { margin: 8px 0 0; padding-left: 18px; line-height: 1.7; }
+.xy-health-warn li.risk { color: var(--danger-color); }
+.xy-health-warn li.watch { color: #D08A17; }
+.xy-health-ok { margin: 8px 0 0; opacity: 0.6; }
 .xy-audit {
   display: flex;
   align-items: flex-start;

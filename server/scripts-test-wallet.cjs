@@ -67,6 +67,14 @@ async function main() {
     RELAY_PORT: '19011',
     DB_PATH: DB,
     XUEYUAN_YUAN_RATE: '100',
+    // 本套用例要构造 2000 元级别的流水来验证转账/红包的「当日额度」，
+    // 所以把充值、发放的上限抬到测试档，避免资金不够导致用例互相污染。
+    // 生产默认值（单笔 200 元 / 学期 300 元 / 单次 0.5 元 / 每日 2 元）
+    // 由 scripts-test-xueyuan-limits.cjs 单独守护 —— 那里不覆盖任何参数。
+    XUEYUAN_MAX_RECHARGE_YUAN: '2000',
+    XUEYUAN_RECHARGE_QUOTA_YUAN: '5000',
+    XUEYUAN_MAX_GRANT_YUAN: '10',
+    XUEYUAN_GRANT_DAILY_CAP_YUAN: '100',
     RESOURCES_DIR: path.join(TMP, 'res'),
     JWT_SECRET: 'wallet-test-secret',
     RELAY_SECRET: 'wallet-test-secret',   // 跨班支付用同一把 HMAC 密钥（覆盖 .env 里的生产密钥）

@@ -11,7 +11,8 @@
 //
 // 面向管理员（班管 / 系统管理员）：
 //   GET  /api/xueyuan/admin/overview  发行概览 + 账本对账
-//   POST /api/xueyuan/admin/grant     批量发放
+//   GET  /api/xueyuan/admin/health    币值健康度（印钞速度 / 回笼率 / 兑付敞口）
+//   POST /api/xueyuan/admin/grant     批量发放（单次 + 每日双配额）
 //   POST /api/xueyuan/admin/deduct    批量扣减
 //   GET  /api/xueyuan/admin/audit     仅对账
 //
@@ -98,6 +99,9 @@ router.get('/config', function (req, res) {
       daily_bonus_from_day: xy.LIMITS.DAILY_BONUS_FROM_DAY || 7,
       max_transfer: xy.fromCent(xy.LIMITS.MAX_TRANSFER_CENT),
       max_recharge: xy.fromCent(xy.LIMITS.MAX_RECHARGE_CENT),
+      recharge_quota: xy.fromCent(xy.LIMITS.RECHARGE_QUOTA_CENT),
+      max_grant: xy.fromCent(xy.LIMITS.MAX_GRANT_CENT),
+      grant_daily_cap: xy.fromCent(xy.LIMITS.GRANT_DAILY_CAP_CENT),
       max_withdraw: xy.fromCent(xy.LIMITS.MAX_WITHDRAW_CENT),
       min_withdraw: xy.fromCent(xy.LIMITS.MIN_WITHDRAW_CENT),
       pools: {
@@ -283,6 +287,16 @@ router.get('/admin/overview', requireTreasury, function (req, res) {
   }
 });
 
+// 币值健康度：只读，供班管面板展示「印钞速度 / 回笼率 / 兑付敞口」。
+// days 为统计窗口（默认 30 天），只影响流量类指标，不影响存量。
+router.get('/admin/health', requireTreasury, function (req, res) {
+  try {
+    res.json({ code: 200, message: 'ok', data: xy.health({ days: req.query.days }) });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
 router.get('/admin/audit', requireTreasury, function (req, res) {
   try {
     res.json({ code: 200, message: 'ok', data: xy.audit() });
@@ -311,7 +325,7 @@ function handleBatch(req, res, direction) {
     if (ids.length > 200) throw new Error('一次最多处理 200 个账号');
     if (amountCent === null || amountCent <= 0) throw new Error('金额不合法');
     if (amountCent > xy.LIMITS.MAX_GRANT_CENT) {
-      throw new Error('单人单次不能超过 ' + xy.fromCent(xy.LIMITS.MAX_GRANT_CENT) + ' 学元');
+      throw new Error('单人单次发放不能超过 ' + xy.fromCent(xy.LIMITS.MAX_GRANT_CENT) + ' 学元');
     }
 
     var reqId = String(body.requestId || '').slice(0, 40) ||
@@ -339,10 +353,10 @@ function handleBatch(req, res, direction) {
 
         if (direction > 0) {
           xy.ensureAccount(uid);
-          var r = xy.mint({
+          // 走 xy.grant 而不是 mint：发放要过「单次上限 + 每日累计上限」两道配额。
+          var r = xy.grant({
             to: uid,
             amountCent: amountCent,
-            kind: 'admin_grant',
             ref: 'grant:' + reqId + ':' + uid,
             operator: String(req.user.user_id),
             memo: memo || '教师发放',

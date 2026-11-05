@@ -486,6 +486,10 @@ router.get('/', function (req, res) {
         limits: {
           transfer: xy.fromCent(xy.LIMITS.MAX_TRANSFER_CENT),
           recharge: xy.fromCent(xy.LIMITS.MAX_RECHARGE_CENT),
+          // 学期剩余额度：让「为什么充不进去」在学生点之前就看得见
+          recharge_quota: xy.fromCent(xy.LIMITS.RECHARGE_QUOTA_CENT),
+          recharge_left: xy.fromCent(Math.max(0,
+            xy.LIMITS.RECHARGE_QUOTA_CENT - xy.rechargedInSemesterCent(uid))),
           withdraw: xy.fromCent(xy.LIMITS.MAX_WITHDRAW_CENT),
           withdraw_min: xy.fromCent(xy.LIMITS.MIN_WITHDRAW_CENT),
           packet_total: xy.fromCent(yuanbao.MAX_TOTAL_CENT),

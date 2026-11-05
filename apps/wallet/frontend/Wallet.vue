@@ -18,11 +18,12 @@
             <span class="bal-ico"><i class="fa-solid fa-coins"></i></span>
           </div>
           <div class="bal-amount">{{ money(account.balance) }}</div>
+          <div class="bal-cny">{{ yuanOf(account.balance) }}</div>
 
           <div class="bp-row">
             <div class="bp-item">
               <span class="bp-name"><i class="fa-solid fa-wallet"></i> 充值学元</span>
-              <span class="bp-num">{{ money(account.cash) }}</span>
+              <span class="bp-num">{{ money(account.cash) }}<em class="bp-cny">{{ yuanOf(account.cash) }}</em></span>
               <span class="bp-sub">
                 可用 {{ money(account.available_cash) }}
                 <em v-if="account.frozen_cash"> · 冻结 {{ money(account.frozen_cash) }}</em>
@@ -30,7 +31,7 @@
             </div>
             <div class="bp-item">
               <span class="bp-name"><i class="fa-solid fa-gift"></i> 赠送学元</span>
-              <span class="bp-num">{{ money(account.grant) }}</span>
+              <span class="bp-num">{{ money(account.grant) }}<em class="bp-cny">{{ yuanOf(account.grant) }}</em></span>
               <span class="bp-sub">
                 可用 {{ money(account.available_grant) }}
                 <em v-if="account.frozen_grant"> · 冻结 {{ money(account.frozen_grant) }}</em>
@@ -40,7 +41,7 @@
           </div>
 
           <div class="bal-withdraw" @click="switchTab('withdraw')">
-            <span>可提现 <b>{{ money(withdrawable) }}</b> 学元</span>
+            <span>可提现 <b>{{ money(withdrawable) }}</b> 学元 <em class="bw-cny">{{ yuanOf(withdrawable) }}</em></span>
             <span class="bw-link">去提现<i class="fa-solid fa-chevron-right"></i></span>
           </div>
 
@@ -554,7 +555,8 @@
           <div class="rc-split-item grant"><i class="fa-solid fa-gift"></i><b>赠送学元</b><span>可转账 / 红包 / 跨班 / 投资，不可提现</span></div>
         </div>
         <div class="pay-hint">
-          单次充值上限 {{ money(limits.recharge) }} 学元。充值记录可查，班管乱录会被审计对账发现。
+          单次充值上限 {{ money(limits.recharge) }} 学元，本学期还能充 {{ money(limits.recharge_left) }} 学元。
+          学期配额是为了防止一次充太多把班级物价打乱；充值记录可查，班管乱录会被审计对账发现。
         </div>
         <button class="pay-primary" @click="recharge.open = false">知道了</button>
       </div>
@@ -638,7 +640,7 @@ export default {
       week: { in: 0, out: 0, count: 0 },
       month: { in: 0, out: 0, count: 0 },
       sources: [],
-      limits: { transfer: 500000, packet_total: 500000, packet_count: 20, recharge: 2000000, withdraw: 1000000, withdraw_min: 1000, daily_out: 2000000, daily_left: 2000000 },
+      limits: { transfer: 500000, packet_total: 500000, packet_count: 20, recharge: 200000, recharge_quota: 300000, recharge_left: 300000, withdraw: 1000000, withdraw_min: 1000, daily_out: 2000000, daily_left: 2000000 },
       packetBadge: 0,
 
       withdrawals: [],
@@ -726,6 +728,18 @@ export default {
       var parts = s.split('.');
       parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
       return (neg ? '-' : '') + parts.join('.');
+    },
+
+    // 学元 → 人民币参考值，只用于「≈¥」角标。
+    // 账本一律记学元、绝不用它参与任何计算；这里纯粹是帮学生建立
+    // 「200 学元到底值多少」的直觉 —— 1:1000 的面额很容易被误读成 200 元。
+    yuanOf: function (n) {
+      var v = toNum(n) || 0;
+      var rate = toNum(this.yuanRate) || 1000;
+      var yuan = v / rate;
+      var abs = Math.abs(yuan);
+      var txt = abs >= 1 ? abs.toFixed(2) : abs.toFixed(3).replace(/0$/, '');
+      return (yuan < 0 ? '-¥' : '≈¥') + txt;
     },
 
     fmtTime: function (ts) {
@@ -1490,6 +1504,28 @@ export default {
   letter-spacing: -0.5px;
   line-height: 1.15;
   font-variant-numeric: tabular-nums;
+}
+/* ≈¥ 参考角标：纯展示，不参与任何账目换算 */
+.bal-cny {
+  position: relative;
+  margin-bottom: 10px;
+  font-size: 12px;
+  letter-spacing: 0.2px;
+  opacity: 0.62;
+  font-variant-numeric: tabular-nums;
+}
+.bp-cny {
+  margin-left: 6px;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 500;
+  opacity: 0.6;
+}
+.bw-cny {
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 500;
+  opacity: 0.72;
 }
 .bal-split {
   position: relative;
