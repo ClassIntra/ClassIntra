@@ -610,9 +610,13 @@ router.patch('/users/:id', function(req, res) {
     if (updates.is_admin !== undefined) {
       try {
         var relayBus2 = require('../utils/relay-bus');
+        // 只同步「是不是管理员」，不要伪造账号状态。
+        // 旧实现把 status 写成 admin_promoted / admin_demoted，对端会照原样落库，
+        // 用户因此不再是 active —— 钱包选人看不到、转账报「没找到这个学号」，
+        // 连跨班收款都会被判「不是有效用户」（2026-11-05 班管转不了账的根因）。
         relayBus2.emit('admin_user_status_changed', {
           user_id: targetUser.user_id,
-          status: updates.is_admin ? 'admin_promoted' : 'admin_demoted'
+          is_admin: !!updates.is_admin
         });
       } catch (e) { console.error('[Admin] Broadcast event failed:', e.message); }
     }

@@ -32,69 +32,8 @@ var crossPay = require('../services/cross-pay');
 var packetCross = require('../services/packet-cross');
 var peers = require('../services/peers');
 var db = require('../utils/db');
-
-// 风控额度：本班单日转出总额 2000 元等值（1:1000 下为 2000000 学元）。
-// 单笔上限在 xueyuan 里是 500 元等值；日累计是为了挡住「拆成很多笔」的异常行为。
-var MAX_DAILY_OUT_CENT = xy.yuanToCent(2000);
-
-function dayStartMs() {
-  var d = new Date(Date.now() + 8 * 3600 * 1000);
-  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - 8 * 3600 * 1000;
-}
-
-function dailyOutCent(uid) {
-  try {
-    // 今日转出 = 已落账 + 已冻结未落账
-    //
-    // ⚠️ 只统计「转给同学/发红包/跨班」的钱，不碰投资消费。
-    // 之前把所有支出都算进去 —— 学生今天炒股花了 1 万练习金，额度直接爆表，
-    // 转账/红包全被 400「额度不足」，这是生产实打实踩过的坑（2026-11-04）。
-    //
-    // ⚠️ 红包和跨班在**领取/成功之前不写分录**（只有 frozen），只查 xy_entry
-    // 会漏掉这部分：连发几个红包都不占额度，等于额度形同虚设。
-    // 所以补上「未领完的红包剩余」和「pending 跨班」，口径才完整：
-    //   红包：剩余 + 已领（负分录）= 今天发出的总额
-    //   跨班：pending + 已成功（负分录）= 今天发出的总额
-    var uidStr = String(uid);
-    var start = dayStartMs();
-
-    var settled = db.prepare([
-      'SELECT COALESCE(SUM(CASE WHEN e.delta < 0 THEN -e.delta ELSE 0 END), 0) AS out',
-      'FROM xy_entry e JOIN xy_tx t ON t.id = e.tx_id',
-      "WHERE e.user_id = ? AND e.created_at >= ? AND t.kind = 'transfer'"
-    ].join('\n')).get(uidStr, start).out || 0;
-
-    var packets = db.prepare([
-      'SELECT COALESCE(SUM(remaining_cent), 0) AS out FROM xy_packet',
-      "WHERE sender = ? AND status = 'open' AND created_at >= ?"
-    ].join('\n')).get(uidStr, start).out || 0;
-
-    var cross = db.prepare([
-      'SELECT COALESCE(SUM(amount_cent), 0) AS out FROM xy_cross_tx',
-      "WHERE from_user = ? AND status = 'pending' AND created_at >= ?"
-    ].join('\n')).get(uidStr, start).out || 0;
-
-    return settled + packets + cross;
-  } catch (e) { return 0; }
-}
-
-// 转账/红包/跨班共用的前置校验：支付密码 → 当日额度
-function guardPay(uid, pin, amountCent) {
-  var v = payPin.verify(uid, pin);
-  if (!v.ok) {
-    var err = new Error(v.error);
-    err.pay_pin = v;
-    throw err;
-  }
-  var used = dailyOutCent(uid);
-  if (used + amountCent > MAX_DAILY_OUT_CENT) {
-    var left = Math.max(0, MAX_DAILY_OUT_CENT - used);
-    var e2 = new Error('今日转出额度只剩 ' + xy.fromCent(left).toFixed(2) + ' 学元（每日上限 ' + xy.fromCent(MAX_DAILY_OUT_CENT) + ' 学元）');
-    e2.quota = true;
-    throw e2;
-  }
-  return true;
-}
+var constants = require('../utils/constants');
+var payGuard = require('../services/pay-guard');
 
 var DAILY_CENT = xy.LIMITS.DAILY_CENT;
 var DAILY_BONUS_CENT = xy.LIMITS.DAILY_BONUS_CENT;
@@ -401,7 +340,7 @@ router.post('/pay-code/pay', function (req, res) {
 
   if (!localRow) {
     try {
-      guardPay(uid, b.pin, amountCent);
+      payGuard.guardPay(uid, b.pin, amountCent);
     } catch (err) {
       return fail(res, err);
     }
@@ -435,7 +374,7 @@ router.post('/pay-code/pay', function (req, res) {
 
   var row = localRow;
   try {
-    guardPay(uid, b.pin, amountCent);
+    payGuard.guardPay(uid, b.pin, amountCent);
 
     var peer = db.prepare('SELECT net_name, real_name FROM users WHERE user_id = ?').get(String(row.user_id));
     var r = xy.transfer({
@@ -473,7 +412,7 @@ router.post('/cross/send', function (req, res) {
     payCode.decode(b.code);
     var amountCent = xy.toCent(b.amount);
     if (!(amountCent > 0)) throw new Error('金额至少 0.01 学元');
-    guardPay(uid, b.pin, amountCent);
+    payGuard.guardPay(uid, b.pin, amountCent);
   } catch (err) {
     return fail(res, err);
   }
@@ -552,8 +491,8 @@ router.get('/', function (req, res) {
           packet_total: xy.fromCent(yuanbao.MAX_TOTAL_CENT),
           packet_count: yuanbao.MAX_COUNT,
           cross: xy.fromCent(crossPay.MAX_CROSS_CENT),
-          daily_out: xy.fromCent(MAX_DAILY_OUT_CENT),
-          daily_left: xy.fromCent(Math.max(0, MAX_DAILY_OUT_CENT - dailyOutCent(uid)))
+          daily_out: xy.fromCent(payGuard.MAX_DAILY_OUT_CENT),
+          daily_left: xy.fromCent(Math.max(0, payGuard.MAX_DAILY_OUT_CENT - payGuard.dailyOutCent(uid)))
         }
       }
     });
@@ -638,7 +577,9 @@ router.get('/search', function (req, res) {
     var like = '%' + q + '%';
     var rows = db.prepare([
       'SELECT user_id, net_name, real_name, password_hash FROM users',
-      "WHERE status = 'active' AND user_id <> ? AND (user_id LIKE ? OR net_name LIKE ? OR real_name LIKE ?)",
+      // 只有「停用」才排除。历史脏值（admin_promoted 等）不该让一个正常同学搜不到，
+      // 见 migrations/031。
+      "WHERE status <> 'disabled' AND user_id <> ? AND (user_id LIKE ? OR net_name LIKE ? OR real_name LIKE ?)",
       'ORDER BY user_id LIMIT 8'
     ].join('\n')).all(uid, like, like, like);
 
@@ -651,7 +592,8 @@ router.get('/search', function (req, res) {
           return {
             user_id: r.user_id,
             name: r.net_name || r.real_name || r.user_id,
-            remote: !r.password_hash
+            remote: !r.password_hash,
+            class_admin: constants.isClassAdmin(r.user_id)
           };
         })
       }
@@ -677,7 +619,8 @@ router.get('/people', function (req, res) {
     }
     var stmt = db.prepare([
       'SELECT user_id, net_name, real_name, password_hash FROM users',
-      "WHERE status = 'active' AND user_id <> ?" + cond,
+      // 同上：只排除停用账号，别把历史脏值状态的同学藏起来
+      "WHERE status <> 'disabled' AND user_id <> ?" + cond,
       'ORDER BY (password_hash IS NULL OR password_hash = \'\') ASC, user_id LIMIT ?'
     ].join('\n'));
     var rows = stmt.all.apply(stmt, params.concat([limit]));
@@ -690,7 +633,8 @@ router.get('/people', function (req, res) {
           return {
             user_id: r.user_id,
             name: r.net_name || r.real_name || r.user_id,
-            remote: !r.password_hash
+            remote: !r.password_hash,
+            class_admin: constants.isClassAdmin(r.user_id)
           };
         })
       }
@@ -704,11 +648,20 @@ router.post('/transfer', function (req, res) {
   var body0 = req.body || {};
   var toUser = String(body0.to || '').trim();
 
+  // 停用账号先拦掉：它不满足 isLocalUser，会被当成「外班镜像用户」去走跨班通道，
+  // 最后报「没找到这位同学所在的班级」——对用户来说等于没说。
+  if (toUser) {
+    var localPeer = db.prepare('SELECT status FROM users WHERE user_id = ?').get(toUser);
+    if (localPeer && localPeer.status === 'disabled') {
+      return fail(res, new Error('这个学号已被停用，暂时收不了钱'));
+    }
+  }
+
   // 外班同学（镜像用户）：钱必须走「本班回收 → 对班入账」的跨班通道，
   // 绝不能直接 transfer 进镜像账户（那个人永远不会在本班登录，钱就锁死了）。
   if (toUser && !packetCross.isLocalUser(toUser)) {
     try {
-      guardPay(String(req.user.user_id), body0.pin, xy.toCent(body0.amount));
+      payGuard.guardPay(String(req.user.user_id), body0.pin, xy.toCent(body0.amount));
     } catch (err) {
       return fail(res, err);
     }
@@ -746,10 +699,12 @@ router.post('/transfer', function (req, res) {
     if (!(amountCent > 0)) throw new Error('金额至少 0.01 学元');
 
     // 支付密码 + 当日额度（微信式：先验证再动钱）
-    guardPay(uid, body.pin, amountCent);
+    payGuard.guardPay(uid, body.pin, amountCent);
 
-    var peer = db.prepare("SELECT net_name, real_name FROM users WHERE user_id = ? AND status = 'active'").get(to);
+    var peer = db.prepare('SELECT net_name, real_name, status FROM users WHERE user_id = ?').get(to);
     if (!peer) throw new Error('没找到这个学号');
+    // 只拦「停用」；历史脏值状态不是封禁，不能让正常同学收不了钱（见 migrations/031）
+    if (peer.status === 'disabled') throw new Error('这个学号已被停用，暂时收不了钱');
 
     // 收款方没打开过钱包也要能收钱：这里替他懒开户（一次性赠金由服务层幂等保证）。
     // 否则会出现「转账失败：对方尚未开通学元账户」——对付款方来说毫无道理。
@@ -811,7 +766,7 @@ router.post('/packet', function (req, res) {
     var note = String(body.note || '').slice(0, 40);
 
     if (!(totalCent > 0)) throw new Error('总金额至少 0.01 学元');
-    guardPay(uid, body.pin, totalCent);
+    payGuard.guardPay(uid, body.pin, totalCent);
 
     var scope = body.scope === 'cross' ? 'cross' : 'local';
     var kind = ['normal', 'designated', 'phrase'].indexOf(body.kind) >= 0 ? body.kind : 'normal';

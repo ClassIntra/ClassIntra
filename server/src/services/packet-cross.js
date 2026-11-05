@@ -482,7 +482,9 @@ function receiveWhois(payload) {
   for (var i = 0; i < ids.length; i++) {
     var u = db.prepare([
       'SELECT user_id, net_name, real_name FROM users',
-      "WHERE user_id = ? AND status = 'active' AND password_hash IS NOT NULL AND password_hash <> ''"
+      // 只排除停用：历史脏值状态（admin_promoted 等）不该让收款人凭空消失，
+      // 否则转账会报「没找到这位同学所在的班级」（见 migrations/031）
+      "WHERE user_id = ? AND status <> 'disabled' AND password_hash IS NOT NULL AND password_hash <> ''"
     ].join('\n')).get(ids[i]);
     if (u) {
       found.push({ user_id: u.user_id, name: u.net_name || u.real_name || u.user_id });
@@ -516,9 +518,10 @@ function cachedHome(userId) {
 }
 
 // 判断一个用户是不是**本班真用户**（镜像用户 password_hash 为空）
+// 状态只排除「停用」：admin_promoted 之类的历史脏值不是封禁（见 migrations/031）
 function isLocalUser(userId) {
   var u = db.prepare([
-    "SELECT 1 FROM users WHERE user_id = ? AND status = 'active'",
+    "SELECT 1 FROM users WHERE user_id = ? AND status <> 'disabled'",
     "AND password_hash IS NOT NULL AND password_hash <> ''"
   ].join('\n')).get(String(userId));
   return !!u;

@@ -358,7 +358,8 @@ function receive(payload) {
     // 镜像用户 password_hash 为空，钱进了也不会有人登录，坚决不收。
     var target = String(p.token).slice(5);
     var u = db.prepare([
-      "SELECT user_id FROM users WHERE user_id = ? AND status = 'active'",
+      // 只排除停用；admin_promoted 之类的历史脏值不是封禁（见 migrations/031）
+      "SELECT user_id FROM users WHERE user_id = ? AND status <> 'disabled'",
       "AND password_hash IS NOT NULL AND password_hash <> ''"
     ].join('\n')).get(target);
     if (!u) return { code: 400, message: '收款人不在这个班，或不是有效用户' };

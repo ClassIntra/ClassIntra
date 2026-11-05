@@ -4,7 +4,7 @@
 //   GET  /api/xueyuan/me              我的账户（首次访问自动开户 + 赠金）
 //   GET  /api/xueyuan/history         我的流水
 //   POST /api/xueyuan/daily           领取当日助学津贴
-//   POST /api/xueyuan/transfer        给同学转学元
+//   POST /api/xueyuan/transfer        给本班同学转学元（要支付密码，与钱包共用风控）
 //   GET  /api/xueyuan/leaderboard     学元榜
 //   GET  /api/xueyuan/account/:userId 查某人的公开资产
 //   GET  /api/xueyuan/config          规则常量（前端展示）
@@ -25,13 +25,15 @@ var express = require('express');
 var router = express.Router();
 var auth = require('../middleware/auth');
 var xy = require('../services/xueyuan');
+var payGuard = require('../services/pay-guard');
+var packetCross = require('../services/packet-cross');
 var db = require('../utils/db');
 
 // 统一错误出口：服务层的业务错误都是 400（参数/余额问题），
 // 未预期异常才是 500 —— 这样前端能把「余额不足」和「服务器挂了」分开。
 function fail(res, err) {
   var msg = err && err.message ? err.message : '操作失败';
-  var known = /余额不足|可用学元不足|可提现学元不足|充值未生效|不足|超过上限|不能超过|非法|不存在|已被冻结|至少|不能为空|尚未开通|已关闭|未知的业务类型|不平衡|重复出现|不能给自己|必须|请填写|请选择|一次最多|无法|不能|已有一笔|已处理|只能撤销/.test(msg);
+  var known = /余额不足|可用学元不足|可提现学元不足|充值未生效|不足|超过上限|不能超过|非法|不存在|已被冻结|至少|不能为空|尚未开通|已关闭|未知的业务类型|不平衡|重复出现|不能给自己|必须|请填写|请选择|一次最多|无法|不能|已有一笔|已处理|只能撤销|支付密码|输错|锁定|未设置|额度|学号|停用|跨班|钱包/.test(msg);
   if (!known) console.error('[xueyuan] 未预期错误:', err);
   return res.status(known ? 400 : 500).json({ code: known ? 400 : 500, message: msg });
 }
@@ -141,9 +143,20 @@ router.post('/transfer', function (req, res) {
 
     if (!to) throw new Error('请填写收款人学号');
     if (amountCent === null || amountCent <= 0) throw new Error('转账金额不合法');
+    if (to === String(req.user.user_id)) throw new Error('不能给自己转账');
 
-    var target = db.prepare('SELECT user_id, net_name FROM users WHERE user_id = ?').get(to);
+    // 镜像用户（外班同步过来的）绝不能直接入账：那个账户在本班永远不会有人登录，
+    // 钱等于锁死。跨班必须走 /api/wallet 的跨班通道。
+    if (!packetCross.isLocalUser(to)) {
+      throw new Error('这个学号不在本班，请到「学元钱包」用跨班转账');
+    }
+
+    var target = db.prepare('SELECT user_id, net_name, status FROM users WHERE user_id = ?').get(to);
     if (!target) throw new Error('收款账号不存在');
+    if (target.status === 'disabled') throw new Error('这个学号已被停用，暂时收不了钱');
+
+    // 支付密码 + 当日额度：换个接口也不能把风控绕过去（与钱包共用 pay-guard）
+    payGuard.guardPay(String(req.user.user_id), body.pin, amountCent);
 
     var from = String(req.user.user_id);
     xy.ensureAccount(from);

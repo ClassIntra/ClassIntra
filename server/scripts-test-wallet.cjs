@@ -108,6 +108,19 @@ async function main() {
     ].join('\n')).run('测试' + (i + 1), '测试同学' + (i + 1), uid, loginHash, nowIso);
   });
 
+  // 班管 251800：本班真用户（有登录密码），但 status 被旧版「升管理员」事件写坏成
+  // admin_promoted。历史脏数据回归：他必须仍能被选到、能正常收款。
+  db.prepare([
+    'INSERT OR IGNORE INTO users (net_name, real_name, user_id, gender, password_hash, status, is_admin, info_json, created_at)',
+    "VALUES (?, ?, ?, '男', ?, 'admin_promoted', 1, '{}', ?)"
+  ].join('\n')).run('班管', '班管老师', '251800', loginHash, nowIso);
+
+  // 停用账号 251801：既不该出现在选人列表，也不该能收款
+  db.prepare([
+    'INSERT OR IGNORE INTO users (net_name, real_name, user_id, gender, password_hash, status, is_admin, info_json, created_at)',
+    "VALUES (?, ?, ?, '男', ?, 'disabled', 0, '{}', ?)"
+  ].join('\n')).run('停用', '停用账号', '251801', loginHash, nowIso);
+
   function token(uid) {
     return jwt.sign({ user_id: uid, is_admin: 0, is_class_admin: 0, role: 'student' },
       'wallet-test-secret', { expiresIn: '2h' });
@@ -307,6 +320,24 @@ async function main() {
   eq('不能给自己转账', trSelf.status, 400);
   var trGhost = await api('POST', '/api/wallet/transfer', { body: { to: '999999', amount: 1, pin: PIN } });
   ok('学号不存在被拒', trGhost.status === 400 && /没找到/.test(trGhost.body.message), trGhost.body.message);
+
+  // ---- 状态字段回归（2026-11-05 生产事故：给班管转账转不了）----
+  // 旧版「升/降管理员」事件会把 users.status 写成 admin_promoted / admin_demoted，
+  // 于是班管从选人列表消失、转账报「没找到」、跨班校验判他「不是有效用户」。
+  var ppl = await api('GET', '/api/wallet/people', { token: T1 });
+  var list = ppl.body.data.list || [];
+  var rowAdmin = list.filter(function (p) { return p.user_id === '251800'; })[0];
+  ok('脏状态班管仍出现在选人列表', !!rowAdmin, list);
+  ok('选人列表标出班管身份', !!rowAdmin && rowAdmin.class_admin === true, rowAdmin);
+  ok('停用账号不出现在选人列表', !list.some(function (p) { return p.user_id === '251801'; }), list);
+
+  var trAdmin = await api('POST', '/api/wallet/transfer', {
+    body: { to: '251800', amount: 20, pin: PIN, memo: '交给班管' }
+  });
+  eq('转账给班管 200', trAdmin.status, 200);
+
+  var trDead = await api('POST', '/api/wallet/transfer', { body: { to: '251801', amount: 1, pin: PIN } });
+  ok('给停用账号转账被拒且提示明确', trDead.status === 400 && /停用/.test(trDead.body.message), trDead.body.message);
   var trBig = await api('POST', '/api/wallet/transfer', { body: { to: '251902', amount: 60000, pin: PIN } });
   ok('超过单笔上限（50000）被拒', trBig.status === 400 && /单笔/.test(trBig.body.message), trBig.body.message);
 
@@ -330,13 +361,13 @@ async function main() {
   ok('发红包返回 id 与冻结金额', packetId > 0 && pk1.body.data.total === 30, pk1.body.data);
 
   var wAfterPacket = await api('GET', '/api/wallet');
-  eq('发红包后余额不变（冻结而非扣款）', wAfterPacket.body.data.account.balance, 52050);
+  eq('发红包后余额不变（冻结而非扣款）', wAfterPacket.body.data.account.balance, 52030);
   eq('冻结金额 30', wAfterPacket.body.data.account.frozen, 30);
-  eq('可用余额 52020', wAfterPacket.body.data.account.available, 52020);
+  eq('可用余额 52000', wAfterPacket.body.data.account.available, 52000);
   // 红包在「被领取」之前只有冻结、没有分录，额度也必须立刻占用，
-  // 否则连发几个红包就能绕过当日转出上限（150050 + 30 → 剩 49920）
+  // 否则连发几个红包就能绕过当日转出上限（70 + 150000 + 30 → 剩 49900）
   eq('发红包立即占用当日转出额度（未领取也占）',
-    Math.round(wAfterPacket.body.data.limits.daily_left), 49920);
+    Math.round(wAfterPacket.body.data.limits.daily_left), 49900);
 
   var pListB = await api('GET', '/api/wallet/packets', { token: T2 });
   ok('同学能看到可领红包', (pListB.body.data.available || []).some(function (p) { return p.id === packetId; }),
@@ -363,15 +394,15 @@ async function main() {
   // 已领部分变成负分录、未领部分仍是 remaining_cent，两部分之和恒等于红包总额，
   // 所以领完不该让额度再扣一遍
   eq('红包领完后额度不重复扣（剩余 + 已领 = 总额）',
-    Math.round(wEnd.body.data.limits.daily_left), 49920);
+    Math.round(wEnd.body.data.limits.daily_left), 49900);
   ok('发送者余额减少（只减被领走的，未领完的会退还）',
-    wEnd.body.data.account.balance < 52050 && wEnd.body.data.account.balance >= 52020,
+    wEnd.body.data.account.balance < 52030 && wEnd.body.data.account.balance >= 52000,
     wEnd.body.data.account.balance);
 
   // 余额守恒：A 减少的 = B + C 增加的
   var wB2 = await api('GET', '/api/wallet', { token: T2 });
   var wC2 = await api('GET', '/api/wallet', { token: T3 });
-  var aOut = 52050 - wEnd.body.data.account.balance;
+  var aOut = 52030 - wEnd.body.data.account.balance;
   var bIn = wB2.body.data.account.balance - 152050;
   var cIn = wC2.body.data.account.balance - 2000;
   ok('红包金额守恒（A 支出 = B + C 收入，误差 < 0.01）',

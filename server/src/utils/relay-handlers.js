@@ -431,15 +431,41 @@ bus.register('user_profile_updated', function(payload, ctx) {
   } catch (e) { console.error('[RelayBus] user_profile_updated error:', e.message); }
 });
 
+// 账号状态只允许 active / disabled（与 PATCH /admin/users/:id/status 的校验一致）。
+// 其它值一律视为脏数据：旧版本把「升/降管理员」也塞进这个事件，status 写成
+// admin_promoted / admin_demoted，对端照原样写进 users.status —— 用户于是不再是
+// active：钱包选人看不到他、转账报「没找到这个学号」、跨班收款校验判他「不是有效用户」。
+// 2026-11-05 生产事故（班管转不了账），别再写回去。
+var LIFECYCLE_STATUS = { active: 1, disabled: 1 };
+
 bus.register('admin_user_status_changed', function(payload, ctx) {
   try {
-    ctx.db.prepare('UPDATE users SET status = ?, ban_reason = ?, ban_expires_at = ? WHERE user_id = ?').run(
-      payload.status, payload.reason || '', payload.ban_expires_at || null, payload.user_id
-    );
-    console.log('[Relay] Synced admin status change for user:', payload.user_id, '->', payload.status);
-    ctx.broadcast({ type: 'admin_user_status_changed', user_id: payload.user_id, status: payload.status });
+    var fields = [];
+    var values = [];
+    var status = String(payload.status || '');
+    if (LIFECYCLE_STATUS[status]) {
+      fields.push('status = ?'); values.push(status);
+      fields.push('ban_reason = ?'); values.push(status === 'disabled' ? (payload.reason || '') : '');
+      fields.push('ban_expires_at = ?'); values.push(status === 'disabled' ? (payload.ban_expires_at || null) : null);
+    }
+    // is_admin 与账号状态是两码事：只改权限，绝不碰 status
+    if (payload.is_admin !== undefined && payload.is_admin !== null) {
+      fields.push('is_admin = ?'); values.push(payload.is_admin ? 1 : 0);
+    }
+    if (!fields.length) return;
+
+    values.push(payload.user_id);
+    var stmt = ctx.db.prepare('UPDATE users SET ' + fields.join(', ') + ' WHERE user_id = ?');
+    stmt.run.apply(stmt, values);
+    console.log('[Relay] Synced admin change for user:', payload.user_id, '->', fields.join(', '));
+
+    var msg = { type: 'admin_user_status_changed', user_id: payload.user_id };
+    if (LIFECYCLE_STATUS[status]) msg.status = status;
+    if (payload.is_admin !== undefined && payload.is_admin !== null) msg.is_admin = !!payload.is_admin;
+    ctx.broadcast(msg);
+
     // 封禁时踢下线
-    if (payload.status === 'disabled' && ctx.clients[payload.user_id]) {
+    if (status === 'disabled' && ctx.clients[payload.user_id]) {
       try {
         ctx.sendToClient(payload.user_id, {
           type: 'account_banned',

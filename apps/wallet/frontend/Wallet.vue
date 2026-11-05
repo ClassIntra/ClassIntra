@@ -341,6 +341,7 @@
           <button v-for="p in filteredPeople" :key="p.user_id" class="people-item" @click="pickPeer(p)">
             <span class="pi-name">{{ p.name }}</span>
             <span class="pi-id">{{ p.user_id }}</span>
+            <span v-if="p.class_admin" class="cp-admin">班管</span>
             <span v-if="p.remote" class="cp-cross">跨班</span>
           </button>
           <div v-if="!filteredPeople.length" class="people-empty">没有匹配的同学（外班同学要两个班连通后才会出现）</div>
@@ -406,6 +407,7 @@
               :class="{ picked: packet.targets.indexOf(p.user_id) >= 0 }" @click="toggleTarget(p)">
               <span class="pi-name">{{ p.name }}</span>
               <span class="pi-id">{{ p.user_id }}</span>
+              <span v-if="p.class_admin" class="cp-admin">班管</span>
               <span v-if="p.remote" class="cp-cross">跨班</span>
               <i class="pi-check fa-solid fa-check"></i>
             </button>
@@ -2645,6 +2647,15 @@ export default {
   border-radius: 5px;
   background: rgba(228, 87, 79, 0.2);
   color: #FF8B80;
+  font-size: 10px;
+}
+
+.cp-admin {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: rgba(240, 181, 76, 0.2);
+  color: #F0B54C;
   font-size: 10px;
 }
 
