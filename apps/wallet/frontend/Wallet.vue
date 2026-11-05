@@ -68,11 +68,6 @@
             <span class="q-ico red"><i class="fa-solid fa-envelope-open-text"></i></span>
             <span class="q-txt">发红包</span>
           </button>
-          <button class="quick" @click="switchTab('packets')">
-            <span class="q-ico gold"><i class="fa-solid fa-hand-holding-heart"></i></span>
-            <span class="q-txt">领红包</span>
-            <span v-if="packetBadge > 0" class="q-badge">{{ packetBadge }}</span>
-          </button>
           <button class="quick" @click="switchTab('withdraw')">
             <span class="q-ico purple"><i class="fa-solid fa-money-bill-wave"></i></span>
             <span class="q-txt">提现</span>
@@ -147,7 +142,7 @@
             </button>
           </div>
           <div class="pkt-tip">
-            跨班红包会得到一个 6 位红包码，本班和外班同学都能凭码领取；24 小时没领完，剩余自动退回。
+            同学发的红包在聊天里点气泡领取；跨班红包会得到一个 6 位红包码，凭码领取。24 小时没领完，剩余自动退回。
           </div>
 
           <div v-if="packets.mineCross && packets.mineCross.length" class="pkt-codes">
@@ -157,30 +152,6 @@
               <span class="pcr-main">{{ p.note || '红包' }} · {{ money(p.total) }} 元 / {{ p.count }} 个</span>
               <span class="pcr-left">{{ p.remaining_count > 0 ? ('还剩 ' + p.remaining_count) : '已领完' }}</span>
               <button class="pcr-copy" @click="copyPacketCode(p.code)">{{ copiedCode === p.code ? '已复制' : '复制' }}</button>
-            </div>
-          </div>
-
-          <div class="sec-title">
-            可领红包
-            <span v-if="packets.available.length" class="sec-count">{{ packets.available.length }}</span>
-          </div>
-          <div v-if="!packets.available.length" class="empty small">
-            <i class="fa-solid fa-inbox"></i>
-            <p>暂时没有可领的红包</p>
-          </div>
-          <div v-else class="pkt-list">
-            <div v-for="p in packets.available" :key="p.id" class="pkt-card">
-              <span class="pkt-face" :class="p.kind"><i :class="p.kind === 'phrase' ? 'fa-solid fa-key' : (p.kind === 'designated' ? 'fa-solid fa-user-tag' : 'fa-solid fa-envelope-open-text')"></i></span>
-              <span class="pkt-main">
-                <span class="pkt-title">{{ p.sender_name }} 的{{ kindText(p.kind) }}
-                  <em v-if="p.for_me" class="pkt-me-tag">发给我的</em>
-                </span>
-                <span class="pkt-sub">{{ p.note || '恭喜发财' }} · 还剩 {{ p.remaining_count }}/{{ p.count }} 个</span>
-              </span>
-              <button class="pkt-claim" :disabled="claimingId === p.id || (p.kind === 'phrase' && false)"
-                @click="p.kind === 'phrase' ? openClaimPhrase(p) : claimPacket(p)">
-                {{ claimingId === p.id ? '…' : (p.kind === 'phrase' ? '输口令' : '领取') }}
-              </button>
             </div>
           </div>
 
@@ -641,20 +612,18 @@ export default {
       month: { in: 0, out: 0, count: 0 },
       sources: [],
       limits: { transfer: 500000, packet_total: 500000, packet_count: 20, recharge: 200000, recharge_quota: 300000, recharge_left: 300000, withdraw: 1000000, withdraw_min: 1000, daily_out: 2000000, daily_left: 2000000 },
-      packetBadge: 0,
 
       withdrawals: [],
       withdraw: { amount: '', memo: '', busy: false },
       recharge: { open: false },
 
       claiming: false,
-      claimingId: 0,
 
       rows: [],
       ledgerLoading: false,
       nextBeforeId: 0,
 
-      packets: { available: [], mine: [], claimed: [], mineCross: [] },
+      packets: { mine: [], claimed: [], mineCross: [] },
       copiedCode: '',
       quickAmounts: [5, 10, 20, 50],
       recentPeers: [],
@@ -793,7 +762,6 @@ export default {
         if (d.limits) self.limits = d.limits;
         if (d.withdrawable !== undefined) self.withdrawable = d.withdrawable;
         if (d.yuan_rate) self.yuanRate = d.yuan_rate;
-        if (d.packets) self.packetBadge = d.packets.available || 0;
       }).catch(function (err) {
         self.toast(self.errMsg(err, '钱包数据加载失败'), 'error');
       });
@@ -842,12 +810,10 @@ export default {
         var d = (res.data && res.data.data) || {};
         var mine = d.mine || [];
         self.packets = {
-          available: d.available || [],
           mine: mine,
           claimed: d.claimed || [],
           mineCross: mine.filter(function (x) { return x.scope === 'cross' && x.code; })
         };
-        self.packetBadge = self.packets.available.length;
       }).catch(function (err) {
         self.toast(self.errMsg(err, '红包加载失败'), 'error');
       });
@@ -958,30 +924,6 @@ export default {
         self.toast(self.errMsg(err, '领取失败'), 'error');
       }).then(function () {
         self.claiming = false;
-      });
-    },
-
-    claimPacket: function (p) {
-      var self = this;
-      if (self.claimingId) return;
-      self.claimingId = p.id;
-      api.post('/wallet/packet/' + p.id + '/claim').then(function (res) {
-        var body = res.data || {};
-        if (body.code !== 200) throw { message: body.message };
-        var d = body.data || {};
-        if (d.account) self.account = d.account;
-        self.result = {
-          open: true,
-          amount: d.amount || 0,
-          text: d.duplicate ? '这个红包你已经领过了' : ('来自 ' + (p.sender_name || '同学') + ' 的红包')
-        };
-        self.loadPackets();
-        self.loadLedger(true);
-        self.loadOverview();
-      }).catch(function (err) {
-        self.toast(self.errMsg(err, '领取失败'), 'error');
-      }).then(function () {
-        self.claimingId = 0;
       });
     },
 
@@ -1323,10 +1265,6 @@ export default {
     // ---- 凭红包码 / 口令领取（本班/跨班同一个入口）----
     openClaimCode: function () {
       this.claimCode = { open: true, mode: 'code', input: '', info: null, busy: false, error: '' };
-    },
-    // 列表里的口令红包：直接带着红包信息进输入口令页
-    openClaimPhrase: function (p) {
-      this.claimCode = { open: true, mode: 'phrase', input: '', info: p, busy: false, error: '' };
     },
     resetClaim: function () {
       this.claimCode = Object.assign({}, this.claimCode, { info: null, input: '', error: '' });
