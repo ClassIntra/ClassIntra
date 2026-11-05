@@ -312,7 +312,7 @@ function ensureAccount(userId) {
       kind: 'welcome',
       pool: POOL.GRANT,
       ref: 'welcome:' + id,
-      memo: '学元账户开户赠金（仅可用于投资）'
+      memo: '学元账户开户赠金（赠送学元，可支付不可提现）'
     });
     granted = !r.duplicate;
   }
@@ -1196,7 +1196,7 @@ function claimDaily(userId) {
     kind: 'daily',
     pool: POOL.GRANT,
     ref: ref,
-    memo: '第 ' + (streak || 1) + ' 天助学津贴（仅可用于投资）',
+    memo: '第 ' + (streak || 1) + ' 天助学津贴（赠送学元，可支付不可提现）',
     meta: { streak: streak || 1, date: today }
   });
 

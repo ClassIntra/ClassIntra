@@ -66,7 +66,7 @@ async function main() {
     WS_PORT: '19001',
     RELAY_PORT: '19011',
     DB_PATH: DB,
-    XUEYUAN_YUAN_RATE: '1000',   // 临时：用生产默认汇率复现
+    XUEYUAN_YUAN_RATE: '100',
     RESOURCES_DIR: path.join(TMP, 'res'),
     JWT_SECRET: 'wallet-test-secret',
     RELAY_SECRET: 'wallet-test-secret',   // 跨班支付用同一把 HMAC 密钥（覆盖 .env 里的生产密钥）
@@ -333,6 +333,10 @@ async function main() {
   eq('发红包后余额不变（冻结而非扣款）', wAfterPacket.body.data.account.balance, 52050);
   eq('冻结金额 30', wAfterPacket.body.data.account.frozen, 30);
   eq('可用余额 52020', wAfterPacket.body.data.account.available, 52020);
+  // 红包在「被领取」之前只有冻结、没有分录，额度也必须立刻占用，
+  // 否则连发几个红包就能绕过当日转出上限（150050 + 30 → 剩 49920）
+  eq('发红包立即占用当日转出额度（未领取也占）',
+    Math.round(wAfterPacket.body.data.limits.daily_left), 49920);
 
   var pListB = await api('GET', '/api/wallet/packets', { token: T2 });
   ok('同学能看到可领红包', (pListB.body.data.available || []).some(function (p) { return p.id === packetId; }),
@@ -356,6 +360,10 @@ async function main() {
 
   var wEnd = await api('GET', '/api/wallet');
   ok('红包领完后发送者冻结归零', wEnd.body.data.account.frozen === 0, wEnd.body.data.account.frozen);
+  // 已领部分变成负分录、未领部分仍是 remaining_cent，两部分之和恒等于红包总额，
+  // 所以领完不该让额度再扣一遍
+  eq('红包领完后额度不重复扣（剩余 + 已领 = 总额）',
+    Math.round(wEnd.body.data.limits.daily_left), 49920);
   ok('发送者余额减少（只减被领走的，未领完的会退还）',
     wEnd.body.data.account.balance < 52050 && wEnd.body.data.account.balance >= 52020,
     wEnd.body.data.account.balance);
@@ -723,7 +731,8 @@ async function main() {
   ok('口令错领不了（跨班也一样）', pphBad.status === 400 && /口令|不存在/.test(pphBad.body.message || ''), pphBad.body.message);
   
   // 选人转账（跨班）：本班库根本没有 252001 → whois 问对班 → user 模式入账
-  var tuB = (await api('GET', '/api/wallet', { token: T2 })).body.data.account.balance;
+  var tuW = (await api('GET', '/api/wallet', { token: T2 })).body.data;
+  var tuB = tuW.account.balance;
   var tuPeerB = (await api('GET', '/api/wallet', { token: peerToken, base: PEER_BASE })).body.data.account.balance;
   var tu = await api('POST', '/api/wallet/transfer', {
     token: T2, body: { to: '252001', amount: 3, pin: PIN, memo: '选人转账' }
@@ -735,6 +744,9 @@ async function main() {
   var tuPeerA = (await api('GET', '/api/wallet', { token: peerToken, base: PEER_BASE })).body.data.account.balance;
   eq('本班 -3', Math.round((tuB - tuA) * 100), 300);
   eq('对班 +3', Math.round((tuPeerA - tuPeerB) * 100), 300);
+  var tuW2 = (await api('GET', '/api/wallet', { token: T2 })).body.data;
+  eq('跨班转出成功后计入当日额度',
+    Math.round((tuW.limits.daily_left - tuW2.limits.daily_left) * 100), 300);
   
   // ================= 11e. 额度只看转账，不看炒股 =================
   console.log('\n=== 11e. 额度只看转账 ===');

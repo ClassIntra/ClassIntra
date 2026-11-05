@@ -63,7 +63,7 @@ function ensure() {
   // phrase 口令（领取时要输入发红包时写的祝福语，答错不能领）
   addColumn('xy_packet', 'kind', "TEXT NOT NULL DEFAULT 'normal'");
   addColumn('xy_packet', 'passphrase', 'TEXT');
-  // 资金池：历史红包是单池时代创建的，标记为 grant；新红包一律用充值学元
+  // 资金池：历史红包是单池时代创建的，标记为 grant；新红包按「充值优先、赠送补足」拆分
   addColumn('xy_packet', 'pool', "TEXT NOT NULL DEFAULT 'grant'");
   db.exec(`
 CREATE TABLE IF NOT EXISTS xy_packet_target (

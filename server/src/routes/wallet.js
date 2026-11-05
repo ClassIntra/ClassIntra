@@ -44,15 +44,37 @@ function dayStartMs() {
 
 function dailyOutCent(uid) {
   try {
-    // ⚠️ 只统计「转给同学」的钱（kind='transfer'）。
+    // 今日转出 = 已落账 + 已冻结未落账
+    //
+    // ⚠️ 只统计「转给同学/发红包/跨班」的钱，不碰投资消费。
     // 之前把所有支出都算进去 —— 学生今天炒股花了 1 万练习金，额度直接爆表，
     // 转账/红包全被 400「额度不足」，这是生产实打实踩过的坑（2026-11-04）。
-    var r = db.prepare([
+    //
+    // ⚠️ 红包和跨班在**领取/成功之前不写分录**（只有 frozen），只查 xy_entry
+    // 会漏掉这部分：连发几个红包都不占额度，等于额度形同虚设。
+    // 所以补上「未领完的红包剩余」和「pending 跨班」，口径才完整：
+    //   红包：剩余 + 已领（负分录）= 今天发出的总额
+    //   跨班：pending + 已成功（负分录）= 今天发出的总额
+    var uidStr = String(uid);
+    var start = dayStartMs();
+
+    var settled = db.prepare([
       'SELECT COALESCE(SUM(CASE WHEN e.delta < 0 THEN -e.delta ELSE 0 END), 0) AS out',
       'FROM xy_entry e JOIN xy_tx t ON t.id = e.tx_id',
       "WHERE e.user_id = ? AND e.created_at >= ? AND t.kind = 'transfer'"
-    ].join('\n')).get(String(uid), dayStartMs());
-    return r.out || 0;
+    ].join('\n')).get(uidStr, start).out || 0;
+
+    var packets = db.prepare([
+      'SELECT COALESCE(SUM(remaining_cent), 0) AS out FROM xy_packet',
+      "WHERE sender = ? AND status = 'open' AND created_at >= ?"
+    ].join('\n')).get(uidStr, start).out || 0;
+
+    var cross = db.prepare([
+      'SELECT COALESCE(SUM(amount_cent), 0) AS out FROM xy_cross_tx',
+      "WHERE from_user = ? AND status = 'pending' AND created_at >= ?"
+    ].join('\n')).get(uidStr, start).out || 0;
+
+    return settled + packets + cross;
   } catch (e) { return 0; }
 }
 

@@ -350,14 +350,14 @@
           <input v-model="transfer.memo" maxlength="30" placeholder="选填，对方能看到" />
         </div>
         <div class="pay-hint">
-          可用学元 {{ money(account.available) }}（充值 {{ money(account.available_cash) }} + 赠送 {{ money(account.available_grant) }}） · 单笔最多 {{ money(limits.transfer) }} 学元。
+          可用学元 {{ money(account.available) }}（充值 {{ money(account.available_cash) }} + 赠送 {{ money(account.available_grant) }}） · 单笔最多 {{ money(limits.transfer) }} 学元 · 今日还可转出 {{ money(limits.daily_left) }} 学元。
         </div>
         <button class="pay-primary" :disabled="transfer.busy" @click="transferNext">下一步</button>
       </div>
       <PayPinPad
         v-else
         :title="'转给 ' + (transfer.peerName || transfer.to || '同学')"
-        :subtitle="'¥ ' + (transfer.amount || '0')"
+        :subtitle="(transfer.amount || '0') + ' 学元'"
         :error="transfer.pinError"
         :disabled="transfer.busy"
         @submit="submitTransfer"
@@ -430,7 +430,7 @@
             同学领红包时必须<b>原样输入口令</b>；发到聊天里，让大家照着输。24 小时没领完自动退回。
           </template>
           <template v-else>
-            红包先用充值学元、不足由赠送学元补足，发出去先冻结，同学领到才真正扣款；{{ limits.packet_count }} 个封顶。
+            红包先用充值学元、不足由赠送学元补足，发出去先冻结，同学领到才真正扣款；{{ limits.packet_count }} 个封顶，今日还可转出 {{ money(limits.daily_left) }} 学元。
             <template v-if="packet.scope === 'cross'"><br />跨班红包会生成 6 位红包码，同学在「红包 → 输入红包码」里领取。</template>
             24 小时没领完自动退回。
           </template>
@@ -439,7 +439,7 @@
       </div>
       <PayPinPad
         v-else
-        :title="'¥ ' + (packet.total || '0')"
+        :title="(packet.total || '0') + ' 学元'"
         :subtitle="packet.kind === 'designated'
           ? ('发给 ' + packet.targets.length + ' 位同学')
           : ('共 ' + (packet.count || 1) + ' 个红包')"
@@ -636,7 +636,7 @@ export default {
       week: { in: 0, out: 0, count: 0 },
       month: { in: 0, out: 0, count: 0 },
       sources: [],
-      limits: { transfer: 500000, packet_total: 500000, packet_count: 20, recharge: 2000000, withdraw: 1000000, withdraw_min: 1000 },
+      limits: { transfer: 500000, packet_total: 500000, packet_count: 20, recharge: 2000000, withdraw: 1000000, withdraw_min: 1000, daily_out: 2000000, daily_left: 2000000 },
       packetBadge: 0,
 
       withdrawals: [],
