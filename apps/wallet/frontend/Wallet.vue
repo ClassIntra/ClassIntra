@@ -1396,8 +1396,12 @@ export default {
 
     errMsg: function (err, fallback) {
       if (err && err.__offline) return '网络不可用，请检查连接';
+      // 业务文案优先：后端返回的「未设置支付密码 / 可用学元不足…」才是用户要看的。
+      // 之前先取 err.message，而 axios 对 4xx 永远给一句
+      // "Request failed with status code 400"，把真正的原因挡在了后面。
+      var body = (err && err.business) || (err && err.response && err.response.data);
+      if (body && body.message) return body.message;
       if (err && err.message) return err.message;
-      if (err && err.response && err.response.data && err.response.data.message) return err.response.data.message;
       return fallback;
     }
   }

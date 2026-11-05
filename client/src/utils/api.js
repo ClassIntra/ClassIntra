@@ -135,6 +135,27 @@ api.interceptors.response.use(
       // 有响应，服务器在线，重置计数
       _networkFailCount = 0;
     }
+
+    // ------------------------------------------------------------------
+    // 业务错误透出（400 等）
+    //
+    // 后端所有失败响应都是 { code, message, data }：真正的「未设置支付密码」
+    // 「可用学元不足（…另有 X 学元被冻结）」「今日转出额度只剩 …」全在
+    // response.data 里；而 axios 只把 err.message 写成
+    // "Request failed with status code 400"。
+    // 不在拦截器里提上来，页面就只能显示一个光秃秃的 400 —— 用户根本不知道
+    // 是密码没设、余额不够还是额度用完（2026-11-05 生产反馈）。
+    // 保持 Promise.reject 语义不变，只是给同一个 error 补上业务信息。
+    // ------------------------------------------------------------------
+    var bizBody = error.response && error.response.data;
+    if (bizBody && typeof bizBody === 'object' && typeof bizBody.message === 'string' && bizBody.message) {
+      error.business = bizBody;
+      error.bizData = bizBody.data || null;
+      error.bizCode = bizBody.code;
+      error.payPin = (bizBody.data && bizBody.data.pay_pin) || null;
+      error.message = bizBody.message;
+    }
+
     // 403「该账号已被禁用」：**任何**接口都可能返回它（浏览途中被封最常见）。
     // 之前只有 /auth/check-status 的响应对它做了处理，其它页面会被 axios 当普通错误吞掉，
     // 于是用户看到的不是「你被封禁了」，而是「这个人没发过帖子」这种假空态。

@@ -916,6 +916,8 @@ export default {
       },
       payAvailable: '0.00',
       payLimit: '500',
+      // null = 还没查到；false 才确定「没设过支付密码」，据此直接进设置页
+      payPinSet: null,
       showCloudPicker: false,
       showCreateGroup: false,
       newGroupName: '',
@@ -2368,6 +2370,7 @@ export default {
       api.get('/wallet').then(function(res) {
         var d = (res.data && res.data.data) || {};
         if (d.account) self.payAvailable = Number(d.account.available || 0).toFixed(2);
+        if (d.pay_pin) self.payPinSet = !!d.pay_pin.set;
         if (d.limits) {
           self.payLimit = String(d.limits.transfer || 500000);
           if (mode === 'packet') self.payLimit = String(d.limits.packet_total || 500000);
@@ -2397,6 +2400,11 @@ export default {
           if (!(c >= 1 && c <= 20)) return toast('红包个数要在 1–20 之间');
           if (sub === 'phrase' && !String(f.note || '').trim()) return toast('写一句口令，领红包的时候要输的');
         }
+      }
+      // 明确没设过支付密码：直接进设置页，别让他先输 6 位再被后端 400 打回
+      if (self.payPinSet === false) {
+        this.pay = Object.assign({}, f, { view: 'setup', pinError: '' });
+        return;
       }
       this.pay = Object.assign({}, f, { view: 'pin', pinError: '' });
     },
@@ -2465,6 +2473,7 @@ export default {
         var pp = err && err.payPin;
         if (pp && pp.need_setup) {
           // 没设置支付密码：聊天页内直接设置（之前让用户跳钱包，找不到入口）
+          self.payPinSet = false;
           self.pay = Object.assign({}, self.pay, { busy: false, view: 'setup', pinError: '' });
           return;
         }
@@ -2489,6 +2498,7 @@ export default {
       api.post('/wallet/pay-pin', { pin: f.setupPin, password: f.setupPassword }).then(function(res) {
         var body = (res && res.data) || {};
         if (body.code !== 200) throw new Error(body.message || '设置失败');
+        self.payPinSet = true;
         self.pay = Object.assign({}, self.pay, {
           busy: false, view: 'pin', pinError: '', setupPin: '', setupPassword: ''
         });
