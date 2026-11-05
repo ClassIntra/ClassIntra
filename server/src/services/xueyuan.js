@@ -62,6 +62,8 @@ var MAX_TX_CENT = yuanToCent(10000);
 var MAX_BALANCE_CENT = yuanToCent(10000);
 // 单笔线下充值上限：2000 元等值（校园场景足够，异常大额走多次录入）
 var MAX_RECHARGE_CENT = yuanToCent(2000);
+// 单人单次教师发放上限：10 元等值（防止班管手滑一次性发空班费）
+var MAX_GRANT_CENT = yuanToCent(10);
 // 单笔提现上限：1000 元等值；且提现总额不得超过累计净充值
 var MAX_WITHDRAW_CENT = yuanToCent(1000);
 // 提现最小额：1 元等值
@@ -1486,6 +1488,7 @@ module.exports = {
     MAX_TX_CENT: MAX_TX_CENT,
     MAX_BALANCE_CENT: MAX_BALANCE_CENT,
     MAX_RECHARGE_CENT: MAX_RECHARGE_CENT,
+    MAX_GRANT_CENT: MAX_GRANT_CENT,
     MAX_WITHDRAW_CENT: MAX_WITHDRAW_CENT,
     MIN_WITHDRAW_CENT: MIN_WITHDRAW_CENT,
     WELCOME_CENT: WELCOME_CENT,

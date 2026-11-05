@@ -49,7 +49,11 @@ function dailyOutCent(uid) {
     ].join('\n')).get(uidStr, start).out || 0;
 
     return settled + packets + cross;
-  } catch (e) { return 0; }
+  } catch (e) {
+    // fail-open 是为了不因统计异常阻断学生正常转账，但必须留痕，便于发现账本/表结构问题
+    console.error('[pay-guard] 日额度统计失败:', e.message);
+    return 0;
+  }
 }
 
 // 转账/红包/跨班共用的前置校验：支付密码 → 当日额度

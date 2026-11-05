@@ -33,7 +33,7 @@ var db = require('../utils/db');
 // 未预期异常才是 500 —— 这样前端能把「余额不足」和「服务器挂了」分开。
 function fail(res, err) {
   var msg = err && err.message ? err.message : '操作失败';
-  var known = /余额不足|可用学元不足|可提现学元不足|充值未生效|不足|超过上限|不能超过|非法|不存在|已被冻结|至少|不能为空|尚未开通|已关闭|未知的业务类型|不平衡|重复出现|不能给自己|必须|请填写|请选择|一次最多|无法|不能|已有一笔|已处理|只能撤销|支付密码|输错|锁定|未设置|额度|学号|停用|跨班|钱包/.test(msg);
+  var known = /余额不足|可用学元不足|可提现学元不足|充值未生效|不足|超过上限|不能超过|非法|不存在|已被冻结|至少|不能为空|尚未开通|已关闭|未知的业务类型|不平衡|重复出现|不能给自己|必须|请填写|请选择|一次最多|无法|不能|已有一笔|已处理|只能撤销|支付密码|输错|锁定|未设置|额度|学号|停用|跨班|外班|未生效|钱包/.test(msg);
   if (!known) console.error('[xueyuan] 未预期错误:', err);
   return res.status(known ? 400 : 500).json({ code: known ? 400 : 500, message: msg });
 }
@@ -310,7 +310,9 @@ function handleBatch(req, res, direction) {
     if (!ids.length) throw new Error('请选择要操作的账号');
     if (ids.length > 200) throw new Error('一次最多处理 200 个账号');
     if (amountCent === null || amountCent <= 0) throw new Error('金额不合法');
-    if (amountCent > 1000000) throw new Error('单人单次不能超过 10000 学元');
+    if (amountCent > xy.LIMITS.MAX_GRANT_CENT) {
+      throw new Error('单人单次不能超过 ' + xy.fromCent(xy.LIMITS.MAX_GRANT_CENT) + ' 学元');
+    }
 
     var reqId = String(body.requestId || '').slice(0, 40) ||
       (Date.now().toString(36) + Math.random().toString(36).slice(2, 8));
@@ -321,8 +323,19 @@ function handleBatch(req, res, direction) {
     for (var i = 0; i < ids.length; i++) {
       var uid = String(ids[i] || '').trim();
       try {
-        var u = db.prepare('SELECT user_id, net_name FROM users WHERE user_id = ?').get(uid);
+        var u = db.prepare('SELECT user_id, net_name, status, password_hash FROM users WHERE user_id = ?').get(uid);
         if (!u) { skipped.push({ user_id: uid, reason: '账号不存在' }); continue; }
+
+        // 外班镜像账号（password_hash 为空）在本班永远无人登录，发放/扣减都等于动死钱
+        if (!u.password_hash) {
+          skipped.push({ user_id: uid, reason: '外班同学，请到他本班的学元管理里操作' });
+          continue;
+        }
+        // 停用账号可以扣减（回收余额），但不能发放
+        if (direction > 0 && u.status === 'disabled') {
+          skipped.push({ user_id: uid, reason: '账号已停用，不能发放' });
+          continue;
+        }
 
         if (direction > 0) {
           xy.ensureAccount(uid);
@@ -351,6 +364,12 @@ function handleBatch(req, res, direction) {
       } catch (e) {
         skipped.push({ user_id: uid, reason: e.message });
       }
+    }
+
+    // 一个人都没操作成功时必须报错，不能返回 200 让班管误以为已生效
+    if (!done.length && skipped.length) {
+      throw new Error((direction > 0 ? '发放' : '扣减') + '未生效：' +
+        skipped[0].reason + '（' + skipped[0].user_id + '）');
     }
 
     res.json({
@@ -401,8 +420,18 @@ router.post('/admin/recharge', requireTreasury, function (req, res) {
     for (var i = 0; i < ids.length; i++) {
       var uid = String(ids[i] || '').trim();
       try {
-        var u = db.prepare('SELECT user_id, net_name FROM users WHERE user_id = ?').get(uid);
+        var u = db.prepare('SELECT user_id, net_name, status, password_hash FROM users WHERE user_id = ?').get(uid);
         if (!u) { skipped.push({ user_id: uid, reason: '账号不存在' }); continue; }
+
+        // 外班镜像账号收不到现金充值（钱会锁死在本班无人登录的账户里）；停用账号也不收
+        if (!u.password_hash) {
+          skipped.push({ user_id: uid, reason: '外班同学，充值请在他本班录入' });
+          continue;
+        }
+        if (u.status === 'disabled') {
+          skipped.push({ user_id: uid, reason: '账号已停用，不能充值' });
+          continue;
+        }
 
         var r = xy.recharge({
           user: uid,

@@ -121,6 +121,19 @@ async function main() {
     "VALUES (?, ?, ?, '男', ?, 'disabled', 0, '{}', ?)"
   ].join('\n')).run('停用', '停用账号', '251801', loginHash, nowIso);
 
+  // 外班镜像账号 251802：由中继同步而来，没有登录密码（本班永远无人登录）。
+  // 班管发放 / 充值必须拒绝，否则钱会锁死在这种账户里。
+  db.prepare([
+    'INSERT OR IGNORE INTO users (net_name, real_name, user_id, gender, password_hash, status, is_admin, info_json, created_at)',
+    "VALUES (?, ?, ?, '男', '', 'active', 0, '{}', ?)"
+  ].join('\n')).run('外班同学', '外班镜像', '251802', nowIso);
+
+  // 251804：用于「正常发放 → 停用 → 扣减」回归，验证扣减不被停用状态拦住
+  db.prepare([
+    'INSERT OR IGNORE INTO users (net_name, real_name, user_id, gender, password_hash, status, is_admin, info_json, created_at)',
+    "VALUES (?, ?, ?, '男', ?, 'active', 0, '{}', ?)"
+  ].join('\n')).run('回收测试', '回收同学', '251804', loginHash, nowIso);
+
   function token(uid) {
     return jwt.sign({ user_id: uid, is_admin: 0, is_class_admin: 0, role: 'student' },
       'wallet-test-secret', { expiresIn: '2h' });
@@ -256,6 +269,61 @@ async function main() {
   });
   eq('追加充值 200', rcMore.status, 200);
   eq('追加充值到账 200000 学元', (await api('GET', '/api/wallet')).body.data.account.cash, 201000);
+
+  // ---- 4c. 管理端准入：外班镜像 / 停用账号 ----
+  // 给外班镜像充值或发放 = 铸币到一个本班永远没人登录的账户（死钱）；
+  // 停用账号不能收钱；全员失败必须报错，不能返回 200 让班管误以为已生效。
+  console.log('\n=== 4c. 管理端准入 ===');
+  var rcMirror = await api('POST', '/api/xueyuan/admin/recharge', {
+    token: TADMIN,
+    body: { userIds: ['251802'], yuan: 10, memo: '给外班同学充值', requestId: 'rc-mirror' }
+  });
+  ok('给外班镜像账号充值被拒', rcMirror.status === 400 && /外班/.test(rcMirror.body.message), rcMirror.body.message);
+
+  var rcDisabled = await api('POST', '/api/xueyuan/admin/recharge', {
+    token: TADMIN,
+    body: { userIds: ['251801'], yuan: 10, memo: '给停用账号充值', requestId: 'rc-disabled' }
+  });
+  ok('给停用账号充值被拒', rcDisabled.status === 400 && /停用/.test(rcDisabled.body.message), rcDisabled.body.message);
+
+  var grMirror = await api('POST', '/api/xueyuan/admin/grant', {
+    token: TADMIN,
+    body: { userIds: ['251802'], amount: 10, memo: '外班发放', requestId: 'gr-mirror' }
+  });
+  ok('给外班镜像账号发放被拒', grMirror.status === 400 && /外班/.test(grMirror.body.message), grMirror.body.message);
+
+  var grDisabled = await api('POST', '/api/xueyuan/admin/grant', {
+    token: TADMIN,
+    body: { userIds: ['251801'], amount: 10, memo: '停用发放', requestId: 'gr-disabled' }
+  });
+  ok('给停用账号发放被拒', grDisabled.status === 400 && /停用/.test(grDisabled.body.message), grDisabled.body.message);
+
+  var grAllSkipped = await api('POST', '/api/xueyuan/admin/grant', {
+    token: TADMIN,
+    body: { userIds: ['251802', '999999'], amount: 10, memo: '全员跳过', requestId: 'gr-none' }
+  });
+  ok('全员跳过时返回失败而不是 200',
+    grAllSkipped.status === 400 && /发放未生效/.test(grAllSkipped.body.message), grAllSkipped.body.message);
+
+  // 发放上限跟 LIMITS 走：测试环境 1 元 = 100 学元，单人单次上限 10 元 = 1000 学元
+  var grBig = await api('POST', '/api/xueyuan/admin/grant', {
+    token: TADMIN, body: { userIds: ['251902'], amount: 1001, memo: '超限' }
+  });
+  ok('超过单人发放上限被拒且按汇率折算',
+    grBig.status === 400 && /1000 学元/.test(grBig.body.message), grBig.body.message);
+
+  // 扣减不拦停用账号：班管需要能回收停用账号的余额
+  var grNormal = await api('POST', '/api/xueyuan/admin/grant', {
+    token: TADMIN,
+    body: { userIds: ['251804'], amount: 10, memo: '发放后停用', requestId: 'gr-251804' }
+  });
+  eq('正常账号发放 200', grNormal.status, 200);
+  db.prepare("UPDATE users SET status = 'disabled' WHERE user_id = '251804'").run();
+  var ddDisabled = await api('POST', '/api/xueyuan/admin/deduct', {
+    token: TADMIN,
+    body: { userIds: ['251804'], amount: 1, memo: '回收停用账号余额', requestId: 'dd-251804' }
+  });
+  eq('停用账号允许扣减', ddDisabled.status, 200);
 
   // ================= 5. 支付密码 =================
   console.log('\n=== 5. 支付密码 ===');
