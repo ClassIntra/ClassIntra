@@ -33,7 +33,7 @@ var packetCross = require('../services/packet-cross');
 var peers = require('../services/peers');
 var db = require('../utils/db');
 
-// 风控额度：本班单日转出总额 2000 元等值（1:100 下为 200000 学元）。
+// 风控额度：本班单日转出总额 2000 元等值（1:1000 下为 2000000 学元）。
 // 单笔上限在 xueyuan 里是 500 元等值；日累计是为了挡住「拆成很多笔」的异常行为。
 var MAX_DAILY_OUT_CENT = xy.yuanToCent(2000);
 

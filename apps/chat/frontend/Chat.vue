@@ -2369,8 +2369,8 @@ export default {
         var d = (res.data && res.data.data) || {};
         if (d.account) self.payAvailable = Number(d.account.available || 0).toFixed(2);
         if (d.limits) {
-          self.payLimit = String(d.limits.transfer || 500);
-          if (mode === 'packet') self.payLimit = String(d.limits.packet_total || 500);
+          self.payLimit = String(d.limits.transfer || 500000);
+          if (mode === 'packet') self.payLimit = String(d.limits.packet_total || 500000);
         }
       }).catch(function() { /* 拉不到就按默认值展示 */ });
     },

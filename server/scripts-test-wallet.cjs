@@ -66,6 +66,7 @@ async function main() {
     WS_PORT: '19001',
     RELAY_PORT: '19011',
     DB_PATH: DB,
+    XUEYUAN_YUAN_RATE: '100',   // 自测固定 1:100 口径，金额断言不随生产默认汇率漂移
     RESOURCES_DIR: path.join(TMP, 'res'),
     JWT_SECRET: 'wallet-test-secret',
     RELAY_SECRET: 'wallet-test-secret',   // 跨班支付用同一把 HMAC 密钥（覆盖 .env 里的生产密钥）

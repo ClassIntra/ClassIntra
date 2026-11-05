@@ -88,7 +88,7 @@ router.get('/config', function (req, res) {
       name: '学元',
       code: 'XY',
       cent_per_yuan: xy.CENT_PER_YUAN,
-      // 与现实货币比率：1 元 = N 学元。默认 1:100，充值/提现都按这个换算。
+      // 与现实货币比率：1 元 = N 学元。默认 1:1000，充值/提现都按这个换算。
       yuan_rate: xy.yuanRate(),
       welcome: xy.fromCent(xy.LIMITS.WELCOME_CENT),
       daily: xy.fromCent(xy.LIMITS.DAILY_CENT),

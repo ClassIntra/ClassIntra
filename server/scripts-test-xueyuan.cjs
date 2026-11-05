@@ -11,6 +11,8 @@ var path = require('path');
 
 var tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ci-xueyuan-'));
 process.env.DB_PATH = path.join(tmpDir, 'test.db');
+// 自测固定 1:100 口径：金额断言不随生产默认汇率（1:1000）漂移
+process.env.XUEYUAN_YUAN_RATE = '100';
 process.env.NODE_ENV = 'test';
 
 var pass = 0;
@@ -66,7 +68,8 @@ throws('纯赠送账户转账被拒', function () { xy.transfer({ from: D, to: A
 throws('纯赠送账户提现被拒', function () { xy.requestWithdraw({ user: D, amountCent: 10000, requestId: 'wd:zero' }); }, /可提现学元不足/);
 
 console.log('\n=== 线下充值（仅班管录入） ===');
-// 2026-11-04 起默认 1 元 = 100 学元；用 10 元换 1000 学元，保持下面金额口径稳定
+// 自测固定 1:100 口径（等价 10 元换 1000 学元），保持下面金额断言稳定；
+// 生产默认 1 元 = 1000 学元，换算统一走 yuanRate()，测试口径不影响生产
 var recA = xy.recharge({ user: A, yuan: 10, operator: A, requestId: 'rc:a' });
 eq('A 充值到账 1000 学元', recA.account.cash, 1000);
 var recA2 = xy.recharge({ user: A, yuan: 10, operator: A, requestId: 'rc:a' });
