@@ -2485,6 +2485,8 @@ export default {
             ok: true,
             title: isPacket ? '红包已发出' : '转账成功',
             amount: isPacket ? ('¥ ' + amount.toFixed(2)) : ('¥ ' + amount.toFixed(2)),
+            // 发出的红包也能立刻查看谁领了（跨班红包同样能看本班发出的这份记录）
+            packetId: isPacket ? (d.id || 0) : 0,
             text: isPacket
               ? ((d.kind === 'designated')
                   ? ('已冻结 ' + amount.toFixed(2) + ' 学元，只有选中的 ' + (d.count || count) + ' 位同学能领')
@@ -2597,8 +2599,9 @@ export default {
         if (body.code !== 200) throw new Error(body.message || '领取失败');
         var d = body.data || {};
         var pending = !!d.pending;
-        // 只有本班红包才有本地 id 可查领取记录；跨班回款不带本地记录
-        var localPid = (!p.code && !p.base && p.id) ? p.id : 0;
+        // 本班红包才有本地领取记录；跨班红包的 id 在对方班级，本地查不到。
+        // 注意不能用 base 判断：发送时给本班红包也写了 base（页面 origin）。
+        var localPid = ((p.scope || 'local') === 'local' && p.id) ? p.id : 0;
         self.pay = Object.assign({}, self.pay, {
           busy: false,
           view: 'result',
