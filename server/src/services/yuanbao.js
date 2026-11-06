@@ -622,6 +622,52 @@ function list(userId) {
   };
 }
 
+// 领取记录：谁领了、各领多少。
+// 只有发送者和已经领过的人能查看 —— 红包 id 是自增的，不设限会被逐个枚举。
+function claims(packetId, viewerId) {
+  ensure();
+  var p = db.prepare('SELECT * FROM xy_packet WHERE id = ?').get(Number(packetId));
+  if (!p) throw new Error('红包不存在');
+
+  var uid = String(viewerId || '');
+  var isSender = String(p.sender) === uid;
+  var isClaimant = !!db.prepare(
+    'SELECT 1 FROM xy_packet_claim WHERE packet_id = ? AND user_id = ?'
+  ).get(p.id, uid);
+  if (!isSender && !isClaimant) throw new Error('领过这个红包才能查看领取记录');
+
+  var rows = db.prepare([
+    'SELECT user_id, amount_cent, created_at, remote, remote_name',
+    'FROM xy_packet_claim WHERE packet_id = ? ORDER BY created_at ASC, user_id ASC'
+  ].join('\n')).all(p.id);
+
+  return {
+    id: p.id,
+    sender: p.sender,
+    sender_name: userName(p.sender),
+    note: p.note || '',
+    total: p.total_cent / 100,
+    count: p.count,
+    remaining: p.remaining_cent / 100,
+    remaining_count: p.remaining_count,
+    claimed_count: rows.length,
+    status: p.status,
+    expire_at: p.expire_at,
+    scope: p.scope || 'local',
+    kind: p.kind || 'normal',
+    claims: rows.map(function (c) {
+      return {
+        user_id: c.user_id,
+        // 跨班领取记录用对端班级里的昵称
+        name: (c.remote && c.remote_name) ? c.remote_name : userName(c.user_id),
+        amount: c.amount_cent / 100,
+        created_at: c.created_at,
+        remote: !!c.remote
+      };
+    })
+  };
+}
+
 // 过期退款：把还没领完的冻结点解冻（无定时任务，懒清理）
 function sweepExpired() {
   ensure();
@@ -655,6 +701,7 @@ module.exports = {
   preview: preview,
   newCode: newCode,
   list: list,
+  claims: claims,
   sweepExpired: sweepExpired,
   userName: userName,
   MAX_TOTAL_CENT: MAX_TOTAL_CENT,

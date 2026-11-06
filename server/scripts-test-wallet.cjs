@@ -465,6 +465,24 @@ async function main() {
   var cl4 = await api('POST', '/api/wallet/packet/' + packetId + '/claim', { token: T3 });
   ok('同一人第二次领取判重', cl4.body.data.duplicate === true, cl4.body.data);
 
+  // 领取记录：谁能看、看到什么
+  var pkDetail = await api('GET', '/api/wallet/packet/' + packetId + '/claims', { token: T1 });
+  eq('发送者能查看领取记录', pkDetail.status, 200);
+  var pkClaims = (pkDetail.body.data && pkDetail.body.data.claims) || [];
+  ok('记录列出 2 人且金额合计 30',
+    pkClaims.length === 2 &&
+    Math.abs(pkClaims.reduce(function (s, x) { return s + x.amount; }, 0) - 30) < 0.01,
+    pkClaims);
+  ok('每条记录带领取人和金额',
+    pkClaims.every(function (x) { return !!x.name && typeof x.amount === 'number'; }),
+    pkClaims);
+
+  var outsiderToken = jwt.sign({ user_id: '251800', is_admin: 0, is_class_admin: 0, role: 'student' },
+    'wallet-test-secret', { expiresIn: '1h' });
+  var pkOutsider = await api('GET', '/api/wallet/packet/' + packetId + '/claims', { token: outsiderToken });
+  ok('没领过的人看不到领取记录',
+    pkOutsider.status === 400 && /领过/.test(pkOutsider.body.message), pkOutsider.body.message);
+
   var wEnd = await api('GET', '/api/wallet');
   ok('红包领完后发送者冻结归零', wEnd.body.data.account.frozen === 0, wEnd.body.data.account.frozen);
   // 已领部分变成负分录、未领部分仍是 remaining_cent，两部分之和恒等于红包总额，

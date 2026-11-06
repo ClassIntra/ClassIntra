@@ -15,8 +15,14 @@
 //   GET  /api/wallet/search?q=      找同学（转账用，按学号/昵称/姓名）
 //   POST /api/wallet/transfer       转账
 //   GET  /api/wallet/packets        红包列表（可领 / 我发的 / 我领过的）
+//   GET  /api/wallet/packet/:id/claims 领取记录（发送者 / 已领取者可见）
 //   POST /api/wallet/packet         发红包
 //   POST /api/wallet/packet/:id/claim  领红包
+//   POST /api/wallet/collect        发起群收款（AA）
+//   GET  /api/wallet/collect/list   我发起 / 我参与的收款单
+//   GET  /api/wallet/collect/:id    收款单详情
+//   POST /api/wallet/collect/:id/pay    付我那一份（支付密码 + 当日额度）
+//   POST /api/wallet/collect/:id/close  结束收款单
 //   GET  /api/wallet/leaderboard    学元榜
 //
 // 编码约定：var / function
@@ -26,6 +32,7 @@ var router = express.Router();
 var auth = require('../middleware/auth');
 var xy = require('../services/xueyuan');
 var yuanbao = require('../services/yuanbao');
+var collect = require('../services/collect');
 var payPin = require('../services/pay-pin');
 var payCode = require('../services/pay-code');
 var crossPay = require('../services/cross-pay');
@@ -858,6 +865,18 @@ router.get('/packet/info', function (req, res) {
   });
 });
 
+// 领取记录：谁领了、各领多少。聊天里点红包即可打开。
+router.get('/packet/:id/claims', function (req, res) {
+  try {
+    var uid = String(req.user.user_id);
+    var id = parseInt(req.params.id, 10);
+    if (!(id > 0)) throw new Error('红包不存在');
+    res.json({ code: 200, message: 'ok', data: yuanbao.claims(id, uid) });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
 router.post('/packet/:id/claim', function (req, res) {
   try {
     var uid = String(req.user.user_id);
@@ -876,6 +895,90 @@ router.post('/packet/:id/claim', function (req, res) {
 });
 
 // ---------------- 榜单 ----------------
+// ---------------- 群收款（AA） ----------------
+// 钱的走法是 N 笔同学转账（见 services/collect.js），不另造资金流，
+// 所以支付密码、当日额度、幂等这些约束自动生效。
+
+router.get('/collect/list', function (req, res) {
+  try {
+    res.json({
+      code: 200,
+      message: 'ok',
+      data: collect.list(String(req.user.user_id), { limit: req.query.limit })
+    });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+router.post('/collect', function (req, res) {
+  try {
+    var body = req.body || {};
+    var perCent = xy.yuanToCent(body.perYuan);
+    if (perCent === null) throw new Error('每人金额不合法');
+    var r = collect.create({
+      creator: String(req.user.user_id),
+      title: body.title,
+      members: body.members,
+      perCent: perCent,
+      expiresHours: body.expiresHours,
+      requestId: body.requestId
+    });
+    res.json({
+      code: 200,
+      message: r.duplicate ? '这张收款单已经建过' : '收款单已发出',
+      data: r.collect
+    });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+router.get('/collect/:id', function (req, res) {
+  try {
+    res.json({
+      code: 200,
+      message: 'ok',
+      data: collect.detail(req.params.id, String(req.user.user_id))
+    });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+router.post('/collect/:id/pay', function (req, res) {
+  try {
+    var uid = String(req.user.user_id);
+    var body = req.body || {};
+    // 先把单子读出来拿金额，再走风控 —— 顺序反了就是「先扣钱后验密码」
+    var d = collect.detail(req.params.id, uid);
+    payGuard.guardPay(uid, body.pin, d.per_cent);
+    var r = collect.pay(req.params.id, uid);
+    res.json({
+      code: 200,
+      message: r.duplicate ? '你已经付过这一份了' : ('已付 ' + d.per + ' 学元'),
+      data: r.collect
+    });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+router.post('/collect/:id/close', function (req, res) {
+  try {
+    var r = collect.close(req.params.id, String(req.user.user_id), {
+      force: !!(req.user.is_class_admin || req.user.is_admin === 1)
+    });
+    res.json({
+      code: 200,
+      message: r.duplicate ? '这张收款单已经结束' : '已结束收款',
+      data: r.collect
+    });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
 router.get('/leaderboard', function (req, res) {
   try {
     var uid = String(req.user.user_id);

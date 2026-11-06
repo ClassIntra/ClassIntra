@@ -447,6 +447,7 @@
         </div>
         <div v-if="pay.result && pay.result.amount" class="pay-result-amount">{{ pay.result.amount }}</div>
         <div class="pay-result-text">{{ pay.result && pay.result.text }}</div>
+        <button v-if="pay.result && pay.result.packetId" class="pay-secondary" @click="openPacketDetail(pay.result.packetId)">查看谁领了</button>
         <button class="pay-primary" @click="closePay">完成</button>
       </div>
     </PayPage>
@@ -463,6 +464,30 @@
         <button class="open-pk-btn" :disabled="pay.busy" @click="claimOpenPacket">
           {{ pay.busy ? '拆开中…' : '拆 开 红 包' }}
         </button>
+      </div>
+    </PayPage>
+
+    <PayPage :visible="pay.view === 'detail'" title="红包领取记录" @close="closePay">
+      <div class="pk-detail">
+        <div v-if="pay.detail" class="pk-detail-head">
+          <div class="pk-detail-note">{{ pay.detail.note || '恭喜发财' }}</div>
+          <div class="pk-detail-sub">
+            {{ pay.detail.sender_name }} 发出 · {{ pay.detail.claimed_count }}/{{ pay.detail.count }} 个已领
+          </div>
+          <div class="pk-detail-total">共 {{ Number(pay.detail.total).toFixed(2) }} 学元</div>
+        </div>
+        <div v-if="pay.detailLoading" class="pk-detail-empty">加载中…</div>
+        <div v-else-if="!pay.detail || !pay.detail.claims.length" class="pk-detail-empty">还没有人领取</div>
+        <div v-else class="pk-detail-list">
+          <div v-for="c in pay.detail.claims" :key="c.user_id" class="pk-detail-row">
+            <span class="pk-detail-avatar">{{ (c.name || '?').slice(0, 1) }}</span>
+            <span class="pk-detail-name">{{ c.name }}<em v-if="c.remote">外班</em></span>
+            <span class="pk-detail-amount">+{{ Number(c.amount).toFixed(2) }}</span>
+          </div>
+        </div>
+        <div v-if="pay.detail && pay.detail.remaining > 0" class="pk-detail-foot">
+          还剩 {{ Number(pay.detail.remaining).toFixed(2) }} 学元，过期后自动退回
+        </div>
       </div>
     </PayPage>
 
@@ -2331,7 +2356,7 @@ export default {
     payReset: function() {
       return {
         view: '', kind: 'transfer', to: '', toName: '', amount: '', count: '5', note: '', scope: 'local',
-        busy: false, pinError: '', result: null, open: null, openPhrase: '',
+        busy: false, pinError: '', result: null, open: null, openPhrase: '', detail: null, detailLoading: false,
         cross: false, people: this.pay && this.pay.people || [], peopleQ: '', targets: [], pkt: 'normal',
         setupPin: '', setupPassword: ''
       };
@@ -2527,11 +2552,11 @@ export default {
         });
         return;
       }
-      // 红包：自己发的点开只提示，别人发的进开红包页
-      if (card.own) {
-        return self.$store.commit('toast/SHOW_TOAST', { message: '红包已发出，等同学来领', type: 'info' });
-      }
+      // 红包：自己发的点开看领取记录，别人发的进开红包页
       var p = card.data || {};
+      if (card.own) {
+        return self.openPacketDetail(p.id);
+      }
       self.pay = Object.assign(self.payReset(), {
         view: 'open',
         open: {
@@ -2572,6 +2597,8 @@ export default {
         if (body.code !== 200) throw new Error(body.message || '领取失败');
         var d = body.data || {};
         var pending = !!d.pending;
+        // 只有本班红包才有本地 id 可查领取记录；跨班回款不带本地记录
+        var localPid = (!p.code && !p.base && p.id) ? p.id : 0;
         self.pay = Object.assign({}, self.pay, {
           busy: false,
           view: 'result',
@@ -2583,7 +2610,8 @@ export default {
             amount: pending ? '' : ('+' + Number(d.amount || 0).toFixed(2)),
             text: pending
               ? '红包已在分配，班级之间网络恢复后自动到账（不用重复点）'
-              : (d.duplicate ? '这个红包你已经领过了' : '已存入学元余额')
+              : (d.duplicate ? '这个红包你已经领过了' : '已存入学元余额'),
+            packetId: localPid
           }
         });
       }).catch(function(err) {
@@ -2594,6 +2622,25 @@ export default {
         });
       });
     },
+    openPacketDetail: function(id) {
+      var self = this;
+      if (!id) {
+        return self.$store.commit('toast/SHOW_TOAST', { message: '这个红包没有本班领取记录', type: 'info' });
+      }
+      self.pay = Object.assign(self.payReset(), { view: 'detail', detailLoading: true });
+      api.get('/wallet/packet/' + id + '/claims').then(function(res) {
+        var body = (res && res.data) || {};
+        if (body.code !== 200) throw new Error(body.message || '领取记录加载失败');
+        self.pay = Object.assign({}, self.pay, { detailLoading: false, detail: body.data });
+      }).catch(function(err) {
+        self.pay = Object.assign({}, self.pay, { detailLoading: false });
+        self.$store.commit('toast/SHOW_TOAST', {
+          message: (err && err.message) || '领取记录加载失败',
+          type: 'error'
+        });
+      });
+    },
+
     sendMessage: function(options) {
       var self = this;
       var isForward = !!(options && options.forwardData);
@@ -6052,6 +6099,74 @@ export default {
 }
 .pay-primary:disabled { opacity: 0.6; }
 .pay-primary--packet { background: #E4574F; }
+.pay-secondary {
+  width: 100%;
+  height: 44px;
+  margin-bottom: 10px;
+  border-radius: 12px;
+  background: #F4F5F7;
+  color: #333;
+  font-size: 15px;
+}
+
+/* 红包领取记录 */
+.pk-detail {
+  padding: 18px 20px 28px;
+  min-height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+.pk-detail-head {
+  text-align: center;
+  padding: 10px 0 18px;
+  border-bottom: 1px solid #F0F0F0;
+}
+.pk-detail-note { font-size: 18px; font-weight: 600; color: #333; }
+.pk-detail-sub { margin-top: 6px; font-size: var(--font-size-footnote); color: #888; }
+.pk-detail-total { margin-top: 4px; font-size: var(--font-size-footnote); color: #E4574F; }
+.pk-detail-list { flex: 1; padding-top: 6px; }
+.pk-detail-row {
+  display: flex;
+  align-items: center;
+  padding: 12px 2px;
+  border-bottom: 1px solid #F5F5F5;
+}
+.pk-detail-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #FBE4B8;
+  color: #9A6A12;
+  font-size: 15px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.pk-detail-name {
+  flex: 1;
+  min-width: 0;
+  margin-left: 10px;
+  font-size: 15px;
+  color: #333;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pk-detail-name em {
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #EEF3FF;
+  color: #2F7CF6;
+  font-size: 11px;
+  font-style: normal;
+}
+.pk-detail-amount { font-size: 15px; font-weight: 600; color: #E4574F; }
+.pk-detail-empty { padding: 46px 0; text-align: center; color: #999; font-size: 14px; }
+.pk-detail-foot { padding-top: 14px; text-align: center; color: #999; font-size: 12px; }
 
 .pay-result {
   padding: 52px 26px 26px;
