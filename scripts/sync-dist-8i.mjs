@@ -22,14 +22,19 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { tmpdir } from 'os';
 
-const HOST = process.env.CI_8I_HOST || 'deploy@10.0.0.8';
+// 部署目标不入开源仓库：优先读 scripts/sync-env.host.local（一行 user@host），其次 CI_8I_HOST 环境变量
+function readLocalHost() {
+  try { return readFileSync(new URL('./sync-env.host.local', import.meta.url), 'utf8').trim(); }
+  catch { return ''; }
+}
+const HOST = readLocalHost() || process.env.CI_8I_HOST || 'user@example-host.invalid';
 // 必须用 Windows 自带的 bsdtar：PATH 里的 GNU tar（Git Bash）会把 "C:\..." 当成远程主机
 const WIN_TAR = process.env.SystemRoot
   ? join(process.env.SystemRoot, 'System32', 'tar.exe')
   : 'C:\Windows\System32\tar.exe';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = join(ROOT, 'client', 'dist');
-const REMOTE_TAR = 'C:/Users/deploy/ci-dist.tar.gz';
+const REMOTE_TAR = 'C:/Windows/Temp/ci-dist.tar.gz';
 const REMOTE_DIST = 'D:\\NetWork\\ClassIntra\\client\\dist';
 
 function run(cmd, args, opts = {}) {

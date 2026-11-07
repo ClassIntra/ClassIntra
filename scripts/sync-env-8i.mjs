@@ -27,7 +27,7 @@ function readLocalHost() {
 }
 const HOST = readLocalHost() || process.env.SYNC_ENV_HOST || 'user@example-host.invalid';
 const REMOTE_ROOT = 'D:/NetWork/ClassIntra';
-const REMOTE_TMP = 'C:/Users/deploy';
+const REMOTE_TMP = 'C:/Windows/Temp';
 const LOCAL_ENV = 'server/.env';
 const SSH = ['-o', 'StrictHostKeyChecking=no', '-o', 'ConnectTimeout=20'];
 

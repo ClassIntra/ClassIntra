@@ -15,9 +15,14 @@
 // 获得 PM2 原生的自动重启/日志轮转。这里只做一件事：托管 ssh 子进程，
 // 子进程退出就跟着退出，让 PM2 拉起下一次。
 import { spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 
 const SSH = 'C:\\Windows\\System32\\OpenSSH\\ssh.exe';
-const TARGET = 'deploy@10.0.0.8';
+// 部署目标不入开源仓库：优先读 scripts/sync-env.host.local（一行 user@host），其次 CI_8I_HOST 环境变量
+const TARGET = (() => {
+  try { return readFileSync(new URL('./sync-env.host.local', import.meta.url), 'utf8').trim(); }
+  catch { return process.env.CI_8I_HOST || 'user@example-host.invalid'; }
+})();
 const ARGS = [
   '-N',
   '-o', 'BatchMode=yes',

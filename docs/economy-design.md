@@ -965,7 +965,7 @@ scripts-test-ledger-invest.cjs   50 / 50（新增 17 项能力面与防刷断言
 8i 的 `market-apps/stock` 与 `server/src/ledger/*` 经自动文件同步已与本机逐字一致，
 但 **8i 的服务进程仍是旧模块**：`_clearRequireCache` 只清应用目录，不清平台账本模块，
 新前端调 `/stock/invest` 会拿到 404。需要在 8i 上以 `iflytek` 身份重启
-`classintra-server` + `classintra-https` 双入口（`deploy` 的 PM2 daemon 不是同一个，别用 SSH 代劳；
+`classintra-server` + `classintra-https` 双入口（部署用户的 PM2 daemon 不是同一个，别用 SSH 代劳；
 见 `ops.md` §二）。本机按同一约定也应避免 `pm2 restart`，本次已核对端口 PID 与 PM2 一致、无僵尸。
 
 ---
