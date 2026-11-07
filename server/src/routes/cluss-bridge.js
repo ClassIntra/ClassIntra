@@ -1,18 +1,22 @@
-// Cluss 联动桥（ClassIntra 侧，**只读**）
+// Cluss 联动桥（ClassIntra 侧，只读 + 唯一写端点）
 //
-// 用途：让 Cluss 能校验 ClassIntra 的账号，实现「ClassIntra 用户直接登录 Cluss」。
+// 用途：让 Cluss 能校验 ClassIntra 的账号，实现「ClassIntra 用户直接登录 Cluss」；
+// 并把学生的学元（CASH）转入其 Cluss 侧 AI 额度（联动充值，见 /app-credit）。
 //
 // ---- 设计约束（重要）----
 // 1. 本文件对 ClassIntra 现有逻辑零改动、零侵入：不碰 auth.js，不碰用户表写入，
 //    只在 app.js 里多挂一个路由前缀。
-// 2. **全部是只读端点，没有任何写操作**，因此不可能出现
-//    「通过本桥注册 / 改密 / 提权 / 改数据」的路径。当前四个：
+// 2. **除 /app-credit 外全部是只读端点**，不可能出现
+//    「通过本桥注册 / 改密 / 提权 / 改数据」的路径。当前端点：
 //      GET  /ping             存活探测
 //      POST /verify           校验账号口令（唯一会返回 password_hash 的端点）
 //      GET  /class-roster     取某班名册（按 user_id 编码在 SQL 里精确限定）
 //      GET  /student-profile  学生画像素材（脱敏白名单，见该端点的注释）
-//    新增端点时必须保持"只读"与"逐列白名单"这两条 —— 后者尤其重要，
-//    详见 /student-profile 的说明。
+//      GET  /app-credit/balance  查学生 CASH 余额（学元分）
+//      POST /app-credit       CASH → platform 转账（见该端点注释的安全论证）
+//    新增**只读**端点时必须保持"只读"与"逐列白名单"这两条 —— 后者尤其重要，
+//    详见 /student-profile 的说明；新增**写**端点必须与 /app-credit 同等强度：
+//    只动账本、ref 幂等、有上限、密钥认证。
 // 3. 认证用 X-Bridge-Secret，与 ClassIntra 既有的 RELAY_SECRET 共用同一密钥，
 //    避免再多一个需要运维同步的密钥。未配置密钥时**直接拒绝服务**（不放行）。
 // 4. 校验成功会返回 password_hash —— 这是 Cluss 侧离线登录所需（与既有的
@@ -26,6 +30,9 @@ var db = require('../utils/db');
 var config = require('../config');
 var pwdUtil = require('../utils/password');
 var constants = require('../utils/constants');
+var ledger = require('../ledger/ledger');
+var xueyuan = require('../services/xueyuan');
+var payGuard = require('../services/pay-guard');
 
 // 时序安全的字符串比较（防止密钥被时序探测逐字节猜出）
 function safeCompare(a, b) {
@@ -504,6 +511,121 @@ router.get('/student-profile', requireBridgeSecret, function(req, res) {
     });
   } catch (err) {
     console.error('[ClussBridge] student-profile error:', err);
+    return res.status(500).json({ code: 500, message: '服务器内部错误' });
+  }
+});
+
+// ============================================================
+// 学元充值桥（联动充值的 ClassIntra 侧落点）
+//
+// 资金流（单向、不可逆）：学生 CASH → platform 账户；Cluss 侧在收到 200 后
+// 给本机额度 +等量微元。方向只有这一个 —— Cluss 额度永远不能转回 CASH
+//（真金已背书 AI 交付，反向走就是一笔钱两处花，economy-design §6.3 永久禁止）。
+//
+// ---- 为什么不要求支付 PIN ----
+// pay-guard 的 PIN 防的是「拿到解锁设备的人把钱包转给**别人**」。
+// 这里的钱转进学生自己的 Cluss AI 额度（自持、不可提现、只能本班消费），
+// 被盗用者拿不到任何可变现资产；信任边界是桥密钥 + 金额上限封顶，
+// 所以刻意不走 guardPay（也就不需要 Cluss 收集学生的支付 PIN）。
+// kind='transfer' 会计入 dailyOutCent —— 桥转账与学生钱包转账共享
+// 同一个日流出预算，连刷有顶。
+// ============================================================
+
+// /app-credit 通用的入参校验：学号存在、未禁用、必须是学生表里的真人
+function loadCreditUser(userId, res) {
+  var uid = String(userId || '').trim();
+  if (!/^\d{6}$/.test(uid)) {
+    res.status(400).json({ code: 400, message: 'userId 必须是 6 位学号' });
+    return null;
+  }
+  var row = db.prepare('SELECT user_id, status FROM users WHERE user_id = ?').get(uid);
+  if (!row) {
+    res.status(404).json({ code: 404, message: 'ClassIntra 里没有这个学号' });
+    return null;
+  }
+  if (row.status === 'disabled') {
+    res.status(400).json({ code: 400, message: '该账号在 ClassIntra 已禁用' });
+    return null;
+  }
+  return uid;
+}
+
+// GET /app-credit/balance?userId= —— 学生 CASH 余额（单位：账本分，1 元 = 100000 分）
+router.get('/app-credit/balance', requireBridgeSecret, function(req, res) {
+  try {
+    var uid = loadCreditUser(req.query.userId, res);
+    if (!uid) return;
+    return res.json({ code: 200, message: 'ok', data: { balance_cent: ledger.userBalance(uid, 'CASH') } });
+  } catch (err) {
+    console.error('[ClussBridge] app-credit/balance error:', err);
+    return res.status(500).json({ code: 500, message: '服务器内部错误' });
+  }
+});
+
+// POST /app-credit {userId, amount_cent, ref}
+//   amount_cent：账本分（1 学元 = 100 分，1 元 = 100000 分）；下限 100（1 学元，防灰尘），
+//   上限复用学生单笔转账上限 LIMITS.MAX_TRANSFER_CENT（500 元）。
+//   ref：Cluss 生成的幂等键，ledger 按 ref 重放返回 duplicate —— 同 ref 重试不双扣。
+//   账户必须有 CASH（意味着已开过户）；只有 CASH 可转，GRANT/PRACTICE 不可达。
+router.post('/app-credit', requireBridgeSecret, function(req, res) {
+  try {
+    var body = req.body || {};
+    var uid = loadCreditUser(body.userId, res);
+    if (!uid) return;
+
+    var amount = Number(body.amount_cent);
+    if (!Number.isInteger(amount) || amount <= 0) {
+      return res.status(400).json({ code: 400, message: 'amount_cent 必须是正整数（账本分）' });
+    }
+    if (amount < 100) {
+      return res.status(400).json({ code: 400, message: '单次至少转入 1 学元' });
+    }
+    if (amount > xueyuan.LIMITS.MAX_TRANSFER_CENT) {
+      return res.status(400).json({ code: 400, message: '单次转入超过上限（500 元）' });
+    }
+    var ref = String(body.ref || '').trim();
+    if (ref.length < 8 || ref.length > 128) {
+      return res.status(400).json({ code: 400, message: 'ref（幂等键）必填，长度 8~128' });
+    }
+
+    // 日流出预算：与钱包转账 / 红包同池（kind='transfer' 出账自动计入）
+    var used = payGuard.dailyOutCent(uid);
+    if (used + amount > payGuard.MAX_DAILY_OUT_CENT) {
+      var left = Math.max(0, payGuard.MAX_DAILY_OUT_CENT - used);
+      return res.status(400).json({
+        code: 400,
+        message: '今日转出额度已用完（还剩 ' + Math.floor(left / 100) + ' 学元），明天再来'
+      });
+    }
+
+    var tx = ledger.post({
+      ref: 'cluss-credit:' + ref,
+      kind: 'transfer',
+      memo: 'Cluss AI 额度转入',
+      entries: [
+        { kind: 'user', owner: uid, asset: 'CASH', direction: -1, amount_cent: amount },
+        { kind: 'platform', owner: '', asset: 'CASH', direction: 1, amount_cent: amount }
+      ]
+    });
+
+    return res.json({
+      code: 200,
+      message: 'ok',
+      data: {
+        balance_cent: ledger.userBalance(uid, 'CASH'),
+        duplicate: !!tx.duplicate
+      }
+    });
+  } catch (err) {
+    // ledger 的业务错误（余额不足 / 账户不存在）给人话，其余当服务器错误
+    var msg = String(err && err.message || '');
+    if (msg.indexOf('余额不足') === 0) {
+      return res.status(400).json({ code: 400, message: '学元钱包余额不足' });
+    }
+    if (msg.indexOf('账户不存在') !== -1) {
+      return res.status(400).json({ code: 400, message: '还没有开通学元钱包，请先在 ClassIntra 钱包领取或充值' });
+    }
+    console.error('[ClussBridge] app-credit error:', err);
     return res.status(500).json({ code: 500, message: '服务器内部错误' });
   }
 });
