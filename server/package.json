@@ -1,11 +1,13 @@
 {
   "name": "classintra-server",
-  "version": "1.6.1",
+  "version": "1.7.0",
   "private": true,
+  "license": "MIT",
   "scripts": {
     "dev": "node src/app.js",
     "start": "node src/app.js",
-    "test": "node --test --test-concurrency=1"
+    "test": "node --test --test-concurrency=1",
+    "test:ledger": "node scripts-test-ledger-s1.cjs && node scripts-test-ledger-s2.cjs && node scripts-test-ledger-guard.cjs && node scripts-test-ledger-routes.cjs && node scripts-test-ledger-shop.cjs && node scripts-test-ledger-trading.cjs && node scripts-test-ledger-invest.cjs && node scripts-test-stock-ledger.cjs && node scripts-test-ledger-appapi.cjs && node scripts-test-wallet-contract.cjs && node scripts-test-wallet.cjs && node scripts-test-xueyuan.cjs && node scripts-test-xueyuan-limits.cjs && node scripts-test-collect.cjs && node scripts-test-xy-mesh.cjs"
   },
   "dependencies": {
     "axios": "^1.20.0",

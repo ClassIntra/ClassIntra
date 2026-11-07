@@ -36,6 +36,7 @@ ClassIntra 为班级教室场景而生 —— 一台服务器 + 一台平板 = �
 | 🎵 | **音乐播放** | 在线播放列表、LRC 歌词同步、背景播放 |
 | 📒 | **笔记系统** | Markdown 编辑器、代码高亮、Mermaid 流程图、KaTeX 数学公式 |
 | ⚙️ | **管理后台** | 用户管理、广播通知、班干委任、应用管控、操作日志 |
+| 💰 | **学元经济** | 班级虚拟货币体系：钱包/转账/红包/小额商店/证券模拟（复式记账账本内核）|
 | ⚫ | **联机五子棋** | 市场应用安装、房间对战、观战、WebSocket 实时同步与断线恢复 |
 
 ### 🔗 高级特性
@@ -61,8 +62,7 @@ ClassIntra 为班级教室场景而生 —— 一台服务器 + 一台平板 = �
 ```bash
 git clone <repo-url> && cd ClassIntra
 pnpm install
-cp server/.env.example server/.env
-# 编辑 server/.env → 设置 JWT_SECRET（必填，否则拒绝启动）
+cp server/.env.example server/.env   # 按需编辑；JWT 密钥留空时首次启动会自动生成
 mkdir -p Resources/public/wallpapers Resources/public/music Resources/videos
 pnpm dev
 ```
@@ -77,7 +77,7 @@ cd server && NODE_ENV=production node src/app.js
 # → http://localhost:9001
 ```
 
-Windows 用户也可用 `start.bat`（开发）或 `start-prod.bat`（生产）一键启动。`cn.bat` 提供 PM2 进程管理。
+Windows 用户也可用 `start.bat`（开发）或 `start-prod.bat`（生产）一键启动。
 
 > 📖 完整部署指南（多机中继、Tailscale 组网、HTTPS 配置）→ [DEPLOY.md](./DEPLOY.md)
 
@@ -138,23 +138,27 @@ ClassIntra 内置屏幕锁定，用于下课/离机时防止他人误操作，�
 
 ```
 ┌────────────── client (Vue 2 + Vite) ──────────────┐
-│  :5001  Vite Dev Server (HMR + API 代理 → :9001)  │
+│  :20001  Vite Dev Server (HMR + API 代理 → :9001) │
 │  桌面 · 聊天 · 天气 · AI · 社区 · 资源 · 音乐 · 笔记 │
 └──────────────────────┬─────────────────────────────┘
                        │ HTTP / WebSocket
 ┌──────────────────────┴─────────────────────────────┐
 │  :9001  server (Express + ws)                       │
-│  JWT 认证 · SQLite · 15 个 API 路由 · WebSocket 聊天│
+│  JWT 认证 · SQLite · 25 个 API 挂载 · WebSocket 聊天 │
+│  应用内功能后端在 apps/*/backend（经 app-api 分层）  │
 │  :10001 WebSocket · :10011 中继端口                  │
 └─────────────────────────────────────────────────────┘
 ```
 
 | 端口 | 服务 | 说明 |
 |------|------|------|
-| `5001` | Vite Dev Server | 开发热重载，自动代理 `/api` → `:9001` |
+| `20001` | Vite Dev Server | 开发热重载，自动代理 `/api` → `:9001` |
 | `9001` | Express HTTP | REST API + 静态文件服务 |
-| `10001` | WebSocket | 本地聊天实时通信 |
+| `10001` | WebSocket | 本地聊天实时通信（`WS_PORT` 可配） |
 | `10011` | Relay WS | 跨班级消息中继 |
+| `7998` | 设备探测 | 局域网设备发现（可选） |
+| `9002` | 隧道网关 | 内网穿透网关（可选） |
+| `9443` | HTTPS | 本地 HTTPS 入口（可选） |
 
 ---
 
@@ -163,7 +167,7 @@ ClassIntra 内置屏幕锁定，用于下课/离机时防止他人误操作，�
 | 层 | 技术 |
 |---|------|
 | 前端框架 | Vue 2.7 + Vue Router 3 + Vuex 3 |
-| 构建工具 | Vite 5 |
+| 构建工具 | Vite 6（build target 兼容 Chrome 80 平板基线） |
 | UI 风格 | 类 iOS 设计系统（自研 ios/ 组件库） |
 | 后端 | Express 4 |
 | 数据库 | better-sqlite3（嵌入式，零配置） |
@@ -181,21 +185,22 @@ ClassIntra 内置屏幕锁定，用于下课/离机时防止他人误操作，�
 ```
 ClassIntra/
 ├── apps/                    # 应用（前端页面 + 可选后端 + 小组件）
-│   ├── ai-chat/frontend/    # AI 对话
+│   ├── admin/frontend/      # 管理后台
 │   ├── calendar/frontend/   # 日历 + 小组件
-│   ├── calculator/frontend/ # 计算器
+│   ├── calculator/frontend/ # 计算器（计算/绘图/换算/工具）
 │   ├── chat/frontend/       # 即时通讯
+│   ├── cluss/               # Cluss 联邦应用（AI 额度代收代付）
 │   ├── community/frontend/  # 社区论坛
 │   ├── countdown/frontend/  # 倒数日 + 小组件
+│   ├── integration/frontend/ # 第三方应用集成入口
+│   ├── market/frontend/     # 应用市场
 │   ├── music/frontend/      # 音乐播放
-│   ├── notes/frontend/      # Markdown 笔记
-│   ├── resource/frontend/  # 资源仓库 + 云盘
+│   ├── profile/frontend/    # 个人主页
+│   ├── resource/frontend/   # 资源仓库 + 云盘
 │   ├── settings/frontend/   # 个人设置
 │   ├── timetable/frontend/  # 课程表 + 小组件
-│   ├── wallet/frontend/    # 学元钱包（余额/津贴/转账/红包）
-│   ├── weather/frontend/    # 天气系统
-│   ├── admin/frontend/      # 管理后台
-│   └── integration/frontend/ # 第三方应用集成入口
+│   ├── wallet/frontend/     # 学元钱包（余额/转账/红包/证券/AA 收款）
+│   └── weather/frontend/    # 天气系统
 ├── client/src/
 │   ├── views/                # 核心页面
 │   │   ├── Desktop.vue       # 桌面主页（应用启动台）
@@ -219,27 +224,25 @@ ClassIntra/
 │   ├── utils/                # latex-renderer, api, websocket, helpers…
 │   └── styles/global.scss    # 全局样式 + CSS 变量
 ├── server/src/
-│   ├── app.js                # Express 入口
+│   ├── app.js                # Express 入口（25 个 /api 挂载）
 │   ├── config/index.js       # 配置模块（从 .env 读取）
-│   ├── routes/               # 15 个 API 路由
+│   ├── routes/               # 22 个 API 路由（应用内功能后端在 apps/*/backend）
 │   │   ├── auth.js           # 注册/登录
 │   │   ├── user.js           # 用户信息
-│   │   ├── chat.js           # 聊天消息
-│   │   ├── weather.js        # 天气查询
-│   │   ├── ai-chat.js        # AI 对话
-│   │   ├── resource.js       # 资源文件 + 流媒体
-│   │   ├── community.js      # 社区帖子
-│   │   ├── notes.js          # 笔记同步
 │   │   ├── admin.js          # 管理后台
-│   │   ├── setup.js          # 初始化向导 API
+│   │   ├── wallet.js         # 学元钱包（转账/红包/跨班）
+│   │   ├── xueyuan.js        # 学元管理端（发放/充值/配额）
+│   │   ├── ledger.js         # 学元账本开放面（订单/商品/健康度）
+│   │   ├── market.js         # 应用市场
+│   │   ├── integrations-api.js # 第三方应用 API（token + scope）
 │   │   ├── level.js          # 等级经验
-│   │   ├── music.js          # 音乐服务
-│   │   ├── system.js         # 系统设置
-│   │   ├── assets.js         # 静态资源
-│   │   └── cdn-proxy.js      # CDN 代理
+│   │   ├── setup.js          # 初始化向导 API
+│   │   └── system.js         # 系统设置与版本
+│   ├── ledger/               # 学元复式记账内核（post() 唯一写入口 + 不变量对账）
 │   ├── ws/chat-server.js     # WebSocket 聊天 + 中继
 │   ├── middleware/            # 中间件（认证、限流）
-│   ├── services/             # 业务服务（转码、中继总线）
+│   ├── services/             # 业务服务（学元、跨班支付、转码、中继总线…）
+│   ├── migrations/           # SQLite 迁移（启动时自动执行）
 │   └── utils/                # 工具（init-db, db, jwt, cache, crash-logger…）
 ├── server/public/            # 静态资源（setup.html + icons/，前端产物在 client/dist/）
 ├── server/database/          # SQLite 数据库（自动创建）
@@ -285,10 +288,11 @@ ClassIntra/
 ## 🛠️ 开发
 
 ```bash
-pnpm dev           # 前后端同时启动
-pnpm dev:server    # 仅后端 :9001
-pnpm dev:client    # 仅前端 :5001
-pnpm build         # 生产构建
+pnpm dev          # 前后端同时启动
+pnpm dev:server   # 仅后端 :9001
+pnpm dev:client   # 仅前端 :20001
+pnpm build        # 生产构建
+pnpm --filter classintra-server run test:ledger   # 学元账本全量回归
 ```
 
 ### 代码约定
