@@ -5,7 +5,7 @@
 // users 表里有跨班镜像用户，光看学号判断不了；收款码 token 也只落在签发它的班上。
 // 所以维护一张 server_id → HTTP base 的登记表：
 //
-//   1) 种子：env WALLET_PEERS="18i=http://10.0.0.18:9001,8i=http://10.0.0.8:9001"
+//   1) 种子：env WALLET_PEERS="18i=http://<对端地址>:9001,8i=http://<本班地址>:9001"
 //      （两个班都配，重启即生效；不配也能在第一次往来后自动学会）
 //   2) 学习：任何一次跨班请求都会带上 from_server/from_base，
 //      回执里也会带自己的 server_id —— 收到就 upsert。

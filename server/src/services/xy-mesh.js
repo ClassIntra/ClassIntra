@@ -38,7 +38,7 @@ var NET_TIMEOUT = 8000;
 var SIG_WINDOW = 5 * 60 * 1000;   // 与 cross-pay 同窗：两机时钟差 5 分钟内可用
 
 // ---------------- 配置 ----------------
-// peers 形状（JSON 存单键）：[{ class: '8', base: 'http://10.0.0.8:9001' }]
+// peers 形状（JSON 存单键）：[{ class: '8', base: 'http://<本班地址>:9001' }]
 //   master 视角 = 从班列表（可多个）；member 视角 = 仅一项，即主班。
 // class 是两位班号（学号 YYCCNN 的 CC 段），base 是对端 9001 主实例基址。
 
