@@ -216,12 +216,24 @@
             <div class="toolbar-left">
               <h3 class="sub-title">学元发行与对账</h3>
               <span class="xy-rate">1 元 = {{ xySummary ? xySummary.yuan_rate : 1000 }} 学元</span>
+              <!-- 组网视角切换：主班班管在本班与从班之间切换，数据与操作实时作用于对端 -->
+              <span v-if="xyMeshInfo.role === 'master' && xyMeshInfo.peers.length" class="xy-view-chips">
+                <button class="view-chip" :class="{ active: xyView === 'local' }" @click="switchXyView('local')">本班</button>
+                <button v-for="p in xyMeshInfo.peers" :key="p.class" class="view-chip" :class="{ active: xyView === p.class }" @click="switchXyView(p.class)">{{ p.class }} 班</button>
+              </span>
             </div>
             <div class="toolbar-right">
               <button class="action-btn" :disabled="xyLoading" @click="loadXueyuan">
                 <i class="fa-solid fa-rotate" :class="{ spinning: xyLoading }"></i> 刷新
               </button>
             </div>
+          </div>
+
+          <!-- 从班视角提示条 -->
+          <div v-if="xyViewPeer" class="mesh-banner">
+            <i class="fa-solid fa-tower-broadcast"></i>
+            正在通过组网管理 <b>{{ xyView }} 班</b> 的学元：下方数据实时来自该班服务器，充值 / 撤回 / 提现审批会直接在该班账本上执行。
+            这些学员不会出现在「用户管理」里 —— 学元管理与用户管理是两本册子。
           </div>
 
           <div v-if="xyLoading && !xySummary" class="loading-container">
@@ -260,10 +272,10 @@
                 </div>
               </div>
               <div class="stat-card">
-                <div class="stat-icon"><i class="fa-solid fa-chart-line"></i></div>
+                <div class="stat-icon"><i class="fa-solid fa-dice"></i></div>
                 <div class="stat-info">
-                  <div class="stat-value">{{ xyMoney(xySummary && xySummary.settle_deficit_cent / 100) }}</div>
-                  <div class="stat-label">投资盘赤字（凭空多出的学元）</div>
+                  <div class="stat-value">{{ xyMoney(xySummary && xySummary.practice) }}</div>
+                  <div class="stat-label">练习金总量（封闭，不可花/不可提）</div>
                 </div>
               </div>
               <div class="stat-card">
@@ -289,6 +301,9 @@
                 <span>赠送学元占比 <b>{{ pct(xyHealth.grant_share) }}</b></span>
                 <span>货币深度 <b>{{ xyHealth.depth_days }}</b> 天</span>
                 <span>可提现敞口 <b>{{ xyMoney(xyHealth.withdrawable) }}</b> 学元</span>
+                <span class="xy-health-practice" title="练习金只能在证券里买卖，不能转账、发红包、买东西、提现 —— 它印多少都不会让消费市场的钱变毛">
+                  练习金 <b>{{ xyMoney(xyHealth.practice) }}</b> 学元（封闭）
+                </span>
               </div>
               <ul v-if="xyHealth.warnings && xyHealth.warnings.length" class="xy-health-warn">
                 <li v-for="w in xyHealth.warnings" :key="w.code" :class="w.level">{{ w.text }}</li>
@@ -296,11 +311,82 @@
               <p v-else class="xy-health-ok">发行速度、回笼与兑付敞口都在安全区间。</p>
             </div>
 
+            <!-- 学元账本（xy_ledger_*）：全平台唯一的记账真源，只读健康度 -->
+            <div v-if="xyLedger" class="xy-ledger" :class="xyLedger.ok ? 'ok' : 'bad'">
+              <div class="xy-ledger-head">
+                <i class="fa-solid fa-book"></i>
+                <b>学元账本健康度</b>
+                <span class="xy-ledger-badge">{{ xyLedger.ok ? '八项不变量全绿' : (xyLedger.issues.length + ' 项异常') }}</span>
+                <span class="xy-ledger-note">钱包 / 红包 / 收款 / 证券均已切到此账本</span>
+              </div>
+              <div class="xy-ledger-metrics">
+                <span>账面现金 <b>{{ ledgerYuan(xyLedger.metrics.cash_on_book_cent) }}</b> 元</span>
+                <span>可兑付敞口 <b>{{ ledgerYuan(xyLedger.metrics.cash_liability_cent) }}</b> 元</span>
+                <span>真金台账 <b>{{ ledgerYuan(xyLedger.metrics.cashbook_liability_cent) }}</b> 元</span>
+                <span>兑付覆盖率 <b>{{ ledgerPct(xyLedger.metrics.reserve_coverage) }}</b></span>
+                <span>平台已实现毛利 <b>{{ ledgerYuan(xyLedger.metrics.gross_cent) }}</b> 元</span>
+              </div>
+              <ul v-if="xyLedger.issues && xyLedger.issues.length" class="xy-ledger-issues">
+                <li v-for="(it, idx) in xyLedger.issues" :key="idx">[{{ it.code }}] {{ it.detail }}</li>
+              </ul>
+              <p v-else class="xy-ledger-ok">按资产分组守恒、账面现金与真金台账、托管与未结订单三方对平。</p>
+              <p class="xy-ledger-notice">
+                2026-11-07 完成切换：可兑付余额已按真实充值校准，超出真金支撑的部分转为「只能花」的赠送学元，每人总资产不变。
+                旧账本三张表（xy_account / xy_tx / xy_entry）已停止写入。
+              </p>
+            </div>
+
+            <!-- 小铺：商品上架 + 订单处理（结算/退款） -->
+            <div class="xy-shop">
+              <div class="xy-shop-head">
+                <i class="fa-solid fa-store"></i>
+                <b>班级小铺</b>
+                <span class="xy-shop-badge">{{ xyOrders.length }} 笔待处理</span>
+                <span class="xy-shop-note">结算=把钱付给卖家 · 退款=原路退回买家</span>
+              </div>
+
+              <div v-if="xyOrders.length" class="xy-order-list">
+                <div v-for="o in xyOrders" :key="o.id" class="xy-order">
+                  <span class="xo-name">{{ o.goods_name || ('订单 #' + o.id) }}</span>
+                  <span class="xo-meta">{{ o.buyer_id }} · {{ ledgerYuan(o.face_cent) }} 元 · {{ orderStatusText(o.status) }}</span>
+                  <span class="xo-actions">
+                    <button class="xo-btn" :disabled="orderBusy" @click="settleOrder(o)">结算</button>
+                    <button class="xo-btn danger" :disabled="orderBusy" @click="refundOrder(o)">退款</button>
+                  </span>
+                </div>
+              </div>
+              <p v-else class="xy-shop-empty">没有待处理的订单。学生兑换后，这里会出现「待结算」。</p>
+
+              <div class="xy-goods-row" v-if="xyGoods.length">
+                <span v-for="g in xyGoods" :key="g.id" class="xy-goods-chip">
+                  {{ g.name }} · {{ ledgerYuan(g.price_cent) }} 元
+                  <em @click="offShelf(g)">下架</em>
+                </span>
+              </div>
+
+              <div class="xy-goods-form">
+                <input v-model="newGoods.name" class="xg-input xg-name" placeholder="商品名" />
+                <input v-model="newGoods.price" class="xg-input" placeholder="售价(元)" />
+                <input v-model="newGoods.cost" class="xg-input" placeholder="成本(元)" />
+                <select v-model="newGoods.kind" class="xg-input">
+                  <option value="digital">数字</option>
+                  <option value="physical">实物</option>
+                  <option value="service">服务</option>
+                </select>
+                <button class="xg-add" :disabled="goodsBusy" @click="createGoods">上架</button>
+              </div>
+              <p class="xy-shop-tip">
+                成本填真实进价（数字品一般是 0），只用于算毛利和成本台账。
+                <b>定价用充值学元</b>：学生只能用自己充的钱买，赠送学元和炒股赚来的学元一分都抵不了
+                （那些钱可以转账、发红包，但买不了东西）。所以单个商品定价别超过学生的充值余额。
+              </p>
+            </div>
+
             <div class="xy-audit" :class="xyAudit && xyAudit.ok ? 'ok' : 'bad'">
               <i :class="xyAudit && xyAudit.ok ? 'fa-solid fa-circle-check' : 'fa-solid fa-triangle-exclamation'"></i>
               <span class="xy-audit-main">
                 <template v-if="xyAudit && xyAudit.ok">
-                  对账通过：{{ xyAudit.accounts }} 个账户、{{ xyAudit.transactions }} 笔交易全部平账，双资金池自洽。
+                  对账通过：{{ xyAudit.accounts }} 个账户、{{ xyAudit.transactions }} 笔交易全部平账，资金池自洽。
                 </template>
                 <template v-else-if="xyAudit">
                   发现 {{ xyAudit.issues.length }} 项异常，请立即人工核查：
@@ -309,6 +395,31 @@
                 <template v-else>尚未对账</template>
               </span>
               <button class="table-btn sm" @click="runXyAudit">重新对账</button>
+            </div>
+
+            <!-- 组网从班学员账号（学元视角）：镜像账号不会出现，点击可填入充值框 -->
+            <div v-if="xyViewPeer" class="xy-card">
+              <div class="xy-card-head">
+                <h4><i class="fa-solid fa-users-rectangle"></i> {{ xyView }} 班学员账号</h4>
+                <p>只显示该班真实学员（能登录的账号）。点「填入充值」把学号加入下方充值名单。</p>
+              </div>
+              <div v-if="!xyPeerStudents.length" class="xy-empty">该班还没有学员账户</div>
+              <div v-else class="data-table-wrapper">
+                <table class="data-table">
+                  <thead><tr><th>学号</th><th>网名</th><th>姓名</th><th>充值学元</th><th>赠送学元</th><th>状态</th><th></th></tr></thead>
+                  <tbody>
+                    <tr v-for="s in xyPeerStudents" :key="s.user_id" :class="{ 'mesh-row-disabled': s.status === 'disabled' }">
+                      <td>{{ s.user_id }}</td>
+                      <td>{{ s.net_name }}</td>
+                      <td>{{ s.real_name || '-' }}</td>
+                      <td>{{ xyMoney(s.cash / 100) }}</td>
+                      <td>{{ xyMoney(s.grant / 100) }}</td>
+                      <td>{{ s.status === 'disabled' ? '停用' : '正常' }}</td>
+                      <td><button class="table-btn sm" @click="pickPeerStudent(s.user_id)">填入充值</button></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
 
             <!-- 线下充值 -->
@@ -331,6 +442,31 @@
                 每学期累计上限
                 {{ xySummary && xySummary.limits ? xySummary.limits.recharge_quota : 300000 }} 学元
                 —— 拆成多笔也会被拦。重复提交会按请求号去重，不会重复入账。
+              </p>
+            </div>
+
+            <!-- 退款 -->
+            <div class="xy-card">
+              <div class="xy-card-head">
+                <h4><i class="fa-solid fa-rotate-left"></i> 退款</h4>
+                <p>活动取消、商品退换、收费录错时用。退款只动账面，现金由你线下交给学生；原因会写进他的流水，方便以后对账。</p>
+              </div>
+              <div class="xy-form">
+                <input v-model="xyRefund.userId" class="search-input xy-input-sm" placeholder="退给谁（学号）" maxlength="32" />
+                <input v-model="xyRefund.from" class="search-input xy-input-sm" placeholder="从谁退（学号）" maxlength="32" />
+                <input v-model="xyRefund.yuan" type="number" min="0" step="0.01" class="search-input xy-input-sm" placeholder="金额（元）" />
+                <select v-model="xyRefund.pool" class="search-input xy-input-sm">
+                  <option value="cash">退回充值学元</option>
+                  <option value="grant">退回赠送学元</option>
+                </select>
+                <input v-model="xyRefund.reason" class="search-input" maxlength="60" placeholder="退款原因，会写进学生流水" />
+                <button class="btn-primary" :disabled="xyRefund.busy || !xyRefund.userId || !xyRefund.yuan || !xyRefund.reason" @click="submitXyRefund">
+                  {{ xyRefund.busy ? '退款中…' : '确认退款' }}
+                </button>
+              </div>
+              <p class="xy-foot-tip">
+                必须从真实账户退：谁收的钱谁退，系统不垫付 —— 所以退款不会凭空增加流通量。
+                线下现金要退用「撤回充值」，想奖励学生用「教师发放」。
               </p>
             </div>
 
@@ -364,15 +500,25 @@
               <div v-if="!xyRecharges.length" class="xy-empty">还没有充值记录</div>
               <div v-else class="data-table-wrapper">
                 <table class="data-table">
-                  <thead><tr><th>时间</th><th>用户</th><th>人民币</th><th>学元</th><th>操作人</th><th>备注</th></tr></thead>
+                  <thead><tr><th>时间</th><th>用户</th><th>人民币</th><th>学元</th><th>操作人</th><th>备注</th><th>状态</th></tr></thead>
                   <tbody>
-                    <tr v-for="r in xyRecharges" :key="r.id">
+                    <tr v-for="r in xyRecharges" :key="r.id" :class="{ 'xy-revoked-row': r.revoked }">
                       <td>{{ formatDate(r.created_at) }}</td>
                       <td>{{ r.user_id }}</td>
                       <td>¥{{ xyMoney(r.yuan) }}</td>
                       <td>{{ xyMoney(r.amount) }}</td>
                       <td>{{ r.operator || '-' }}</td>
                       <td>{{ r.memo || '-' }}</td>
+                      <td>
+                        <span v-if="r.revoked" class="xy-revoked-tag" :title="r.revoke_reason || ''">已撤回</span>
+                        <div v-else-if="xyRevoke.id === r.id" class="xy-revoke-box">
+                          <button class="table-btn sm danger" :disabled="xyRevoke.busy" @click="submitRevoke(r)">
+                            {{ xyRevoke.busy ? '撤回中…' : '确认撤回' }}
+                          </button>
+                          <button class="table-btn sm" :disabled="xyRevoke.busy" @click="cancelRevoke">取消</button>
+                        </div>
+                        <button v-else class="table-btn sm" @click="startRevoke(r)">撤回</button>
+                      </td>
                     </tr>
                   </tbody>
                 </table>
@@ -395,6 +541,64 @@
                       <td><span class="xy-status" :class="w.status">{{ xyWithdrawStatus(w.status) }}</span></td>
                       <td>{{ w.reviewer || '-' }}</td>
                       <td>{{ w.review_memo || w.memo || '-' }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <!-- 组网学元配置（仅系统管理员）：主班制授权，改完即时生效 -->
+            <div v-if="isSystemAdmin" class="xy-card">
+              <div class="xy-card-head">
+                <h4><i class="fa-solid fa-network-wired"></i> 组网学元配置</h4>
+                <p>主班班管可在自家管控中心同时管理组网内各班的充值与学元；从班班管的学元管理会被隐藏并封锁（其余班级管理不受影响）。命令通道与跨班支付共用 RELAY_SECRET 验签，配置即时生效、无需重启。</p>
+              </div>
+              <div class="xy-form">
+                <select v-model="meshForm.role" class="search-input xy-input-sm" @change="changeMeshRole">
+                  <option value="">不参与组网</option>
+                  <option value="master">学元主班（统管组网）</option>
+                  <option value="member">学元从班（移交主班）</option>
+                </select>
+                <button class="btn-primary" :disabled="meshForm.busy" @click="saveMeshConfig">
+                  {{ meshForm.busy ? '保存中…' : '保存配置' }}
+                </button>
+                <span v-if="!meshForm.secretReady" class="mesh-warn">未配置 RELAY_SECRET，组网命令将无法验签</span>
+              </div>
+              <div v-if="meshForm.role === 'master'" class="mesh-peers">
+                <div v-for="(p, idx) in meshForm.peers" :key="idx" class="xy-form mesh-peer-row">
+                  <input v-model="p.class" class="search-input xy-input-sm" maxlength="2" placeholder="从班班号（两位）" />
+                  <input v-model="p.base" class="search-input xy-input-wide" placeholder="从班服务器基址，如 http://192.168.1.20:9001" />
+                  <button class="table-btn sm" :disabled="meshForm.busy || !p.base" @click="testMeshPeer(p)">测试</button>
+                  <button class="table-btn sm danger" :disabled="meshForm.busy" @click="meshForm.peers.splice(idx, 1)">移除</button>
+                  <span class="mesh-test-msg" :class="{ ok: p._ok === true, bad: p._ok === false }">{{ p._msg }}</span>
+                </div>
+                <button class="table-btn sm" :disabled="meshForm.busy" @click="meshForm.peers.push({ class: '', base: '', _msg: '', _ok: null })">
+                  <i class="fa-solid fa-plus"></i> 添加从班
+                </button>
+              </div>
+              <div v-else-if="meshForm.role === 'member'" class="mesh-peers">
+                <div class="xy-form mesh-peer-row">
+                  <input v-model="meshPeerClass" class="search-input xy-input-sm" maxlength="2" placeholder="主班班号（两位）" />
+                  <input v-model="meshPeerBase" class="search-input xy-input-wide" placeholder="主班服务器基址，如 http://192.168.1.10:9001" />
+                  <button class="table-btn sm" :disabled="meshForm.busy || !meshPeerBase" @click="testMeshPeer(meshForm.peers[0])">测试</button>
+                  <span class="mesh-test-msg" :class="{ ok: meshForm.peers[0] && meshForm.peers[0]._ok === true, bad: meshForm.peers[0] && meshForm.peers[0]._ok === false }">{{ meshForm.peers[0] ? meshForm.peers[0]._msg : '' }}</span>
+                </div>
+              </div>
+              <!-- 组网命令审计：主班对本班的每一笔操作都可追溯（排障/对账） -->
+              <div v-if="meshForm.role" class="mesh-log">
+                <div class="mesh-log-head">
+                  <b>组网命令审计（最近 {{ meshLogs.length }} 条）</b>
+                  <button class="table-btn sm" @click="loadMeshLog">刷新</button>
+                </div>
+                <div v-if="!meshLogs.length" class="xy-empty">还没有组网命令记录</div>
+                <table v-else class="data-table">
+                  <thead><tr><th>时间</th><th>命令</th><th>状态</th><th>操作者</th><th>备注</th></tr></thead>
+                  <tbody>
+                    <tr v-for="l in meshLogs" :key="l.ref" :class="{ 'mesh-row-disabled': l.status !== 'ok' }">
+                      <td>{{ formatDate(l.created_at) }}</td>
+                      <td>{{ meshCommandLabel(l.command) }}</td>
+                      <td>{{ l.status === 'ok' ? '成功' : '失败' }}</td>
+                      <td>{{ l.operator || '-' }}</td>
+                      <td class="mesh-log-err">{{ l.status === 'ok' ? l.ref : (l.error || l.ref) }}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -1978,12 +2182,27 @@ export default {
       xyLoading: false,
       xySummary: null,
       xyHealth: null,
+      xyLedger: null,
+      // 小铺：待处理订单 / 在架商品 / 上架表单
+      xyOrders: [],
+      xyGoods: [],
+      newGoods: { name: '', price: '', cost: '', kind: 'digital' },
+      goodsBusy: false,
+      orderBusy: false,
       xyAudit: null,
       xyPending: [],
       xyWithdrawals: [],
       xyRecharges: [],
+      xyRevoke: { id: 0, reason: '', busy: false },
+      xyRefund: { userId: '', from: '', yuan: '', pool: 'cash', reason: '', busy: false },
       xyRecharge: { userInput: '', yuan: '', memo: '', busy: false },
       xyReviewBusyId: null,
+      // 组网学元（xy-mesh）：主班视角切换 / 从班学员 / 配置表单
+      xyMeshInfo: { role: '', peers: [], loaded: false },
+      xyView: 'local',
+      xyPeerStudents: [],
+      meshForm: { role: '', peers: [], busy: false, secretReady: true },
+      meshLogs: [],
       // Broadcast
       broadcastContent: '',
       broadcastPriority: 'normal',
@@ -2209,6 +2428,23 @@ export default {
       var user = this.$store.state.auth.user;
       return user && (user.is_class_admin || user.is_admin);
     },
+    // 系统管理员（999999）：组网配置只有他能改；从班封锁对他豁免（排障用）
+    isSystemAdmin: function() {
+      return String((this.currentUser && this.currentUser.user_id) || '') === '999999';
+    },
+    // 学元 tab 是否处于「从班视角」
+    xyViewPeer: function() {
+      return this.xyView !== 'local';
+    },
+    // member 配置行的 computed 代理（peers[0] 的 class / base 字段）
+    meshPeerClass: {
+      get: function() { var p = this.meshForm.peers[0]; return p ? p.class : ''; },
+      set: function(v) { if (this.meshForm.peers[0]) this.meshForm.peers[0].class = v; }
+    },
+    meshPeerBase: {
+      get: function() { var p = this.meshForm.peers[0]; return p ? p.base : ''; },
+      set: function(v) { if (this.meshForm.peers[0]) this.meshForm.peers[0].base = v; }
+    },
     availableClasses: function() {
       // 从用户列表中提取班级号
       var classMap = {};
@@ -2259,7 +2495,13 @@ export default {
     },
     visibleTabs: function() {
       var self = this;
-      if (self.isAdmin) return self.tabs;
+      if (self.isAdmin) {
+        // 组网从班：学元管理已移交主班，tab 整体隐藏（系统管理员豁免可查看配置）
+        if (self.xyMeshInfo.role === 'member' && !self.isSystemAdmin) {
+          return self.tabs.filter(function(tab) { return tab.key !== 'xueyuan'; });
+        }
+        return self.tabs;
+      }
       return self.tabs.filter(function(tab) {
         if (tab.key === 'users') return self.$store.getters['auth/canManage']('manage_users');
         if (tab.key === 'permissions') return false;
@@ -2592,6 +2834,8 @@ export default {
   },
   mounted: function() {
     this.loadServerStats();
+    // 组网角色先于 tab 数据加载：从班班管进来时要把误选中的学元 tab 切走
+    this.loadXyMeshInfo();
     if (!this.activeTab && this.visibleTabs.length > 0) {
       this.activeTab = this.visibleTabs[0].key;
     }
@@ -2684,6 +2928,145 @@ export default {
     },
 
     // ======== 学元管理 ========
+    // 新账本 1 元 = 1000 学元分；旧 xyMoney 是学元展示，不能混用
+    ledgerYuan: function(v) {
+      var n = Number(v);
+      if (!isFinite(n)) return '0.00';
+      return (n / 1000).toFixed(2);
+    },
+    ledgerPct: function(v) {
+      if (v == null || !isFinite(Number(v))) return '—';
+      return (Math.round(Number(v) * 1000) / 10).toFixed(1) + '%';
+    },
+
+    // ======== 小铺 ========
+    orderStatusText: function(s) {
+      var map = {
+        created: '待支付', paid: '待发货', fulfilled: '待结算',
+        done: '已完成', closed: '已关闭', refunding: '退款中',
+        refunded: '已退款', disputed: '争议中'
+      };
+      return map[s] || s;
+    },
+
+    loadShopAdmin: function() {
+      // 从班视角：小铺（交易体系）同样经 mesh 管理——商品/订单数据与操作
+      // 都作用在对端账本上，形状与本地同构所以复用同一份展示模板
+      if (this.xyView !== 'local') return this.loadShopPeer();
+      var self = this;
+      return Promise.all([
+        api.get('/xy/orders', { params: { status: 'paid,fulfilled,disputed', limit: 30 } }).catch(function() { return null; }),
+        api.get('/xy/goods', { params: { status: 'on_shelf', limit: 50 } }).catch(function() { return null; })
+      ]).then(function(rs) {
+        self.xyOrders = (rs[0] && rs[0].data && rs[0].data.data) || [];
+        self.xyGoods = (rs[1] && rs[1].data && rs[1].data.data) || [];
+      });
+    },
+    loadShopPeer: function() {
+      var self = this;
+      return Promise.all([
+        self.meshCommand('orders_list', { status: 'paid,fulfilled,disputed', limit: 30 }).catch(function() { return null; }),
+        self.meshCommand('goods_list', { status: 'on_shelf', limit: 50 }).catch(function() { return null; })
+      ]).then(function(rs) {
+        self.xyOrders = (rs[0] && rs[0].data && rs[0].data.data) || [];
+        self.xyGoods = (rs[1] && rs[1].data && rs[1].data.data) || [];
+      });
+    },
+
+    // 元 → 学元分（1 元 = 1000）。不要用 100，那是人民币分。
+    yuanToLedger: function(v) {
+      var n = Number(v);
+      if (!isFinite(n) || n < 0) return NaN;
+      return Math.round(n * 1000);
+    },
+
+    createGoods: function() {
+      var self = this;
+      var g = self.newGoods;
+      var price = self.yuanToLedger(g.price);
+      var cost = self.yuanToLedger(g.cost || 0);
+      if (!g.name || !isFinite(price) || price <= 0) {
+        self.$toast && self.$toast.error('商品名和售价必填');
+        return;
+      }
+      self.goodsBusy = true;
+      var req = self.xyView === 'local'
+        ? api.post('/xy/goods', {
+            name: g.name, price_cent: price, cost_cent: isFinite(cost) ? cost : 0, kind: g.kind
+          })
+        : self.meshCommand('goods_create', {
+            name: g.name, price_cent: price, cost_cent: isFinite(cost) ? cost : 0, kind: g.kind
+          });
+      req.then(function() {
+        self.$toast && self.$toast.success('已上架');
+        self.newGoods = { name: '', price: '', cost: '', kind: 'digital' };
+        self.loadShopAdmin();
+      }).catch(function(err) {
+        var msg = (err.response && err.response.data && err.response.data.message) || '上架失败';
+        self.$toast && self.$toast.error(msg);
+      }).then(function() { self.goodsBusy = false; });
+    },
+
+    offShelf: function(g) {
+      var self = this;
+      var req = self.xyView === 'local'
+        ? api.post('/xy/goods/' + g.id + '/status', { status: 'off_shelf' })
+        : self.meshCommand('goods_status', { id: g.id, status: 'off_shelf' });
+      req.then(function() {
+        self.$toast && self.$toast.success('已下架');
+        self.loadShopAdmin();
+      }).catch(function() { self.$toast && self.$toast.error('下架失败'); });
+    },
+
+    settleOrder: function(o) {
+      var self = this;
+      if (self.orderBusy) return;
+      self.orderBusy = true;
+      var rid = 'admin:settle:' + o.id + ':' + Date.now();
+      var chain = Promise.resolve();
+      // 结算要求「已履约」；还没标发货的，先补一步（虚拟商品没有物流，等于确认交付）
+      if (o.status === 'paid') {
+        chain = self.xyView === 'local'
+          ? api.post('/xy/orders/' + o.id + '/fulfill', { ref: rid + ':fulfill' })
+          : self.meshCommand('order_fulfill', { id: o.id, ref: rid + ':fulfill' });
+      }
+      chain.then(function() {
+        return self.xyView === 'local'
+          ? api.post('/xy/orders/' + o.id + '/settle', { ref: rid })
+          : self.meshCommand('order_settle', { id: o.id, ref: rid });
+      }).then(function() {
+        self.$toast && self.$toast.success('已结算');
+        self.loadShopAdmin();
+        self.loadXueyuan();
+      }).catch(function(err) {
+        var msg = (err.response && err.response.data && err.response.data.message) || '结算失败';
+        self.$toast && self.$toast.error(msg);
+      }).then(function() { self.orderBusy = false; });
+    },
+
+    refundOrder: function(o) {
+      var self = this;
+      if (self.orderBusy) return;
+      self.orderBusy = true;
+      var req = self.xyView === 'local'
+        ? api.post('/xy/orders/' + o.id + '/refund', {
+            ref: 'admin:refund:' + o.id + ':' + Date.now(),
+            reason: '班管退款'
+          })
+        : self.meshCommand('order_refund', {
+            id: o.id,
+            ref: 'admin:refund:' + o.id + ':' + Date.now(),
+            reason: '组网班管退款'
+          });
+      req.then(function() {
+        self.$toast && self.$toast.success('已退款，钱回到买家');
+        self.loadShopAdmin();
+        self.loadXueyuan();
+      }).catch(function(err) {
+        var msg = (err.response && err.response.data && err.response.data.message) || '退款失败';
+        self.$toast && self.$toast.error(msg);
+      }).then(function() { self.orderBusy = false; });
+    },
     xyMoney: function(v) {
       var n = Number(v);
       if (!isFinite(n)) return '0.00';
@@ -2706,13 +3089,17 @@ export default {
     },
     loadXueyuan: function() {
       var self = this;
+      // 从班视角：全部数据经本班后端代理从对端拉取，本地接口一个都不碰
+      if (self.xyView !== 'local') return self.loadXueyuanPeer();
       self.xyLoading = true;
       Promise.all([
         api.get('/xueyuan/admin/overview', { params: { recentLimit: 10 } }),
         api.get('/xueyuan/admin/withdrawals', { params: { limit: 30 } }),
         api.get('/xueyuan/admin/recharges', { params: { limit: 30 } }),
         // 健康度失败不能让整页挂掉：它是「建议」，不是「账本」
-        api.get('/xueyuan/admin/health', { params: { days: 30 } }).catch(function() { return null; })
+        api.get('/xueyuan/admin/health', { params: { days: 30 } }).catch(function() { return null; }),
+        // 新账本健康度是独立只读视图，未建表 / 未就绪时静默缺席
+        api.get('/xy/admin/health').catch(function() { return null; })
       ]).then(function(results) {
         var overview = (results[0].data && results[0].data.data) || {};
         var wd = (results[1].data && results[1].data.data) || {};
@@ -2724,6 +3111,9 @@ export default {
         self.xyWithdrawals = wd.list || [];
         self.xyRecharges = rc.list || [];
         self.xyHealth = hl || null;
+        var lg = results[4] && results[4].data && results[4].data.data;
+        self.xyLedger = lg || null;
+        self.loadShopAdmin();
       }).catch(function(err) {
         var msg = (err.response && err.response.data && err.response.data.message) || '学元数据加载失败';
         self.$toast && self.$toast.error(msg);
@@ -2731,16 +3121,126 @@ export default {
         self.xyLoading = false;
       });
     },
+    // 从班视角加载：响应形状与本地 admin 路由同构（服务端代理保证），
+    // 所以复用同一批展示字段；小铺是本班本地业务，从班视角不加载。
+    loadXueyuanPeer: function() {
+      var self = this;
+      self.xyLoading = true;
+      Promise.all([
+        self.meshCommand('overview', { recentLimit: 10 }),
+        self.meshCommand('withdrawals', { limit: 30 }),
+        self.meshCommand('recharges', { limit: 30 }),
+        self.meshCommand('students', {}),
+        self.meshCommand('health', { days: 30 }).catch(function() { return null; })
+      ]).then(function(results) {
+        function d(i) { return (results[i] && results[i].data && results[i].data.data) || {}; }
+        self.xySummary = d(0).summary || null;
+        self.xyAudit = d(0).audit || null;
+        self.xyPending = d(1).pending || [];
+        self.xyWithdrawals = d(1).list || [];
+        self.xyRecharges = d(2).list || [];
+        self.xyPeerStudents = d(3).list || [];
+        self.xyHealth = d(4) || null;
+        self.xyLedger = null;   // 账本不变量视图只描述本班账本，从班视角留空
+      }).catch(function(err) {
+        var msg = (err.response && err.response.data && err.response.data.message) || '从班学元数据加载失败';
+        self.$toast && self.$toast.error(msg);
+      }).then(function() {
+        self.xyLoading = false;
+      });
+    },
     runXyAudit: function() {
       var self = this;
-      api.get('/xueyuan/admin/audit').then(function(res) {
+      var req = self.xyView === 'local'
+        ? api.get('/xueyuan/admin/audit')
+        : self.meshCommand('overview', {});
+      req.then(function(res) {
         var d = (res.data && res.data.data) || {};
-        self.xyAudit = d;
-        self.$toast && self.$toast.success(d.ok ? '对账通过，账本无异常' : ('发现 ' + (d.issues || []).length + ' 项异常'));
+        self.xyAudit = d.audit || d;
+        var issues = (self.xyAudit && self.xyAudit.issues) || [];
+        self.$toast && self.$toast.success(d.ok === undefined || d.ok ? '对账通过，账本无异常' : ('发现 ' + issues.length + ' 项异常'));
       }).catch(function(err) {
         var msg = (err.response && err.response.data && err.response.data.message) || '对账失败';
         self.$toast && self.$toast.error(msg);
       });
+    },
+    // 撤回充值：不用 window.prompt / confirm（部分校园浏览器会静默拦截，
+    // 表现为"点了没反应"），改成行内两个按钮，一次点击就能完成。
+    // 不强制填原因：撤回本身已在流水里留痕（谁、何时、哪一笔），
+    // 原因只是附加信息，不该成为阻断操作的门槛。
+    startRevoke: function(r) {
+      this.xyRevoke = { id: r.id, reason: '', busy: false };
+    },
+    cancelRevoke: function() {
+      this.xyRevoke = { id: 0, reason: '', busy: false };
+    },
+    submitRevoke: function(r) {
+      var self = this;
+      if (self.xyRevoke.busy) return;
+      self.xyRevoke.busy = true;
+      var req = self.xyView === 'local'
+        ? api.post('/xueyuan/admin/recharge/' + r.id + '/revoke', { reason: self.xyRevoke.reason })
+        : self.meshCommand('recharge_revoke', { rechargeId: r.id, reason: self.xyRevoke.reason });
+      req.then(function(res) {
+        var d = (res.data && res.data.data) || {};
+        self.$toast && self.$toast.success(d.duplicate ? '这笔充值此前已撤回' : '已撤回，学元已冲销');
+        self.xyRevoke = { id: 0, reason: '', busy: false };
+        self.loadXueyuan();
+      }).catch(function(err) {
+        var msg = (err.response && err.response.data && err.response.data.message) || '撤回失败';
+        self.$toast && self.$toast.error(msg);
+        self.xyRevoke.busy = false;
+      });
+    },
+    submitXyRefund: function() {
+      var self = this;
+      if (self.xyRefund.busy) return;
+      var uid = String(self.xyRefund.userId || '').trim();
+      if (!uid) return self.$toast && self.$toast.error('请填写学号');
+      var from = String(self.xyRefund.from || '').trim();
+      if (!from) return self.$toast && self.$toast.error('请填写退款方学号（谁收的钱谁退）');
+      if (from === uid) return self.$toast && self.$toast.error('退款方不能是收款人自己');
+      var yuan = Number(self.xyRefund.yuan);
+      if (!(yuan > 0)) return self.$toast && self.$toast.error('退款金额必须大于 0');
+      if (!String(self.xyRefund.reason || '').trim()) {
+        return self.$toast && self.$toast.error('请填写退款原因');
+      }
+      var poolText = self.xyRefund.pool === 'grant' ? '赠送学元' : '充值学元';
+      self.$modal.confirm({
+        title: '确认退款',
+        message: '将从 ' + from + ' 的余额扣出 ¥' + self.xyMoney(yuan) + '（' + poolText +
+          '），退给 ' + uid + '。确认现金已经当面交付、对方账上确实有这笔钱。',
+        confirmText: '确认退款',
+        cancelText: '取消'
+      }).then(function(ok) {
+        if (!ok) return;
+        self.xyRefund.busy = true;
+        var req = self.xyView === 'local'
+          ? api.post('/xueyuan/admin/refund', {
+              userId: uid,
+              from: from,
+              yuan: yuan,
+              pool: self.xyRefund.pool,
+              reason: self.xyRefund.reason
+            })
+          : self.meshCommand('refund', {
+              userId: uid,
+              from: from,
+              yuan: yuan,
+              pool: self.xyRefund.pool,
+              reason: self.xyRefund.reason
+            });
+        req.then(function(res) {
+          var msg = (res.data && res.data.message) || '退款成功';
+          self.$toast && self.$toast.success(msg);
+          self.xyRefund = { userId: '', from: '', yuan: '', pool: 'cash', reason: '', busy: false };
+          self.loadXueyuan();
+        }).catch(function(err) {
+          var m = (err.response && err.response.data && err.response.data.message) || '退款失败';
+          self.$toast && self.$toast.error(m);
+          self.xyRefund.busy = false;
+        });
+      }).catch(function() {});
     },
     submitXyRecharge: function() {
       var self = this;
@@ -2750,12 +3250,22 @@ export default {
       var yuan = Number(self.xyRecharge.yuan);
       if (!(yuan > 0)) return self.$toast && self.$toast.error('每人金额必须大于 0 元');
       self.xyRecharge.busy = true;
-      api.post('/xueyuan/admin/recharge', {
-        userIds: ids,
-        yuan: yuan,
-        memo: self.xyRecharge.memo,
-        requestId: 'rc' + Date.now() + '-' + Math.floor(Math.random() * 100000)
-      }).then(function(res) {
+      // 本班直连本地路由；从班视角走 mesh 代理（服务端注入操作者并签名转发，
+      // 响应形状与本地一致：{ done, skipped, request_id }）
+      var req = self.xyView === 'local'
+        ? api.post('/xueyuan/admin/recharge', {
+            userIds: ids,
+            yuan: yuan,
+            memo: self.xyRecharge.memo,
+            requestId: 'rc' + Date.now() + '-' + Math.floor(Math.random() * 100000)
+          })
+        : self.meshCommand('recharge', {
+            userIds: ids,
+            yuan: yuan,
+            memo: self.xyRecharge.memo,
+            requestId: 'rc' + Date.now() + '-' + Math.floor(Math.random() * 100000)
+          });
+      req.then(function(res) {
         var body = res.data || {};
         var d = body.data || {};
         if (body.code !== 200) throw { message: body.message };
@@ -2781,7 +3291,10 @@ export default {
       if (!approve && !window.confirm('驳回后学元会退回同学可用余额，确定驳回？')) return;
       if (approve && !window.confirm('确认已经当面把现金交给 ' + w.user_id + '？通过后将扣除其冻结学元。')) return;
       self.xyReviewBusyId = w.id;
-      api.post('/xueyuan/admin/withdrawals/' + w.id + '/review', { approve: approve }).then(function(res) {
+      var req = self.xyView === 'local'
+        ? api.post('/xueyuan/admin/withdrawals/' + w.id + '/review', { approve: approve })
+        : self.meshCommand('withdraw_review', { id: w.id, approve: approve });
+      req.then(function(res) {
         var body = res.data || {};
         if (body.code !== 200) throw { message: body.message };
         self.$toast && self.$toast.success(body.message || '已处理');
@@ -2791,6 +3304,122 @@ export default {
         self.$toast && self.$toast.error(msg);
       }).then(function() {
         self.xyReviewBusyId = null;
+      });
+    },
+
+    // ======== 组网学元（xy-mesh） ========
+    // 读本实例的组网角色（/api/xueyuan/config 顺带透出，登录即可读）
+    loadXyMeshInfo: function() {
+      var self = this;
+      api.get('/xueyuan/config').then(function(res) {
+        var mesh = ((res.data && res.data.data) || {}).mesh || {};
+        self.xyMeshInfo = { role: mesh.role || '', peers: [], loaded: true };
+        if (mesh.role === 'member' && self.activeTab === 'xueyuan' && !self.isSystemAdmin) {
+          var tabs = self.visibleTabs;
+          self.activeTab = tabs.length ? tabs[0].key : '';
+          self.$toast && self.$toast.info && self.$toast.info('本班学元管理已移交组网主班');
+        }
+        if (self.isSystemAdmin) self.loadMeshConfig();
+      }).catch(function() {
+        self.xyMeshInfo = { role: '', peers: [], loaded: true };
+      });
+    },
+    switchXyView: function(v) {
+      if (this.xyView === v) return;
+      this.xyView = v;
+      this.loadXueyuan();
+    },
+    // 主班 → 从班的统一出口：服务端注入操作者后 HMAC 签名转发
+    meshCommand: function(command, payload) {
+      return api.post('/xueyuan/admin/mesh/command', { peerClass: this.xyView, command: command, payload: payload });
+    },
+    pickPeerStudent: function(uid) {
+      var cur = String(this.xyRecharge.userInput || '').trim();
+      this.xyRecharge.userInput = cur ? (cur + ',' + uid) : uid;
+    },
+    // 组网配置（系统管理员）：读取当前库里的配置到表单
+    loadMeshConfig: function() {
+      var self = this;
+      api.get('/xueyuan/admin/mesh-config').then(function(res) {
+        var d = (res.data && res.data.data) || {};
+        self.meshForm.role = d.role || '';
+        self.meshForm.secretReady = !!d.secret_ready;
+        self.meshForm.peers = (d.peers || []).map(function(p) {
+          return { class: p.class, base: p.base, _msg: '', _ok: null };
+        });
+        if (self.meshForm.role === 'member' && !self.meshForm.peers.length) {
+          self.meshForm.peers = [{ class: '', base: '', _msg: '', _ok: null }];
+        }
+        self.loadMeshLog();
+      }).catch(function() { /* 配置接口失败不打断页面 */ });
+    },
+    // 组网命令审计（系统管理员）：命令名翻译成人话，方便对账排障
+    loadMeshLog: function() {
+      var self = this;
+      api.get('/xueyuan/admin/mesh/log', { params: { limit: 20 } }).then(function(res) {
+        self.meshLogs = ((res.data && res.data.data) || {}).list || [];
+      }).catch(function() { self.meshLogs = []; });
+    },
+    meshCommandLabel: function(cmd) {
+      var map = {
+        ping: '连通测试',
+        students: '读取学员',
+        overview: '读取概览',
+        health: '读取健康度',
+        recharges: '读取充值记录',
+        withdrawals: '读取提现列表',
+        recharge: '充值',
+        recharge_revoke: '撤回充值',
+        withdraw_review: '提现审批',
+        grant: '教师发放',
+        deduct: '教师扣减',
+        refund: '退款'
+      };
+      return map[cmd] || cmd;
+    },
+    changeMeshRole: function() {
+      if (this.meshForm.role === 'member' && !this.meshForm.peers.length) {
+        this.meshForm.peers = [{ class: '', base: '', _msg: '', _ok: null }];
+      }
+    },
+    saveMeshConfig: function() {
+      var self = this;
+      if (self.meshForm.busy) return;
+      var peers;
+      if (self.meshForm.role === 'member') {
+        var p0 = self.meshForm.peers[0] || {};
+        peers = [{ class: p0.class || '', base: p0.base || '' }];
+      } else if (self.meshForm.role === 'master') {
+        peers = self.meshForm.peers.map(function(p) { return { class: p.class, base: p.base }; });
+      } else {
+        peers = [];
+      }
+      self.meshForm.busy = true;
+      api.post('/xueyuan/admin/mesh-config', { role: self.meshForm.role, peers: peers }).then(function(res) {
+        var d = (res.data && res.data.data) || {};
+        self.meshForm.peers = (d.peers || []).map(function(p) {
+          return { class: p.class, base: p.base, _msg: '', _ok: null };
+        });
+        self.$toast && self.$toast.success((res.data && res.data.message) || '组网配置已保存');
+        self.loadXyMeshInfo();
+      }).catch(function(err) {
+        var msg = (err.response && err.response.data && err.response.data.message) || '保存失败';
+        self.$toast && self.$toast.error(msg);
+      }).then(function() {
+        self.meshForm.busy = false;
+      });
+    },
+    testMeshPeer: function(p) {
+      if (!p || !p.base) return;
+      var self = this;
+      p._msg = '测试中…';
+      p._ok = null;
+      api.post('/xueyuan/admin/mesh-config/test', { base: p.base }).then(function() {
+        p._ok = true;
+        p._msg = '连通，签名校验通过';
+      }).catch(function(err) {
+        p._ok = false;
+        p._msg = (err.response && err.response.data && err.response.data.message) || '对端不可达';
       });
     },
 
@@ -7554,6 +8183,28 @@ export default {
   color: #D08A17;
   font-size: var(--font-size-caption2);
 }
+.xy-revoke-box {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.xy-revoke-input {
+  width: 110px;
+  min-width: 90px;
+  height: 28px;
+  padding: 0 8px;
+  font-size: var(--font-size-caption1);
+}
+.xy-revoked-row td { opacity: 0.45; }
+.xy-revoked-tag {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 7px;
+  font-size: var(--font-size-caption2);
+  background: rgba(228, 87, 79, 0.14);
+  color: var(--danger-color);
+}
 .xy-health {
   margin-bottom: 16px;
   padding: 12px 14px;
@@ -7595,10 +8246,117 @@ export default {
   line-height: 1.7;
 }
 .xy-health-metrics b { font-variant-numeric: tabular-nums; }
+/* 练习金是封闭池：显示出来但不参与物价判断，用淡色区分 */
+.xy-health-practice { opacity: 0.72; cursor: help; }
+.xy-health-practice b { font-weight: 600; }
 .xy-health-warn { margin: 8px 0 0; padding-left: 18px; line-height: 1.7; }
 .xy-health-warn li.risk { color: var(--danger-color); }
 .xy-health-warn li.watch { color: #D08A17; }
 .xy-health-ok { margin: 8px 0 0; opacity: 0.6; }
+/* 新账本健康度：与旧账本分区，只读；未建表时整块不渲染 */
+.xy-ledger {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(127, 127, 127, 0.25);
+  background: rgba(127, 127, 127, 0.06);
+}
+.xy-ledger-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.xy-ledger-head > i { color: #378ADD; }
+.xy-ledger-badge {
+  padding: 1px 7px;
+  border-radius: 7px;
+  font-size: var(--font-size-caption2);
+  background: rgba(46, 158, 91, 0.14);
+  color: var(--success-color);
+}
+.xy-ledger.bad .xy-ledger-badge {
+  background: rgba(228, 87, 79, 0.14);
+  color: var(--danger-color);
+}
+.xy-ledger-note { margin-left: auto; opacity: 0.55; font-size: var(--font-size-caption2); }
+.xy-ledger-metrics { display: flex; flex-wrap: wrap; gap: 6px 18px; opacity: 0.85; line-height: 1.7; }
+.xy-ledger-metrics b { font-variant-numeric: tabular-nums; }
+.xy-ledger-issues { margin: 8px 0 0; padding-left: 18px; line-height: 1.7; color: var(--danger-color); }
+.xy-ledger-ok { margin: 8px 0 0; opacity: 0.6; }
+
+/* ---------- 小铺 ---------- */
+.xy-shop {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(120, 140, 170, 0.24);
+  background: rgba(120, 140, 170, 0.05);
+}
+.xy-shop-head { display: flex; align-items: center; gap: 8px; }
+.xy-shop-head > i { color: #378ADD; }
+.xy-shop-badge {
+  padding: 1px 8px;
+  border-radius: 8px;
+  font-size: 11px;
+  background: rgba(120, 140, 170, 0.16);
+}
+.xy-shop-note { margin-left: auto; font-size: 11px; opacity: 0.6; }
+.xy-order-list { margin-top: 10px; border-radius: 10px; overflow: hidden; background: var(--card-bg, #fff); }
+.xy-order {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+.xy-order + .xy-order { border-top: 1px solid rgba(120, 140, 170, 0.16); }
+.xo-name { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.xo-meta { opacity: 0.65; font-size: 11px; }
+.xo-actions { display: flex; gap: 6px; }
+.xo-btn {
+  padding: 3px 10px;
+  border-radius: 7px;
+  border: 1px solid rgba(120, 140, 170, 0.4);
+  background: transparent;
+  font-size: 11px;
+  color: inherit;
+}
+.xo-btn.danger { color: #E4574F; border-color: rgba(228, 87, 79, 0.5); }
+.xo-btn[disabled] { opacity: 0.5; }
+.xy-shop-empty { margin: 10px 0 0; font-size: 12px; opacity: 0.6; }
+.xy-goods-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.xy-goods-chip {
+  padding: 3px 9px;
+  border-radius: 8px;
+  font-size: 11px;
+  background: rgba(120, 140, 170, 0.12);
+}
+.xy-goods-chip em { margin-left: 6px; font-style: normal; color: #E4574F; cursor: pointer; }
+.xy-goods-form { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+.xg-input {
+  padding: 5px 9px;
+  border-radius: 8px;
+  border: 1px solid rgba(120, 140, 170, 0.35);
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  width: 88px;
+}
+.xg-name { width: 140px; }
+.xg-add {
+  padding: 5px 14px;
+  border-radius: 8px;
+  border: 0;
+  background: #378ADD;
+  color: #fff;
+  font-size: 12px;
+}
+.xg-add[disabled] { opacity: 0.6; }
+.xy-shop-tip { margin: 8px 0 0; font-size: 11px; line-height: 1.6; opacity: 0.6; }
+.xy-ledger-notice {
+  margin: 8px 0 0;
+  padding: 6px 10px;
+  border-radius: 8px;
+  line-height: 1.6;
+  background: rgba(208, 138, 23, 0.12);
+  color: #D08A17;
+}
 .xy-audit {
   display: flex;
   align-items: flex-start;
@@ -7670,6 +8428,62 @@ export default {
   margin: 0;
   font-size: var(--font-size-caption2);
   line-height: 1.6;
+  color: var(--text-tertiary);
+}
+/* ===== 组网学元（xy-mesh） ===== */
+/* Chrome 80 基线不支持 flex gap，用 margin 替代 */
+.xy-view-chips { display: inline-flex; margin-left: 12px; }
+.view-chip {
+  padding: 3px 12px;
+  margin-right: 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-caption2);
+  cursor: pointer;
+}
+.view-chip.active {
+  background: var(--primary-color);
+  border-color: var(--primary-color);
+  color: #fff;
+}
+.mesh-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(208, 138, 23, 0.12);
+  border: 1px solid rgba(208, 138, 23, 0.35);
+  color: #D08A17;
+  font-size: var(--font-size-caption);
+  line-height: 1.6;
+}
+.mesh-banner b { margin: 0 2px; }
+.mesh-row-disabled { opacity: 0.55; }
+.mesh-warn { color: #D08A17; font-size: var(--font-size-caption2); }
+.mesh-peers { margin-top: 10px; }
+.mesh-peer-row .xy-input-sm { flex: 0 0 190px; width: 190px; }
+.mesh-test-msg { font-size: var(--font-size-caption2); color: var(--text-tertiary); }
+.mesh-test-msg.ok { color: #3a9e52; }
+.mesh-test-msg.bad { color: #c0504d; }
+.mesh-log { margin-top: 14px; }
+.mesh-log-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+}
+.mesh-log-err {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-caption2);
   color: var(--text-tertiary);
 }
 .xy-empty {

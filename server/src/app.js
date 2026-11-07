@@ -372,6 +372,8 @@ app.use('/api/xueyuan', rateLimit({ max: 300, windowMs: 60000 }), require('./rou
 // 与 /api/xueyuan 读同一套账本，不另记账；红包实现已上移到 services/yuanbao.js，
 // 证券应用里的红包面板也调它 —— 两个入口看到的是同一份数据。
 app.use('/api/wallet', rateLimit({ max: 300, windowMs: 60000 }), require('./routes/wallet'));
+// 学元账本（账本 + 订单 + 托管结算 + 双轨红包）。与旧 /api/xueyuan 并行，切换前互不影响。
+app.use('/api/xy', rateLimit({ max: 300, windowMs: 60000 }), require('./routes/ledger'));
 // Cluss 联动桥（只读）：供 Cluss 校验 ClassIntra 账号，实现跨系统账号互通
 // 未配置 RELAY_SECRET 时该路由自身返回 503，不影响任何现有功能
 app.use('/api/cluss-bridge', require('./routes/cluss-bridge'));

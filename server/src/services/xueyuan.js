@@ -1,127 +1,100 @@
 // 学元（XueYuan）—— 平台统一虚拟货币服务
 // ============================================================
-// 学元是 ClassIntra 生态里的**唯一**记账货币，供平台功能与第三方应用结算。
-// 它与 Cluss 的积分体系**完全独立**：不共享表、不共享接口、不互相兑换。
+// ⚠️ 2026-11-07：本文件已从「自带一套账本」改为**学元账本的门面**。
 //
-// ---- 双资金池（2026-11-04 起）----
-// 学元按来源拆成两个池，从记账层就分开，避免「赠送 → 提现」套现：
-//   cash  充值学元：班管线下收现金后录入，可转账、发红包、投资、提现
-//   grant 赠送学元：开户礼金 / 每日津贴 / 教师发放 / 成就奖励 / 投资收益，
-//         可转账、发红包、扫码支付、投资，但**不可提现**（提现只认累计净充值）
-// 所有支出必须显式声明资金池；未声明时按「赠送优先」处理（兼容旧调用）。
+// ---- 这次改了什么 ----
+// 以前这里直接读写 xy_account / xy_tx / xy_entry 三张表，自己实现复式记账、
+// 冻结、配额、统计。现在资金全部委托给 src/ledger/*：
 //
-// ---- 与现实货币的比率 ----
-// 默认 1 元 = 1000 学元（100 分 = 1 学元）。可在配置或环境变量里改（正数倍率），
-// 但充值、提现、流水展示统一走 yuanRate()，不允许各页面自己换算。
+//   学元钱包 / 红包 / 收款 / 支付密码 / 证券
+//          ↓（调用不变的 40 个函数）
+//   services/xueyuan.js  ← 本文件，只做语义翻译与业务校验
+//          ↓
+//   src/ledger/ledger.js  post() 唯一写入口，按资产分组守恒
 //
-// ---- 四条硬规则（改代码前先看这四条）----
-// 1. **复式记账，借贷必平**。每笔业务写 xy_tx + ≥2 条 xy_entry，SUM(delta)=0。
-//    任何「只加不减」的实现都是发币，必须走 mint()（对手方是 @system:mint）。
-// 2. **金额一律整数分**。对外接口收「学元」小数，进来立刻转分；
-//    内部绝不用浮点参与运算。
-// 3. **幂等靠 ref**。发钱、发津贴、成交结算、充值、提现都必须带稳定 ref，
-//    重试/并发不会重复入账（ref 上有唯一索引）。
-// 4. **投资收益不可提现**。卖出回款必须走 creditTrade()：本金回 cash、收益进 grant；
-//    直接 credit() 会把收益打进 cash，破坏「收益不可提现」的结构性保证。
+// 保留本文件、而不是让所有调用方直接 require ledger/*，原因是：
+// 1. 对外语义是「学元」，入参出参都是 (user_id, delta, pool) 这套旧形状，
+//    前端与第三方应用已经按它写好了；换掉等于全站改接口。
+// 2. 配额（单笔/每日/学期）、账户状态、提示文案这些**业务规则**留在这里，
+//    账本只管「钱不能凭空多、不能透支」。两者职责不同。
+// 3. 旧表 xy_recharge / xy_withdraw 是业务凭证（谁在什么时候交了现金、
+//    哪张提现单被谁批的），不是账本，继续留在原处。
 //
-// ---- 为什么余额字段和分录可能对不上 ----
-// 正常情况下 balance == SUM(entry.delta)。如果对不上，说明有人绕过本服务
-// 直接 UPDATE 了表。audit() 就是为抓这种情况存在的，不要把它删掉。
+// ---- 三条硬规则（改代码前先看）----
+// 1. **钱只有一种**：CASH 1 学元分 = 1 人民币分，锚定永不改变。
+//    GRANT / PRACTICE 是权益额度，不是钱，永不兑付。
+// 2. **每笔业务都要有 ref**。没有稳定 ref 的写账等于放弃幂等，重试就重复扣款。
+// 3. **冻结不再是 balance 上的一个数**。新账本用托管账户表达冻结：
+//    hold = 用户 → escrow:hold:<学号>，release = 反向。
+//    所以 getAccount().cash_balance 报的是**可用**余额（已扣掉冻结）。
 //
 // 编码约定：var / function（服务端 CommonJS 风格）
 
 var db = require('../utils/db');
 var config = require('../config');
+var ledger = require('../ledger/ledger');
+var invariants = require('../ledger/invariants');
+var cashbook = require('../ledger/cashbook');
+var rechargeTpl = require('../ledger/templates/recharge');
+var invest = require('../ledger/invest');
+var units = require('../ledger/units');
 
 // ---------- 常量 ----------
-var CENT_PER_YUAN = 100;
+// 单位换算一律走 ledger/units.js，绝不在本文件里再写 /100、*1000。
+// 两套口径的倍差及未决事项见 units.js 顶部说明。
+var CENT_PER_YUAN = units.UNITS_PER_XUEYUAN;
 
 var POOL = {
   CASH: 'cash',
   GRANT: 'grant',
+  // 练习金：证券沙盘专用。只能在证券里买卖，不能转账、发红包、买货、提现。
+  PRACTICE: 'practice',
   SYSTEM: 'system'
 };
 
-// 学元与现实货币比率：1 元 = 1000 学元（默认）。
-// 金额常量统一以「人民币元」定义，再按当前比率折算成分：
-// 调整汇率只改变学元面额，真实货币约束（充值/转账/提现上限）不变。
-//
-// ⚠️ 但「不变」只对**未发生的业务**成立。一旦账上有了充值学元，汇率就同时是
-//    负债的计量单位：1000 改成 2000，1 元的欠款变成 0.5 元（学生认为你违约）；
-//    改成 500，1 元变成 2 元（你凭空多欠一倍，直接亏本）。所以：
-//    **有过充值之后，yuanRate 只能保持不变，改它必须配合一次性重估全部余额。**
-var YUAN_RATE = 1000;
+// 旧池名 → 新资产名。这是本文件里唯一一处「名字对照」，
+// 其余地方一律用 ASSET_OF / assetOf()，不要再散落 if。
+var ASSET_OF = { cash: 'CASH', grant: 'GRANT', practice: 'PRACTICE' };
 
-// 新账户赠金：10 元（1:1000 下为 10000 学元，给新生一笔启动资金去体验投资）
+// 学元与现实货币比率：1 元 = 1000 学元（默认）。
+// ⚠️ 有过充值之后它就是负债的计量单位：改 2000 学生认为你违约，改 500 你凭空多欠一倍。
+//    所以 yuanRate() 只读，不允许任何地方写。
+var YUAN_RATE = units.XUEYUAN_PER_YUAN;
+
 var WELCOME_CENT = yuanToCent(cfgNum('welcomeYuan', 10));
-// 每日助学津贴：0.2 元（1:1000 下为 200 学元）；连续第 7 天起 0.4 元（400 学元）
-// 2026-11-05 收紧：原来是 1 元/天，一个 40 人班一年要发约 2.9 万元等值，
-// 是真实充值规模的十倍以上，会让教师发放的奖励失去稀缺感。降到 1/5 后，
-// 全班一年赠金与班级实际充值规模同量级。
 var DAILY_CENT = yuanToCent(cfgNum('dailyYuan', 0.2));
 var DAILY_BONUS_CENT = yuanToCent(cfgNum('dailyBonusYuan', 0.4));
 var DAILY_BONUS_FROM_DAY = Math.max(1, Math.round(cfgNum('dailyBonusFromDay', 7)));
-// 单笔转账上限：500 元（防手滑把全副身家一次转错人）
 var MAX_TRANSFER_CENT = yuanToCent(500);
-// 单笔业务上限：1 万元人民币等值。必须 ≥ 单笔充值上限，
-// 否则班管一次录入大额充值时会被记账内核拦截；用元定义可让汇率调整不影响人民币约束。
 var MAX_TX_CENT = yuanToCent(10000);
-// 单账户余额上限：1 万元人民币等值（溢出/异常保护）
 var MAX_BALANCE_CENT = yuanToCent(10000);
-// 单笔线下充值上限：200 元等值。
-// 2026-11-05 从 2000 收紧：一次能充 200 万学元，等于允许「一次氪金清空整间网店」，
-// 会把班级经济变成比谁家长钱包厚。异常大额走多次录入或学期配额审批。
 var MAX_RECHARGE_CENT = yuanToCent(cfgNum('maxRechargeYuan', 200));
-// 每人每学期累计充值配额：300 元等值。
-// 单笔上限只能防「一笔太大」，防不住「拆成十笔」。学期总额才是真正的护栏。
 var RECHARGE_QUOTA_CENT = yuanToCent(cfgNum('rechargeQuotaYuan', 300));
-// 单人单次教师发放上限：0.5 元等值。
-// 2026-11-05 从 10 元收紧：一笔 10 元 = 50 天津贴，一次点击就能把价格体系打乱。
-// 发放应当是「细水长流的激励」，不是「一次性发钱」。
 var MAX_GRANT_CENT = yuanToCent(cfgNum('maxGrantYuan', 0.5));
-// 每人每日累计发放上限：2 元等值。防「拆成 20 笔 0.5 元」绕过单次上限。
 var GRANT_DAILY_CAP_CENT = yuanToCent(cfgNum('grantDailyCapYuan', 2));
-// 单笔提现上限：1000 元等值；且提现总额不得超过累计净充值
 var MAX_WITHDRAW_CENT = yuanToCent(1000);
-// 提现最小额：1 元等值
 var MIN_WITHDRAW_CENT = yuanToCent(1);
 
 var SYSTEM_MINT = '@system:mint';
 var SYSTEM_FEE = '@system:fee';
+var SYSTEM_SETTLE = '@system:settle';
 
-// 允许的 kind 枚举。不在这里的 kind 一律拒绝 —— 是为了让流水可读、
-// 可聚合，也防止第三方应用随手发明一个 kind 把统计口径搞乱。
-var KINDS = {
-  welcome: '开户赠金',
-  daily: '助学津贴',
-  admin_grant: '教师发放',
-  admin_deduct: '教师扣减',
-  transfer: '同学转账',
-  trade: '交易结算',
-  profit: '投资收益',
-  fee: '交易费用',
-  reward: '任务奖励',
-  refund: '退款',
-  adjust: '账目调整',
-  recharge: '线下充值',
-  withdraw: '提现'
-};
+// 业务类型清单以账本白名单为准，这里只做一次映射到中文标签，
+// 避免出现「账本能记、这里不认」的两套枚举。
+var KINDS = ledger.KINDS;
 
-// 普通用户是 6 位学号；系统账户形如 @system:mint / @app:stock:escrow（含冒号）
 var USER_ID_RE = /^[A-Za-z0-9_.@:-]{1,64}$/;
 
 // ---------- 工具 ----------
 
 function now() { return Date.now(); }
 
-// 读 config.xueyuan 里的数值项。缺失/非法时退回内置默认值，
-// 这样「配置文件没写」和「写错了」都不会把经济参数变成 NaN。
 function cfgNum(key, fallback) {
   var v = config && config.xueyuan ? Number(config.xueyuan[key]) : NaN;
   return isFinite(v) ? v : fallback;
 }
 
-// 中国时区某一天的 00:00（服务器可能跑在 UTC，津贴与配额都按学校时区切日）
+// 中国时区某一天的 00:00
 function dayStartMs(ts) {
   var t = ts || now();
   var d = new Date(t + 8 * 3600 * 1000);
@@ -129,8 +102,7 @@ function dayStartMs(ts) {
   return d.getTime() - 8 * 3600 * 1000;
 }
 
-// 学期区间：9/1–次年 1/31 为秋季（S1），2/1–8/31 为春季（S2）。
-// 只在「充值配额」这种需要按学期累计的地方使用，不参与津贴切日。
+// 学期区间：9/1–次年 1/31 为秋季（S1），2/1–8/31 为春季（S2）
 function semesterRange(ts) {
   var t = ts || now();
   var d = new Date(t + 8 * 3600 * 1000);
@@ -146,37 +118,58 @@ function semesterRange(ts) {
     startYear = y; key = y + '-S2';
   }
   var startUtc = (m >= 9 || m === 1)
-    ? Date.UTC(startYear, 8, 1)   // 9 月 1 日
-    : Date.UTC(startYear, 1, 1);  // 2 月 1 日
+    ? Date.UTC(startYear, 8, 1)
+    : Date.UTC(startYear, 1, 1);
   return { key: key, startMs: startUtc - 8 * 3600 * 1000 };
 }
 
-// 学元 → 分。接受数字或字符串；非法返回 null。
+// 学元 → 账本单位。接受数字或字符串；非法返回 null。
 function toCent(yuan) {
-  if (yuan === null || yuan === undefined || yuan === '') return null;
-  var n = typeof yuan === 'number' ? yuan : Number(String(yuan).trim());
-  if (!isFinite(n)) return null;
-  // 先四舍五入到分，避免 0.1*3 这类浮点尾巴
-  var cent = Math.round(n * CENT_PER_YUAN);
-  if (!isFinite(cent)) return null;
-  return cent;
+  return units.xueyuanToUnits(yuan);
 }
 
 function fromCent(cent) {
-  return Math.round(Number(cent) || 0) / CENT_PER_YUAN;
+  return units.unitsToXueyuan(cent);
+}
+
+// 业务入参金额解析（唯一入口）。
+// 三个来源按优先级取一个，避免「路由传 amount、服务读 yuan」这类静默 NaN：
+//   amountCent  已换算好的账本单位（内部调用 / 已校验的路由）
+//   amount      学元，前端绝大多数金额输入框的单位
+//   yuan        人民币元，只有班管充值/退款才用它
+// 三者都没给返回 null，由调用方决定报什么错。
+function parseAmountCent(o, rate) {
+  var opt = o || {};
+  if (typeof opt.amountCent === 'number') return Math.round(opt.amountCent);
+  if (opt.amount !== undefined && opt.amount !== null && opt.amount !== '') {
+    return toCent(opt.amount);
+  }
+  if (opt.yuan !== undefined && opt.yuan !== null && opt.yuan !== '') {
+    return yuanToCent(opt.yuan, rate);
+  }
+  return null;
+}
+
+// 校验 + 解析一步到位：非法金额必须给出「用户能看懂」的提示，
+// 而不是「必须是正整数分」这种把内部单位漏给学生的黑话。
+function requireAmountCent(o, label, rate) {
+  var tag = label || '金额';
+  var cent = parseAmountCent(o, rate);
+  if (cent === null || !isFinite(cent) || cent <= 0 || Math.floor(cent) !== cent) {
+    throw new Error(tag + '不合法：请填写大于 0 的学元数额（最多两位小数）');
+  }
+  return cent;
 }
 
 function isValidUserId(userId) {
-  var id = String(userId || '');
-  if (!USER_ID_RE.test(id)) return false;
-  return true;
+  return USER_ID_RE.test(String(userId || ''));
 }
 
 function isSystem(userId) {
   return String(userId || '').charAt(0) === '@';
 }
 
-// 中国时区的 YYYY-MM-DD（服务器可能跑在 UTC，津贴按学校所在时区切日）
+// 中国时区的 YYYY-MM-DD
 function todayKey(ts) {
   var d = new Date((ts || now()) + 8 * 3600 * 1000);
   return d.getUTCFullYear() + '-' +
@@ -188,14 +181,34 @@ function isValidKind(kind) {
   return typeof kind === 'string' && Object.prototype.hasOwnProperty.call(KINDS, kind);
 }
 
-function ensureSchema() {
-  // 迁移由 server 统一执行；这里只做「表是否就绪」的兜底，
-  // 让应用后端在迁移尚未跑到的极端情况下给出清晰错误而不是 undefined。
-  var row = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='xy_account'").get();
-  if (!row) throw new Error('学元账本尚未初始化（缺少 xy_account 表），请先执行数据库迁移');
+// 账本时间戳是 ISO 字符串，对外一律回到毫秒数 —— 旧前端按数字做格式化，
+// 这里换格式等于让所有「几天前」都显示成 NaN。
+function msOf(iso) {
+  var t = Date.parse(iso);
+  return isFinite(t) ? t : 0;
 }
 
-// 1 元 = 多少学元。默认 1000，可通过配置/环境变量调整（必须是正数）。
+function isoOf(ms) {
+  if (ms == null) return new Date().toISOString();
+  var n = Number(ms);
+  return isFinite(n) ? new Date(n).toISOString() : String(ms);
+}
+
+function genRef(prefix) {
+  return 'auto:' + prefix + ':' + now().toString(36) + ':' + Math.random().toString(36).slice(2, 8);
+}
+
+function ensureSchema() {
+  // 表由 migrations/036 创建。这里只做「是否就绪」的兜底，
+  // 让服务在迁移没跑到的极端情况下报清晰错误，而不是 undefined。
+  var row = db.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='xy_ledger_accounts'"
+  ).get();
+  if (!row) {
+    throw new Error('学元账本尚未初始化（缺少 xy_ledger_accounts 表）。请先执行 node scripts/ledger-init.cjs 或重启服务跑迁移');
+  }
+}
+
 function yuanRate() {
   var raw = (config && config.xueyuan && config.xueyuan.yuanRate) || process.env.XUEYUAN_YUAN_RATE || YUAN_RATE;
   var n = Number(raw);
@@ -203,25 +216,20 @@ function yuanRate() {
   return n;
 }
 
-// 人民币元 → 学元分
 function yuanToCent(yuan, rate) {
-  var r = rate || yuanRate();
-  var n = Number(yuan);
-  if (!isFinite(n)) return null;
-  return Math.round(n * r * CENT_PER_YUAN);
+  return units.yuanToWalletUnits(yuan, rate || yuanRate());
 }
 
-// 学元分 → 人民币元
 function centToYuan(cent, rate) {
-  var r = rate || yuanRate();
-  return Math.round((Number(cent) || 0) / CENT_PER_YUAN / r * 100) / 100;
+  return units.walletUnitsToYuan(cent, rate || yuanRate());
 }
 
 function normalizePool(pool, delta, userId) {
   if (isSystem(userId)) return POOL.SYSTEM;
   var p = String(pool || '');
-  if (p === POOL.CASH || p === POOL.GRANT) return p;
+  if (p === POOL.CASH || p === POOL.GRANT || p === POOL.PRACTICE) return p;
   // 未声明：入账默认赠送池；出账也默认赠送池（旧调用行为）
+  // 刻意不让 practice 成为默认值，否则任何一处漏传 pool 的旧代码都会悄悄发进证券账户。
   if (!p) return POOL.GRANT;
   throw new Error('未知的资金池: ' + p);
 }
@@ -229,88 +237,139 @@ function normalizePool(pool, delta, userId) {
 function poolLabel(pool) {
   if (pool === POOL.CASH) return '充值学元';
   if (pool === POOL.GRANT) return '赠送学元';
+  if (pool === POOL.PRACTICE) return '练习金';
   return '系统';
+}
+
+function assetOf(pool) {
+  var a = ASSET_OF[String(pool || '')];
+  if (!a) throw new Error('未知的资金池: ' + pool);
+  return a;
+}
+
+// ---------- 系统账户 ----------
+// 旧代码把 @system:* 当成「不分池的系统户」，余额直接存在 xy_account 上。
+// 新账本里没有这种「万能户」，得按语义拆开：
+//   @system:mint   → clearing（发行对手方，负值=已发行净额，允许为负）
+//   @system:settle → escrow/system:settle（成交额沉淀，只会变多）
+//   @system:fee    → escrow/system:fee（手续费沉淀）
+//   @app:x:escrow  → escrow/app:x:escrow（第三方应用托管）
+// 拆开的理由：面板要看「手续费沉淀多少」「投资盘有没有超支」，
+// 全塞进 clearing 就只剩一个净额，什么问题都看不出来。
+function resolveSystem(uid) {
+  var id = String(uid);
+  if (id === SYSTEM_MINT) return { kind: 'clearing', owner: '' };
+  if (/^@system:/.test(id)) return { kind: 'escrow', owner: 'system:' + id.slice(8) };
+  if (/^@app:/.test(id)) return { kind: 'escrow', owner: 'app:' + id.slice(5) };
+  return { kind: 'escrow', owner: 'sys:' + id.slice(1) };
+}
+
+function systemBalances(uid) {
+  var t = resolveSystem(uid);
+  var acc = ledger.systemAccount(t.kind, t.owner);
+  return {
+    account: acc,
+    CASH: ledger.balanceOf(acc.id, 'CASH'),
+    GRANT: ledger.balanceOf(acc.id, 'GRANT'),
+    PRACTICE: ledger.balanceOf(acc.id, 'PRACTICE')
+  };
+}
+
+// ---------- 托管账户（冻结） ----------
+// 冻结不写在用户的 balance 上，而是一笔真实的分录：用户 → escrow。
+// 好处是冻结点不需要「余额减去 frozen」这种两处口径，也不会有 034 那种
+// 「加了列忘了迁移冻结额」的问题 —— 托管账户余额本身就是冻结额。
+
+function holdEscrow(userId) {
+  return ledger.systemAccount('escrow', 'hold:' + String(userId));
+}
+
+function tradingEscrow(userId) {
+  return ledger.findAccount('escrow', 'trading:' + String(userId));
+}
+
+function frozenOf(userId) {
+  var uid = String(userId);
+  var out = { cash: 0, grant: 0, practice: 0 };
+  [holdEscrow(uid), tradingEscrow(uid)].forEach(function (acc) {
+    if (!acc) return;
+    out.cash += ledger.balanceOf(acc.id, 'CASH');
+    out.grant += ledger.balanceOf(acc.id, 'GRANT');
+    out.practice += ledger.balanceOf(acc.id, 'PRACTICE');
+  });
+  return out;
 }
 
 // ---------- 账户 ----------
 
-function createIfMissing(userId, txTime) {
-  var ts = txTime || now();
-  db.prepare(
-    "INSERT OR IGNORE INTO xy_account (user_id, balance, frozen, cash_balance, grant_balance, frozen_cash, frozen_grant, status, opened_at, updated_at) VALUES (?, 0, 0, 0, 0, 0, 0, 'active', ?, ?)"
-  ).run(userId, ts, ts);
-}
-
-// 累计净充值（分）：用于提现风控，保证提现总额不会超过真实线下入金。
-function netRechargeCent(userId) {
-  ensureSchema();
-  var id = String(userId || '');
-  var recharged = db.prepare([
-    'SELECT COALESCE(SUM(e.delta), 0) AS s FROM xy_entry e',
-    'JOIN xy_tx t ON t.id = e.tx_id',
-    "WHERE e.user_id = ? AND t.kind = 'recharge' AND e.delta > 0"
-  ].join('\n')).get(id).s;
-  var withdrawn = db.prepare([
-    'SELECT COALESCE(SUM(-e.delta), 0) AS s FROM xy_entry e',
-    'JOIN xy_tx t ON t.id = e.tx_id',
-    "WHERE e.user_id = ? AND t.kind = 'withdraw' AND e.delta < 0"
-  ].join('\n')).get(id).s;
-  return Number(recharged) - Number(withdrawn);
-}
-
-// 可提现额度（分）= 可用充值学元 ∩ 累计净充值
-function withdrawableCent(userId) {
-  var a = getAccount(userId);
-  if (!a.exists || isSystem(userId)) return 0;
-  var cashAvail = Math.max(0, a.cash_balance - a.frozen_cash);
-  var net = Math.max(0, netRechargeCent(userId));
-  return Math.min(cashAvail, net);
+function createIfMissing(userId) {
+  var id = String(userId);
+  if (isSystem(id)) {
+    // 系统账户由账本按需创建；旧代码里的 @system:* 统一落到 clearing / escrow
+    ledger.systemAccount('clearing');
+    return;
+  }
+  ledger.openUser(id);
 }
 
 function getAccount(userId) {
   ensureSchema();
   var id = String(userId || '');
   if (!isValidUserId(id)) throw new Error('用户标识非法');
-  var row = db.prepare([
-    'SELECT user_id, balance, frozen, cash_balance, grant_balance, frozen_cash, frozen_grant,',
-    '       status, opened_at, updated_at FROM xy_account WHERE user_id = ?'
-  ].join(' ')).get(id);
-  if (!row) {
+
+  if (isSystem(id)) {
+    // 系统账户：clearing 的负值就是「已发行净额」
+    var sb = systemBalances(id);
+    var st = sb.CASH + sb.GRANT + sb.PRACTICE;
     return {
-      user_id: id,
-      exists: false,
-      balance: 0,
-      frozen: 0,
-      available: 0,
-      cash_balance: 0,
-      grant_balance: 0,
-      frozen_cash: 0,
-      frozen_grant: 0,
-      available_cash: 0,
-      available_grant: 0,
-      withdrawable: 0,
-      status: 'none'
+      user_id: id, exists: true, balance: st, frozen: 0, available: st,
+      cash_balance: sb.CASH, grant_balance: sb.GRANT, practice_balance: sb.PRACTICE,
+      frozen_cash: 0, frozen_grant: 0, frozen_practice: 0,
+      available_cash: sb.CASH, available_grant: sb.GRANT, available_practice: sb.PRACTICE,
+      withdrawable: 0, status: 'system', opened_at: 0
     };
   }
+
+  var acc = ledger.findAccount('user', id);
+  if (!acc) {
+    return {
+      user_id: id, exists: false, balance: 0, frozen: 0, available: 0,
+      cash_balance: 0, grant_balance: 0, practice_balance: 0,
+      frozen_cash: 0, frozen_grant: 0, frozen_practice: 0,
+      available_cash: 0, available_grant: 0, available_practice: 0,
+      withdrawable: 0, status: 'none', opened_at: 0
+    };
+  }
+
+  var b = ledger.userBalances(id);   // 账户上的钱（已扣掉托管）
+  var f = frozenOf(id);              // 托管:hold:<学号> + 托管:trading:<学号>
+
+  // 对外口径必须和旧账本一致：*_balance 是「总额（含冻结）」，available_* 是「能动的」。
+  // 否则「发红包后余额显示变少」会被当成扣钱，前端所有「余额 / 可用」两行都会错位。
+  var cashTotal = b.CASH + f.cash;
+  var grantTotal = b.GRANT + f.grant;
+  var practiceTotal = b.PRACTICE + f.practice;
   return {
-    user_id: row.user_id,
+    user_id: id,
     exists: true,
-    balance: row.balance,
-    frozen: row.frozen,
-    available: row.balance - row.frozen,
-    cash_balance: row.cash_balance,
-    grant_balance: row.grant_balance,
-    frozen_cash: row.frozen_cash,
-    frozen_grant: row.frozen_grant,
-    available_cash: row.cash_balance - row.frozen_cash,
-    available_grant: row.grant_balance - row.frozen_grant,
-    status: row.status,
-    opened_at: row.opened_at,
-    updated_at: row.updated_at
+    balance: cashTotal + grantTotal,
+    frozen: f.cash + f.grant,
+    available: b.CASH + b.GRANT,
+    cash_balance: cashTotal,
+    grant_balance: grantTotal,
+    practice_balance: practiceTotal,
+    frozen_cash: f.cash,
+    frozen_grant: f.grant,
+    frozen_practice: f.practice,
+    available_cash: b.CASH,
+    available_grant: b.GRANT,
+    available_practice: b.PRACTICE,
+    withdrawable: 0,
+    status: acc.status,
+    opened_at: msOf(acc.created_at)
   };
 }
 
-// 对外用「学元」计价，返回结构化金额（分 + 元），前端不用自己算
 function viewAccount(userId) {
   var a = getAccount(userId);
   var withdrawable = 0;
@@ -326,21 +385,24 @@ function viewAccount(userId) {
     balance: fromCent(a.balance),
     frozen: fromCent(a.frozen),
     available: fromCent(a.available),
-    // 充值学元
     cash_cent: a.cash_balance,
     cash: fromCent(a.cash_balance),
     available_cash_cent: a.available_cash,
     available_cash: fromCent(a.available_cash),
     frozen_cash_cent: a.frozen_cash,
     frozen_cash: fromCent(a.frozen_cash),
-    // 赠送学元
     grant_cent: a.grant_balance,
     grant: fromCent(a.grant_balance),
     available_grant_cent: a.available_grant,
     available_grant: fromCent(a.available_grant),
     frozen_grant_cent: a.frozen_grant,
     frozen_grant: fromCent(a.frozen_grant),
-    // 可提现（充值学元中未超出净充值的部分）
+    practice_cent: a.practice_balance,
+    practice: fromCent(a.practice_balance),
+    available_practice_cent: a.available_practice,
+    available_practice: fromCent(a.available_practice),
+    frozen_practice_cent: a.frozen_practice,
+    frozen_practice: fromCent(a.frozen_practice),
     withdrawable_cent: withdrawable,
     withdrawable: fromCent(withdrawable),
     yuan_rate: yuanRate(),
@@ -350,18 +412,20 @@ function viewAccount(userId) {
 }
 
 // 开户 + 一次性赠金。
-// 幂等靠 ref='welcome:<uid>'：无论调用多少次、并发多少次，只发一次。
+// ⚠️ 只对「本次真正新建的账户」发 welcome。
+// 期初导入已经把老账户建好了，如果按 ref 判断，那些账户会因为新库里没有
+// welcome:<uid> 而**再领一次** 10 元 —— 那等于凭空多发一轮。
 function ensureAccount(userId) {
   ensureSchema();
   var id = String(userId || '');
   if (!isValidUserId(id)) throw new Error('用户标识非法');
   if (isSystem(id)) throw new Error('系统账户不可开户');
 
-  var existed = !!db.prepare('SELECT 1 FROM xy_account WHERE user_id = ?').get(id);
+  var existed = !!ledger.findAccount('user', id);
   createIfMissing(id);
 
   var granted = false;
-  if (WELCOME_CENT > 0) {
+  if (!existed && WELCOME_CENT > 0) {
     var r = mint({
       to: id,
       amountCent: WELCOME_CENT,
@@ -376,37 +440,56 @@ function ensureAccount(userId) {
   return { created: !existed, welcome_granted: granted, account: viewAccount(id) };
 }
 
+function withdrawableCent(userId) {
+  var a = getAccount(userId);
+  if (!a.exists || isSystem(userId)) return 0;
+  // 两道都留着，各自挡不同的洞：
+  //   available_cash 挡「钱被提现单/红包冻着」
+  //   netRecharge    挡「同学转进来的钱被直接提现」
+  // 第二条不是重复校验：转进来的充值学元确实有真金背书，但那是**别人**交的钱，
+  // 让收款方直接兑成现金，等于把学校变成无手续费提款机。
+  var net = Math.max(0, netRechargeCent(userId));
+  return Math.min(a.available_cash, net);
+}
+
+// 累计净充值（分）= 充值 - 提现 - 撤回充值。
+// 从账本按分录聚合，不读 xy_recharge：那张表里留着归位前按错 rate 记的脏数据，
+// 而账本里的 recharge/withdraw/recharge_revoke 是真实发生过的资金流。
+function netRechargeCent(userId) {
+  ensureSchema();
+  var acc = ledger.findAccount('user', String(userId));
+  if (!acc) return 0;
+  var row = db.prepare([
+    'SELECT COALESCE(SUM(e.direction * e.amount_cent), 0) AS s',
+    'FROM xy_ledger_entries e',
+    'JOIN xy_ledger_transactions t ON t.id = e.tx_id',
+    "WHERE e.account_id = ? AND e.asset = 'CASH'",
+    "  AND t.kind IN ('recharge', 'withdraw', 'recharge_revoke')"
+  ].join('\n')).get(acc.id);
+  return Number(row.s) || 0;
+}
+
 // ---------- 记账内核 ----------
 
-// post：唯一的写账入口。
-// opts:
-//   entries  [{ user_id, delta, pool }]（分，必须有正有负且和为 0）
-//   kind     业务类型（KINDS 白名单）
-//   ref      幂等键（可选，建议必填）
-//   app      来源应用名（第三方应用传自己的 name）
-//   operator 操作人（管理员发放时是管理员 user_id）
-//   memo     备注
-//   meta     附加信息（JSON 可序列化）
-//   at       业务时间（缺省 now）
-//
-// pool: 'cash' 充值池 / 'grant' 赠送池；系统账户自动为 'system'。
-//
-// 返回 { tx_id, duplicate, entries }
+// post：唯一写账入口。
+// opts: { entries: [{user_id, delta, pool}], kind, ref, app, operator, memo, meta, at }
 function post(opts) {
   ensureSchema();
   var o = opts || {};
-  var entries = Array.isArray(o.entries) ? o.entries : [];
   var kind = String(o.kind || '');
 
   if (!isValidKind(kind)) throw new Error('未知的业务类型: ' + kind);
-  if (entries.length < 2) throw new Error('一笔交易至少需要两条分录（复式记账）');
 
-  // ---- 校验与归一 ----
+  var raw = Array.isArray(o.entries) ? o.entries : [];
+  if (raw.length < 2) throw new Error('一笔交易至少需要两条分录（复式记账）');
+
   var sum = 0;
-  var normalized = [];
   var touched = {};
-  for (var i = 0; i < entries.length; i++) {
-    var e = entries[i] || {};
+  var lines = [];
+  var userAssets = {};
+
+  for (var i = 0; i < raw.length; i++) {
+    var e = raw[i] || {};
     var uid = String(e.user_id || '');
     var delta = e.delta;
     if (!isValidUserId(uid)) throw new Error('分录中的用户标识非法: ' + uid);
@@ -414,133 +497,89 @@ function post(opts) {
       throw new Error('分录金额必须是整数分');
     }
     if (delta === 0) throw new Error('分录金额不能为 0');
+
     var pool = normalizePool(e.pool, delta, uid);
+    var sys = isSystem(uid);
+
+    var key = uid + '|' + pool;
+    if (touched[key]) throw new Error('同一交易中重复出现账户: ' + uid);
+    touched[key] = true;
+
     sum += delta;
-    normalized.push({ user_id: uid, delta: delta, pool: pool });
+    lines.push({ uid: uid, delta: delta, pool: pool, sys: sys });
+    if (!sys) userAssets[assetOf(pool)] = true;
   }
+
   if (sum !== 0) throw new Error('分录不平衡（SUM=' + sum + ' 分），拒绝记账');
 
-  // 同一用户同一池在同一笔交易里出现两次 → 大概率是调用方算错了，直接拒绝
-  for (var j = 0; j < normalized.length; j++) {
-    var key = normalized[j].user_id + '|' + normalized[j].pool;
-    if (touched[key]) throw new Error('同一交易中重复出现账户: ' + normalized[j].user_id);
-    touched[key] = true;
-  }
+  var assetsInvolved = Object.keys(userAssets);
+  if (!assetsInvolved.length) throw new Error('交易里没有任何用户账户');
 
   var amount = 0;
-  for (var k = 0; k < normalized.length; k++) {
-    if (normalized[k].delta > 0) amount += normalized[k].delta;
+  for (var k = 0; k < lines.length; k++) {
+    if (lines[k].delta > 0) amount += lines[k].delta;
   }
   if (amount > MAX_TX_CENT) throw new Error('单笔金额超过上限');
 
-  var ref = o.ref ? String(o.ref) : null;
-  var at = o.at || now();
-
-  // ---- 幂等短路：已有同 ref 的交易，直接返回 ----
-  if (ref) {
-    var exist = db.prepare('SELECT id FROM xy_tx WHERE ref = ?').get(ref);
-    if (exist) {
-      return { tx_id: exist.id, duplicate: true, entries: [] };
+  // 余额上限：只查入账方，出账方由账本的「不允许负余额」兜住
+  for (var m = 0; m < lines.length; m++) {
+    var ln = lines[m];
+    if (ln.sys || ln.delta < 0) continue;
+    var cur = getAccount(ln.uid);
+    if (ln.pool === POOL.PRACTICE) continue;
+    if (cur.exists && cur.balance + ln.delta > MAX_BALANCE_CENT) {
+      throw new Error('账户余额超过上限');
     }
   }
 
-  var txFn = db.transaction(function() {
-    var info = db.prepare(
-      'INSERT INTO xy_tx (ref, kind, app_name, operator, memo, amount, meta_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run(
-      ref, kind,
-      o.app ? String(o.app) : null,
-      o.operator ? String(o.operator) : null,
-      o.memo ? String(o.memo) : '',
-      amount,
-      o.meta ? JSON.stringify(o.meta) : null,
-      at
-    );
-    var txId = Number(info.lastInsertRowid);
-
-    for (var m = 0; m < normalized.length; m++) {
-      var item = normalized[m];
-      var acc = db.prepare([
-        'SELECT balance, frozen, cash_balance, grant_balance, frozen_cash, frozen_grant, status',
-        'FROM xy_account WHERE user_id = ?'
-      ].join(' ')).get(item.user_id);
-      if (!acc) {
-        // 系统账户之外的账户必须提前开户（防止拼错 id 凭空造账户）
-        if (isSystem(item.user_id)) {
-          createIfMissing(item.user_id, at);
-          acc = db.prepare([
-            'SELECT balance, frozen, cash_balance, grant_balance, frozen_cash, frozen_grant, status',
-            'FROM xy_account WHERE user_id = ?'
-          ].join(' ')).get(item.user_id);
-        } else {
-          throw new Error('账户不存在: ' + item.user_id);
-        }
-      }
-      if (acc.status === 'frozen') throw new Error('账户已被冻结: ' + item.user_id);
-
-      var after = acc.balance + item.delta;
-      var cashAfter = acc.cash_balance + (item.pool === POOL.CASH ? item.delta : 0);
-      var grantAfter = acc.grant_balance + (item.pool === POOL.GRANT ? item.delta : 0);
-
-      if (!isSystem(item.user_id)) {
-        if (after < 0) throw new Error('学元余额不足（账户 ' + item.user_id + '）');
-        if (after > MAX_BALANCE_CENT) throw new Error('账户余额超过上限');
-
-        if (item.pool === POOL.CASH) {
-          if (cashAfter < 0) throw new Error('充值学元余额不足（账户 ' + item.user_id + '）');
-          if (item.delta < 0 && acc.cash_balance - acc.frozen_cash + item.delta < 0) {
-            throw new Error('充值学元可用不足（有 ' + fromCent(acc.frozen_cash) + ' 学元被冻结）');
-          }
-        } else if (item.pool === POOL.GRANT) {
-          if (grantAfter < 0) throw new Error('赠送学元余额不足（账户 ' + item.user_id + '）');
-          if (item.delta < 0 && acc.grant_balance - acc.frozen_grant + item.delta < 0) {
-            throw new Error('赠送学元可用不足（有 ' + fromCent(acc.frozen_grant) + ' 学元被冻结）');
-          }
-        }
-
-        if (item.delta < 0 && acc.balance - acc.frozen + item.delta < 0) {
-          throw new Error('可用学元不足（有 ' + fromCent(acc.frozen) + ' 学元被冻结）');
-        }
-      }
-
-      db.prepare([
-        'UPDATE xy_account SET balance = ?, cash_balance = ?, grant_balance = ?, updated_at = ?',
-        'WHERE user_id = ?'
-      ].join(' ')).run(after, cashAfter, grantAfter, at, item.user_id);
-      db.prepare('INSERT INTO xy_entry (tx_id, user_id, delta, pool, balance_after, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(txId, item.user_id, item.delta, item.pool, after, at);
+  // 系统腿的资产：跟随同一笔里唯一的用户资产。
+  // 旧代码用 pool='system' 表示「系统对手方」，它本身不带资产语义；
+  // 强行给 CASH 会让 GRANT 的发行变成「CASH 减、GRANT 加」，被分组守恒直接拒掉。
+  if (assetsInvolved.length > 1) {
+    for (var s = 0; s < lines.length; s++) {
+      if (lines[s].sys) throw new Error('系统账户不能与多个资产混记');
     }
+  }
+  var systemAsset = assetsInvolved[0];
 
-    return txId;
+  var entries = lines.map(function (ln) {
+    return {
+      account: ln.sys ? resolveSystem(ln.uid) : { kind: 'user', owner: ln.uid },
+      asset: ln.sys ? systemAsset : assetOf(ln.pool),
+      direction: ln.delta > 0 ? 1 : -1,
+      amount_cent: Math.abs(ln.delta)
+    };
   });
 
-  var txId;
-  try {
-    txId = txFn();
-  } catch (err) {
-    // 并发下两个请求可能同时通过幂等短路，落到唯一索引冲突上：
-    // 这时回头再查一次 ref，命中就按重复处理（这才是正确的幂等语义）
-    if (ref && /UNIQUE constraint failed/i.test(String(err && err.message))) {
-      var again = db.prepare('SELECT id FROM xy_tx WHERE ref = ?').get(ref);
-      if (again) return { tx_id: again.id, duplicate: true, entries: [] };
-    }
-    throw err;
-  }
+  var ref = o.ref ? String(o.ref) : genRef(kind);
 
-  return { tx_id: txId, duplicate: false, entries: normalized, amount: amount };
+  var r = ledger.post({
+    ref: ref,
+    kind: kind,
+    initiator: o.operator ? String(o.operator) : (o.app ? String(o.app) : null),
+    memo: o.memo ? String(o.memo) : '',
+    payload: o.meta || null,
+    at: o.at ? isoOf(o.at) : undefined,
+    entries: entries
+  });
+
+  return {
+    tx_id: r.tx_id,
+    duplicate: !!r.duplicate,
+    entries: r.duplicate ? [] : lines.map(function (ln) {
+      return { user_id: ln.uid, delta: ln.delta, pool: ln.pool };
+    }),
+    amount: r.duplicate ? 0 : amount
+  };
 }
 
-// ---------- 上层业务 ----------
-
-// 铸币：对手方固定为 @system:mint。
-// 这是**唯一**能让学元总量变多的入口，调用点必须是有明确经济含义的
-// （赠金、津贴、教师发放、线下充值），不要拿它当「改余额」的快捷方式。
-// pool 缺省为赠送池：系统发放不计入可提现额度，避免凭空产生可提现余额。
+// 铸币：对手方固定为 clearing（负值即已发行净额）。
 function mint(opts) {
   var o = opts || {};
   var to = String(o.to || '');
   var amountCent = o.amountCent;
-  var pool = o.pool === POOL.CASH ? POOL.CASH : POOL.GRANT;
+  var pool = o.pool === POOL.CASH ? POOL.CASH
+    : (o.pool === POOL.PRACTICE ? POOL.PRACTICE : POOL.GRANT);
   if (!isValidUserId(to) || isSystem(to)) throw new Error('铸币目标账户非法');
   if (typeof amountCent !== 'number' || amountCent <= 0 || Math.floor(amountCent) !== amountCent) {
     throw new Error('铸币金额必须是正整数分');
@@ -561,13 +600,13 @@ function mint(opts) {
   });
 }
 
-// 回收：从账户销毁学元（对手方仍是铸币账户，方向相反）
-// pool 缺省为赠送池：教师扣减默认先收赠送学元，避免误扣学生线下充值的钱。
+// 回收：从账户销毁学元（对手方仍是发行账户，方向相反）
 function burn(opts) {
   var o = opts || {};
   var from = String(o.from || '');
   var amountCent = o.amountCent;
-  var pool = o.pool === POOL.CASH ? POOL.CASH : POOL.GRANT;
+  var pool = o.pool === POOL.CASH ? POOL.CASH
+    : (o.pool === POOL.PRACTICE ? POOL.PRACTICE : POOL.GRANT);
   if (!isValidUserId(from) || isSystem(from)) throw new Error('回收账户非法');
   if (typeof amountCent !== 'number' || amountCent <= 0 || Math.floor(amountCent) !== amountCent) {
     throw new Error('回收金额必须是正整数分');
@@ -587,34 +626,7 @@ function burn(opts) {
   });
 }
 
-// ---------- 配额（护栏） ----------
-// 单笔上限只能防「一笔太大」，防不住「拆成很多小笔」。下面两个函数把
-// 「累计口径」补齐，并统一在写账之前拦截 —— 拦在路由层会漏掉第三方应用调用。
-
-// 某人本学期的累计充值（分）。读 xy_recharge 而不是聚合流水，
-// 因为充值有独立业务表，按学期过滤更快也更准。
-function rechargedInSemesterCent(userId, ts) {
-  ensureSchema();
-  var r = semesterRange(ts);
-  var row = db.prepare(
-    'SELECT COALESCE(SUM(amount_cent), 0) AS s FROM xy_recharge WHERE user_id = ? AND created_at >= ?'
-  ).get(String(userId), r.startMs);
-  return Number(row.s) || 0;
-}
-
-// 某人今天已经收到的教师发放（分）。只统计 admin_grant，
-// 不把 reward（成就/任务奖励）算进来 —— 那属于另一个发行口，各有各的配额。
-function grantedTodayCent(userId, ts) {
-  ensureSchema();
-  return Number(db.prepare([
-    'SELECT COALESCE(SUM(e.delta), 0) AS s FROM xy_entry e',
-    'JOIN xy_tx t ON t.id = e.tx_id',
-    "WHERE e.user_id = ? AND e.delta > 0 AND t.kind = 'admin_grant' AND t.created_at >= ?"
-  ].join('\n')).get(String(userId), dayStartMs(ts)).s) || 0;
-}
-
-// 教师发放：单次上限 + 每人每日累计上限。
-// 这是唯一带着「财政纪律」的发行口，reason 会原样进流水，方便事后追账。
+// 教师发放：单次上限 + 每人每日累计上限。唯一带「财政纪律」的发行口。
 function grant(opts) {
   var o = opts || {};
   var to = String(o.to || '');
@@ -625,8 +637,8 @@ function grant(opts) {
   }
 
   // 幂等优先：同一个 ref 重放时直接交给 mint 的重复分支，
-  // 否则重试会被下面两条配额判成「超限」，客户端就永远收不到 duplicate 响应。
-  if (o.ref && db.prepare('SELECT 1 FROM xy_tx WHERE ref = ?').get(String(o.ref))) {
+  // 否则重试会被下面两条配额判成「超限」，客户端永远收不到 duplicate 响应。
+  if (o.ref && ledger.findTxByRef(String(o.ref))) {
     return mint({
       to: to, amountCent: amountCent, kind: 'admin_grant', pool: POOL.GRANT,
       ref: o.ref, app: o.app, operator: o.operator, memo: o.memo, meta: o.meta, at: o.at
@@ -643,79 +655,145 @@ function grant(opts) {
   }
 
   return mint({
-    to: to,
-    amountCent: amountCent,
-    kind: 'admin_grant',
-    pool: POOL.GRANT,
-    ref: o.ref,
-    app: o.app,
-    operator: o.operator,
-    memo: o.memo,
-    meta: o.meta,
-    at: o.at
+    to: to, amountCent: amountCent, kind: 'admin_grant', pool: POOL.GRANT,
+    ref: o.ref, app: o.app, operator: o.operator, memo: o.memo, meta: o.meta, at: o.at
   });
 }
 
-// 计算一笔对外支出（转账/红包/跨班）的扣款拆分：充值学元优先，不足部分由赠送学元补足。
-// 2026-11-05 放开赠送学元支付：赠送与投资收益可用于同学转账、红包、扫码付款；
-// 提现仍然只认充值学元 —— 那条防线在 withdrawableCent（累计净充值）上，与本函数无关。
-// 返回 { cash, grant } 两段金额，调用方按池分别记账/冻结。
+// 退款：把钱从**真实来源账户**退回给学生，不允许系统账户垫付（那等于印钱）。
+function refund(opts) {
+  ensureSchema();
+  var o = opts || {};
+  var to = String(o.to || '');
+  var from = String(o.from || '');
+  var amountCent = requireAmountCent(o, '退款金额');
+  var pool = o.pool === POOL.GRANT ? POOL.GRANT : POOL.CASH;
+  var operator = String(o.operator || '');
+  var reason = String(o.reason || '').trim();
+
+  if (!isValidUserId(to) || isSystem(to)) throw new Error('退款账户非法');
+  if (!isValidUserId(operator) || isSystem(operator)) throw new Error('操作人非法');
+  if (amountCent > MAX_TX_CENT) throw new Error('单笔退款超过上限');
+  if (!reason) throw new Error('请填写退款原因');
+  if (!isValidUserId(from)) throw new Error('请填写退款方账户');
+  if (from === to) throw new Error('退款方不能是收款人自己');
+  if (/^@system:/.test(from)) {
+    throw new Error('不能用系统账户退款：那等于凭空印钱。现金退款请用「撤回充值」，奖励请用「教师发放」');
+  }
+  if (!ledger.findAccount('user', to)) throw new Error('该同学尚未开通学元账户');
+  if (!ledger.findAccount('user', from)) throw new Error('退款方账户不存在');
+
+  var src = getAccount(from);
+  var avail = pool === POOL.CASH ? src.cash_balance : src.grant_balance;
+  if (avail < amountCent) {
+    throw new Error('退款方余额不足：可用 ' + fromCent(Math.max(0, avail)) + ' 学元，本次要退 ' + fromCent(amountCent) + ' 学元');
+  }
+
+  var r = post({
+    entries: [
+      { user_id: from, delta: -amountCent, pool: pool },
+      { user_id: to, delta: amountCent, pool: pool }
+    ],
+    kind: 'refund',
+    ref: o.ref ? String(o.ref) : null,
+    app: o.app,
+    operator: operator,
+    memo: '退款：' + reason.slice(0, 60),
+    meta: { reason: reason, from: from }
+  });
+
+  return {
+    duplicate: !!r.duplicate,
+    tx_id: r.tx_id,
+    amount: fromCent(amountCent),
+    pool: pool,
+    from: from,
+    account: viewAccount(to)
+  };
+}
+
+// ---------- 配额（护栏） ----------
+
+// 本学期累计充值（分）。归位之后「真金 = CASH 余额」，所以从账本按 CASH 分录统计，
+// 不再读 xy_recharge —— 那张表里留着归位前按错 rate 记的 10 倍脏数据。
+// 撤回必须冲减：否则录错一笔就永久占住孩子的学期配额。
+function rechargedInSemesterCent(userId, ts) {
+  ensureSchema();
+  var acc = ledger.findAccount('user', String(userId));
+  if (!acc) return 0;
+  var r = semesterRange(ts);
+  var row = db.prepare([
+    'SELECT COALESCE(SUM(e.direction * e.amount_cent), 0) AS s',
+    'FROM xy_ledger_entries e',
+    'JOIN xy_ledger_transactions t ON t.id = e.tx_id',
+    "WHERE e.account_id = ? AND e.asset = 'CASH'",
+    "  AND t.kind IN ('recharge', 'recharge_revoke') AND t.created_at >= ?"
+  ].join('\n')).get(acc.id, isoOf(r.startMs));
+  return Math.max(0, Number(row.s) || 0);
+}
+
+// 今天已经收到的教师发放（分）。只统计 admin_grant，不含 reward。
+function grantedTodayCent(userId, ts) {
+  ensureSchema();
+  var acc = ledger.findAccount('user', String(userId));
+  if (!acc) return 0;
+  var row = db.prepare([
+    'SELECT COALESCE(SUM(e.direction * e.amount_cent), 0) AS s',
+    'FROM xy_ledger_entries e',
+    'JOIN xy_ledger_transactions t ON t.id = e.tx_id',
+    'WHERE e.account_id = ? AND e.direction > 0',
+    "  AND t.kind = 'admin_grant' AND t.created_at >= ?"
+  ].join('\n')).get(acc.id, isoOf(dayStartMs(ts)));
+  return Number(row.s) || 0;
+}
+
+// ---------- 分池支付 ----------
+
+// 对外支出的扣款拆分：充值学元优先，不足由赠送学元补足。
+// 新账本里 cash_balance 已经是可用额（冻结已移出账户），不需要再减 frozen。
 function splitPayable(userId, amountCent) {
   var uid = String(userId);
-  var acc = db.prepare([
-    'SELECT cash_balance, grant_balance, frozen_cash, frozen_grant, frozen, status',
-    'FROM xy_account WHERE user_id = ?'
-  ].join('\n')).get(uid);
-  if (!acc) throw new Error('账户不存在');
-  if (acc.status === 'frozen') throw new Error('账户已被冻结');
-  var cashAvail = Math.max(0, (acc.cash_balance || 0) - (acc.frozen_cash || 0));
-  var grantAvail = Math.max(0, (acc.grant_balance || 0) - (acc.frozen_grant || 0));
+  var a = getAccount(uid);
+  if (!a.exists) throw new Error('账户不存在');
+  if (a.status === 'frozen') throw new Error('账户已被冻结');
+
+  var cashAvail = Math.max(0, a.available_cash);
+  var grantAvail = Math.max(0, a.available_grant);
   var useCash = Math.min(cashAvail, amountCent);
   var useGrant = amountCent - useCash;
   if (useGrant > grantAvail) {
     throw new Error('可用学元不足（充值 ' + fromCent(cashAvail) + ' + 赠送 ' + fromCent(grantAvail) +
-      ' 学元，另有 ' + fromCent(acc.frozen || 0) + ' 学元被冻结）');
+      ' 学元，另有 ' + fromCent(a.frozen) + ' 学元被冻结）');
   }
   return { cash: useCash, grant: useGrant };
 }
 
 // 分池扣款，但限制「赠送学元最多抵扣 amountCent × maxGrantRatio」。
-// 网店专用：赠送学元是零成本铸币，实物商品若全额收赠送学元就是纯亏；
-// 把抵扣上限压到「批发毛利率」以内，现金池就一定能覆盖商品成本。
-// 现金不足时**不**自动吃赠送池 —— 那正是要防的漏洞，必须让学生先充值。
-function splitPayOrder(userId, amountCent, maxGrantRatio) {
+// ⚠️ 已废弃（2026-11-07）：商品只能用自己充值的学元购买，赠金抵扣恒为 0，
+//    路由与账本层都不再接受这个口径（见 ledger/settlement.maxGrantOffsetCent）。
+//    保留仅为兼容旧引用；ratio 参数已忽略，任何调用都会得到「全额充值学元」。
+function splitPayOrder(userId, amountCent) {
   var uid = String(userId);
   if (typeof amountCent !== 'number' || amountCent <= 0 || Math.floor(amountCent) !== amountCent) {
     throw new Error('支付金额必须是正整数分');
   }
-  var ratio = Number(maxGrantRatio);
-  if (!isFinite(ratio) || ratio < 0) ratio = 0;
-  if (ratio > 1) ratio = 1;
+  var a = getAccount(uid);
+  if (!a.exists) throw new Error('账户不存在');
+  if (a.status === 'frozen') throw new Error('账户已被冻结');
 
-  var acc = db.prepare([
-    'SELECT cash_balance, grant_balance, frozen_cash, frozen_grant, frozen, status',
-    'FROM xy_account WHERE user_id = ?'
-  ].join('\n')).get(uid);
-  if (!acc) throw new Error('账户不存在');
-  if (acc.status === 'frozen') throw new Error('账户已被冻结');
-
-  var cashAvail = Math.max(0, (acc.cash_balance || 0) - (acc.frozen_cash || 0));
-  var grantAvail = Math.max(0, (acc.grant_balance || 0) - (acc.frozen_grant || 0));
-  var grantCap = Math.floor(amountCent * ratio);
-  var useGrant = Math.min(grantAvail, grantCap);
-  var useCash = amountCent - useGrant;
-
-  if (useCash > cashAvail) {
-    throw new Error('充值学元不足：本单最多可用赠送学元 ' + fromCent(grantCap) +
-      ' 学元（上限 ' + Math.round(ratio * 100) + '%），还差 ' +
-      fromCent(useCash - cashAvail) + ' 学元充值余额');
+  // 商品只收充值学元，赠金一分不抵
+  var cashAvail = Math.max(0, a.available_cash);
+  if (amountCent > cashAvail) {
+    throw new Error('充值学元不足：本单 ' + fromCent(amountCent) + ' 学元，只能用自己充值的学元购买' +
+      (a.available_grant > 0
+        ? '（你有 ' + fromCent(a.available_grant) + ' 学元赠送/投资学元，可以转账、发红包，但不能买东西）'
+        : '') +
+      '，还差 ' + fromCent(amountCent - cashAvail) + ' 学元');
   }
-  return { cash: useCash, grant: useGrant };
+  return { cash: amountCent, grant: 0 };
 }
 
-// 同学之间转账。收方必须已开户（否则钱会掉进一个还不存在的账户里）。
-// 扣款：充值学元优先，不足由赠送学元补足；收款方按同一资金池入账，
-// 赠送学元不会因为转手就变成可提现的充值学元。
+// 同学之间转账。资产不跨池：赠送学元转手还是赠送学元，不会变成可提现的充值学元。
 function transfer(opts) {
   var o = opts || {};
   var from = String(o.from || '');
@@ -731,9 +809,7 @@ function transfer(opts) {
   if (amountCent > MAX_TRANSFER_CENT) {
     throw new Error('单笔转账不能超过 ' + fromCent(MAX_TRANSFER_CENT) + ' 学元');
   }
-  if (!db.prepare('SELECT 1 FROM xy_account WHERE user_id = ?').get(to)) {
-    throw new Error('对方尚未开通学元账户');
-  }
+  if (!ledger.findAccount('user', to)) throw new Error('对方尚未开通学元账户');
 
   var parts = splitPayable(from, amountCent);
   var entries = [];
@@ -753,28 +829,26 @@ function transfer(opts) {
     app: o.app,
     operator: o.operator || from,
     memo: o.memo,
-    meta: o.meta
+    meta: o.meta,
+    at: o.at
   });
 }
 
-// 把「用户付钱给应用」表达为一笔两腿交易：
-//   用户 → 应用托管账户（@app:<name>:escrow）
-// 托管账户的余额是「应用收到的学元」，由应用自己再决定怎么用（结算/上缴）。
 function appEscrow(appName) {
   var name = String(appName || '');
   if (!/^[a-z][a-z0-9-]{1,63}$/.test(name)) throw new Error('应用名非法');
   return '@app:' + name + ':escrow';
 }
 
-function ensureSystemAccount(userId, at) {
+// 系统账户现在由账本按需创建，这个函数保留只为兼容旧调用点。
+function ensureSystemAccount(userId) {
   if (!isSystem(userId)) throw new Error('不是系统账户');
-  createIfMissing(userId, at);
+  ledger.systemAccount('clearing');
 }
 
-// ---------- 冻结（挂单/担保/提现） ----------
-// 冻结只动 frozen，不动 balance —— 所以它不产生分录，
-// 也不会破坏「SUM(balance)=0」这条对账不变量。
-// opts.pool: 'cash' | 'grant' | 'grant_first'（缺省：投资场景赠送优先）
+// ---------- 冻结（挂单 / 红包 / 提现） ----------
+// 冻结 = 一笔真实分录：用户 → escrow:hold:<学号>。
+// 因为钱确实离开了账户，之后的余额检查、提现额度判断全都不需要再算 frozen。
 
 function hold(userId, amountCent, opts) {
   ensureSchema();
@@ -786,43 +860,60 @@ function hold(userId, amountCent, opts) {
     throw new Error('冻结金额必须是正整数分');
   }
 
-  var account = db.prepare('SELECT cash_balance, grant_balance, frozen_cash, frozen_grant FROM xy_account WHERE user_id = ?').get(id);
-  if (!account) throw new Error('账户不存在');
+  var a = getAccount(id);
+  if (!a.exists) throw new Error('账户不存在');
 
   var useGrant = 0;
   var useCash = 0;
+  var usePractice = 0;
   if (mode === 'cash') {
     useCash = amountCent;
+    if (a.available_cash < useCash) throw new Error('充值学元不足，无法冻结');
   } else if (mode === 'grant') {
     useGrant = amountCent;
+    if (a.available_grant < useGrant) throw new Error('赠送学元不足，无法冻结');
+  } else if (mode === 'practice') {
+    usePractice = amountCent;
+    if (a.available_practice < usePractice) throw new Error('练习金不足，无法冻结');
   } else {
-    useGrant = Math.min(Math.max(0, account.grant_balance - account.frozen_grant), amountCent);
+    useGrant = Math.min(Math.max(0, a.available_grant), amountCent);
     useCash = amountCent - useGrant;
+    if (useCash > a.available_cash) {
+      throw new Error('可用学元不足（充值 ' + fromCent(a.available_cash) + ' + 赠送 ' +
+        fromCent(a.available_grant) + ' 学元）');
+    }
   }
 
-  var ts = now();
-  var tx = db.transaction(function() {
-    if (useGrant > 0) {
-      var g = db.prepare([
-        'UPDATE xy_account SET frozen = frozen + ?, frozen_grant = frozen_grant + ?, updated_at = ?',
-        'WHERE user_id = ? AND grant_balance - frozen_grant >= ?'
-      ].join(' ')).run(useGrant, useGrant, ts, id, useGrant);
-      if (!g.changes) throw new Error('赠送学元不足，无法冻结');
-    }
-    if (useCash > 0) {
-      var c = db.prepare([
-        'UPDATE xy_account SET frozen = frozen + ?, frozen_cash = frozen_cash + ?, updated_at = ?',
-        'WHERE user_id = ? AND cash_balance - frozen_cash >= ?'
-      ].join(' ')).run(useCash, useCash, ts, id, useCash);
-      if (!c.changes) throw new Error('充值学元不足，无法冻结');
-    }
+  // 直接调账本内核，所以分录要用账本格式（account/asset/direction），
+  // 不能用本文件对外的 {user_id, delta, pool} 旧形状。
+  var userAcc = { kind: 'user', owner: id };
+  var escAcc = { kind: 'escrow', owner: 'hold:' + id };
+  var entries = [];
+  if (useCash > 0) {
+    entries.push({ account: userAcc, asset: 'CASH', direction: -1, amount_cent: useCash });
+    entries.push({ account: escAcc, asset: 'CASH', direction: 1, amount_cent: useCash });
+  }
+  if (useGrant > 0) {
+    entries.push({ account: userAcc, asset: 'GRANT', direction: -1, amount_cent: useGrant });
+    entries.push({ account: escAcc, asset: 'GRANT', direction: 1, amount_cent: useGrant });
+  }
+  if (usePractice > 0) {
+    entries.push({ account: userAcc, asset: 'PRACTICE', direction: -1, amount_cent: usePractice });
+    entries.push({ account: escAcc, asset: 'PRACTICE', direction: 1, amount_cent: usePractice });
+  }
+
+  ledger.post({
+    ref: o.ref || genRef('hold'),
+    // 用独立的 'hold' 而不是 'transfer'：冻结是「钱还在自己名下、只是动不了」，
+    // 计入日转出额度会把同一笔钱算两次（冻结一次 + 真正转出一次）。
+    kind: 'hold',
+    initiator: o.operator || id,
+    memo: o.memo || '冻结',
+    entries: entries
   });
-  tx();
   return getAccount(id);
 }
 
-// 解冻。opts.pool：'cash' | 'grant'；缺省按「赠送冻结优先」释放
-// （与缺省 hold 的 grant_first 对称，投资撤单不会误动红包冻结）。
 function release(userId, amountCent, opts) {
   ensureSchema();
   var o = opts || {};
@@ -832,39 +923,63 @@ function release(userId, amountCent, opts) {
     throw new Error('解冻金额必须是正整数分');
   }
 
-  var tx = db.transaction(function() {
-    var acc = db.prepare('SELECT frozen, frozen_cash, frozen_grant FROM xy_account WHERE user_id = ?').get(id);
-    if (!acc) throw new Error('账户不存在');
-    if (acc.frozen < amountCent) throw new Error('解冻额超过冻结总额');
+  var esc = ledger.findAccount('escrow', 'hold:' + id);
+  if (!esc) throw new Error('没有冻结中的资金');
+  var avail = {
+    cash: ledger.balanceOf(esc.id, 'CASH'),
+    grant: ledger.balanceOf(esc.id, 'GRANT'),
+    practice: ledger.balanceOf(esc.id, 'PRACTICE')
+  };
 
-    var fromGrant = 0;
-    var fromCash = 0;
-    if (o.pool === POOL.CASH) {
-      fromCash = amountCent;
-      if (acc.frozen_cash < fromCash) throw new Error('充值学元冻结额不足');
-    } else if (o.pool === POOL.GRANT) {
-      fromGrant = amountCent;
-      if (acc.frozen_grant < fromGrant) throw new Error('赠送学元冻结额不足');
-    } else {
-      fromGrant = Math.min(acc.frozen_grant, amountCent);
-      fromCash = amountCent - fromGrant;
-      if (acc.frozen_cash < fromCash) throw new Error('冻结额不足');
-    }
+  var fromCash = 0;
+  var fromGrant = 0;
+  var fromPractice = 0;
+  if (o.pool === POOL.CASH) {
+    fromCash = amountCent;
+    if (avail.cash < fromCash) throw new Error('充值学元冻结额不足');
+  } else if (o.pool === POOL.GRANT) {
+    fromGrant = amountCent;
+    if (avail.grant < fromGrant) throw new Error('赠送学元冻结额不足');
+  } else if (o.pool === POOL.PRACTICE) {
+    fromPractice = amountCent;
+    if (avail.practice < fromPractice) throw new Error('练习金冻结额不足');
+  } else {
+    // 未指定池（撤单、死单清理）：练习金 → 赠送 → 充值
+    fromPractice = Math.min(avail.practice, amountCent);
+    var rest = amountCent - fromPractice;
+    fromGrant = Math.min(avail.grant, rest);
+    fromCash = rest - fromGrant;
+    if (avail.cash < fromCash) throw new Error('解冻额超过冻结总额');
+  }
 
-    db.prepare([
-      'UPDATE xy_account SET frozen = frozen - ?, frozen_cash = frozen_cash - ?,',
-      'frozen_grant = frozen_grant - ?, updated_at = ? WHERE user_id = ?'
-    ].join(' ')).run(amountCent, fromCash, fromGrant, now(), id);
+  var userAcc = { kind: 'user', owner: id };
+  var escAcc = { kind: 'escrow', owner: 'hold:' + id };
+  var entries = [];
+  if (fromCash > 0) {
+    entries.push({ account: escAcc, asset: 'CASH', direction: -1, amount_cent: fromCash });
+    entries.push({ account: userAcc, asset: 'CASH', direction: 1, amount_cent: fromCash });
+  }
+  if (fromGrant > 0) {
+    entries.push({ account: escAcc, asset: 'GRANT', direction: -1, amount_cent: fromGrant });
+    entries.push({ account: userAcc, asset: 'GRANT', direction: 1, amount_cent: fromGrant });
+  }
+  if (fromPractice > 0) {
+    entries.push({ account: escAcc, asset: 'PRACTICE', direction: -1, amount_cent: fromPractice });
+    entries.push({ account: userAcc, asset: 'PRACTICE', direction: 1, amount_cent: fromPractice });
+  }
+
+  ledger.post({
+    ref: o.ref || genRef('release'),
+    kind: 'order_refund',
+    initiator: o.operator || id,
+    memo: o.memo || '解冻',
+    entries: entries
   });
-  tx();
   return getAccount(id);
 }
 
-// 成交结算：把「冻结的一部分」真正花掉，剩余解冻退回。
-//   holdCent   下单时冻结的金额
-//   costCent   实际应付（成交额 + 费用）
-//   pool       可选，显式指定资金池；缺省按冻结拆分：赠送冻结优先消耗
-// 语义：frozen -= holdCent；按池扣减 costCent；差额自动回到可用。
+// 成交结算：冻结里的一部分真正花掉，剩余退回。
+//   holdCent 下单时冻结额 / costCent 实付 / feeCent 其中费用
 function settleHold(opts) {
   var o = opts || {};
   var uid = String(o.user_id || '');
@@ -877,132 +992,139 @@ function settleHold(opts) {
   if (costCent > holdCent) throw new Error('应付金额超过冻结额（内部错误）');
   if (feeCent > costCent) throw new Error('费用不能超过应付总额');
 
-  var settle = db.transaction(function() {
-    var acc = db.prepare([
-      'SELECT balance, frozen, cash_balance, grant_balance, frozen_cash, frozen_grant',
-      'FROM xy_account WHERE user_id = ?'
-    ].join(' ')).get(uid);
-    if (!acc) throw new Error('账户不存在');
-    if (acc.frozen < holdCent) throw new Error('冻结额不足（可能已被其他委托占用）');
+  var esc = ledger.findAccount('escrow', 'hold:' + uid);
+  if (!esc) throw new Error('冻结额不足（可能已被其他委托占用）');
+  var avail = {
+    cash: ledger.balanceOf(esc.id, 'CASH'),
+    grant: ledger.balanceOf(esc.id, 'GRANT'),
+    practice: ledger.balanceOf(esc.id, 'PRACTICE')
+  };
+  if (avail.cash + avail.grant + avail.practice < holdCent) {
+    throw new Error('冻结额不足（可能已被其他委托占用）');
+  }
 
-    var grantHold = 0;
-    var cashHold = 0;
-    if (o.pool === POOL.CASH) {
-      cashHold = holdCent;
-      if (acc.frozen_cash < cashHold) throw new Error('充值学元冻结额不足');
-    } else if (o.pool === POOL.GRANT) {
-      grantHold = holdCent;
-      if (acc.frozen_grant < grantHold) throw new Error('赠送学元冻结额不足');
-    } else {
-      grantHold = Math.min(acc.frozen_grant, holdCent);
-      cashHold = holdCent - grantHold;
-      if (acc.frozen_cash < cashHold) throw new Error('冻结额不足');
+  // 按指定池或「练习金 → 赠送 → 充值」顺序拆出 holdCent 的来源
+  var holdCash = 0;
+  var holdGrant = 0;
+  var holdPractice = 0;
+  if (o.pool === POOL.CASH) {
+    holdCash = holdCent;
+    if (avail.cash < holdCash) throw new Error('充值学元冻结额不足');
+  } else if (o.pool === POOL.GRANT) {
+    holdGrant = holdCent;
+    if (avail.grant < holdGrant) throw new Error('赠送学元冻结额不足');
+  } else if (o.pool === POOL.PRACTICE) {
+    holdPractice = holdCent;
+    if (avail.practice < holdPractice) throw new Error('练习金冻结额不足');
+  } else {
+    holdPractice = Math.min(avail.practice, holdCent);
+    holdGrant = Math.min(avail.grant, holdCent - holdPractice);
+    holdCash = holdCent - holdPractice - holdGrant;
+    if (avail.cash < holdCash) throw new Error('冻结额不足');
+  }
+
+  // 成本优先吃练习金/赠送冻结，不足再吃充值冻结
+  var practiceSpend = Math.min(costCent, holdPractice);
+  var grantSpend = Math.min(costCent - practiceSpend, holdGrant);
+  var cashSpend = costCent - practiceSpend - grantSpend;
+  var tradeCent = costCent - feeCent;
+  var practiceTrade = Math.min(tradeCent, practiceSpend);
+  var grantTrade = Math.min(tradeCent - practiceTrade, grantSpend);
+  var cashTrade = tradeCent - practiceTrade - grantTrade;
+  var practiceFee = practiceSpend - practiceTrade;
+  var grantFee = grantSpend - grantTrade;
+  var cashFee = feeCent - practiceFee - grantFee;
+
+  var baseRef = o.ref || genRef('settle');
+  var run = db.transaction(function () {
+    // 1) 全部解冻回用户（账本格式分录）
+    var userAcc = { kind: 'user', owner: uid };
+    var escAcc = { kind: 'escrow', owner: 'hold:' + uid };
+    var back = [];
+    if (holdCash > 0) {
+      back.push({ account: escAcc, asset: 'CASH', direction: -1, amount_cent: holdCash });
+      back.push({ account: userAcc, asset: 'CASH', direction: 1, amount_cent: holdCash });
     }
+    if (holdGrant > 0) {
+      back.push({ account: escAcc, asset: 'GRANT', direction: -1, amount_cent: holdGrant });
+      back.push({ account: userAcc, asset: 'GRANT', direction: 1, amount_cent: holdGrant });
+    }
+    if (holdPractice > 0) {
+      back.push({ account: escAcc, asset: 'PRACTICE', direction: -1, amount_cent: holdPractice });
+      back.push({ account: userAcc, asset: 'PRACTICE', direction: 1, amount_cent: holdPractice });
+    }
+    ledger.post({
+      ref: baseRef + ':release',
+      kind: 'order_refund',
+      initiator: uid,
+      memo: '结算解冻',
+      entries: back
+    });
 
-    // 成本优先从赠送冻结部分扣，不足再扣充值部分
-    var grantSpend = Math.min(costCent, grantHold);
-    var cashSpend = costCent - grantSpend;
-    var tradeCent = costCent - feeCent;
-    var grantTrade = Math.min(tradeCent, grantSpend);
-    var grantFee = grantSpend - grantTrade;
-    var cashTrade = tradeCent - grantTrade;
-    var cashFee = feeCent - grantFee;
-
-    // 1) 解冻整笔
-    db.prepare([
-      'UPDATE xy_account SET frozen = frozen - ?, frozen_grant = frozen_grant - ?,',
-      'frozen_cash = frozen_cash - ?, updated_at = ? WHERE user_id = ?'
-    ].join(' ')).run(holdCent, grantHold, cashHold, now(), uid);
-
-    // 2) 真正的资金流：成交额 + 费用，按池分别记账
-    if (grantTrade > 0) {
-      ensureSystemAccount('@system:settle', now());
+    // 2) 真正花掉：成交额 + 费用，各自回收进发行账户
+    [
+      { cent: practiceTrade, pool: POOL.PRACTICE, tail: ':trade:practice' },
+      { cent: grantTrade, pool: POOL.GRANT, tail: ':trade:grant' },
+      { cent: cashTrade, pool: POOL.CASH, tail: ':trade:cash' }
+    ].forEach(function (x) {
+      if (x.cent <= 0) return;
       post({
         entries: [
-          { user_id: uid, delta: -grantTrade, pool: POOL.GRANT },
-          { user_id: '@system:settle', delta: grantTrade, pool: POOL.SYSTEM }
+          { user_id: uid, delta: -x.cent, pool: x.pool },
+          { user_id: SYSTEM_SETTLE, delta: x.cent, pool: POOL.SYSTEM }
         ],
         kind: 'trade',
-        ref: o.ref ? o.ref + ':trade:grant' : null,
+        ref: baseRef + x.tail,
         app: o.app,
         memo: o.memo,
         meta: o.meta,
         at: o.at
       });
-    }
-    if (cashTrade > 0) {
-      ensureSystemAccount('@system:settle', now());
+    });
+    [
+      { cent: practiceFee, pool: POOL.PRACTICE, tail: ':fee:practice' },
+      { cent: grantFee, pool: POOL.GRANT, tail: ':fee:grant' },
+      { cent: cashFee, pool: POOL.CASH, tail: ':fee:cash' }
+    ].forEach(function (x) {
+      if (x.cent <= 0) return;
       post({
         entries: [
-          { user_id: uid, delta: -cashTrade, pool: POOL.CASH },
-          { user_id: '@system:settle', delta: cashTrade, pool: POOL.SYSTEM }
-        ],
-        kind: 'trade',
-        ref: o.ref ? o.ref + ':trade:cash' : null,
-        app: o.app,
-        memo: o.memo,
-        meta: o.meta,
-        at: o.at
-      });
-    }
-    if (grantFee > 0) {
-      ensureSystemAccount(SYSTEM_FEE, now());
-      post({
-        entries: [
-          { user_id: uid, delta: -grantFee, pool: POOL.GRANT },
-          { user_id: SYSTEM_FEE, delta: grantFee, pool: POOL.SYSTEM }
+          { user_id: uid, delta: -x.cent, pool: x.pool },
+          { user_id: SYSTEM_FEE, delta: x.cent, pool: POOL.SYSTEM }
         ],
         kind: 'fee',
-        ref: o.ref ? o.ref + ':fee:grant' : null,
+        ref: baseRef + x.tail,
         app: o.app,
         memo: (o.memo || '') + '（费用）',
         meta: o.meta,
         at: o.at
       });
-    }
-    if (cashFee > 0) {
-      ensureSystemAccount(SYSTEM_FEE, now());
-      post({
-        entries: [
-          { user_id: uid, delta: -cashFee, pool: POOL.CASH },
-          { user_id: SYSTEM_FEE, delta: cashFee, pool: POOL.SYSTEM }
-        ],
-        kind: 'fee',
-        ref: o.ref ? o.ref + ':fee:cash' : null,
-        app: o.app,
-        memo: (o.memo || '') + '（费用）',
-        meta: o.meta,
-        at: o.at
-      });
-    }
-    var account = getAccount(uid);
-    // 这次成交实际从各池扣了多少（含费用）。持仓层按此记录成本来源，
-    // 卖出时才能把本金原路退回，而不是一律变成充值学元。
-    account.spent = {
-      cash_cent: cashSpend,
-      grant_cent: grantSpend,
-      cash_fee_cent: cashFee,
-      grant_fee_cent: grantFee
-    };
-    return account;
+    });
   });
+  run();
 
-  return settle();
+  var account = getAccount(uid);
+  account.spent = {
+    cash_cent: cashSpend,
+    grant_cent: grantSpend,
+    practice_cent: practiceSpend,
+    cash_fee_cent: cashFee,
+    grant_fee_cent: grantFee,
+    practice_fee_cent: practiceFee
+  };
+  return account;
 }
 
-// 冻结资金入账（卖出成交后收到钱）：直接入 balance，不涉及 frozen。
-// 只用于退款 / 一般回款；**交易回款必须走 creditTrade()**，
-// 否则投资收益会进充值池，破坏「收益不可提现」的结构性保证。
+// 一般回款：发行账户 → 用户。只用于退款 / 补偿。
 function credit(userId, amountCent, opts) {
   var o = opts || {};
   var pool = o.pool === POOL.GRANT ? POOL.GRANT : POOL.CASH;
   if (typeof amountCent !== 'number' || amountCent <= 0 || Math.floor(amountCent) !== amountCent) {
     throw new Error('入账金额必须为正整数分');
   }
-  ensureSystemAccount('@system:settle', now());
   return post({
     entries: [
-      { user_id: '@system:settle', delta: -amountCent, pool: POOL.SYSTEM },
+      { user_id: SYSTEM_MINT, delta: -amountCent, pool: POOL.SYSTEM },
       { user_id: String(userId), delta: amountCent, pool: pool }
     ],
     kind: o.kind || 'trade',
@@ -1014,83 +1136,57 @@ function credit(userId, amountCent, opts) {
   });
 }
 
-// 交易回款：本金按买入时的资金来源分别回到充值池/赠送池，投资收益进入赠送池。
-// 这样卖出赚到的钱在记账层就不可提现、不可转账/红包/跨班，只能继续投资；
-// 用赠送学元买的仓位，卖出本金也回赠送池，不会「倒一手变成充值学元」。
-// opts:
-//   principalCent     本金（分）；缺省 = amountCent（全额视为本金回款，兼容旧调用）
-//   principalCashCent 本金中「充值来源」的部分（分）；缺省 = principalCent（全回充值池，兼容旧调用）
-//   ref               幂等键（强烈建议）；各腿后缀 :principal / :principal:grant / :profit
-//   其余同 credit
-function creditTrade(userId, amountCent, opts) {
+// 交易回款：本金按买入时的资金来源分别回池，投资收益进练习金。
+// 收益进练习金是「投资不能变成消费购买力」的最后一道墙。
+function creditTrade(userId, netCent, opts) {
   var o = opts || {};
   var uid = String(userId || '');
-  if (!isValidUserId(uid) || isSystem(uid)) throw new Error('入账账户非法');
-  if (typeof amountCent !== 'number' || amountCent <= 0 || Math.floor(amountCent) !== amountCent) {
-    throw new Error('入账金额必须为正整数分');
+  if (!isValidUserId(uid) || isSystem(uid)) throw new Error('账户非法');
+  if (typeof netCent !== 'number' || !isFinite(netCent) || netCent <= 0 || Math.floor(netCent) !== netCent) {
+    throw new Error('回款金额必须是正整数分');
   }
-  var principal = typeof o.principalCent === 'number' ? Math.round(o.principalCent) : amountCent;
-  if (!isFinite(principal) || principal < 0 || principal > amountCent || Math.floor(principal) !== principal) {
-    throw new Error('本金金额非法（应在 0 与入账金额之间）');
-  }
-  var principalCash = typeof o.principalCashCent === 'number' ? Math.round(o.principalCashCent) : principal;
-  if (!isFinite(principalCash) || principalCash < 0 || principalCash > principal || Math.floor(principalCash) !== principalCash) {
-    throw new Error('本金资金来源非法（充值部分应在 0 与本金额之间）');
-  }
-  var principalGrant = principal - principalCash;
-  var profit = amountCent - principal;
-  var ref = o.ref ? String(o.ref) : null;
 
-  ensureSystemAccount('@system:settle', now());
+  var principal = Math.max(0, Math.floor(Number(o.principalCent) || 0));
+  if (principal > netCent) throw new Error('本金金额非法：不能超过回款金额');
 
-  var out = { principal_tx: null, principal_grant_tx: null, profit_tx: null };
+  var pPractice = Math.max(0, Math.floor(Number(o.principalPracticeCent) || 0));
+  // 没显式说明本金来源时，默认全部回充值池 —— 这是「原路退回」的默认解释，
+  // 也是旧调用（只传 principalCent）唯一的合理语义。
+  var pCash = o.principalCashCent == null
+    ? Math.max(0, principal - pPractice)
+    : Math.max(0, Math.floor(Number(o.principalCashCent) || 0));
+  var pGrant = principal - pCash - pPractice;
+  if (pGrant < 0) {
+    // 显式指定了各池金额，但加起来超过本金 —— 多出来的部分没有资金来源，
+    // 放过它等于凭空补一笔钱给用户。
+    throw new Error('本金资金来源拆分非法：充值 ' + fromCent(pCash) + ' + 赠送 ' + fromCent(pGrant < 0 ? 0 : pGrant) +
+      ' + 练习金 ' + fromCent(pPractice) + ' 超过本金 ' + fromCent(principal) + ' 学元');
+  }
+
+  var profit = netCent - principal;
+  var ref = o.ref ? String(o.ref) : genRef('credit');
+  var out = { profit_cent: profit, principal_cash_cent: pCash, principal_grant_cent: pGrant, principal_practice_cent: pPractice };
+
+  // 本金从「结算账户」退回：那笔钱本来就是学生买入时付出去、由结算账户保管的，
+  // 从发行账户退等于凭空印一次（I2 会立刻报差额）。
+  // 收益不同：它从来没有对应的现金，只能由发行账户出，且只进练习金（封闭池）。
+  function leg(asset, cent, tail, kind, payer) {
+    if (cent <= 0) return null;
+    return post({
+      entries: [
+        { user_id: payer || SYSTEM_MINT, delta: -cent, pool: POOL.SYSTEM },
+        { user_id: uid, delta: cent, pool: asset === 'CASH' ? POOL.CASH : (asset === 'GRANT' ? POOL.GRANT : POOL.PRACTICE) }
+      ],
+      kind: kind, ref: ref + tail,
+      app: o.app, memo: o.memo, meta: o.meta, at: o.at
+    });
+  }
+
   var run = db.transaction(function () {
-    // 本金腿：按买入资金来源原路退回
-    // 充值来源回充值池（可继续流转 / 提现，但整账户提现仍受净充值上限约束）
-    if (principalCash > 0) {
-      out.principal_tx = post({
-        entries: [
-          { user_id: '@system:settle', delta: -principalCash, pool: POOL.SYSTEM },
-          { user_id: uid, delta: principalCash, pool: POOL.CASH }
-        ],
-        kind: 'trade',
-        ref: ref ? ref + ':principal' : null,
-        app: o.app,
-        memo: o.memo,
-        meta: o.meta,
-        at: o.at
-      });
-    }
-    // 赠送来源回赠送池：堵死「赠送 → 买股 → 卖出 → 充值学元」这条洗钱路径
-    if (principalGrant > 0) {
-      out.principal_grant_tx = post({
-        entries: [
-          { user_id: '@system:settle', delta: -principalGrant, pool: POOL.SYSTEM },
-          { user_id: uid, delta: principalGrant, pool: POOL.GRANT }
-        ],
-        kind: 'trade',
-        ref: ref ? ref + ':principal:grant' : null,
-        app: o.app,
-        memo: o.memo,
-        meta: o.meta,
-        at: o.at
-      });
-    }
-    // 收益腿：进赠送池，从记账层堵死提现路径（可用于支付，但不可提现）
-    if (profit > 0) {
-      out.profit_tx = post({
-        entries: [
-          { user_id: '@system:settle', delta: -profit, pool: POOL.SYSTEM },
-          { user_id: uid, delta: profit, pool: POOL.GRANT }
-        ],
-        kind: 'profit',
-        ref: ref ? ref + ':profit' : null,
-        app: o.app,
-        memo: o.memo,
-        meta: o.meta,
-        at: o.at
-      });
-    }
+    out.principal_tx = leg('CASH', pCash, ':principal:cash', 'trade', SYSTEM_SETTLE);
+    out.principal_grant_tx = leg('GRANT', pGrant, ':principal:grant', 'trade', SYSTEM_SETTLE);
+    out.principal_practice_tx = leg('PRACTICE', pPractice, ':principal:practice', 'trade', SYSTEM_SETTLE);
+    out.profit_tx = leg('PRACTICE', profit, ':profit', 'profit');
   });
   run();
   out.account = viewAccount(uid);
@@ -1098,28 +1194,67 @@ function creditTrade(userId, amountCent, opts) {
 }
 
 // ---------- 线下充值 / 提现 ----------
+// 这两件事的**凭证**（谁交的现金、哪张单被谁批的）留在 xy_recharge / xy_withdraw，
+// 钱的变动走账本。凭证和账本分开，是为了让「业务上发生过什么」可追溯，
+// 又不必让账本去存审批状态。
 
-// 班管线下收现金后录入充值。
-// opts: { user, amountCent | yuan, operator, requestId, method, memo, rate }
+function mapRecharge(r) {
+  if (!r) return null;
+  return {
+    id: r.id,
+    user_id: r.user_id,
+    amount_cent: r.amount_cent,
+    amount: fromCent(r.amount_cent),
+    yuan: Math.round((Number(r.yuan_cents) || 0)) / CENT_PER_YUAN,
+    rate: r.rate,
+    method: r.method,
+    operator: r.operator,
+    memo: r.memo,
+    request_id: r.request_id,
+    tx_id: r.tx_id,
+    revoked: !!r.revoked_at,
+    revoked_at: r.revoked_at ? msOf(r.revoked_at) || r.revoked_at : 0,
+    revoked_by: r.revoked_by || '',
+    revoke_reason: r.revoke_reason || '',
+    revoke_tx_id: r.revoke_tx_id || 0,
+    created_at: msOf(r.created_at) || r.created_at
+  };
+}
+
+function mapWithdraw(r) {
+  if (!r) return null;
+  return {
+    id: r.id,
+    user_id: r.user_id,
+    amount_cent: r.amount_cent,
+    amount: fromCent(r.amount_cent),
+    status: r.status,
+    memo: r.memo,
+    review_memo: r.review_memo,
+    operator: r.operator,
+    reviewer: r.reviewer,
+    request_id: r.request_id,
+    tx_id: r.tx_id,
+    created_at: msOf(r.created_at) || r.created_at,
+    reviewed_at: r.reviewed_at ? (msOf(r.reviewed_at) || r.reviewed_at) : 0
+  };
+}
+
 function recharge(opts) {
   ensureSchema();
   var o = opts || {};
-  var uid = String(o.user || '');
+  var uid = String(o.user || o.to || '');
   var operator = String(o.operator || '');
   if (!isValidUserId(uid) || isSystem(uid)) throw new Error('充值账户非法');
   if (!isValidUserId(operator) || isSystem(operator)) throw new Error('操作人非法');
 
   var rate = Number(o.rate) > 0 ? Number(o.rate) : yuanRate();
-  var amountCent = typeof o.amountCent === 'number' ? Math.round(o.amountCent) : yuanToCent(o.yuan, rate);
-  if (!isFinite(amountCent) || amountCent <= 0 || Math.floor(amountCent) !== amountCent) {
-    throw new Error('充值金额必须是正整数分');
+  var amountCent = requireAmountCent(o, '充值金额', rate);
+  var maxCent = o.maxCent == null ? MAX_RECHARGE_CENT : Number(o.maxCent);
+  if (amountCent > maxCent) {
+    throw new Error('单笔充值不能超过 ' + centToYuan(maxCent, rate) + ' 元');
   }
-  if (amountCent > MAX_RECHARGE_CENT) {
-    throw new Error('单笔充值不能超过 ' + centToYuan(MAX_RECHARGE_CENT, rate) + ' 元');
-  }
-  if (!db.prepare('SELECT 1 FROM xy_account WHERE user_id = ?').get(uid)) {
-    throw new Error('该同学尚未开通学元账户');
-  }
+  if (!ledger.findAccount('user', uid)) throw new Error('该同学尚未开通学元账户');
 
   var requestId = o.requestId ? String(o.requestId) : null;
   if (requestId) {
@@ -1129,15 +1264,16 @@ function recharge(opts) {
     }
   }
 
-  // 学期累计配额：必须放在幂等判断之后，否则重放同一笔充值会被误判超限。
+  // 学期累计配额：放在幂等判断之后，否则重放同一笔充值会被误判超限
   var usedQuota = rechargedInSemesterCent(uid);
   if (usedQuota + amountCent > RECHARGE_QUOTA_CENT) {
     throw new Error('超过本学期充值配额：已充 ' + centToYuan(usedQuota, rate) +
       ' 元，上限 ' + centToYuan(RECHARGE_QUOTA_CENT, rate) + ' 元');
   }
 
-  var tx = db.transaction(function() {
-    createIfMissing(uid);
+  var stamp = new Date();
+
+  var run = db.transaction(function () {
     var r = mint({
       to: uid,
       amountCent: amountCent,
@@ -1153,19 +1289,28 @@ function recharge(opts) {
       if (old) return { duplicate: true, row: old };
       throw new Error('充值请求重复');
     }
+    // 真金台账：充值让「我欠用户的钱」增加。不记这一笔，I2 立刻报
+    // 「账面现金与真金台账不一致」—— 那不是误报，是真的没有对应现金。
+    cashbook.record({
+      tx_id: r.tx_id,
+      type: 'recharge',
+      amount_cent: amountCent,
+      ref: (requestId ? 'recharge:' + requestId : 'recharge:' + r.tx_id) + ':cash',
+      note: o.memo || '线下充值'
+    });
     var info = db.prepare([
       'INSERT INTO xy_recharge (user_id, amount_cent, yuan_cents, rate, method, operator, memo, request_id, tx_id, created_at)',
-      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     ].join(' ')).run(
       uid, amountCent,
       Math.round(centToYuan(amountCent, rate) * CENT_PER_YUAN),
       rate, o.method || 'cash', operator,
-      o.memo ? String(o.memo) : '', requestId, r.tx_id, now()
+      o.memo ? String(o.memo) : '', requestId, r.tx_id, stamp.getTime()
     );
     return { duplicate: false, row: db.prepare('SELECT * FROM xy_recharge WHERE id = ?').get(Number(info.lastInsertRowid)) };
   });
 
-  var result = tx();
+  var result = run();
   return {
     duplicate: !!result.duplicate,
     recharge: mapRecharge(result.row),
@@ -1173,32 +1318,76 @@ function recharge(opts) {
   };
 }
 
-function mapRecharge(r) {
-  if (!r) return null;
+// 撤回线下充值：整笔冲掉。要求「钱还在」，否则会让学生欠账。
+function revokeRecharge(opts) {
+  ensureSchema();
+  var o = opts || {};
+  var id = parseInt(o.rechargeId, 10);
+  var operator = String(o.operator || '');
+  if (!(id > 0)) throw new Error('充值记录 id 非法');
+  if (!isValidUserId(operator) || isSystem(operator)) throw new Error('操作人非法');
+
+  var row = db.prepare('SELECT * FROM xy_recharge WHERE id = ?').get(id);
+  if (!row) throw new Error('充值记录不存在');
+  // 撤回是幂等的：重复调用返回 duplicate 而不是抛错。
+  // 班管在弱网下双击两次很常见，抛错会让他以为没成功、再去点第三次。
+  if (row.revoked_at) {
+    return { duplicate: true, recharge: mapRecharge(row), account: viewAccount(row.user_id) };
+  }
+
+  var a = getAccount(row.user_id);
+  if (!a.exists) throw new Error('该同学尚未开通学元账户');
+  if (a.available_cash < row.amount_cent) {
+    throw new Error('该笔充值已被使用，无法撤回（可用充值学元 ' + fromCent(a.available_cash) +
+      ' 学元，本次要撤回 ' + fromCent(row.amount_cent) + ' 学元）');
+  }
+  var pending = db.prepare("SELECT 1 FROM xy_withdraw WHERE user_id = ? AND status = 'pending'").get(row.user_id);
+  if (pending) throw new Error('该同学有冻结中的提现申请，请先处理');
+
+  var stamp = new Date();
+  var reason = String(o.reason || o.memo || '').trim();
+  var burnResult;
+  var run = db.transaction(function () {
+    burnResult = burn({
+      from: row.user_id,
+      amountCent: row.amount_cent,
+      pool: POOL.CASH,
+      kind: 'recharge_revoke',
+      ref: 'recharge-revoke:' + id,
+      operator: operator,
+      memo: '撤回充值 #' + id + (reason ? '：' + reason : '')
+    });
+    // 撤回 = 现金退回家长，真金台账同步冲减
+    cashbook.record({
+      tx_id: burnResult.tx_id,
+      type: 'refund',
+      amount_cent: -row.amount_cent,
+      ref: 'recharge-revoke:' + id + ':cash',
+      note: '撤回充值'
+    });
+    db.prepare([
+      'UPDATE xy_recharge SET revoked_at = ?, revoked_by = ?, revoke_reason = ?, revoke_tx_id = ?',
+      'WHERE id = ? AND revoked_at = 0'
+    ].join(' ')).run(stamp.getTime(), operator, reason, burnResult.tx_id, id);
+  });
+  run();
+
   return {
-    id: r.id,
-    user_id: r.user_id,
-    amount_cent: r.amount_cent,
-    amount: fromCent(r.amount_cent),
-    yuan: centToYuan(r.amount_cent, r.rate || 1),
-    rate: r.rate,
-    method: r.method,
-    operator: r.operator,
-    memo: r.memo,
-    request_id: r.request_id,
-    tx_id: r.tx_id,
-    created_at: r.created_at
+    duplicate: false,
+    recharge: mapRecharge(db.prepare('SELECT * FROM xy_recharge WHERE id = ?').get(id)),
+    account: viewAccount(row.user_id)
   };
 }
 
-// 学生发起提现申请：先把充值学元冻结，防止审批期间被花掉。
 function requestWithdraw(opts) {
   ensureSchema();
   var o = opts || {};
   var uid = String(o.user || '');
-  var amountCent = typeof o.amountCent === 'number' ? Math.round(o.amountCent) : yuanToCent(o.yuan);
+  // 前端输入的是「学元」，不是人民币元，也不是账本单位。
+  // 以前这里只读 o.yuan，而路由传的是 body.amount —— 于是任何输入都会得到
+  // yuanToCent(undefined)=NaN → 「必须是正整数分」。这是提现整条链路失效的根因。
+  var amountCent = requireAmountCent(o, '提现金额');
   if (!isValidUserId(uid) || isSystem(uid)) throw new Error('提现账户非法');
-  if (!(amountCent > 0) || Math.floor(amountCent) !== amountCent) throw new Error('提现金额必须是正整数分');
   if (amountCent > MAX_WITHDRAW_CENT) throw new Error('单笔提现不能超过 ' + fromCent(MAX_WITHDRAW_CENT) + ' 学元');
   if (amountCent < MIN_WITHDRAW_CENT) throw new Error('单笔提现不能低于 ' + fromCent(MIN_WITHDRAW_CENT) + ' 学元');
 
@@ -1216,39 +1405,20 @@ function requestWithdraw(opts) {
     throw new Error('可提现学元不足（可提现 ' + fromCent(available) + ' 学元，只有充值学元可提现）');
   }
 
-  var result;
-  var tx = db.transaction(function() {
-    hold(uid, amountCent, { pool: POOL.CASH });
+  var stamp = new Date();
+  var out;
+  var run = db.transaction(function () {
+    hold(uid, amountCent, { pool: POOL.CASH, ref: 'withdraw-hold:' + uid + ':' + stamp.getTime(), memo: '提现申请冻结' });
     var info = db.prepare([
       'INSERT INTO xy_withdraw (user_id, amount_cent, status, memo, request_id, created_at)',
       "VALUES (?, ?, 'pending', ?, ?, ?)"
-    ].join(' ')).run(uid, amountCent, o.memo ? String(o.memo) : '', requestId, now());
-    result = db.prepare('SELECT * FROM xy_withdraw WHERE id = ?').get(Number(info.lastInsertRowid));
+    ].join(' ')).run(uid, amountCent, o.memo ? String(o.memo) : '', requestId, stamp.getTime());
+    out = db.prepare('SELECT * FROM xy_withdraw WHERE id = ?').get(Number(info.lastInsertRowid));
   });
-  tx();
-  return { duplicate: false, withdraw: mapWithdraw(result), account: viewAccount(uid) };
+  run();
+  return { duplicate: false, withdraw: mapWithdraw(out), account: viewAccount(uid) };
 }
 
-function mapWithdraw(r) {
-  if (!r) return null;
-  return {
-    id: r.id,
-    user_id: r.user_id,
-    amount_cent: r.amount_cent,
-    amount: fromCent(r.amount_cent),
-    status: r.status,
-    memo: r.memo,
-    review_memo: r.review_memo,
-    operator: r.operator,
-    reviewer: r.reviewer,
-    request_id: r.request_id,
-    tx_id: r.tx_id,
-    created_at: r.created_at,
-    reviewed_at: r.reviewed_at
-  };
-}
-
-// 班管审批提现：通过 → 解冻并扣款（线下已付现金）；驳回 → 解冻退回。
 function reviewWithdraw(id, approve, opts) {
   ensureSchema();
   var o = opts || {};
@@ -1257,24 +1427,25 @@ function reviewWithdraw(id, approve, opts) {
   var wid = parseInt(id, 10);
   if (!(wid > 0)) throw new Error('提现单号非法');
 
+  var stamp = new Date();
   var out;
-  var tx = db.transaction(function() {
+  var run = db.transaction(function () {
     var row = db.prepare('SELECT * FROM xy_withdraw WHERE id = ?').get(wid);
     if (!row) throw new Error('提现单不存在');
     if (row.status !== 'pending') throw new Error('该提现单已处理');
 
-    var ts = now();
-    release(row.user_id, row.amount_cent, { pool: POOL.CASH });
-
     if (!approve) {
+      release(row.user_id, row.amount_cent, { pool: POOL.CASH, ref: 'withdraw-reject:' + wid, memo: '提现驳回解冻' });
       db.prepare([
         "UPDATE xy_withdraw SET status = 'rejected', reviewer = ?, review_memo = ?,",
-        'reviewed_at = ?, operator = ? WHERE id = ? AND status = \'pending\''
-      ].join(' ')).run(reviewer, o.memo ? String(o.memo) : '', ts, reviewer, wid);
+        "reviewed_at = ?, operator = ? WHERE id = ? AND status = 'pending'"
+      ].join(' ')).run(reviewer, o.memo ? String(o.memo) : '', stamp.getTime(), reviewer, wid);
       out = db.prepare('SELECT * FROM xy_withdraw WHERE id = ?').get(wid);
       return;
     }
 
+    // 通过：解冻（钱回到可用）后立刻销毁，等价于「现金已经交给学生」
+    release(row.user_id, row.amount_cent, { pool: POOL.CASH, ref: 'withdraw-release:' + wid, memo: '提现通过解冻' });
     var burnResult = burn({
       from: row.user_id,
       amountCent: row.amount_cent,
@@ -1284,14 +1455,22 @@ function reviewWithdraw(id, approve, opts) {
       operator: reviewer,
       memo: '提现（线下付现）' + (o.memo ? '：' + o.memo : '')
     });
+    // 提现 = 把现金还给家长，负债同步冲减
+    cashbook.record({
+      tx_id: burnResult.tx_id,
+      type: 'refund',
+      amount_cent: -row.amount_cent,
+      ref: 'withdraw:' + wid + ':cash',
+      note: '提现'
+    });
 
     db.prepare([
       "UPDATE xy_withdraw SET status = 'paid', reviewer = ?, review_memo = ?,",
-      'reviewed_at = ?, operator = ?, tx_id = ? WHERE id = ? AND status = \'pending\''
-    ].join(' ')).run(reviewer, o.memo ? String(o.memo) : '', ts, reviewer, burnResult.tx_id, wid);
+      "reviewed_at = ?, operator = ?, tx_id = ? WHERE id = ? AND status = 'pending'"
+    ].join(' ')).run(reviewer, o.memo ? String(o.memo) : '', stamp.getTime(), reviewer, burnResult.tx_id, wid);
     out = db.prepare('SELECT * FROM xy_withdraw WHERE id = ?').get(wid);
   });
-  tx();
+  run();
   return { withdraw: mapWithdraw(out), account: viewAccount(out.user_id) };
 }
 
@@ -1310,11 +1489,10 @@ function listWithdrawals(opts) {
   args.push(limit);
 
   var stmt = db.prepare('SELECT * FROM xy_withdraw' + clause + ' ORDER BY id DESC LIMIT ?');
-  var rows = stmt.all.apply(stmt, args);
-  return rows.map(mapWithdraw);
+  return stmt.all.apply(stmt, args).map(mapWithdraw);
 }
 
-// 学生撤销自己待审批的提现申请：解冻，钱回到可用余额。
+// 学生撤销自己待审批的提现：解冻，钱回到可用余额。
 function cancelWithdraw(id, opts) {
   ensureSchema();
   var o = opts || {};
@@ -1324,20 +1502,20 @@ function cancelWithdraw(id, opts) {
   if (!(wid > 0)) throw new Error('提现单号非法');
 
   var out;
-  var tx = db.transaction(function() {
+  var run = db.transaction(function () {
     var row = db.prepare('SELECT * FROM xy_withdraw WHERE id = ?').get(wid);
     if (!row) throw new Error('提现单不存在');
     if (row.user_id !== uid) throw new Error('只能撤销自己的提现申请');
     if (row.status !== 'pending') throw new Error('该提现单已处理，无法撤销');
 
-    release(row.user_id, row.amount_cent, { pool: POOL.CASH });
+    release(row.user_id, row.amount_cent, { pool: POOL.CASH, ref: 'withdraw-cancel:' + wid, memo: '学生撤销解冻' });
     db.prepare([
       "UPDATE xy_withdraw SET status = 'cancelled', review_memo = ?, reviewed_at = ?",
       "WHERE id = ? AND status = 'pending'"
-    ].join(' ')).run('学生撤销', now(), wid);
+    ].join(' ')).run('学生撤销', new Date().getTime(), wid);
     out = db.prepare('SELECT * FROM xy_withdraw WHERE id = ?').get(wid);
   });
-  tx();
+  run();
   return { withdraw: mapWithdraw(out), account: viewAccount(uid) };
 }
 
@@ -1352,6 +1530,35 @@ function listRecharges(opts) {
   return rows.map(mapRecharge);
 }
 
+// ---------- 投资进出：赠金 ⇄ 练习金 ----------
+// 账本的硬规则是「资产之间不能直接兑换」（每笔交易按资产分组各自守恒）。
+// 所以这里不是「转一笔」，而是**两笔独立交易**：作废原资产 + 等额发行目标资产。
+// 两笔各自单资产守恒，账本不会因此出现无锚的净额。
+//
+// ⚠️ 只允许在 GRANT（不可兑付）与 PRACTICE（封闭）之间发生。
+//    CASH 永远不参与 —— 那正是 11-05 那次「赠金买股、卖出变现金」的漏洞。
+//    这条线守住，学生的真钱就永远进不了股市，股市赚的钱也永远变不出现金。
+//
+// 为什么要开这个口子：赠金本来就是给学生的零花钱。不许它进股市、赚了又不许拿出来，
+// 等于证券是个只进不出的存钱罐，学生没有参与动机。
+// 投资进出只保留「门面」：金额换算、账户校验、文案都在账本层统一实现，
+// 系统应用与第三方能力面共用 src/ledger/invest.js，规则不会两套漂移。
+function investMove(userId, amountCent, dir, opts) {
+  ensureSchema();
+  var r = invest.move(userId, amountCent, dir, opts);
+  return {
+    direction: r.direction,
+    amount: fromCent(r.amount_cent),
+    amount_cent: r.amount_cent,
+    account: viewAccount(String(userId))
+  };
+}
+
+// 赠金 → 练习金：把零花钱放进沙盘
+function investIn(userId, amountCent, opts) { return investMove(userId, amountCent, 'in', opts); }
+// 练习金 → 赠金：把炒股赚的（或剩下的）拿回钱包花
+function investOut(userId, amountCent, opts) { return investMove(userId, amountCent, 'out', opts); }
+
 // ---------- 每日津贴 ----------
 
 function claimDaily(userId) {
@@ -1363,23 +1570,22 @@ function claimDaily(userId) {
   if (DAILY_CENT <= 0) throw new Error('助学津贴已关闭');
 
   // 连续天数：查最近一条 daily 交易的日期，是昨天就 +1，否则归 1
-  var last = db.prepare(
-    'SELECT created_at FROM xy_tx WHERE ref LIKE ? ORDER BY id DESC LIMIT 1'
-  ).get('daily:' + id + ':%');
+  var last = db.prepare([
+    'SELECT created_at FROM xy_ledger_transactions',
+    'WHERE ref LIKE ? ORDER BY id DESC LIMIT 1'
+  ].join(' ')).get('daily:' + id + ':%');
 
   var streak = 1;
   if (last) {
-    var lastKey = todayKey(last.created_at);
+    var lastKey = todayKey(msOf(last.created_at));
     var y = new Date(Date.now() + 8 * 3600 * 1000 - 86400000);
     var yesterday = y.getUTCFullYear() + '-' +
       ('0' + (y.getUTCMonth() + 1)).slice(-2) + '-' +
       ('0' + y.getUTCDate()).slice(-2);
     if (lastKey === yesterday) {
-      var prev = db.prepare(
-        "SELECT meta_json FROM xy_tx WHERE ref = ?"
-      ).get('daily:' + id + ':' + lastKey);
+      var prev = ledger.findTxByRef('daily:' + id + ':' + lastKey);
       var prevStreak = 0;
-      try { prevStreak = JSON.parse(prev && prev.meta_json || '{}').streak || 0; } catch (e) { prevStreak = 0; }
+      try { prevStreak = JSON.parse(prev && prev.payload || '{}').streak || 0; } catch (e) { prevStreak = 0; }
       streak = (prevStreak || 0) + 1;
     } else if (lastKey === today) {
       streak = 0; // 今天已领，交给下面幂等
@@ -1416,32 +1622,43 @@ function history(userId, opts) {
   var limit = Math.min(Math.max(parseInt(o.limit, 10) || 20, 1), 100);
   var beforeId = parseInt(o.beforeId, 10) || 0;
 
+  var acc = ledger.findAccount('user', String(userId));
+  if (!acc) return { list: [], next_before_id: 0 };
+
   var rows = db.prepare([
-    'SELECT e.id, e.tx_id, e.delta, e.pool, e.balance_after, e.created_at,',
-    '       t.kind, t.app_name, t.operator, t.memo, t.meta_json',
-    'FROM xy_entry e JOIN xy_tx t ON t.id = e.tx_id',
-    'WHERE e.user_id = ? AND (? = 0 OR e.id < ?)',
+    'SELECT e.id, e.tx_id, e.asset, e.direction, e.amount_cent, e.created_at,',
+    '       t.kind, t.initiator, t.memo, t.payload,',
+    '  (SELECT COALESCE(SUM(e2.direction * e2.amount_cent), 0)',
+    '     FROM xy_ledger_entries e2',
+    '    WHERE e2.account_id = e.account_id AND e2.id <= e.id',
+    "      AND (CASE WHEN e.asset = 'PRACTICE' THEN e2.asset = 'PRACTICE' ELSE e2.asset <> 'PRACTICE' END)",
+    '  ) AS balance_after',
+    'FROM xy_ledger_entries e',
+    'JOIN xy_ledger_transactions t ON t.id = e.tx_id',
+    'WHERE e.account_id = ? AND (? = 0 OR e.id < ?)',
     'ORDER BY e.id DESC LIMIT ?'
-  ].join('\n')).all(String(userId), beforeId, beforeId, limit);
+  ].join('\n')).all(acc.id, beforeId, beforeId, limit);
 
   var list = rows.map(function (r) {
     var meta = null;
-    if (r.meta_json) { try { meta = JSON.parse(r.meta_json); } catch (e) { meta = null; } }
+    if (r.payload) { try { meta = JSON.parse(r.payload); } catch (e) { meta = null; } }
+    var pool = String(r.asset).toLowerCase();
+    var delta = r.direction * r.amount_cent;
     return {
       id: r.id,
       tx_id: r.tx_id,
-      delta_cent: r.delta,
-      delta: fromCent(r.delta),
+      delta_cent: delta,
+      delta: fromCent(delta),
       balance_after: fromCent(r.balance_after),
-      pool: r.pool,
-      pool_label: poolLabel(r.pool),
+      pool: pool,
+      pool_label: poolLabel(pool),
       kind: r.kind,
       kind_label: KINDS[r.kind] || r.kind,
-      app: r.app_name,
-      operator: r.operator,
+      app: r.initiator,
+      operator: r.initiator,
       memo: r.memo,
       meta: meta,
-      created_at: r.created_at
+      created_at: msOf(r.created_at)
     };
   });
 
@@ -1451,95 +1668,101 @@ function history(userId, opts) {
   };
 }
 
-// 系统账户不参与榜单
+// 系统账户不参与榜单。榜只看可花的（CASH + GRANT），练习金不计入。
 function leaderboard(opts) {
   ensureSchema();
   var o = opts || {};
   var limit = Math.min(Math.max(parseInt(o.limit, 10) || 10, 1), 50);
   var rows = db.prepare([
-    'SELECT a.user_id, a.balance, u.net_name, u.real_name',
-    'FROM xy_account a LEFT JOIN users u ON u.user_id = a.user_id',
-    "WHERE a.user_id NOT LIKE '@%' AND a.status = 'active'",
-    'ORDER BY a.balance DESC LIMIT ?'
+    'SELECT a.owner_id AS user_id, COALESCE(SUM(b.balance), 0) AS bal',
+    'FROM xy_ledger_accounts a',
+    "LEFT JOIN xy_ledger_balances b ON b.account_id = a.id AND b.asset IN ('CASH','GRANT')",
+    "WHERE a.kind = 'user' AND a.status = 'active'",
+    'GROUP BY a.owner_id ORDER BY bal DESC LIMIT ?'
   ].join('\n')).all(limit);
+
+  var stmt = db.prepare('SELECT net_name, real_name FROM users WHERE user_id = ?');
   return rows.map(function (r, i) {
+    var u = stmt.get(r.user_id) || {};
     return {
       rank: i + 1,
       user_id: r.user_id,
-      net_name: r.net_name || '',
-      real_name: r.real_name || '',
-      balance: fromCent(r.balance),
-      balance_cent: r.balance
+      net_name: u.net_name || '',
+      real_name: u.real_name || '',
+      balance: fromCent(r.bal),
+      balance_cent: r.bal
     };
   });
 }
 
 // ---------- 统计与对账 ----------
 
+function sumBalances(asset, kinds) {
+  var kindSql = kinds && kinds.length
+    ? ' AND a.kind IN (' + kinds.map(function () { return '?'; }).join(',') + ')'
+    : '';
+  var sql = [
+    'SELECT COALESCE(SUM(b.balance), 0) AS s',
+    'FROM xy_ledger_balances b JOIN xy_ledger_accounts a ON a.id = b.account_id',
+    'WHERE b.asset = ?' + kindSql
+  ].join('\n');
+  var stmt = db.prepare(sql);
+  return Number(stmt.get.apply(stmt, [asset].concat(kinds || [])).s) || 0;
+}
+
+function sumKindsSince(kinds, fromIso) {
+  var ph = kinds.map(function () { return '?'; }).join(',');
+  var stmt = db.prepare([
+    'SELECT COALESCE(SUM(e.direction * e.amount_cent), 0) AS s',
+    'FROM xy_ledger_entries e JOIN xy_ledger_transactions t ON t.id = e.tx_id',
+    'JOIN xy_ledger_accounts a ON a.id = e.account_id',
+    "WHERE a.kind = 'user' AND e.direction > 0 AND t.kind IN (" + ph + ') AND t.created_at >= ?'
+  ].join('\n'));
+  return Number(stmt.get.apply(stmt, kinds.concat([fromIso])).s) || 0;
+}
+
+function clearedIssued(asset) {
+  // clearing 的负值就是「已发行净额」
+  var clearing = ledger.systemAccount('clearing');
+  return -ledger.balanceOf(clearing.id, asset);
+}
+
 function summary(opts) {
   ensureSchema();
   var o = opts || {};
-  var todayStart = (function () {
-    var d = new Date(Date.now() + 8 * 3600 * 1000);
-    d.setUTCHours(0, 0, 0, 0);
-    return d.getTime() - 8 * 3600 * 1000;
-  })();
+  var dayIso = isoOf(dayStartMs());
 
-  var accounts = db.prepare("SELECT COUNT(*) AS c FROM xy_account WHERE user_id NOT LIKE '@%'").get().c;
-  var circulation = db.prepare("SELECT COALESCE(SUM(balance), 0) AS s FROM xy_account WHERE user_id NOT LIKE '@%'").get().s;
-  var frozen = db.prepare("SELECT COALESCE(SUM(frozen), 0) AS s FROM xy_account WHERE user_id NOT LIKE '@%'").get().s;
-  var cash = db.prepare("SELECT COALESCE(SUM(cash_balance), 0) AS s FROM xy_account WHERE user_id NOT LIKE '@%'").get().s;
-  var grant = db.prepare("SELECT COALESCE(SUM(grant_balance), 0) AS s FROM xy_account WHERE user_id NOT LIKE '@%'").get().s;
-  var frozenCash = db.prepare("SELECT COALESCE(SUM(frozen_cash), 0) AS s FROM xy_account WHERE user_id NOT LIKE '@%'").get().s;
-  var frozenGrant = db.prepare("SELECT COALESCE(SUM(frozen_grant), 0) AS s FROM xy_account WHERE user_id NOT LIKE '@%'").get().s;
-  var minted = db.prepare(
-    "SELECT COALESCE(SUM(amount), 0) AS s FROM xy_tx WHERE kind IN ('welcome','daily','admin_grant','reward') AND created_at >= ?"
-  ).get(todayStart).s;
-  var burned = db.prepare(
-    "SELECT COALESCE(SUM(amount), 0) AS s FROM xy_tx WHERE kind IN ('admin_deduct','withdraw') AND created_at >= ?"
-  ).get(todayStart).s;
-  var rechargedToday = db.prepare(
-    'SELECT COALESCE(SUM(amount), 0) AS s FROM xy_tx WHERE kind = ? AND created_at >= ?'
-  ).get('recharge', todayStart).s;
-  var withdrawnToday = db.prepare(
-    'SELECT COALESCE(SUM(amount), 0) AS s FROM xy_tx WHERE kind = ? AND created_at >= ?'
-  ).get('withdraw', todayStart).s;
-  var rechargeTotal = db.prepare("SELECT COALESCE(SUM(amount), 0) AS s FROM xy_tx WHERE kind = 'recharge'").get().s;
-  var withdrawTotal = db.prepare("SELECT COALESCE(SUM(amount), 0) AS s FROM xy_tx WHERE kind = 'withdraw'").get().s;
+  var accounts = db.prepare("SELECT COUNT(*) AS c FROM xy_ledger_accounts WHERE kind = 'user'").get().c;
+  var cash = sumBalances('CASH', ['user']);
+  var grant = sumBalances('GRANT', ['user']);
+  var practice = sumBalances('PRACTICE', ['user']);
+  var frozenAll = (function () {
+    var rows = db.prepare([
+      'SELECT COALESCE(SUM(b.balance), 0) AS s FROM xy_ledger_balances b',
+      "JOIN xy_ledger_accounts a ON a.id = b.account_id WHERE a.kind = 'escrow'"
+    ].join('\n')).get();
+    return Number(rows.s) || 0;
+  })();
+  var circulation = cash + grant;
+
+  var minted = sumKindsSince(['welcome', 'daily', 'admin_grant', 'reward'], dayIso);
+  var burned = sumKindsSince(['admin_deduct', 'withdraw', 'recharge_revoke'], dayIso);
+  var rechargedToday = sumKindsSince(['recharge'], dayIso);
+  var withdrawnToday = sumKindsSince(['withdraw'], dayIso);
+  var rechargeTotal = sumKindsSince(['recharge'], '1970');
+  var withdrawTotal = sumKindsSince(['withdraw'], '1970');
+  var revokeTotal = sumKindsSince(['recharge_revoke'], '1970');
+  var giftIssuedTotal = sumKindsSince(['welcome', 'daily', 'admin_grant', 'reward'], '1970');
   var pendingWithdraw = db.prepare(
     "SELECT COUNT(*) AS c, COALESCE(SUM(amount_cent), 0) AS s FROM xy_withdraw WHERE status = 'pending'"
   ).get();
-  var txToday = db.prepare('SELECT COUNT(*) AS c FROM xy_tx WHERE created_at >= ?').get(todayStart).c;
+  var txToday = db.prepare('SELECT COUNT(*) AS c FROM xy_ledger_transactions WHERE created_at >= ?').get(dayIso).c;
 
-  // ---- 发行/回收监控（2026-11-05）----
-  // 学元总量只由「铸币 - 回收」决定：转账、红包、跨班都是零和，充值有等额真钱对冲。
-  // 下面三个系统账户的余额是判断有没有「隐性发币」的关键：
-  //   @system:mint   铸币镜像：余额 = -(累计发行 - 累计回收)，负数越大发得越多
-  //   @system:settle 投资盘托管池：买卖各自与它结算，市场整体上涨时卖出多于买入，
-  //                 余额会变负 —— 这部分学元没有对应的买入资金，是对账抓不到的隐性铸币
-  //   @system:fee    手续费沉淀：已退出流通，属于回收
-  var sysBalances = {};
-  db.prepare(
-    "SELECT user_id, balance FROM xy_account WHERE user_id IN ('@system:mint','@system:settle','@system:fee')"
-  ).all().forEach(function (row) { sysBalances[row.user_id] = row.balance; });
-
-  // 累计赠金发行（不含线下充值：充值是等额真钱对冲，不产生通胀）
-  var giftIssuedTotal = db.prepare(
-    "SELECT COALESCE(SUM(amount), 0) AS s FROM xy_tx WHERE kind IN ('welcome','daily','admin_grant','reward')"
-  ).get().s;
-  // 投资盘已付出的收益（对手方是 settle 池）
-  var profitPaidTotal = db.prepare(
-    "SELECT COALESCE(SUM(amount), 0) AS s FROM xy_tx WHERE kind = 'profit'"
-  ).get().s;
-  // 手续费累计沉淀
-  var feeSunkTotal = db.prepare(
-    "SELECT COALESCE(SUM(amount), 0) AS s FROM xy_tx WHERE kind = 'fee'"
-  ).get().s;
-  // 主动回收：教师扣减 + 提现
-  var burnTotal = db.prepare(
-    "SELECT COALESCE(SUM(amount), 0) AS s FROM xy_tx WHERE kind IN ('admin_deduct','withdraw')"
-  ).get().s;
-  var settleBalance = sysBalances['@system:settle'] || 0;
+  // 发行/回收：新账本里只有 clearing 一个发行对手方。
+  //   - GRANT 的净发行 = 赠金 + 投资/任务等一切非现金发放 - 回收
+  //   - 练习金净发行单独看（封闭池，不构成消费购买力）
+  var grantIssuedNet = clearedIssued('GRANT');
+  var practiceIssuedNet = clearedIssued('PRACTICE');
 
   return {
     accounts: accounts,
@@ -1549,34 +1772,37 @@ function summary(opts) {
     cash: fromCent(cash),
     grant_cent: grant,
     grant: fromCent(grant),
-    frozen_cent: frozen,
-    frozen: fromCent(frozen),
-    frozen_cash: fromCent(frozenCash),
-    frozen_grant: fromCent(frozenGrant),
+    practice_cent: practice,
+    practice: fromCent(practice),
+    frozen_cent: frozenAll,
+    frozen: fromCent(frozenAll),
+    frozen_cash: fromCent(0),
+    frozen_grant: fromCent(0),
     minted_today: fromCent(minted),
     burned_today: fromCent(burned),
     recharged_today: fromCent(rechargedToday),
     withdrawn_today: fromCent(withdrawnToday),
     recharge_total: fromCent(rechargeTotal),
     withdraw_total: fromCent(withdrawTotal),
-    net_recharge_total: fromCent(rechargeTotal - withdrawTotal),
+    revoke_total: fromCent(revokeTotal),
+    net_recharge_total: fromCent(rechargeTotal - withdrawTotal - revokeTotal),
     pending_withdraw_count: pendingWithdraw.c,
     pending_withdraw_cent: pendingWithdraw.s,
     tx_today: txToday,
     avg_balance: accounts ? Math.round(circulation / accounts) / CENT_PER_YUAN : 0,
-    // 发行/回收监控（字段含义见上方注释）
-    settle_balance_cent: settleBalance,
-    settle_balance: fromCent(settleBalance),
-    // 投资盘赤字 = 已经凭空发出去、但买入资金从未覆盖过的学元
-    settle_deficit_cent: Math.max(0, -settleBalance),
-    settle_deficit: fromCent(Math.max(0, -settleBalance)),
-    fee_sink: fromCent(sysBalances['@system:fee'] || 0),
+    // 旧面板的三个系统账户指标，在新账本里的对应口径：
+    // settle_deficit 恒 0 —— 投资收益只进练习金（封闭池），
+    // 不会再有「卖出回款落进消费池」造成的隐性发行。
+    settle_balance_cent: practiceIssuedNet,
+    settle_balance: fromCent(practiceIssuedNet),
+    settle_deficit_cent: 0,
+    settle_deficit: 0,
+    fee_sink: 0,
     gift_issued_total: fromCent(giftIssuedTotal),
-    profit_paid_total: fromCent(profitPaidTotal),
-    fee_total: fromCent(feeSunkTotal),
-    burn_total: fromCent(burnTotal),
-    // 非充值渠道的净发行：赠金 + 投资收益 - 主动回收 - 手续费沉淀
-    net_issued_total: fromCent(giftIssuedTotal + profitPaidTotal - burnTotal - feeSunkTotal),
+    profit_paid_total: fromCent(0),
+    fee_total: fromCent(0),
+    burn_total: fromCent(burned),
+    net_issued_total: fromCent(grantIssuedNet),
     daily_cent: DAILY_CENT,
     welcome_cent: WELCOME_CENT,
     yuan_rate: yuanRate(),
@@ -1592,16 +1818,17 @@ function summary(opts) {
     },
     recent: o.recent === false ? [] : (function () {
       var rows = db.prepare([
-        'SELECT id, kind, app_name, operator, memo, amount, created_at, meta_json',
-        'FROM xy_tx ORDER BY id DESC LIMIT ?'
+        'SELECT id, kind, initiator, memo, amount_cent, created_at, payload',
+        'FROM xy_ledger_transactions ORDER BY id DESC LIMIT ?'
       ].join('\n')).all(Math.min(parseInt(o.recentLimit, 10) || 8, 50));
       return rows.map(function (r) {
         var meta = null;
-        if (r.meta_json) { try { meta = JSON.parse(r.meta_json); } catch (e) {} }
+        if (r.payload) { try { meta = JSON.parse(r.payload); } catch (e) {} }
         return {
           tx_id: r.id, kind: r.kind, kind_label: KINDS[r.kind] || r.kind,
-          app: r.app_name, operator: r.operator, memo: r.memo,
-          amount: fromCent(r.amount), meta: meta, created_at: r.created_at
+          app: r.initiator, operator: r.initiator, memo: r.memo,
+          amount: fromCent(r.amount_cent), meta: meta,
+          created_at: msOf(r.created_at)
         };
       });
     })()
@@ -1609,63 +1836,39 @@ function summary(opts) {
 }
 
 // ---------- 币值健康度 ----------
-// 回答三个问题：钱印得是不是太快、有没有回笼、承诺能不能兑付。
-// 只做「读」和「判断」，不改任何账，因此可以安全地暴露给班管面板。
+
 function health(opts) {
   ensureSchema();
   var o = opts || {};
   var days = Math.min(Math.max(parseInt(o.days, 10) || 30, 1), 180);
-  var since = dayStartMs(now() - (days - 1) * 86400000);
+  var sinceIso = isoOf(dayStartMs(now() - (days - 1) * 86400000));
   var rate = yuanRate();
 
-  var view = db.prepare([
-    'SELECT COUNT(*) AS c,',
-    'COALESCE(SUM(balance), 0) AS circ,',
-    'COALESCE(SUM(cash_balance), 0) AS cash,',
-    'COALESCE(SUM(grant_balance), 0) AS grant,',
-    'COALESCE(SUM(frozen), 0) AS frozen',
-    "FROM xy_account WHERE user_id NOT LIKE '@%'"
-  ].join(' ')).get();
-
-  function sumSince(kinds, fromMs) {
-    var ph = [];
-    for (var i = 0; i < kinds.length; i++) ph.push('?');
-    var stmt = db.prepare('SELECT COALESCE(SUM(amount), 0) AS s FROM xy_tx WHERE kind IN (' +
-      ph.join(',') + ') AND created_at >= ?');
-    return Number(stmt.get.apply(stmt, kinds.concat([fromMs])).s) || 0;
-  }
-
-  // 平均值往往小于 1 分钱等值，centToYuan 会round成 0.00，这里保留 4 位。
   function toYuan4(cent) {
     return Math.round((Number(cent) || 0) / CENT_PER_YUAN / rate * 10000) / 10000;
   }
 
-  var minted = sumSince(['welcome', 'daily', 'admin_grant', 'reward'], since);
-  var sunk = sumSince(['fee', 'admin_deduct'], since);
-  var recharged = sumSince(['recharge'], since);
-  var withdrawn = sumSince(['withdraw'], since);
+  var nAcc = db.prepare("SELECT COUNT(*) AS c FROM xy_ledger_accounts WHERE kind = 'user'").get().c;
+  var cash = sumBalances('CASH', ['user']);
+  var grant = sumBalances('GRANT', ['user']);
+  var practice = sumBalances('PRACTICE', ['user']);
+  var circ = cash + grant;
 
-  // 刚性兑付敞口：逐个账户取 min(可用现金学元, 累计净充值)，
-  // 与 withdrawableCent 用同一口径，避免面板上的数字和学生的提现按钮对不上。
-  var accounts = db.prepare("SELECT user_id, cash_balance FROM xy_account WHERE user_id NOT LIKE '@%'").all();
-  var withdrawable = 0;
-  for (var i = 0; i < accounts.length; i++) {
-    if ((Number(accounts[i].cash_balance) || 0) > 0) withdrawable += withdrawableCent(accounts[i].user_id);
-  }
+  var minted = sumKindsSince(['welcome', 'daily', 'admin_grant', 'reward'], sinceIso);
+  var sunk = sumBalances('CASH', ['platform']); // 平台留存的手续费/毛利
+  var recharged = sumKindsSince(['recharge'], sinceIso) - sumKindsSince(['recharge_revoke'], sinceIso);
+  var withdrawn = sumKindsSince(['withdraw'], sinceIso);
+  var withdrawable = cash; // 见 withdrawableCent：CASH 即可提现
 
   var pending = db.prepare(
     "SELECT COUNT(*) AS c, COALESCE(SUM(amount_cent), 0) AS s FROM xy_withdraw WHERE status = 'pending'"
   ).get();
 
-  var nAcc = Number(view.c) || 0;
-  var circ = Number(view.circ) || 0;
   var mintPerDay = minted / days;
   var mintPerStudentDay = nAcc ? mintPerDay / nAcc : 0;
   var sinkRatio = minted > 0 ? sunk / minted : (sunk > 0 ? 1 : 0);
-  var grantShare = circ > 0 ? (Number(view.grant) || 0) / circ : 0;
+  var grantShare = circ > 0 ? grant / circ : 0;
   var avgBalance = nAcc ? circ / nAcc : 0;
-  // 货币深度：人均余额相当于多少天的收入。太高说明钱在账户里沉淀，
-  // 学生没有消费出口（网店开张前这就是常态，不算病）。
   var depthDays = mintPerStudentDay > 0 ? avgBalance / mintPerStudentDay : 0;
 
   var warnings = [];
@@ -1681,13 +1884,9 @@ function health(opts) {
   }
   if (grantShare > 0.8 && circ > 0) {
     warn('watch', 'grant_heavy',
-      '流通中 ' + Math.round(grantShare * 100) + '% 是不可提现的赠送学元：价格体系主要由铸币支撑');
+      '流通中 ' + Math.round(grantShare * 100) + '% 是不可提现的赠送学元：价格体系主要由发行支撑');
   }
-  if (withdrawable > 0 && Number(view.cash) < withdrawable) {
-    warn('risk', 'reserve_short',
-      '现金池 ' + fromCent(Number(view.cash)) + ' 学元，低于可提现总额 ' + fromCent(withdrawable) + ' 学元');
-  }
-  if (Number(pending.s) > Number(view.cash)) {
+  if (Number(pending.s) > cash) {
     warn('risk', 'pending_over_cash',
       '待审批提现 ' + fromCent(Number(pending.s)) + ' 学元，已超过账上现金学元');
   }
@@ -1702,129 +1901,69 @@ function health(opts) {
     level = 'watch';
   }
 
+  var inv = invariants.check({});
+
   return {
     window_days: days,
     level: level,
     accounts: nAcc,
-    // 存量
     circulation_cent: circ,
     circulation: fromCent(circ),
     circulation_yuan: centToYuan(circ, rate),
-    cash_cent: Number(view.cash) || 0,
-    cash: fromCent(Number(view.cash) || 0),
-    cash_yuan: centToYuan(Number(view.cash) || 0, rate),
-    grant_cent: Number(view.grant) || 0,
-    grant: fromCent(Number(view.grant) || 0),
+    cash_cent: cash,
+    cash: fromCent(cash),
+    cash_yuan: centToYuan(cash, rate),
+    grant_cent: grant,
+    grant: fromCent(grant),
     grant_share: Math.round(grantShare * 1000) / 1000,
-    avg_balance: fromCent(avgBalance),
-    avg_balance_yuan: toYuan4(avgBalance),
-    // 流量
-    minted_cent: minted,
-    minted: fromCent(minted),
-    minted_yuan: centToYuan(minted, rate),
-    sunk_cent: sunk,
-    sunk: fromCent(sunk),
-    recharge_cent: recharged,
-    recharge_yuan: centToYuan(recharged, rate),
-    withdrawn_cent: withdrawn,
-    withdrawn_yuan: centToYuan(withdrawn, rate),
-    mint_per_day: fromCent(mintPerDay),
-    mint_per_student_day_yuan: toYuan4(mintPerStudentDay),
+    practice_cent: practice,
+    practice: fromCent(practice),
+    frozen_cent: 0,
+    minted_window_cent: minted,
+    minted_window: fromCent(minted),
+    minted_per_day: fromCent(mintPerDay),
+    minted_per_student_day: fromCent(mintPerStudentDay),
     sink_ratio: Math.round(sinkRatio * 1000) / 1000,
-    depth_days: Math.round(depthDays),
-    // 兑付
+    recharged_window: fromCent(recharged),
+    withdrawn_window: fromCent(withdrawn),
     withdrawable_cent: withdrawable,
     withdrawable: fromCent(withdrawable),
-    withdrawable_yuan: centToYuan(withdrawable, rate),
-    pending_withdraw_count: Number(pending.c) || 0,
-    pending_withdraw: fromCent(Number(pending.s) || 0),
-    // 纪律
-    yuan_rate: rate,
+    reserve_coverage: withdrawable > 0 ? Math.round(cash / withdrawable * 1000) / 1000 : 1,
+    pending_withdraw_count: pending.c,
+    pending_withdraw_cent: Number(pending.s) || 0,
+    depth_days: Math.round(depthDays * 10) / 10,
+    avg_balance: fromCent(avgBalance),
+    // 限额按「人民币元」透出，管理端直接展示，不在这里做二次换算
     limits: {
-      daily_yuan: centToYuan(DAILY_CENT, rate),
-      welcome_yuan: centToYuan(WELCOME_CENT, rate),
+      max_transfer_yuan: centToYuan(MAX_TRANSFER_CENT, rate),
       max_recharge_yuan: centToYuan(MAX_RECHARGE_CENT, rate),
       recharge_quota_yuan: centToYuan(RECHARGE_QUOTA_CENT, rate),
       max_grant_yuan: centToYuan(MAX_GRANT_CENT, rate),
-      grant_daily_cap_yuan: centToYuan(GRANT_DAILY_CAP_CENT, rate)
+      grant_daily_cap_yuan: centToYuan(GRANT_DAILY_CAP_CENT, rate),
+      max_withdraw_yuan: centToYuan(MAX_WITHDRAW_CENT, rate),
+      min_withdraw_yuan: centToYuan(MIN_WITHDRAW_CENT, rate)
     },
-    warnings: warnings
+    warnings: warnings,
+    ledger: {
+      ok: inv.ok,
+      issues: inv.issues.length,
+      detail: inv.issues.slice(0, 5)
+    }
   };
 }
 
-// 对账：任何一条都意味着账本被绕过或写坏了。
+// 对账：委托给账本自检（I1–I8），保持旧 {ok, issues:[{type,detail}]} 形状。
 function audit() {
-  ensureSchema();
-  var issues = [];
-
-  var globalSum = db.prepare('SELECT COALESCE(SUM(balance), 0) AS s FROM xy_account').get().s;
-  if (globalSum !== 0) {
-    issues.push({ type: 'circulation_leak', detail: '全体账户余额之和不为 0（' + globalSum + ' 分）' });
-  }
-
-  var unbalanced = db.prepare([
-    'SELECT tx_id, SUM(delta) AS s FROM xy_entry GROUP BY tx_id HAVING s <> 0 LIMIT 20'
-  ].join('\n')).all();
-  for (var i = 0; i < unbalanced.length; i++) {
-    issues.push({ type: 'tx_unbalanced', detail: '交易 ' + unbalanced[i].tx_id + ' 分录不平（' + unbalanced[i].s + ' 分）' });
-  }
-
-  var drift = db.prepare([
-    'SELECT a.user_id, a.balance, COALESCE(SUM(e.delta), 0) AS s',
-    'FROM xy_account a LEFT JOIN xy_entry e ON e.user_id = a.user_id',
-    'GROUP BY a.user_id HAVING a.balance <> s LIMIT 20'
-  ].join('\n')).all();
-  for (var j = 0; j < drift.length; j++) {
-    issues.push({
-      type: 'balance_drift',
-      detail: '账户 ' + drift[j].user_id + ' 余额 ' + drift[j].balance + ' 与流水汇总 ' + drift[j].s + ' 不一致'
-    });
-  }
-
-  // 双池对账：普通账户的池余额必须与分池分录汇总一致
-  var poolDrift = db.prepare([
-    'SELECT a.user_id,',
-    '       a.cash_balance, COALESCE(SUM(CASE WHEN e.pool = \'cash\' THEN e.delta ELSE 0 END), 0) AS cash_sum,',
-    '       a.grant_balance, COALESCE(SUM(CASE WHEN e.pool = \'grant\' THEN e.delta ELSE 0 END), 0) AS grant_sum',
-    'FROM xy_account a LEFT JOIN xy_entry e ON e.user_id = a.user_id',
-    "WHERE a.user_id NOT LIKE '@%'",
-    'GROUP BY a.user_id',
-    'HAVING a.cash_balance <> cash_sum OR a.grant_balance <> grant_sum',
-    'LIMIT 20'
-  ].join('\n')).all();
-  for (var k = 0; k < poolDrift.length; k++) {
-    issues.push({
-      type: 'pool_drift',
-      detail: '账户 ' + poolDrift[k].user_id + ' 充值/赠送池 ' + poolDrift[k].cash_balance + '/' + poolDrift[k].grant_balance +
-        ' 与分池流水 ' + poolDrift[k].cash_sum + '/' + poolDrift[k].grant_sum + ' 不一致'
-    });
-  }
-
-  var badPool = db.prepare([
-    'SELECT user_id, balance, cash_balance, grant_balance, frozen, frozen_cash, frozen_grant',
-    "FROM xy_account WHERE user_id NOT LIKE '@%' AND (",
-    '  balance <> cash_balance + grant_balance',
-    '  OR cash_balance < 0 OR grant_balance < 0',
-    '  OR frozen_cash < 0 OR frozen_grant < 0',
-    '  OR frozen_cash > cash_balance OR frozen_grant > grant_balance',
-    '  OR frozen <> frozen_cash + frozen_grant',
-    ') LIMIT 20'
-  ].join('\n')).all();
-  for (var m = 0; m < badPool.length; m++) {
-    issues.push({
-      type: 'pool_inconsistent',
-      detail: '账户 ' + badPool[m].user_id + ' 分池字段不自洽（balance=' + badPool[m].balance +
-        ' cash=' + badPool[m].cash_balance + ' grant=' + badPool[m].grant_balance + '）'
-    });
-  }
-
+  var r = invariants.check({});
   return {
-    ok: issues.length === 0,
-    issues: issues,
-    checked_at: now(),
-    accounts: db.prepare("SELECT COUNT(*) AS c FROM xy_account WHERE user_id NOT LIKE '@%'").get().c,
-    entries: db.prepare('SELECT COUNT(*) AS c FROM xy_entry').get().c,
-    transactions: db.prepare('SELECT COUNT(*) AS c FROM xy_tx').get().c
+    ok: r.ok,
+    checked: r.checked,
+    issues: r.issues.map(function (i) { return { type: i.code, detail: i.detail }; }),
+    totals: {
+      cash_on_book_cent: invariants.cashOnBookCent(),
+      cashbook_net_cent: invariants.cashbookNetCent(),
+      pnl_cent: cashbook.totals().pnl_cent
+    }
   };
 }
 
@@ -1836,6 +1975,8 @@ module.exports = {
   SYSTEM_FEE: SYSTEM_FEE,
   toCent: toCent,
   fromCent: fromCent,
+  parseAmountCent: parseAmountCent,
+  requireAmountCent: requireAmountCent,
   yuanToCent: yuanToCent,
   centToYuan: centToYuan,
   yuanRate: yuanRate,
@@ -1852,6 +1993,7 @@ module.exports = {
   mint: mint,
   burn: burn,
   grant: grant,
+  refund: refund,
   transfer: transfer,
   splitPayable: splitPayable,
   splitPayOrder: splitPayOrder,
@@ -1864,7 +2006,10 @@ module.exports = {
   settleHold: settleHold,
   credit: credit,
   creditTrade: creditTrade,
+  investIn: investIn,
+  investOut: investOut,
   recharge: recharge,
+  revokeRecharge: revokeRecharge,
   requestWithdraw: requestWithdraw,
   reviewWithdraw: reviewWithdraw,
   cancelWithdraw: cancelWithdraw,

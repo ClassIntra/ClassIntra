@@ -26,6 +26,7 @@ var peers = require('./peers');
 var crossPay = require('./cross-pay');
 var yuanbao = require('./yuanbao');
 var payCode = require('./pay-code');
+var cashbook = require('../ledger/cashbook');
 
 var RETRY_GAP = 60 * 1000;
 var MAX_ATTEMPTS = 30;          // 约 30 分钟；领取接口幂等，重试是安全的
@@ -45,6 +46,9 @@ CREATE TABLE IF NOT EXISTS xy_cross_packet (
   code TEXT NOT NULL,
   user_id TEXT NOT NULL,
   amount_cent INTEGER,
+  cash_cent INTEGER NOT NULL DEFAULT 0,
+  grant_cent INTEGER NOT NULL DEFAULT 0,
+  legacy INTEGER NOT NULL DEFAULT 0,
   note TEXT,
   sender_name TEXT,
   status TEXT NOT NULL DEFAULT 'pending',
@@ -64,7 +68,20 @@ CREATE TABLE IF NOT EXISTS xy_user_home (
   last_seen INTEGER NOT NULL
 );
 `);
+  // 老库没有按池拆分列：补账会按「整笔 CASH」入账，既污染兑付敞口又破坏 I2。
+  // 迁移 038 负责正式升级，这里再兜一次底（服务可能被单独加载而没跑迁移）。
+  addColumn('xy_cross_packet', 'cash_cent', 'INTEGER NOT NULL DEFAULT 0');
+  addColumn('xy_cross_packet', 'grant_cent', 'INTEGER NOT NULL DEFAULT 0');
+  addColumn('xy_cross_packet', 'legacy', 'INTEGER NOT NULL DEFAULT 0');
   ready = true;
+}
+
+function addColumn(table, col, decl) {
+  try {
+    var cols = db.prepare('PRAGMA table_info(' + table + ')').all();
+    for (var i = 0; i < cols.length; i++) { if (cols[i].name === col) return; }
+    db.exec('ALTER TABLE ' + table + ' ADD COLUMN ' + col + ' ' + decl);
+  } catch (e) { /* 并发/已存在都忽略 */ }
 }
 
 function nowMs() { return Date.now(); }
@@ -144,19 +161,56 @@ async function resolveOwner(locator, baseHint) {
   return null;
 }
 
+// 红包预览（本班 / 外班同一个入口）。
+// ⚠️ 以前 /wallet/packet/info 里有一段「只给了 code、没给 phrase 就立刻报不存在」的短路：
+//    跨班拼手气红包恰恰只有 6 位 code、没有 phrase，于是**永远查不到外班红包**。
+//    查找逻辑必须只有这一份，路由不再自己拼判断。
+async function lookup(locatorRaw, viewerId, baseHint) {
+  ensure();
+  var locator = String(locatorRaw || '').trim();
+  if (!locator) throw new Error('缺少红包码或口令');
+
+  var local = findLocalPacket(locator);
+  if (local) {
+    var pv = yuanbao.preview(local, viewerId);
+    pv.cross = false;
+    return pv;
+  }
+  var owner = await resolveOwner(locator, baseHint);
+  if (!owner) throw new Error('红包码不存在、已过期，或对方班级当前离线');
+  var p = owner.packet || {};
+  p.cross = true;
+  p.server_id = owner.server_id || p.server_id || '';
+  p.base_url = owner.base_url;
+  return p;
+}
+
 // 对端领取成功后，在本班 mint 等额学元。pool 由发送方班级回传（cash/grant），
 // ref 带池后缀保证两笔入账各自幂等；老对端不返回拆分会走 legacy（无后缀，保持旧 ref）。
 function mintFor(row, amountCent, pool, packetId, note, senderName, refSuffix) {
   var ref = 'xpacket:' + (row.owner_server || row.owner_base) + ':' + packetId + ':' + row.user_id + (refSuffix || '');
-  return xy.mint({
+  var isCash = pool === 'cash';
+  var r = xy.mint({
     to: row.user_id,
     amountCent: amountCent,
-    pool: pool === 'cash' ? 'cash' : 'grant',
+    pool: isCash ? 'cash' : 'grant',
     kind: 'transfer',
     ref: ref,
     app: 'wallet',
     memo: '跨班红包 · ' + (note || senderName || '同学')
   });
+  // CASH 是可兑付的真金。跨班 mint 等于本班多了一笔兑付义务，
+  // 必须同步记进真金台账，否则 I2「账面现金 ≡ 负债」立刻被打破。
+  if (isCash) {
+    cashbook.record({
+      tx_id: r && r.tx_id,
+      type: 'cross_in',
+      amount_cent: amountCent,
+      ref: ref + ':cashbook',
+      note: '跨班红包转入（对端已回收等额真金）'
+    });
+  }
+  return r;
 }
 
 // 对一条 pending 记录再试一次：请求发送方 → 拿到金额 → 本地入账
@@ -187,13 +241,6 @@ async function attempt(row) {
     }
     if (d.server_id) peers.upsert(d.server_id, row.owner_base, '', 'packet');
 
-    db.prepare([
-      "UPDATE xy_cross_packet SET packet_id = ?, amount_cent = ?, note = ?, sender_name = ?,",
-      "  status = 'assigned', error = NULL, updated_at = ? WHERE ref = ?"
-    ].join('\n')).run(d.packet_id || null, amountCent, String(d.note || '').slice(0, 40),
-      String(d.sender_name || '').slice(0, 30), nowMs(), row.ref);
-
-    // 入账（幂等）：即使这一步失败，记录已是 assigned，后台会补。
     // 按发送方回传的资金池拆分入账；老对端没有拆分字段时按充值学元整笔入账，
     // 且沿用旧 ref，避免历史 pending 重试时重复发放。
     var cashCent = 0;
@@ -209,13 +256,23 @@ async function attempt(row) {
         grantCent = 0;
       }
     }
+    // 先把「拿到多少钱、按什么池拆」落库，再入账。
+    // 入账（幂等）：即使这一步失败，记录已是 assigned，后台会按同一份拆分补账。
+    db.prepare([
+      "UPDATE xy_cross_packet SET packet_id = ?, owner_server = ?,",
+      "  amount_cent = ?, cash_cent = ?, grant_cent = ?, legacy = ?,",
+      "  note = ?, sender_name = ?, status = 'assigned', error = NULL, updated_at = ? WHERE ref = ?"
+    ].join('\n')).run(d.packet_id || null, d.server_id || row.owner_server || '',
+      amountCent, cashCent, grantCent, legacy ? 1 : 0,
+      String(d.note || '').slice(0, 40), String(d.sender_name || '').slice(0, 30), nowMs(), row.ref);
+
     var rowFor = { owner_server: d.server_id || row.owner_server, owner_base: row.owner_base, user_id: row.user_id };
     if (cashCent > 0) mintFor(rowFor, cashCent, 'cash', d.packet_id, d.note, d.sender_name, legacy ? '' : ':cash');
     if (grantCent > 0) mintFor(rowFor, grantCent, 'grant', d.packet_id, d.note, d.sender_name, legacy ? '' : ':grant');
     db.prepare("UPDATE xy_cross_packet SET status = 'paid', updated_at = ? WHERE ref = ?").run(nowMs(), row.ref);
 
     return {
-      amount: amountCent / 100,
+      amount: xy.fromCent(amountCent),
       amount_cent: amountCent,
       duplicate: !!d.duplicate,
       note: d.note || '',
@@ -262,27 +319,27 @@ async function claimRemote(opts) {
   else if (opts.code) locator = normCode(opts.code);
   else if (opts.phrase) locator = String(opts.phrase).trim();
   if (!locator) throw new Error('缺少红包定位信息');
-  if (!isPid(locator) && !/^[A-Z0-9]{4,12}$/.test(locator) && locator.length > 12) {
-    throw new Error('红包码或口令太长');
-  }
+  if (!isPid(locator) && locator.length > 24) throw new Error('红包码或口令太长');
 
-  // 本班就有这个红包（口令红包/红包码都能直接领）
-  var local = null;
-  if (isPid(locator)) {
-    local = db.prepare('SELECT * FROM xy_packet WHERE id = ?').get(pidOf(locator)) || null;
-  } else {
-    local = yuanbao.findByCode(locator) || yuanbao.findByPhrase(locator);
-  }
+  // 调用方明确给了对端地址 → 这个红包一定在外班。
+  // 否则 pid:42 这种 locator 会先按「本班 id=42 的红包」命中一张完全无关的单子，
+  // 领到别人的钱（两个班的 xy_packet.id 各自自增，撞号非常常见）。
+  var hint = peers.normalizeBase(opts.baseHint || '');
+  var forceRemote = !!hint && hint !== peers.localBaseHint();
+
+  var local = forceRemote ? null : findLocalPacket(locator);
   if (local) {
     if (String(local.sender) === uid) throw new Error('不能领自己发的红包');
-    var res = yuanbao.claim(local.id, uid, 'wallet', { phrase: opts.phrase });
+    var res = yuanbao.claim(local.id, uid, 'wallet', {
+      phrase: opts.phrase || (isPid(locator) ? '' : locator)
+    });
     return {
       amount: res.amount, amount_cent: res.amount_cent, duplicate: !!res.duplicate,
       note: res.note || '', sender_name: yuanbao.userName(res.sender), local: true, kind: res.kind
     };
   }
 
-  var owner = await resolveOwner(locator, opts.baseHint);
+  var owner = await resolveOwner(locator, hint);
   if (!owner) throw new Error('红包不存在、已过期，或对方班级当前离线');
 
   var ref = 'xq:' + uid + ':' + crypto.randomBytes(6).toString('hex');
@@ -322,8 +379,20 @@ async function retryOnce() {
     for (var j = 0; j < assigned.length; j++) {
       var a = assigned[j];
       try {
-        mintFor({ owner_server: a.owner_server, owner_base: a.owner_base, user_id: a.user_id },
-          a.amount_cent, a.packet_id, a.note, a.sender_name);
+        // 以前这里把 (packet_id, note, sender_name) 当成 (pool, packetId, note) 传进 mintFor，
+        // 补账会按错误资产、错误 ref 再发一遍钱 —— 幂等失效 + 池子串账。
+        // 现在一律复用落库时保存的拆分，与 attempt() 用完全相同的参数。
+        var legacyRow = !!a.legacy;
+        var cash = Math.max(0, Number(a.cash_cent) || 0);
+        var grant = Math.max(0, Number(a.grant_cent) || 0);
+        if (cash + grant !== (Number(a.amount_cent) || 0)) {
+          cash = Number(a.amount_cent) || 0;
+          grant = 0;
+          legacyRow = true;
+        }
+        var rowFor = { owner_server: a.owner_server, owner_base: a.owner_base, user_id: a.user_id };
+        if (cash > 0) mintFor(rowFor, cash, 'cash', a.packet_id, a.note, a.sender_name, legacyRow ? '' : ':cash');
+        if (grant > 0) mintFor(rowFor, grant, 'grant', a.packet_id, a.note, a.sender_name, legacyRow ? '' : ':grant');
         db.prepare("UPDATE xy_cross_packet SET status = 'paid', updated_at = ? WHERE ref = ?").run(nowMs(), a.ref);
         done++;
       } catch (e) {
@@ -357,7 +426,7 @@ function list(userId, limit) {
     return {
       id: r.packet_id,
       ref: r.ref,
-      amount: (r.amount_cent || 0) / 100,
+      amount: xy.fromCent(r.amount_cent || 0),
       note: r.note || '',
       sender_name: r.sender_name || '',
       scope: 'cross',
@@ -431,6 +500,11 @@ function receiveClaim(payload) {
         packet_id: r.packet_id,
         amount_cent: r.amount_cent,
         amount: r.amount,
+        // 必须把按池拆分回传：领取方据此把真金记进 CASH、赠送记进 GRANT，
+        // 并同步真金台账。以前漏了这两个字段，对方会把整笔当成 CASH 入账，
+        // 既让赠金变成可提现，又让 I2 对不平。
+        cash_cent: r.cash_cent || 0,
+        grant_cent: r.grant_cent || 0,
         note: r.note || '',
         sender: r.sender,
         sender_name: r.sender_name || '',
@@ -579,6 +653,7 @@ async function payByUser(opts) {
 module.exports = {
   ensure: ensure,
   claimRemote: claimRemote,
+  lookup: lookup,
   resolveOwner: resolveOwner,
   probe: probe,
   list: list,

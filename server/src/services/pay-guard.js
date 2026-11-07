@@ -15,6 +15,7 @@
 // 编码约定：var / function
 
 var db = require('../utils/db');
+var ledger = require('../ledger/ledger');
 var xy = require('./xueyuan');
 var payPin = require('./pay-pin');
 
@@ -32,11 +33,15 @@ function dailyOutCent(uid) {
     var uidStr = String(uid);
     var start = dayStartMs();
 
-    var settled = db.prepare([
-      'SELECT COALESCE(SUM(CASE WHEN e.delta < 0 THEN -e.delta ELSE 0 END), 0) AS out',
-      'FROM xy_entry e JOIN xy_tx t ON t.id = e.tx_id',
-      "WHERE e.user_id = ? AND e.created_at >= ? AND t.kind = 'transfer'"
-    ].join('\n')).get(uidStr, start).out || 0;
+    var acc = ledger.findAccount('user', uidStr);
+    var settled = 0;
+    if (acc) {
+      settled = db.prepare([
+        'SELECT COALESCE(SUM(e.amount_cent), 0) AS out',
+        'FROM xy_ledger_entries e JOIN xy_ledger_transactions t ON t.id = e.tx_id',
+        "WHERE e.account_id = ? AND e.created_at >= ? AND e.direction < 0 AND t.kind = 'transfer'"
+      ].join('\n')).get(acc.id, new Date(start).toISOString()).out || 0;
+    }
 
     var packets = db.prepare([
       'SELECT COALESCE(SUM(remaining_cent), 0) AS out FROM xy_packet',

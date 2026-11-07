@@ -14,6 +14,8 @@
 //   GET  /api/xueyuan/admin/health    币值健康度（印钞速度 / 回笼率 / 兑付敞口）
 //   POST /api/xueyuan/admin/grant     批量发放（单次 + 每日双配额）
 //   POST /api/xueyuan/admin/deduct    批量扣减
+//   POST /api/xueyuan/admin/recharge/:id/revoke  撤回某笔线下充值（冲销 + 留痕）
+//   POST /api/xueyuan/admin/refund    退款给学生（必须写原因，幂等）
 //   GET  /api/xueyuan/admin/audit     仅对账
 //
 // 为什么单独一个路由文件而不是塞进 admin.js：
@@ -29,22 +31,48 @@ var xy = require('../services/xueyuan');
 var payGuard = require('../services/pay-guard');
 var packetCross = require('../services/packet-cross');
 var db = require('../utils/db');
+var ledger = require('../ledger/ledger');
+var xyMesh = require('../services/xy-mesh');
+var constants = require('../utils/constants');
 
 // 统一错误出口：服务层的业务错误都是 400（参数/余额问题），
 // 未预期异常才是 500 —— 这样前端能把「余额不足」和「服务器挂了」分开。
 function fail(res, err) {
   var msg = err && err.message ? err.message : '操作失败';
-  var known = /余额不足|可用学元不足|可提现学元不足|充值未生效|不足|超过上限|不能超过|非法|不存在|已被冻结|至少|不能为空|尚未开通|已关闭|未知的业务类型|不平衡|重复出现|不能给自己|必须|请填写|请选择|一次最多|无法|不能|已有一笔|已处理|只能撤销|支付密码|输错|锁定|未设置|额度|学号|停用|跨班|外班|未生效|钱包/.test(msg);
+  var known = /余额不足|可用学元不足|可提现学元不足|充值未生效|不足|超过上限|不能超过|非法|不合法|金额|不存在|已被冻结|至少|不能为空|尚未开通|已关闭|未知的业务类型|不平衡|重复出现|不能给自己|必须|请填写|请选择|一次最多|无法|不能|已有一笔|已处理|只能撤销|支付密码|输错|锁定|未设置|额度|学号|停用|跨班|外班|未生效|钱包/.test(msg);
   if (!known) console.error('[xueyuan] 未预期错误:', err);
   return res.status(known ? 400 : 500).json({ code: known ? 400 : 500, message: msg });
 }
 
 // 班管 / 系统管理员（不接受普通班干 —— 发钱是财政权，不是日常事务权）
+//
+// 组网封锁（xy-mesh）：本实例被配置为从班（member）时，本班班管的
+// 学元管理整体移交给组网主班 —— 学元是钱，谁收钱谁管账（主班负责人）。
+// 从班班管的其他班级管理不受影响；系统管理员（999999 等）保留豁免以便排障。
 function requireTreasury(req, res, next) {
   if (!req.user) return res.status(401).json({ code: 401, message: '未登录' });
+  if (xyMesh.blockTreasury(req.user.user_id)) {
+    return res.status(403).json({ code: 403, message: '本班学元管理已移交组网主班统一管理，如有需要请联系主班班管' });
+  }
   if (req.user.is_class_admin || req.user.is_admin === 1) return next();
   return res.status(403).json({ code: 403, message: '只有班管可以管理学元发行' });
 }
+
+// ---------------- 组网命令通道（xy-mesh） ----------------
+// 唯一不吃 JWT 的入口：只认 HMAC(RELAY_SECRET) 签名（与跨班支付同一把钥匙）。
+// 必须挂在 router.use(auth.requireAuth) 之前 —— 主班服务器是机器对机器调用，
+// 没有也不该有从班的登录态。
+router.post('/mesh/command', function (req, res) {
+  try {
+    var r = xyMesh.handleCommand(req);
+    res.json(r);
+  } catch (err) {
+    var msg = err && err.message ? err.message : '组网命令失败';
+    var known = /签名|过期|缺少|未知|余额|上限|不存在|停用|镜像|金额|学号|请|未生效|不能|已失败/.test(msg);
+    if (!known) console.error('[xueyuan-mesh] 未预期错误:', err);
+    res.status(known ? 400 : 500).json({ code: known ? 400 : 500, message: msg });
+  }
+});
 
 router.use(auth.requireAuth);
 
@@ -57,11 +85,12 @@ router.get('/me', function (req, res) {
     var opened = xy.ensureAccount(userId);
 
     var today = xy.todayKey();
-    var claimedToday = !!db.prepare('SELECT 1 FROM xy_tx WHERE ref = ?').get('daily:' + userId + ':' + today);
+    var claimedToday = !!ledger.findTxByRef('daily:' + userId + ':' + today);
 
-    var txToday = db.prepare(
-      "SELECT COUNT(*) AS c FROM xy_entry WHERE user_id = ? AND created_at >= ?"
-    ).get(userId, todayStartMs()).c;
+    var acc = ledger.findAccount('user', userId);
+    var txToday = acc ? db.prepare(
+      'SELECT COUNT(*) AS c FROM xy_ledger_entries WHERE account_id = ? AND created_at >= ?'
+    ).get(acc.id, new Date(todayStartMs()).toISOString()).c : 0;
 
     res.json({
       code: 200,
@@ -105,10 +134,22 @@ router.get('/config', function (req, res) {
       max_withdraw: xy.fromCent(xy.LIMITS.MAX_WITHDRAW_CENT),
       min_withdraw: xy.fromCent(xy.LIMITS.MIN_WITHDRAW_CENT),
       pools: {
-        cash: '充值学元：可转账、发红包、投资、提现',
-        grant: '赠送学元：可转账、红包、扫码支付、投资，不可提现'
+        cash: '充值学元：可买东西、转账、发红包、跨班、投资，也可申请提现',
+        grant: '赠送学元：可转账、发红包、跨班、投资；买不了东西，也不可提现',
+        practice: '练习金：学元证券沙盘专用，只能在证券里买卖，不能提现或买东西'
       },
-      kinds: xy.KINDS
+      kinds: xy.KINDS,
+      // 组网角色透出：从班学员的钱包充值说明要提示「找主班班管」，
+      // 从班班管的管控中心要据此隐藏学元管理 tab。不暴露对端地址。
+      mesh: (function () {
+        try {
+          var m = xyMesh.getConfig();
+          return {
+            role: m.role,
+            master_class: (m.role === 'member' && m.peers[0]) ? m.peers[0].class : ''
+          };
+        } catch (e) { return { role: '', master_class: '' }; }
+      })()
     }
   });
 });
@@ -189,6 +230,38 @@ router.post('/transfer', function (req, res) {
   }
 });
 
+// ---------------- 投资进出（赠金 ⇄ 练习金） ----------------
+// 学生把零花钱放进证券沙盘，或把炒股的钱拿回钱包花。
+// 不需要支付密码：钱始终在本人名下，没有第三方收款方，也不是对外支付。
+// 真钱 CASH 不在这条通道里 —— 它只能充值/提现，进不了股市。
+router.post('/invest', function (req, res) {
+  try {
+    var body = req.body || {};
+    var dir = String(body.direction || 'in');
+    if (dir !== 'in' && dir !== 'out') throw new Error('direction 只能是 in 或 out');
+    var amountCent = xy.toCent(body.amount);
+    if (amountCent === null || amountCent <= 0) throw new Error('金额不合法');
+
+    var uid = String(req.user.user_id);
+    var ref = body.ref ? String(body.ref) : ('invest:' + uid + ':' + Date.now());
+    var r = dir === 'in'
+      ? xy.investIn(uid, amountCent, { ref: ref })
+      : xy.investOut(uid, amountCent, { ref: ref });
+
+    res.json({
+      code: 200,
+      message: dir === 'in' ? '已转入投资' : '已撤出到钱包',
+      data: {
+        direction: r.direction,
+        amount: r.amount,
+        account: r.account
+      }
+    });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
 // ---------------- 提现（学生申请 / 班管线下付现） ----------------
 // 只有充值学元能提现；赠送学元在记账层就被隔离，走不到这里。
 
@@ -199,13 +272,23 @@ router.post('/withdraw/request', function (req, res) {
     xy.ensureAccount(userId);
     var r = xy.requestWithdraw({
       user: userId,
-      amount: body.amount,
+      // 前端输入框单位是「学元」；显式在路由边界换算成账本单位，
+      // 服务层只认 amountCent，避免再出现「路由传 A、服务读 B」的静默失败。
+      amountCent: xy.requireAmountCent({ amount: body.amount }, '提现金额'),
       memo: String(body.memo || '').slice(0, 60),
       requestId: String(body.requestId || '').slice(0, 40) || null
     });
+    // 从班学员申请提现后，付现金的是组网主班班管 —— 提示要指向对的人
+    var withdrawMsg = '已提交，请找班管线下提现';
+    try {
+      var meshCfg = xyMesh.getConfig();
+      if (meshCfg.role === 'member' && meshCfg.peers[0]) {
+        withdrawMsg = '已提交，请找 ' + meshCfg.peers[0].class + ' 班班管线下来取现金';
+      }
+    } catch (e) { /* 未组网用默认文案 */ }
     res.json({
       code: 200,
-      message: r.duplicate ? '申请已存在' : '已提交，请找班管线下提现',
+      message: r.duplicate ? '申请已存在' : withdrawMsg,
       data: { withdraw: r.withdraw, account: r.account }
     });
   } catch (err) {
@@ -220,7 +303,7 @@ router.get('/withdraw/list', function (req, res) {
       status: req.query.status,
       limit: req.query.limit
     });
-    res.json({ code: 200, message: 'ok', data: { list: list, withdrawable: xy.withdrawableCent(String(req.user.user_id)) / xy.CENT_PER_YUAN } });
+    res.json({ code: 200, message: 'ok', data: { list: list, withdrawable: xy.fromCent(xy.withdrawableCent(String(req.user.user_id))) } });
   } catch (err) {
     fail(res, err);
   }
@@ -482,6 +565,68 @@ router.post('/admin/recharge', requireTreasury, function (req, res) {
   }
 });
 
+// 撤回一笔线下充值：录错了、家长要退、学生转班 —— 都走这里。
+// 只允许撤回未被使用的金额；有冻结中的提现时不受理。
+router.post('/admin/recharge/:id/revoke', requireTreasury, function (req, res) {
+  try {
+    var r = xy.revokeRecharge({
+      rechargeId: req.params.id,
+      operator: String(req.user.user_id),
+      reason: (req.body && req.body.reason) || ''
+    });
+    res.json({
+      code: 200,
+      message: r.duplicate ? '这笔充值此前已撤回' : '已撤回，学元已冲销',
+      data: r
+    });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+// 退款：把钱从**真实来源账户**退回给学生（谁收的钱谁退）。
+// body: { userId, from, yuan | amount, pool?: 'cash' | 'grant', reason, requestId? }
+router.post('/admin/refund', requireTreasury, function (req, res) {
+  try {
+    var body = req.body || {};
+    var uid = String(body.userId || '').trim();
+    if (!uid) throw new Error('请填写要退款的学号');
+    var from = String(body.from || '').trim();
+    if (!from) throw new Error('请填写退款方学号（谁收的钱谁退）');
+
+    var amountCent;
+    if (body.yuan !== undefined && body.yuan !== null && body.yuan !== '') {
+      amountCent = xy.yuanToCent(body.yuan);
+      if (amountCent === null) throw new Error('人民币金额不合法');
+    } else {
+      amountCent = xy.toCent(body.amount);
+      if (amountCent === null) throw new Error('学元金额不合法');
+    }
+
+    var reqId = String(body.requestId || '').slice(0, 40) ||
+      (Date.now().toString(36) + Math.random().toString(36).slice(2, 8));
+
+    var r = xy.refund({
+      to: uid,
+      from: from,
+      amountCent: amountCent,
+      pool: body.pool === 'grant' ? 'grant' : 'cash',
+      reason: body.reason,
+      operator: String(req.user.user_id),
+      ref: 'refund:' + reqId,
+      app: 'wallet'
+    });
+
+    res.json({
+      code: 200,
+      message: r.duplicate ? '这笔退款此前已入账' : ('已退款 ' + r.amount + ' 学元'),
+      data: r
+    });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
 router.get('/admin/recharges', requireTreasury, function (req, res) {
   try {
     res.json({
@@ -523,6 +668,111 @@ router.post('/admin/withdrawals/:id/review', requireTreasury, function (req, res
       code: 200,
       message: body.approve !== false ? '已通过，请当面交付现金' : '已驳回，学元已退回',
       data: r
+    });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+// ---------------- 组网管理端（xy-mesh 代理 / 配置） ----------------
+
+// 主班视角：从班列表（前端学元 tab 的「班级视角」切换用）
+router.get('/admin/mesh/peers', requireTreasury, function (req, res) {
+  try {
+    var m = xyMesh.getConfig();
+    res.json({
+      code: 200,
+      message: 'ok',
+      data: {
+        role: m.role,
+        peers: m.role === 'master' ? m.peers : [],
+        master: m.role === 'member' && m.peers[0] ? m.peers[0] : null
+      }
+    });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+// 主班 → 从班的统一代理：前端永远只跟本班服务器说话（平板网络环境复杂，
+// 不让浏览器直连对端），服务端注入 operator（谁在操作）后签名转发。
+// 响应形状 = 从班本地 /admin/* 路由的 data 字段，前端业务逻辑零分叉。
+router.post('/admin/mesh/command', requireTreasury, function (req, res) {
+  try {
+    var m = xyMesh.getConfig();
+    if (m.role !== 'master') throw new Error('本班不是组网主班，不能管理其他班的学元');
+    var body = req.body || {};
+    var peerClass = String(body.peerClass || '').trim();
+    var peer = null;
+    for (var i = 0; i < m.peers.length; i++) {
+      if (m.peers[i].class === peerClass) { peer = m.peers[i]; break; }
+    }
+    if (!peer) throw new Error('未配置 ' + (peerClass || '(空)') + ' 班的组网地址');
+    var payload = Object.assign({}, body.payload || {});
+    payload.operator = String(req.user.user_id);   // 操作者以登录态为准，不信任请求体
+    xyMesh.sendCommand(peer, String(body.command || ''), payload).then(function (data) {
+      res.json({ code: 200, message: 'ok', data: data });
+    }).catch(function (err) {
+      fail(res, err);
+    });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+// 组网配置（仅系统管理员）：管理端可视化配置，存 app_config 即时生效
+function requireSystemAdmin(req, res, next) {
+  if (req.user && constants.isSystemAdmin(req.user.user_id)) return next();
+  return res.status(403).json({ code: 403, message: '只有系统管理员可以修改组网配置' });
+}
+
+router.get('/admin/mesh-config', requireSystemAdmin, function (req, res) {
+  try {
+    var m = xyMesh.getConfig();
+    res.json({
+      code: 200,
+      message: 'ok',
+      data: {
+        role: m.role,
+        peers: m.peers,
+        secret_ready: !!(process.env.RELAY_SECRET || '')
+      }
+    });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+router.post('/admin/mesh-config', requireSystemAdmin, function (req, res) {
+  try {
+    var body = req.body || {};
+    var m = xyMesh.saveConfig({ role: body.role, peers: body.peers });
+    res.json({ code: 200, message: '组网配置已保存，即时生效', data: { role: m.role, peers: m.peers } });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+// 组网命令审计：最近 N 条（系统管理员排障用，配置卡下方展示）
+router.get('/admin/mesh/log', requireSystemAdmin, function (req, res) {
+  try {
+    res.json({
+      code: 200,
+      message: 'ok',
+      data: { list: xyMesh.listLog(req.query.limit) }
+    });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+// 保存前先 ping 对端：地址写错宁可当场发现，别等班管充值时才发现
+router.post('/admin/mesh-config/test', requireSystemAdmin, function (req, res) {
+  try {
+    xyMesh.testPeer((req.body || {}).base).then(function (data) {
+      res.json({ code: 200, message: '对端连通，签名校验通过', data: data });
+    }).catch(function (err) {
+      res.status(400).json({ code: 400, message: (err && err.message) || '对端不可达' });
     });
   } catch (err) {
     fail(res, err);

@@ -23,6 +23,7 @@ var https = require('https');
 var db = require('../utils/db');
 var config = require('../config');
 var xy = require('./xueyuan');
+var cashbook = require('../ledger/cashbook');
 var payCode = require('./pay-code');
 var peers = require('./peers');
 
@@ -267,14 +268,22 @@ function settle(ref, peerTx) {
     var parts = txPoolSplit(tx.amount_cent, tx.pool);
     if (parts.cash > 0) {
       xy.release(tx.from_user, parts.cash, { pool: 'cash' });
-      xy.burn({
+      var cashRef = 'cross:' + ref + ':cash';
+      var burned = xy.burn({
         from: tx.from_user,
         amountCent: parts.cash,
         pool: 'cash',
         kind: 'transfer',
-        ref: 'cross:' + ref + ':cash',
+        ref: cashRef,
         app: 'wallet',
         memo: '跨班转出 · ' + (tx.to_user || '')
+      });
+      cashbook.record({
+        tx_id: burned && burned.tx_id,
+        type: 'cross_out',
+        amount_cent: -parts.cash,
+        ref: cashRef + ':cashbook',
+        note: '跨班转出（对端将记入等额真金负债）'
       });
     }
     if (parts.grant > 0) {
@@ -313,7 +322,7 @@ function view(tx) {
     ref: tx.ref,
     from: tx.from_user,
     to: tx.to_user,
-    amount: tx.amount_cent / 100,
+    amount: xy.fromCent(tx.amount_cent),
     memo: tx.memo || '',
     status: tx.status,
     peer_tx: tx.peer_tx || '',
@@ -396,14 +405,23 @@ function receive(payload) {
     var allDup = true;
     var minted = 0;
     if (cashCent > 0) {
+      var cashRef = refBase + (legacy ? '' : ':cash');
       var rc = xy.mint({
         to: to,
         amountCent: cashCent,
         pool: 'cash',
         kind: 'transfer',
-        ref: refBase + (legacy ? '' : ':cash'),
+        ref: cashRef,
         app: 'wallet',
         memo: memo
+      });
+      // 对端已经把这笔真金从它的账本里回收，本班相应地多了一笔兑付义务。
+      cashbook.record({
+        tx_id: rc && rc.tx_id,
+        type: 'cross_in',
+        amount_cent: cashCent,
+        ref: cashRef + ':cashbook',
+        note: '跨班转入（对端已回收等额真金）'
       });
       txId = txId || (rc && (rc.tx_id || rc.id)) || '';
       allDup = allDup && !!(rc && rc.duplicate);
@@ -430,7 +448,7 @@ function receive(payload) {
       data: {
         tx_id: txId,
         to: to,
-        amount: amount / 100,
+        amount: xy.fromCent(amount),
         duplicate: minted > 0 && allDup,
         server_id: peers.serverId()
       }

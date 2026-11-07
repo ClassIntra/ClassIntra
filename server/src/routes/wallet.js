@@ -39,6 +39,7 @@ var crossPay = require('../services/cross-pay');
 var packetCross = require('../services/packet-cross');
 var peers = require('../services/peers');
 var db = require('../utils/db');
+var ledger = require('../ledger/ledger');
 var constants = require('../utils/constants');
 var payGuard = require('../services/pay-guard');
 
@@ -78,14 +79,17 @@ function startOfMonth(ts) {
 }
 
 // 某段时间内的收入/支出（分）
+// 账本已切到 xy_ledger_*：分录挂在账户 id 上，先解析账户再按 id 查。
 function flowBetween(userId, from, to) {
+  var acc = ledger.findAccount('user', String(userId));
+  if (!acc) return { in_cent: 0, out_cent: 0, n: 0 };
   return db.prepare([
     'SELECT',
-    '  COALESCE(SUM(CASE WHEN delta > 0 THEN delta ELSE 0 END), 0) AS in_cent,',
-    '  COALESCE(SUM(CASE WHEN delta < 0 THEN -delta ELSE 0 END), 0) AS out_cent,',
+    '  COALESCE(SUM(CASE WHEN direction > 0 THEN amount_cent ELSE 0 END), 0) AS in_cent,',
+    '  COALESCE(SUM(CASE WHEN direction < 0 THEN amount_cent ELSE 0 END), 0) AS out_cent,',
     '  COUNT(*) AS n',
-    'FROM xy_entry WHERE user_id = ? AND created_at >= ? AND created_at < ?'
-  ].join('\n')).get(String(userId), from, to);
+    'FROM xy_ledger_entries WHERE account_id = ? AND created_at >= ? AND created_at < ?'
+  ].join('\n')).get(acc.id, new Date(from).toISOString(), new Date(to).toISOString());
 }
 
 function todayKey() {
@@ -94,16 +98,20 @@ function todayKey() {
 
 function dailyState(userId) {
   var today = todayKey();
-  var hit = db.prepare('SELECT 1 FROM xy_tx WHERE ref = ?').get('daily:' + userId + ':' + today);
-  var last = db.prepare('SELECT created_at, meta_json FROM xy_tx WHERE ref LIKE ? ORDER BY id DESC LIMIT 1')
-    .get('daily:' + userId + ':%');
+  var ref = 'daily:' + userId + ':' + today;
+  var hit = !!ledger.findTxByRef(ref);
+  // 连签天数记在交易的 payload.streak 上（旧表叫 meta_json）
+  var last = db.prepare([
+    'SELECT payload FROM xy_ledger_transactions',
+    'WHERE ref LIKE ? ORDER BY id DESC LIMIT 1'
+  ].join(' ')).get('daily:' + userId + ':%');
   var streak = 0;
   if (last) {
-    try { streak = JSON.parse(last.meta_json || '{}').streak || 0; } catch (e) { streak = 0; }
+    try { streak = JSON.parse(last.payload || '{}').streak || 0; } catch (e) { streak = 0; }
   }
   var nextDay = streak + 1;
   return {
-    claimed: !!hit,
+    claimed: hit,
     streak: streak,
     amount: hit ? 0 : (nextDay >= DAILY_BONUS_FROM_DAY ? xy.fromCent(DAILY_BONUS_CENT) : xy.fromCent(DAILY_CENT)),
     base: xy.fromCent(DAILY_CENT),
@@ -370,7 +378,7 @@ router.post('/pay-code/pay', function (req, res) {
           cross: true,
           to: info.user_id,
           to_name: info.name || info.user_id,
-          amount: amountCent / 100,
+          amount: xy.fromCent(amountCent),
           status: tx.status,
           tx: tx,
           account: xy.viewAccount(uid)
@@ -401,7 +409,7 @@ router.post('/pay-code/pay', function (req, res) {
         duplicate: !!(r && r.duplicate),
         to: row.user_id,
         to_name: (peer && (peer.net_name || peer.real_name)) || info.name || row.user_id,
-        amount: amountCent / 100,
+        amount: xy.fromCent(amountCent),
         account: xy.viewAccount(uid)
       }
     });
@@ -477,8 +485,8 @@ router.get('/', function (req, res) {
       data: {
         account: account,
         daily: dailyState(uid),
-        week: { in: week.in_cent / 100, out: week.out_cent / 100, count: week.n },
-        month: { in: month.in_cent / 100, out: month.out_cent / 100, count: month.n },
+        week: { in: xy.fromCent(week.in_cent), out: xy.fromCent(week.out_cent), count: week.n },
+        month: { in: xy.fromCent(month.in_cent), out: xy.fromCent(month.out_cent), count: month.n },
         recent: recent.list,
         packets: {
           available: packets.available.length,
@@ -519,39 +527,24 @@ router.get('/ledger', function (req, res) {
     var limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
     var beforeId = parseInt(req.query.beforeId, 10) || 0;
     var dir = String(req.query.direction || '');
-    var cond = dir === 'in' ? 'AND e.delta > 0' : (dir === 'out' ? 'AND e.delta < 0' : '');
 
-    var rows = db.prepare([
-      'SELECT e.id, e.tx_id, e.delta, e.balance_after, e.pool, e.created_at,',
-      '       t.kind, t.app_name, t.operator, t.memo',
-      'FROM xy_entry e JOIN xy_tx t ON t.id = e.tx_id',
-      'WHERE e.user_id = ? AND (? = 0 OR e.id < ?) ' + cond,
-      'ORDER BY e.id DESC LIMIT ?'
-    ].join('\n')).all(uid, beforeId, beforeId, limit);
+    // 流水统一走 service 层：它已经把新账本的 (account, asset, direction)
+    // 翻译回旧的 delta/pool 形状，这里不再自己拼 SQL —— 双份口径迟早会分叉。
+    var got = xy.history(uid, { limit: limit, beforeId: beforeId });
+    var list = got.list;
 
-    var list = rows.map(function (r) {
-      return {
-        id: r.id,
-        delta: xy.fromCent(r.delta),
-        delta_cent: r.delta,
-        balance_after: xy.fromCent(r.balance_after),
-        pool: r.pool || '',
-        pool_label: r.pool === 'cash' ? '充值学元' : (r.pool === 'grant' ? '赠送学元' : ''),
-        kind: r.kind,
-        kind_label: xy.KINDS[r.kind] || r.kind,
-        app: r.app_name,
-        operator: r.operator,
-        memo: r.memo,
-        created_at: r.created_at
-      };
-    });
+    if (dir === 'in') {
+      list = list.filter(function (r) { return r.delta_cent > 0; });
+    } else if (dir === 'out') {
+      list = list.filter(function (r) { return r.delta_cent < 0; });
+    }
 
     res.json({
       code: 200,
       message: 'ok',
       data: {
         list: list,
-        next_before_id: list.length === limit ? list[list.length - 1].id : 0
+        next_before_id: got.next_before_id
       }
     });
   } catch (err) {
@@ -690,7 +683,7 @@ router.post('/transfer', function (req, res) {
           cross: true,
           to: toUser,
           to_name: '',
-          amount: xy.toCent(body0.amount) / 100,
+          amount: xy.fromCent(xy.toCent(body0.amount)),
           status: tx.status,
           tx: tx,
           account: xy.viewAccount(String(req.user.user_id))
@@ -740,7 +733,7 @@ router.post('/transfer', function (req, res) {
         duplicate: !!(r && r.duplicate),
         to: to,
         to_name: peer.net_name || peer.real_name || to,
-        amount: amountCent / 100,
+        amount: xy.fromCent(amountCent),
         account: xy.viewAccount(uid)
       }
     });
@@ -843,22 +836,10 @@ router.get('/packet/info', function (req, res) {
   var phrase = String(req.query.phrase || '').trim();
   if (!code && !phrase) return fail(res, new Error('缺少红包码或口令'));
 
-  var local = code ? yuanbao.findByCode(code) : null;
-  if (!local && phrase) local = yuanbao.findByPhrase(phrase);
-  if (!local && !phrase && code) {
-    return fail(res, new Error('红包码不存在、已过期，或对方班级当前离线'));
-  }
-  if (local) {
-    var pv = yuanbao.preview(local, uid);
-    pv.cross = false;
-    return res.json({ code: 200, message: 'ok', data: pv });
-  }
-  packetCross.resolveOwner(phrase || code, req.query.base || '').then(function (owner) {
-    if (!owner) return fail(res, new Error('红包码不存在、已过期，或对方班级当前离线'));
-    var p = owner.packet || {};
-    p.cross = true;
-    p.server_id = owner.server_id || p.server_id || '';
-    p.base_url = owner.base_url;
+  // 查找逻辑统一放进 packet-cross，路由只负责取参。
+  // 以前这里有一段「只有 code 就立即返回不存在」的短路，直接把
+  // 跨班拼手气红包（恰好只有 6 位码、没有口令）挡在门外，学生永远领不到。
+  packetCross.lookup(phrase || code, uid, req.query.base || '').then(function (p) {
     res.json({ code: 200, message: 'ok', data: p });
   }).catch(function (err) {
     fail(res, err);
@@ -914,8 +895,15 @@ router.get('/collect/list', function (req, res) {
 router.post('/collect', function (req, res) {
   try {
     var body = req.body || {};
-    var perCent = xy.yuanToCent(body.perYuan);
-    if (perCent === null) throw new Error('每人金额不合法');
+    // 前端输入单位是「学元」（与钱包其余金额输入框一致）。
+    // 老客户端仍可能传人民币元 perYuan，保留兼容；两者都给时以 per 为准。
+    var perCent = body.per !== undefined && body.per !== null && body.per !== ''
+      ? xy.toCent(body.per)
+      : (body.perYuan !== undefined && body.perYuan !== null && body.perYuan !== ''
+        ? xy.yuanToCent(body.perYuan) : null);
+    if (perCent === null || !(perCent > 0) || Math.floor(perCent) !== perCent) {
+      throw new Error('每人金额不合法：请填写大于 0 的学元数额');
+    }
     var r = collect.create({
       creator: String(req.user.user_id),
       title: body.title,

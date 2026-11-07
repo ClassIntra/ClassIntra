@@ -41,12 +41,12 @@ var xy = require('./src/services/xueyuan');
 
 // 造 4 个学生账号（xy 表不依赖 users，但排行榜会 join）
 var ins = db.prepare("INSERT INTO users (net_name, real_name, user_id, password_hash, status) VALUES (?, ?, ?, 'x', 'active')");
-ins.run('小明', '张三', '251801');
-ins.run('小红', '李四', '251802');
-ins.run('小刚', '王五', '251803');
-ins.run('小美', '赵六', '251804');
+ins.run('小明', '张三', '991801');
+ins.run('小红', '李四', '991802');
+ins.run('小刚', '王五', '991803');
+ins.run('小美', '赵六', '991804');
 
-var A = '251801', B = '251802', C = '251803', D = '251804';
+var A = '991801', B = '991802', C = '991803', D = '991804';
 
 console.log('\n=== 开户与赠金 ===');
 var a1 = xy.ensureAccount(A);
@@ -74,7 +74,9 @@ eq('A 充值到账 1000 学元', recA.account.cash, 1000);
 var recA2 = xy.recharge({ user: A, yuan: 10, operator: A, requestId: 'rc:a' });
 eq('同请求号重复充值不重复入账', recA2.account.cash, 1000);
 eq('重复充值标记 duplicate', recA2.duplicate, true);
-throws('充值人数值非法', function () { xy.recharge({ user: A, yuan: 0, operator: A }); }, /正整数分/);
+// 错误文案统一走 requireAmountCent：给学生看「请填写大于 0 的学元数额」，
+// 不再把内部单位「整数分」漏到界面上（2026-11-07 提现报错的根因）。
+throws('充值人数值非法', function () { xy.recharge({ user: A, yuan: 0, operator: A }); }, /请填写大于 0 的学元数额/);
 throws('充值操作人非法', function () { xy.recharge({ user: A, yuan: 10, operator: '@system:mint' }); }, /操作人非法/);
 eq('充值只进充值池', xy.viewAccount(A).grant, 1000);
 xy.recharge({ user: B, yuan: 10, operator: A, requestId: 'rc:b' });
@@ -186,29 +188,46 @@ eq('净充值扣减后可提现 50', r2.account.withdrawable, 50);
 throws('超出净充值部分不可提现', function () { xy.requestWithdraw({ user: A, amountCent: 10000, requestId: 'wd:a4' }); }, /可提现学元不足/);
 throws('已处理的提现单不可重复审批', function () { xy.reviewWithdraw(w2.withdraw.id, true, { reviewer: A }); }, /已处理/);
 
-console.log('\n=== 投资收益结构性不可提现 ===');
+console.log('\n=== 投资收益结构性不可提现（练习金池） ===');
 // 此时 A：充值池 50、赠送池 1010，可提现额度被充值池卡在 50
+// 2026-11-06 起收益进「练习金」池（practice）：既不可提现，也不可消费/转账，
+// 只能在证券里继续买卖 —— 这样印多少练习金都不会稀释消费市场。
 eq('操作前可提现 50', xy.viewAccount(A).withdrawable, 50);
+
+// 2026-11-07：本金回款改由「结算账户」支付。
+// 那笔钱本来就是买入时付出去、由结算账户保管的；从发行账户退等于凭空印一次，
+// I2 会立刻报「账面现金与真金台账不一致」。所以先让 B 走一次充值池买入，
+// 给结算账户留下真实的现金来源，再验证 A 的回款结构。
+xy.hold(B, 5000, { pool: 'cash' });
+xy.settleHold({ user_id: B, holdCent: 5000, costCent: 5000, feeCent: 0, ref: 'test:buy:1', app: 'stock' });
+
 var ct1 = xy.creditTrade(A, 10000, { principalCent: 5000, ref: 'test:trade:1', app: 'stock' });
 eq('本金回充值池', xy.viewAccount(A).cash, 100);
-eq('收益进赠送池', xy.viewAccount(A).grant, 1060);
-eq('卖出后总余额 1160', xy.viewAccount(A).balance, 1160);
+eq('收益进练习金池', xy.viewAccount(A).practice, 50);
+eq('赠送池不受收益影响', xy.viewAccount(A).grant, 1010);
+eq('可花余额不含练习金', xy.viewAccount(A).balance, 1110);
+eq('账面总额 = 可花 + 练习金', xy.viewAccount(A).balance + xy.viewAccount(A).practice, 1160);
 ok('两腿各生成一笔分录', ct1.principal_tx.tx_id > 0 && ct1.profit_tx.tx_id > 0, ct1);
 
 var ct2 = xy.creditTrade(A, 10000, { principalCent: 0, ref: 'test:trade:2', app: 'stock' });
 eq('纯收益不回充值池', xy.viewAccount(A).cash, 100);
-eq('纯收益进赠送池', xy.viewAccount(A).grant, 1160);
+eq('纯收益进练习金池', xy.viewAccount(A).practice, 150);
 eq('纯收益不增加可提现额度', xy.viewAccount(A).withdrawable, 100);
 throws('超出可提现部分仍被拒', function () {
   xy.requestWithdraw({ user: A, amountCent: 15000, requestId: 'wd:profit' });
 }, /可提现学元不足/);
+
+// 练习金必须「出不了证券」：转账时只认充值池 + 赠送池，练习金一分不能动。
+throws('练习金不能转账给同学', function () {
+  xy.transfer({ from: A, to: B, amountCent: 120000, memo: '想把炒股收益转走', ref: 'test:wall:1' });
+}, /余额不足|可用学元不足/);
 
 // 本轮新增：本金按买入资金来源回流。赠送资金买的股票，卖出本金必须回赠送池，
 // 否则「赠送 → 买股 → 卖出」会把它洗成可提现的充值学元。
 var ct3 = xy.creditTrade(A, 10000, {
   principalCent: 10000, principalCashCent: 0, ref: 'test:trade:3', app: 'stock'
 });
-eq('本金全部回赠送池', xy.viewAccount(A).grant, 1260);
+eq('本金全部回赠送池', xy.viewAccount(A).grant, 1110);
 eq('本金回赠送池不增加充值池', xy.viewAccount(A).cash, 100);
 eq('本金回赠送池不增加可提现额度', xy.viewAccount(A).withdrawable, 100);
 ok('赠送本金腿单独成账', !!(ct3.principal_grant_tx && ct3.principal_grant_tx.tx_id > 0), ct3);
@@ -218,7 +237,9 @@ throws('本金来源拆分越界被拒', function () {
 
 var ct1b = xy.creditTrade(A, 10000, { principalCent: 5000, ref: 'test:trade:1', app: 'stock' });
 ok('同 ref 重放两腿都判重', ct1b.principal_tx.duplicate === true && ct1b.profit_tx.duplicate === true, ct1b);
-eq('重放后余额不变', xy.viewAccount(A).balance, 1360);
+eq('重放后可花余额不变', xy.viewAccount(A).balance, 1210);
+eq('重放后练习金不变', xy.viewAccount(A).practice, 150);
+eq('重放后账面总额仍 1360', xy.viewAccount(A).balance + xy.viewAccount(A).practice, 1360);
 throws('本金超过回款被拒', function () { xy.creditTrade(A, 10000, { principalCent: 20000 }); }, /本金金额非法/);
 throws('回款金额非整数分被拒', function () { xy.creditTrade(A, 10.5, { principalCent: 0 }); }, /正整数分/);
 
@@ -244,14 +265,39 @@ throws('两种学元都不够时被拒', function () { xy.transfer({ from: C, to
 throws('赠送学元仍不可提现', function () { xy.requestWithdraw({ user: C, amountCent: 10000, requestId: 'wd:grant' }); }, /可提现学元不足/);
 
 console.log('\n=== 系统守恒 ===');
-var total = db.prepare("SELECT COALESCE(SUM(balance),0) AS s FROM xy_account").get().s;
-eq('全体账户余额之和 = 0', total, 0);
+// balance 只含「可花余额」（充值 + 赠送），练习金单独一列；
+// 账本守恒要把两者加起来看 —— 否则练习金一进一出就会误报不平衡。
+var total = db.prepare("SELECT COALESCE(SUM(balance + practice_balance),0) AS s FROM xy_account").get().s;
+eq('全体账户余额（含练习金）之和 = 0', total, 0);
 var mintAcc = xy.getAccount('@system:mint');
-eq('铸币账户 = 已发行 - 已提现', mintAcc.balance, -(4 * 100000 + 3 * 100000 + 2000 - 30000));
-var cashTotal = db.prepare("SELECT COALESCE(SUM(cash_balance),0) AS s FROM xy_account").get().s;
-var grantTotal = db.prepare("SELECT COALESCE(SUM(grant_balance),0) AS s FROM xy_account").get().s;
-var userTotal = db.prepare("SELECT COALESCE(SUM(balance),0) AS s FROM xy_account WHERE user_id NOT LIKE '@%'").get().s;
-eq('学生充值池 + 赠送池 = 学生总余额', cashTotal + grantTotal, userTotal);
+// 新账本的不变量：发行账户余额 = -(学生余额 + 托管余额)。
+// 旧的硬编码数字（按「已发行 - 已提现」算）依赖「系统户不分池」那套结构，
+// 已经随账本切换失效；这条式子在任何资产、任何拆分下都必须成立。
+var userTotalC = db.prepare([
+  'SELECT COALESCE(SUM(b.balance), 0) AS s FROM xy_ledger_balances b',
+  "JOIN xy_ledger_accounts a ON a.id = b.account_id WHERE a.kind = 'user'"
+].join(' ')).get().s;
+var escTotalC = db.prepare([
+  'SELECT COALESCE(SUM(b.balance), 0) AS s FROM xy_ledger_balances b',
+  "JOIN xy_ledger_accounts a ON a.id = b.account_id WHERE a.kind = 'escrow'"
+].join(' ')).get().s;
+eq('发行账户 = -(学生余额 + 托管余额)', mintAcc.balance, -(userTotalC + escTotalC));
+
+var cashTotal = db.prepare([
+  'SELECT COALESCE(SUM(b.balance), 0) AS s FROM xy_ledger_balances b',
+  "JOIN xy_ledger_accounts a ON a.id = b.account_id WHERE a.kind = 'user' AND b.asset = 'CASH'"
+].join(' ')).get().s;
+var grantTotal = db.prepare([
+  'SELECT COALESCE(SUM(b.balance), 0) AS s FROM xy_ledger_balances b',
+  "JOIN xy_ledger_accounts a ON a.id = b.account_id WHERE a.kind = 'user' AND b.asset = 'GRANT'"
+].join(' ')).get().s;
+var bookNet = db.prepare("SELECT COALESCE(SUM(amount_cent), 0) AS s FROM xy_ledger_cashbook WHERE scope = 'liability'").get().s;
+var practiceTotal = db.prepare([
+  'SELECT COALESCE(SUM(b.balance), 0) AS s FROM xy_ledger_balances b',
+  "JOIN xy_ledger_accounts a ON a.id = b.account_id WHERE a.kind = 'user' AND b.asset = 'PRACTICE'"
+].join(' ')).get().s;
+eq('学生充值池 = 真金台账（I2）', cashTotal, bookNet);
+eq('学生总余额 = 充值池 + 赠送池 + 练习金', cashTotal + grantTotal + practiceTotal, userTotalC);
 
 var aud = xy.audit();
 ok('audit 通过', aud.ok, aud.issues);

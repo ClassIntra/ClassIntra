@@ -113,27 +113,27 @@ var gDup = xy.grant({ to: B, amountCent: 50000, ref: 'gr-1', operator: ADMIN });
 eq('发放幂等重放返回 duplicate', gDup.duplicate, true);
 eq('重放不再增加今日累计', xy.centToYuan(xy.grantedTodayCent(B)), 2);
 
-console.log('\n=== 5. splitPayOrder：赠送抵扣上限 = 毛利率 ===');
+console.log('\n=== 5. 商品支付：赠金一分不能抵（2026-11-07 制度）===');
 // B 只有赠送学元、没有充值 —— 这正是「用零成本铸币白拿实物」的漏洞场景
 var bAcc = xy.viewAccount(B);
 ok('B 有充足赠送学元', bAcc.grant > 10000, { grant: bAcc.grant });
 eq('B 没有充值学元', bAcc.cash, 0);
 
-throws('赠送学元买实物但未充值 → 硬失败', function () {
+throws('只有赠金 → 买不了东西（比例 0.3 也不行）', function () {
   xy.splitPayOrder(B, 10000, 0.3);
-}, /充值学元不足/);
+}, /只能用自己充值的学元/);
+throws('只有赠金 → 比例放到 1 同样不行', function () {
+  xy.splitPayOrder(B, 10000, 1);
+}, /只能用自己充值的学元/);
 
-var partsB = xy.splitPayOrder(B, 10000, 1);
-eq('比例放到 1 时允许全额赠送抵扣', partsB.grant, 10000);
-eq('全额抵扣时不动现金池', partsB.cash, 0);
+// 有充值就能买，而且全额走充值 —— 比例参数已失效，不会再放宽
+var partsA = xy.splitPayOrder(A, 100000, 1);
+eq('有充值就全额走充值学元', partsA.cash, 100000);
+eq('赠金一分不抵（哪怕比例给到 1）', partsA.grant, 0);
 
-var partsA = xy.splitPayOrder(A, 100000, 0.3);
-eq('30% 上限：赠送抵扣 30000', partsA.grant, 30000);
-eq('70% 由现金池承担', partsA.cash, 70000);
-
-var partsA0 = xy.splitPayOrder(A, 100000, 0);
-eq('比例为 0 时全部走现金池', partsA0.cash, 100000);
-eq('比例为 0 时不动赠送', partsA0.grant, 0);
+var partsA0 = xy.splitPayOrder(A, 100000, 0.3);
+eq('比例参数被忽略：仍全额充值', partsA0.cash, 100000);
+eq('比例参数被忽略：赠金为 0', partsA0.grant, 0);
 
 throws('比例非法（负数）按 0 处理', function () {
   xy.splitPayOrder(B, 1000, -1);
@@ -160,7 +160,83 @@ h.warnings.forEach(function (w) {
 console.log('\n=== 7. 账本不变量 ===');
 var au = xy.audit();
 ok('audit 通过（复式记账仍平衡）', au.ok === true, { issues: au.issues });
-eq('全体账户余额之和为 0', db.prepare('SELECT COALESCE(SUM(balance), 0) AS s FROM xy_account').get().s, 0);
+eq('全体账户余额之和为 0', db.prepare('SELECT COALESCE(SUM(balance), 0) AS s FROM xy_ledger_balances').get().s, 0);
+
+console.log('\n=== 8. 撤回充值 ===');
+// listRecharges 按 id 倒序，最早那笔在末尾
+var rcList = xy.listRecharges({ user: A, limit: 20 });
+eq('A 有 2 笔充值记录', rcList.length, 2);
+var oldest = rcList[rcList.length - 1];
+eq('最早一笔是 200 元', oldest.amount, 200000);
+eq('撤回前现金池 300000', xy.viewAccount(A).cash, 300000);
+
+var rv = xy.revokeRecharge({ rechargeId: oldest.id, operator: ADMIN, reason: '录错金额' });
+eq('撤回成功并留痕', rv.recharge.revoked, true);
+eq('撤回记录带原因', rv.recharge.revoke_reason, '录错金额');
+eq('现金池冲回 200000', xy.viewAccount(A).cash, 100000);
+eq('累计净充值降到 100 元', xy.centToYuan(xy.netRechargeCent(A)), 100);
+eq('学期配额同步释放到 100 元', xy.centToYuan(xy.rechargedInSemesterCent(A)), 100);
+
+var rvAgain = xy.revokeRecharge({ rechargeId: oldest.id, operator: ADMIN });
+eq('重复撤回返回 duplicate', rvAgain.duplicate, true);
+eq('重复撤回不再扣钱', xy.viewAccount(A).cash, 100000);
+
+// 配额释放后可以再充 100 元，验证「撤回 → 重录」这条真实运维路径
+xy.recharge({ user: A, yuan: 100, operator: ADMIN, requestId: 'rc-after-revoke' });
+eq('撤回后配额可重新使用', xy.centToYuan(xy.rechargedInSemesterCent(A)), 200);
+eq('现金池回到 200000', xy.viewAccount(A).cash, 200000);
+
+// 花掉一部分后再撤回：必须硬失败，不能把余额做成负数
+// 注意 amountCent 的单位是「学元分」：150000 学元 = 15,000,000 分
+xy.transfer({ from: A, to: B, amountCent: 15000000, memo: '花掉大部分充值' });
+eq('转账后现金池剩 50000', xy.viewAccount(A).cash, 50000);
+var spent = xy.listRecharges({ user: A, limit: 20 })[0];
+throws('已被使用的充值不能撤回', function () {
+  xy.revokeRecharge({ rechargeId: spent.id, operator: ADMIN });
+}, /已被使用/);
+eq('失败后该笔仍是未撤回状态',
+  xy.listRecharges({ user: A, limit: 20 })[0].revoked, false);
+
+console.log('\n=== 9. 退款（必须从真实账户出，不得凭空印钱） ===');
+var beforeB = xy.viewAccount(B).cash;
+throws('没写原因被拒', function () {
+  xy.refund({ to: B, amountCent: 20000, operator: ADMIN, from: A, ref: 'rf-1' });
+}, /退款原因/);
+throws('不填退款方被拒', function () {
+  xy.refund({ to: B, amountCent: 20000, operator: ADMIN, reason: '测试', ref: 'rf-0' });
+}, /退款方/);
+throws('不能用系统账户垫付（否则就是印钱）', function () {
+  xy.refund({ to: B, amountCent: 20000, operator: ADMIN, reason: '测试', from: '@system:refund', ref: 'rf-sys' });
+}, /凭空印钱/);
+throws('退款方余额不足被拒', function () {
+  xy.refund({ to: B, amountCent: 999999999, operator: ADMIN, reason: '测试', from: A, ref: 'rf-big' });
+}, /余额不足/);
+
+var aCashBefore = xy.viewAccount(A).cash;
+var rf = xy.refund({ to: B, amountCent: 20000, operator: ADMIN, reason: '活动取消', from: A, ref: 'rf-1' });
+eq('B 收到 200 学元', xy.viewAccount(B).cash - beforeB, 200);
+eq('A 同步扣掉 200 学元（有对手方）', aCashBefore - xy.viewAccount(A).cash, 200);
+eq('默认退回充值池', rf.pool, 'cash');
+
+var rfDup = xy.refund({ to: B, amountCent: 20000, operator: ADMIN, reason: '活动取消', from: A, ref: 'rf-1' });
+eq('同 ref 重放返回 duplicate', rfDup.duplicate, true);
+eq('重放不重复入账', xy.viewAccount(B).cash - beforeB, 200);
+
+var aGrantBefore = xy.viewAccount(A).grant;
+var beforeG = xy.viewAccount(B).grant;
+xy.refund({ to: B, amountCent: 5000, operator: ADMIN, reason: '补偿', pool: 'grant', from: A, ref: 'rf-3' });
+eq('可指定退成赠送学元', xy.viewAccount(B).grant - beforeG, 50);
+eq('赠送池同样从 A 扣', aGrantBefore - xy.viewAccount(A).grant, 50);
+
+// 全局守恒：退款只是搬运，流通总量不该变
+ok('B 的充值学元已经很多', xy.viewAccount(B).cash > 100000, { cash: xy.viewAccount(B).cash });
+eq('但这些钱一分也提不出现金（净充值为 0）', xy.withdrawableCent(B), 0);
+
+console.log('\n=== 10. 撤回与退款后账本仍平衡 ===');
+var au2 = xy.audit();
+ok('撤回操作后 audit 仍通过', au2.ok === true, { issues: au2.issues });
+eq('全体账户余额之和仍为 0',
+  db.prepare('SELECT COALESCE(SUM(balance), 0) AS s FROM xy_ledger_balances').get().s, 0);
 
 console.log('\n=== 结果 ===');
 console.log('通过 ' + pass + ' / 失败 ' + fail);

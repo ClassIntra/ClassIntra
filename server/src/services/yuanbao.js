@@ -19,6 +19,7 @@ var crypto = require('crypto');
 var db = require('../utils/db');
 var xueyuan = require('./xueyuan');
 var peers = require('./peers');
+var cashbook = require('../ledger/cashbook');
 
 var MAX_TOTAL_CENT = xueyuan.yuanToCent(500);   // 500 元等值，与单笔转账上限一致
 var MAX_COUNT = 20;
@@ -220,7 +221,7 @@ function create(sender, totalCent, count, note, appName, opts) {
 
   return {
     id: id,
-    total: total / 100,
+    total: xueyuan.fromCent(total),
     count: n,
     remaining_cent: total,
     remaining_count: n,
@@ -278,7 +279,7 @@ function claim(packetId, userId, appName, opts) {
       .get(packetId, String(userId));
     if (prev) {
       out = {
-        claimed: true, duplicate: true, amount: prev.amount_cent / 100, amount_cent: prev.amount_cent,
+        claimed: true, duplicate: true, amount: xueyuan.fromCent(prev.amount_cent), amount_cent: prev.amount_cent,
         sender: p.sender, note: p.note || '', kind: kind
       };
       return;
@@ -343,7 +344,7 @@ function claim(packetId, userId, appName, opts) {
     out = {
       claimed: true,
       duplicate: false,
-      amount: amount / 100,
+      amount: xueyuan.fromCent(amount),
       amount_cent: amount,
       remaining_count: p.remaining_count - 1,
       sender: p.sender,
@@ -365,8 +366,10 @@ function burnSplitOf(packetId, claimerId, totalCent) {
   var grant = 0;
   try {
     var rows = db.prepare([
-      'SELECT t.amount AS amount, e.pool AS pool',
-      'FROM xy_tx t JOIN xy_entry e ON e.tx_id = t.id AND e.delta < 0',
+      'SELECT e.asset AS asset, e.amount_cent AS amount',
+      'FROM xy_ledger_transactions t',
+      'JOIN xy_ledger_entries e ON e.tx_id = t.id AND e.direction < 0',
+      "JOIN xy_ledger_accounts a ON a.id = e.account_id AND a.kind = 'user'",
       'WHERE t.ref IN (?, ?, ?)'
     ].join('\n')).all(
       'xpacket:' + packetId + ':' + claimerId + ':cash',
@@ -374,7 +377,7 @@ function burnSplitOf(packetId, claimerId, totalCent) {
       'xpacket:' + packetId + ':' + claimerId);
     for (var i = 0; i < rows.length; i++) {
       var n = Math.max(0, Math.round(Number(rows[i].amount) || 0));
-      if (String(rows[i].pool) === 'cash') cash += n; else grant += n;
+      if (String(rows[i].asset) === 'CASH') cash += n; else grant += n;
     }
   } catch (e) { /* 查不到就回退 */ }
   if (total <= 0 || cash + grant !== total) return { cash: total, grant: 0 };
@@ -402,7 +405,7 @@ function claimRemote(packetId, claimerId, callerServer, callerName, opts) {
       out = {
         duplicate: true,
         amount_cent: prev.amount_cent,
-        amount: prev.amount_cent / 100,
+        amount: xueyuan.fromCent(prev.amount_cent),
         // 重试也要回传当初的按池拆分，否则领取方会按错误池入账
         cash_cent: prevSplit.cash,
         grant_cent: prevSplit.grant,
@@ -441,14 +444,23 @@ function claimRemote(packetId, claimerId, callerServer, callerName, opts) {
     // 跨班领取：解冻后回收，由领取方班级 mint 等额；按池分两笔，便于对账追溯
     if (take.cash > 0) {
       xueyuan.release(p.sender, take.cash, { pool: 'cash' });
-      xueyuan.burn({
+      var cashRef = 'xpacket:' + p.id + ':' + claimerId + ':cash';
+      var burned = xueyuan.burn({
         from: p.sender,
         amountCent: take.cash,
         pool: 'cash',
         kind: 'transfer',
-        ref: 'xpacket:' + p.id + ':' + claimerId + ':cash',
+        ref: cashRef,
         app: 'wallet',
         memo: '跨班红包 · ' + (p.note || '恭喜发财')
+      });
+      // 真金离开本班账本 = 本班兑付义务减少，真金台账必须同步冲减。
+      cashbook.record({
+        tx_id: burned && burned.tx_id,
+        type: 'cross_out',
+        amount_cent: -take.cash,
+        ref: cashRef + ':cashbook',
+        note: '跨班红包转出（对端将记入等额真金负债）'
       });
     }
     if (take.grant > 0) {
@@ -483,7 +495,7 @@ function claimRemote(packetId, claimerId, callerServer, callerName, opts) {
     out = {
       duplicate: false,
       amount_cent: amount,
-      amount: amount / 100,
+      amount: xueyuan.fromCent(amount),
       // 资金来源拆分：对端班级据此按池入账，保证赠送学元跨班后仍不可提现
       cash_cent: take.cash,
       grant_cent: take.grant,
@@ -520,15 +532,17 @@ function preview(p, viewerId) {
     scope: p.scope || 'local',
     kind: kind,
     code: p.code || '',
-    passphrase: kind === 'phrase' ? (p.passphrase || '') : '',
+    // 口令不能出现在预览里：凭红包码/ pid 查一下就把答案回给对方，
+    // 口令红包就形同虚设。领取时由用户输入，服务端比对。
+    passphrase: '',
     is_target: isTarget,
     server_id: p.server_id || '',
     sender: p.sender,
     sender_name: userName(p.sender),
-    total: p.total_cent / 100,
+    total: xueyuan.fromCent(p.total_cent),
     count: p.count,
     note: p.note || '',
-    remaining: p.remaining_cent / 100,
+    remaining: xueyuan.fromCent(p.remaining_cent),
     remaining_count: p.remaining_count,
     expire_at: p.expire_at,
     status: p.status,
@@ -586,10 +600,10 @@ function list(userId) {
       id: p.id,
       sender: p.sender,
       sender_name: userName(p.sender),
-      total: p.total_cent / 100,
+      total: xueyuan.fromCent(p.total_cent),
       count: p.count,
       note: p.note || '',
-      remaining: p.remaining_cent / 100,
+      remaining: xueyuan.fromCent(p.remaining_cent),
       remaining_count: p.remaining_count,
       claimed_count: p.claimed_count || 0,
       status: p.status,
@@ -610,7 +624,7 @@ function list(userId) {
     claimed: claimedByMe.map(function (c) {
       return {
         id: c.packet_id,
-        amount: c.amount_cent / 100,
+        amount: xueyuan.fromCent(c.amount_cent),
         note: c.note || '',
         sender_name: c.remote_name || userName(c.sender),
         scope: c.scope || 'local',
@@ -646,9 +660,9 @@ function claims(packetId, viewerId) {
     sender: p.sender,
     sender_name: userName(p.sender),
     note: p.note || '',
-    total: p.total_cent / 100,
+    total: xueyuan.fromCent(p.total_cent),
     count: p.count,
-    remaining: p.remaining_cent / 100,
+    remaining: xueyuan.fromCent(p.remaining_cent),
     remaining_count: p.remaining_count,
     claimed_count: rows.length,
     status: p.status,
@@ -660,7 +674,7 @@ function claims(packetId, viewerId) {
         user_id: c.user_id,
         // 跨班领取记录用对端班级里的昵称
         name: (c.remote && c.remote_name) ? c.remote_name : userName(c.user_id),
-        amount: c.amount_cent / 100,
+        amount: xueyuan.fromCent(c.amount_cent),
         created_at: c.created_at,
         remote: !!c.remote
       };

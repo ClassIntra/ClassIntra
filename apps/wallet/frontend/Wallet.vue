@@ -188,6 +188,51 @@
           </div>
         </div>
 
+        <!-- ============ AA 收款 ============ -->
+        <div v-else-if="tab === 'collect'" class="panel">
+          <div class="ct-head">
+            <div>
+              <div class="sec-title">AA 收款</div>
+              <div class="ct-desc">班费、买水、活动分摊 —— 每人一份，付了才算</div>
+            </div>
+            <button class="ct-btn" @click="openCollectForm">发起</button>
+          </div>
+
+          <div v-if="collectTodo.length" class="ct-group">
+            <div class="ct-group-title">待我付款</div>
+            <div v-for="c in collectTodo" :key="'todo' + c.id" class="ct-item">
+              <div class="ct-main">
+                <div class="ct-name">{{ c.title }}</div>
+                <div class="ct-sub">{{ c.creator }} 发起 · 每人 {{ money(c.per) }} 学元</div>
+              </div>
+              <button class="ct-btn" @click="startPayCollect(c)">付 {{ money(c.per) }}</button>
+            </div>
+          </div>
+
+          <div v-if="collects.created.length" class="ct-group">
+            <div class="ct-group-title">我发起的</div>
+            <div v-for="c in collects.created" :key="'mine' + c.id" class="ct-item">
+              <div class="ct-main">
+                <div class="ct-name">
+                  {{ c.title }}
+                  <em class="ct-tag" :class="c.status === 'closed' ? 'off' : (c.expired ? 'warn' : 'on')">
+                    {{ c.status === 'closed' ? '已结束' : (c.expired ? '已过期' : '进行中') }}
+                  </em>
+                </div>
+                <div class="ct-sub">
+                  {{ c.paid_count }}/{{ c.member_count }} 人已付 · 收 {{ money(c.paid) }} / {{ money(c.total) }} 学元
+                </div>
+              </div>
+              <button v-if="c.status === 'open'" class="ct-btn ghost" @click="endCollect(c)">结束</button>
+            </div>
+          </div>
+
+          <div v-if="!collectTodo.length && !collects.created.length" class="empty small">
+            <i class="fa-solid fa-users"></i>
+            <p>还没有 AA 收款</p>
+          </div>
+        </div>
+
         <!-- ============ 提现 ============ -->
         <div v-else-if="tab === 'withdraw'" class="panel">
           <div class="wd-hero">
@@ -248,6 +293,102 @@
             </div>
           </div>
           <p class="rank-tip">榜单只统计余额，不含冻结。钱多不代表会投资 —— 证券里的收益率榜更值得看。</p>
+        </div>
+
+        <!-- ============ 小铺 ============ -->
+        <div v-else-if="tab === 'shop'" class="panel">
+          <div class="shop-head">
+            <span>班级小铺</span>
+            <span class="shop-note">只能用自己充值的学元购买</span>
+          </div>
+
+          <div v-if="shopLoading" class="hint">加载中…</div>
+          <div v-else-if="!shopGoods.length" class="hint">小铺还没上架商品，等班管开张。</div>
+          <div v-else class="shop-grid">
+            <div v-for="g in shopGoods" :key="g.id" class="shop-card">
+              <div class="sc-kind">{{ goodsKindLabel(g.kind) }}</div>
+              <div class="sc-name">{{ g.name }}</div>
+              <div class="sc-price"><b>{{ money(unitsOf(g.price_cent)) }}</b> 学元</div>
+              <button class="sc-buy" @click="openBuy(g)">兑换</button>
+            </div>
+          </div>
+
+          <!-- 支付确认：商品只收自己充值的学元。赚来的学元不构成购买力，但可以转账/发红包 -->
+          <div v-if="shopQuote" class="shop-quote">
+            <div class="sq-head">
+              <b>{{ shopQuote.name }}</b>
+              <span class="sq-x" @click="closeBuy">✕</span>
+            </div>
+            <div class="sq-row"><span>价格</span><b>{{ money(unitsOf(shopQuote.face_cent)) }} 学元</b></div>
+            <div class="sq-row">
+              <span>你的充值学元</span>
+              <b :class="shopQuote.enough ? '' : 'no'">{{ money(unitsOf(shopQuote.balance_cash_cent)) }}</b>
+            </div>
+            <p class="sq-tip">
+              只能用自己充值的学元购买。赠送学元和炒股赚来的学元不能买东西，但可以转账、发红包。
+            </p>
+            <p class="sq-tip no" v-if="!shopQuote.enough">
+              还差 {{ money(unitsOf(shopQuote.short_cent)) }} 学元，请先找班管充值。
+            </p>
+            <div class="sq-actions">
+              <button class="sq-cancel" @click="closeBuy">取消</button>
+              <button class="sq-ok" :disabled="shopBusy || !shopQuote.enough" @click="confirmBuy">
+                {{ shopBusy ? '处理中…' : (shopQuote.enough ? '确认兑换' : '充值余额不足') }}
+              </button>
+            </div>
+          </div>
+
+          <div class="shop-sec">我的订单</div>
+          <div v-if="!shopOrders.length" class="hint">还没有订单</div>
+          <div v-else class="order-list">
+            <div v-for="o in shopOrders" :key="o.id" class="order-row">
+              <div class="or-main">
+                <div class="or-name">{{ o.goods_name || ('订单 #' + o.id) }}</div>
+                <div class="or-sub">{{ orderStatusLabel(o.status) }} · {{ fmtTime(o.created_at) }}</div>
+              </div>
+              <div class="or-right">
+                <div class="or-amt">{{ money(unitsOf(o.face_cent)) }}</div>
+                <button v-if="canAskRefund(o)" class="or-act" @click="askRefund(o)">申请退款</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============ 投资进出（赠金 ⇄ 练习金） ============ -->
+        <div v-else-if="tab === 'invest'" class="panel">
+          <div class="inv-head">
+            <span class="inv-ico"><i class="fa-solid fa-chart-line"></i></span>
+            <div>
+              <div class="inv-title">投资进出</div>
+              <div class="inv-sub">赠送学元可以转进「学元证券」当本金；炒股赚的也能撤回来发红包、送同学。</div>
+            </div>
+          </div>
+
+          <div class="inv-grid">
+            <div class="inv-cell">
+              <span>赠送学元 · 可转出</span>
+              <b>{{ money(account.available_grant) }}</b>
+              <em>不可提现</em>
+            </div>
+            <div class="inv-cell">
+              <span>练习金 · 证券里</span>
+              <b>{{ money(account.practice) }}</b>
+              <em>可用 {{ money(account.available_practice) }}，挂单冻结的部分不能撤</em>
+            </div>
+          </div>
+
+          <div class="inv-form">
+            <input v-model="investAmount" class="inv-input" type="number" min="0" placeholder="金额（学元）" />
+            <button class="inv-go primary" :disabled="investBusy" @click="submitInvest('in')">
+              {{ investBusy ? '处理中…' : '转入投资' }}
+            </button>
+            <button class="inv-go" :disabled="investBusy" @click="submitInvest('out')">撤出到钱包</button>
+          </div>
+          <p v-if="investErr" class="inv-err">{{ investErr }}</p>
+          <p class="inv-tip">
+            1:1 不收手续费，钱始终在你自己名下。<b>充值的真钱不参与</b>：进不了股市，股市里也变不出现金。
+            撤出的钱仍是赠金：可以转账、发红包、送同学，但买不了小铺的东西，也不能提现。
+          </p>
         </div>
 
         <!-- 支付密码（没有入口的话，转账/红包会被拦住却无处设置） -->
@@ -425,6 +566,68 @@
       />
     </PayPage>
 
+    <!-- ============ 发起 AA 收款 ============ -->
+    <PayPage :visible="collectForm.open" title="发起 AA" subtitle="每人付一份，付了才算" @close="closeCollectForm">
+      <div class="pay-form">
+        <div class="pay-row">
+          <span>事由</span>
+          <input v-model.trim="collectForm.title" maxlength="40" placeholder="如：运动会买水" />
+        </div>
+        <div class="pay-row">
+          <span>每人</span>
+          <input v-model="collectForm.per" type="number" inputmode="decimal" placeholder="每人金额（学元）" />
+        </div>
+        <div class="pay-row" style="border-bottom:none">
+          <span>筛选</span>
+          <input v-model.trim="peopleQ" type="text" placeholder="名字 / 学号" />
+        </div>
+        <div class="people-list pick">
+          <button v-for="p in filteredPeople" :key="'ct' + p.user_id" class="people-item"
+            :class="{ picked: collectForm.members.indexOf(p.user_id) >= 0 }" @click="toggleCollectMember(p)">
+            <span class="pi-name">{{ p.name }}</span>
+            <span class="pi-id">{{ p.user_id }}</span>
+            <i class="pi-check fa-solid fa-check"></i>
+          </button>
+          <div v-if="!filteredPeople.length" class="people-empty">没有匹配的同学</div>
+        </div>
+        <div class="pay-hint">
+          已选 {{ collectForm.members.length }} 人，合计 <b>{{ money(collectFormTotal) }}</b> 学元。
+          每人付款时要用支付密码；你自己不用付这一份。
+        </div>
+        <button class="pay-primary" :disabled="!canCreateCollect" @click="submitCollectForm">
+          {{ collectForm.busy ? '创建中…' : '发出收款单' }}
+        </button>
+      </div>
+    </PayPage>
+
+    <!-- ============ AA 付款 ============ -->
+    <PayPage :visible="collectPay.open" :title="collectPay.step === 'pin' ? 'AA 付款' : '确认付款'" @close="closePayCollect">
+      <div v-if="collectPay.step === 'form'" class="pay-form">
+        <div class="ct-summary" v-if="collectPay.item">
+          <div class="ct-summary-title">{{ collectPay.item.title }}</div>
+          <div class="ct-summary-sub">
+            {{ collectPay.item.creator }} 发起 · {{ collectPay.item.paid_count }}/{{ collectPay.item.member_count }} 人已付
+          </div>
+        </div>
+        <div class="pay-amount">
+          <span class="pay-currency">¥</span>
+          <span class="ct-amount">{{ money(collectPay.item ? collectPay.item.per : 0) }}</span>
+        </div>
+        <div class="pay-hint">付款后不能撤销；这笔钱会直接进发起人的学元余额。</div>
+        <button class="pay-primary" :disabled="!collectPay.item" @click="collectPay.step = 'pin'">去付款</button>
+      </div>
+      <PayPinPad
+        v-else
+        :title="money(collectPay.item ? collectPay.item.per : 0) + ' 学元'"
+        :subtitle="collectPay.item ? collectPay.item.title : ''"
+        :error="collectPay.error"
+        :disabled="collectPay.busy"
+        @submit="submitPayCollect"
+        @cancel="closePayCollect"
+        @forgot="forgotPin"
+      />
+    </PayPage>
+
     <!-- ============ 输入红包码 / 口令领取 ============ -->
     <PayPage :visible="claimCode.open" :title="claimCode.mode === 'phrase' ? '输口令领红包' : '输入红包码'" subtitle="跨班红包也能领" @close="claimCode.open = false">
       <div class="pay-form">
@@ -510,20 +713,20 @@
     </PayPage>
 
     <!-- ============ 充值说明 ============ -->
-    <PayPage :visible="recharge.open" title="充值学元" subtitle="线下找班管，现金换学元" @close="recharge.open = false">
+    <PayPage :visible="recharge.open" title="充值学元" :subtitle="meshMaster ? ('线下找 ' + meshMaster + ' 班班管，现金换学元') : '线下找班管，现金换学元'" @close="recharge.open = false">
       <div class="pay-form">
         <div class="rc-rate">
           <span class="rc-rate-label">当前汇率</span>
           <span class="rc-rate-num">1 元 = {{ money(yuanRate) }} 学元</span>
         </div>
         <div class="rc-steps">
-          <div class="rc-step"><em>1</em><span>线下把现金交给班管，说明要充多少。</span></div>
-          <div class="rc-step"><em>2</em><span>班管在管控中心「学元」页录入，学元立即到账。</span></div>
+          <div class="rc-step"><em>1</em><span>线下把现金交给{{ meshMaster ? meshMaster + ' 班班管' : '班管' }}，说明要充多少。</span></div>
+          <div class="rc-step"><em>2</em><span>{{ meshMaster ? meshMaster + ' 班班管在管控中心录入（组网统一收费），学元直接到账你的钱包。' : '班管在管控中心「学元」页录入，学元立即到账。' }}</span></div>
           <div class="rc-step"><em>3</em><span>充值学元可转账、发红包、跨班、投资，也可申请提现。</span></div>
         </div>
         <div class="rc-split">
-          <div class="rc-split-item cash"><i class="fa-solid fa-wallet"></i><b>充值学元</b><span>转账 / 红包 / 跨班 / 投资 / 提现</span></div>
-          <div class="rc-split-item grant"><i class="fa-solid fa-gift"></i><b>赠送学元</b><span>可转账 / 红包 / 跨班 / 投资，不可提现</span></div>
+          <div class="rc-split-item cash"><i class="fa-solid fa-wallet"></i><b>充值学元</b><span>转账 / 红包 / 跨班 / 投资 / 买东西 / 提现</span></div>
+          <div class="rc-split-item grant"><i class="fa-solid fa-gift"></i><b>赠送学元</b><span>可转账 / 红包 / 跨班 / 投资，不能买东西、不可提现</span></div>
         </div>
         <div class="pay-hint">
           单次充值上限 {{ money(limits.recharge) }} 学元，本学期还能充 {{ money(limits.recharge_left) }} 学元。
@@ -584,8 +787,11 @@ export default {
       tabs: [
         { key: 'ledger', label: '明细' },
         { key: 'packets', label: '红包' },
+        { key: 'collect', label: 'AA' },
         { key: 'withdraw', label: '提现' },
-        { key: 'rank', label: '学元榜' }
+        { key: 'rank', label: '学元榜' },
+        { key: 'invest', label: '投资' },
+        { key: 'shop', label: '小铺' }
       ],
       filters: [
         { key: '', label: '全部' },
@@ -593,6 +799,18 @@ export default {
         { key: 'out', label: '支出' }
       ],
       direction: '',
+
+      // 小铺：商品 / 我的订单 / 试算结果
+      shopGoods: [],
+      shopOrders: [],
+      shopLoading: false,
+      shopBusy: false,
+      shopQuote: null,
+
+      // 投资进出：钱包（系统应用）直接调 /api/xueyuan/invest
+      investAmount: '',
+      investBusy: false,
+      investErr: '',
 
       account: {
         balance: 0,
@@ -607,6 +825,8 @@ export default {
       },
       withdrawable: 0,
       yuanRate: 1000,
+      // 组网角色：从班学员的充值说明要指向主班班管（钱由主班统一收）
+      mesh: { role: '', master_class: '' },
       daily: { claimed: true, amount: 0, streak: 0, base: 1000, bonus: 2000, bonus_from: 7, next_day: 1 },
       week: { in: 0, out: 0, count: 0 },
       month: { in: 0, out: 0, count: 0 },
@@ -616,6 +836,12 @@ export default {
       withdrawals: [],
       withdraw: { amount: '', memo: '', busy: false },
       recharge: { open: false },
+
+      // AA 收款：列表 + 新建表单 + 付款弹层三份状态分开存，
+      // 免得「付款到一半去关掉列表」时把彼此的状态冲掉。
+      collects: { created: [], joined: [] },
+      collectForm: { open: false, title: '', per: '', members: [], busy: false },
+      collectPay: { open: false, item: null, step: 'form', error: '', busy: false },
 
       claiming: false,
 
@@ -649,6 +875,31 @@ export default {
   },
 
   computed: {
+    // 本班是否为组网从班（充值由主班班管统一收取）。
+    // 返回主班班号字符串，未组网时为空串。
+    meshMaster: function () {
+      return (this.mesh && this.mesh.role === 'member' && this.mesh.master_class) ? this.mesh.master_class : '';
+    },
+    // 待我付款：还没付、单子还开着、也没过期
+    collectTodo: function () {
+      var list = this.collects.joined || [];
+      return list.filter(function (c) {
+        return c.my_status === 'pending' && c.status === 'open' && !c.expired;
+      });
+    },
+    collectFormTotal: function () {
+      var per = toNum(this.collectForm.per);
+      if (!isFinite(per) || per <= 0) return 0;
+      return per * (this.collectForm.members || []).length;
+    },
+    canCreateCollect: function () {
+      var per = toNum(this.collectForm.per);
+      return !this.collectForm.busy &&
+        !!String(this.collectForm.title || '').trim() &&
+        per > 0 &&
+        (this.collectForm.members || []).length > 0;
+    },
+
     filteredPeople: function () {
       var q = String(this.peopleQ || '').trim().toLowerCase();
       var list = this.people || [];
@@ -687,6 +938,7 @@ export default {
 
   created: function () {
     this.reloadAll();
+    this.loadMeshInfo();
   },
 
   methods: {
@@ -745,8 +997,18 @@ export default {
       self.loadOverview();
       self.loadLedger(true);
       self.loadPackets();
+      self.loadCollects();
       if (self.tab === 'rank') self.loadRank();
       setTimeout(function () { self.loading = false; }, 600);
+    },
+
+    // 组网角色（轻量只读接口）：从班学员的充值说明要指向主班班管
+    loadMeshInfo: function () {
+      var self = this;
+      api.get('/xueyuan/config').then(function (res) {
+        var mesh = ((res.data && res.data.data) || {}).mesh || {};
+        self.mesh = { role: mesh.role || '', master_class: mesh.master_class || '' };
+      }).catch(function () { /* 读不到按未组网处理 */ });
     },
 
     loadOverview: function () {
@@ -800,8 +1062,125 @@ export default {
     switchTab: function (key) {
       this.tab = key;
       if (key === 'packets') this.loadPackets();
+      if (key === 'collect') this.loadCollects();
       if (key === 'withdraw') this.loadWithdrawals();
       if (key === 'rank' && !this.rank.length) this.loadRank();
+      if (key === 'shop') this.loadShop();
+      if (key === 'invest') { this.investErr = ''; this.loadOverview(); }
+    },
+
+    // ======== 投资进出 ========
+    // 只搬自己名下的 GRANT ⇄ PRACTICE，不经过支付密码（无第三方收款方），
+    // 也不会碰 CASH。服务端 src/ledger/invest.js 是唯一实现。
+    submitInvest: function (dir) {
+      var self = this;
+      var v = Number(this.investAmount);
+      if (!isFinite(v) || v <= 0) { this.investErr = '请填写大于 0 的金额'; return; }
+      this.investBusy = true;
+      this.investErr = '';
+      return api.post('/xueyuan/invest', { direction: dir, amount: v }).then(function () {
+        self.investAmount = '';
+        self.toast(dir === 'in' ? '已转入投资' : '已撤出到钱包', 'success');
+        return self.loadOverview();
+      }).catch(function (e) {
+        self.investErr = self.errMsg(e, '操作失败，请稍后再试');
+      }).then(function () {
+        self.investBusy = false;
+      });
+    },
+
+    // ======== 小铺 ========
+    // 账本内部一律「学元分」（1 元 = 1000），钱包页展示的是「学元」（÷100），
+    // 这个换算只做一次，别在模板里到处写 /100。
+    unitsOf: function (cent) { return toNum(cent) / 100; },
+
+    goodsKindLabel: function (k) {
+      if (k === 'physical') return '实物';
+      if (k === 'service') return '服务';
+      return '数字';
+    },
+
+    orderStatusLabel: function (s) {
+      var map = {
+        created: '待支付', paid: '已支付', fulfilled: '待收货',
+        done: '已完成', closed: '已关闭', refunding: '退款中',
+        refunded: '已退款', disputed: '争议中'
+      };
+      return map[s] || s;
+    },
+
+    canAskRefund: function (o) {
+      return o.status === 'paid' || o.status === 'fulfilled';
+    },
+
+    loadShop: function () {
+      var self = this;
+      self.shopLoading = true;
+      return Promise.all([
+        api.get('/xy/goods', { params: { limit: 30 } }),
+        api.get('/xy/orders', { params: { limit: 10 } })
+      ]).then(function (rs) {
+        self.shopGoods = ((rs[0].data && rs[0].data.data) || []).filter(function (g) {
+          return g.status === 'on_shelf';
+        });
+        self.shopOrders = (rs[1].data && rs[1].data.data) || [];
+        self.shopLoading = false;
+      }).catch(function (err) {
+        self.shopLoading = false;
+        // 拉不到 ≠ 没有：必须显示错误态，不能渲染成「小铺是空的」
+        self.shopGoods = [];
+        self.shopOrders = [];
+        self.toast(self.errMsg(err, '小铺加载失败'), 'error');
+      });
+    },
+
+    // 先问服务端「这单要多少充值学元、够不够」：制度在服务端，前端不能自己算。
+    openBuy: function (g) {
+      var self = this;
+      return api.get('/xy/orders/quote', { params: { goods_id: g.id, qty: 1 } })
+        .then(function (res) {
+          self.shopQuote = (res.data && res.data.data) || null;
+        })
+        .catch(function (err) {
+          self.toast(self.errMsg(err, '无法下单'), 'error');
+        });
+    },
+
+    closeBuy: function () { this.shopQuote = null; },
+
+    confirmBuy: function () {
+      var self = this;
+      if (!self.shopQuote || self.shopBusy) return;
+      self.shopBusy = true;
+      var rid = 'shop:' + Date.now() + ':' + Math.random().toString(36).slice(2, 8);
+
+      api.post('/xy/orders', {
+        goods_id: self.shopQuote.goods_id, qty: 1, ref: rid + ':create'
+      }).then(function (res) {
+        var order = (res.data && res.data.data) || {};
+        if (!order.id) throw new Error('下单失败');
+        return api.post('/xy/orders/' + order.id + '/pay', { ref: rid + ':pay' });
+      }).then(function () {
+        self.shopBusy = false;
+        self.shopQuote = null;
+        self.toast('兑换成功', 'success');
+        self.loadShop();
+        self.loadOverview();
+      }).catch(function (err) {
+        self.shopBusy = false;
+        self.toast(self.errMsg(err, '兑换失败'), 'error');
+      });
+    },
+
+    askRefund: function (o) {
+      var self = this;
+      var ref = 'refund-req:' + o.id + ':' + Date.now();
+      api.post('/xy/orders/' + o.id + '/refund-request', { ref: ref }).then(function () {
+        self.toast('已申请退款，等班管确认', 'success');
+        self.loadShop();
+      }).catch(function (err) {
+        self.toast(self.errMsg(err, '申请退款失败'), 'error');
+      });
     },
 
     loadPackets: function () {
@@ -1023,6 +1402,90 @@ export default {
       }
       self.transfer = Object.assign({}, f, { step: 'pin', pinError: '' });
     },
+    // ======== AA 收款 ========
+    loadCollects: function () {
+      var self = this;
+      return api.get('/wallet/collect/list').then(function (res) {
+        var d = (res.data && res.data.data) || {};
+        self.collects = { created: d.created || [], joined: d.joined || [] };
+      }).catch(function () {
+        // 列表失败不打断整个钱包页；发起点钱时后端还会再校验一次
+      });
+    },
+    openCollectForm: function () {
+      this.collectForm = { open: true, title: '', per: '', members: [], busy: false };
+      this.peopleQ = '';
+      if (!this.people.length) this.loadPeople();
+    },
+    closeCollectForm: function () {
+      this.collectForm.open = false;
+    },
+    toggleCollectMember: function (p) {
+      var list = this.collectForm.members;
+      var i = list.indexOf(p.user_id);
+      if (i >= 0) list.splice(i, 1);
+      else list.push(p.user_id);
+    },
+    submitCollectForm: function () {
+      var self = this;
+      if (!self.canCreateCollect) return;
+      self.collectForm.busy = true;
+      api.post('/wallet/collect', {
+        title: String(self.collectForm.title || '').trim(),
+        per: toNum(self.collectForm.per),
+        members: self.collectForm.members,
+        requestId: 'ct' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+      }).then(function (res) {
+        var d = (res.data && res.data.data) || {};
+        self.$toast && self.$toast.success('已发出，共 ' + (d.member_count || 0) + ' 人');
+        self.collectForm.busy = false;
+        self.collectForm.open = false;
+        self.switchTab('collect');
+        self.loadCollects();
+      }).catch(function (err) {
+        var msg = (err.response && err.response.data && err.response.data.message) || '创建失败';
+        self.$toast && self.$toast.error(msg);
+        self.collectForm.busy = false;
+      });
+    },
+    startPayCollect: function (c) {
+      this.collectPay = { open: true, item: c, step: 'form', error: '', busy: false };
+    },
+    closePayCollect: function () {
+      this.collectPay.open = false;
+    },
+    submitPayCollect: function (pin) {
+      var self = this;
+      var item = self.collectPay.item;
+      if (!item || self.collectPay.busy) return;
+      self.collectPay.busy = true;
+      self.collectPay.error = '';
+      api.post('/wallet/collect/' + item.id + '/pay', { pin: pin }).then(function (res) {
+        var d = (res.data && res.data.data) || {};
+        if (d.account) self.account = d.account;
+        self.$toast && self.$toast.success('已付 ' + self.money(item.per) + ' 学元');
+        self.collectPay.open = false;
+        self.collectPay.busy = false;
+        self.loadCollects();
+        self.loadLedger(true);
+      }).catch(function (err) {
+        var body = (err.response && err.response.data) || {};
+        self.collectPay.error = body.message || '付款失败';
+        self.collectPay.busy = false;
+      });
+    },
+    endCollect: function (c) {
+      var self = this;
+      if (!window.confirm('结束后不再接受付款，已经付过的不退。确定结束「' + c.title + '」？')) return;
+      api.post('/wallet/collect/' + c.id + '/close').then(function () {
+        self.$toast && self.$toast.success('已结束');
+        self.loadCollects();
+      }).catch(function (err) {
+        var msg = (err.response && err.response.data && err.response.data.message) || '操作失败';
+        self.$toast && self.$toast.error(msg);
+      });
+    },
+
     submitTransfer: function (pin) {
       var self = this;
       var f = self.transfer;
@@ -1302,11 +1765,14 @@ export default {
       } else if (info.id && !info.cross) {
         req = api.post('/wallet/packet/' + info.id + '/claim', { phrase: info.kind === 'phrase' ? input : undefined });
       } else {
-        // 跨班：红包码 / 口令 / pid 都走同一个入口
+        // 跨班：红包码 / 口令 / pid 都走同一个入口。
+        // 三种定位方式只挑一个，不能同时发：服务按 packetId → code → phrase 取第一个，
+        // 口令红包若同时带 code，领取时会被当成普通码，服务端拿码去比对口令必然失败。
+        var isPhrase = info.kind === 'phrase';
         req = api.post('/wallet/packet/claim-code', {
-          code: info.code || undefined,
-          phrase: info.kind === 'phrase' ? input : (info.code ? undefined : input),
-          packet_id: info.cross && info.id ? info.id : undefined,
+          code: (!isPhrase && info.code) ? info.code : undefined,
+          phrase: isPhrase ? input : (info.code ? undefined : input),
+          packet_id: (!isPhrase && !info.code && info.cross && info.id) ? info.id : undefined,
           base: info.base_url || ''
         });
       }
@@ -1464,6 +1930,76 @@ export default {
   font-style: normal;
   font-weight: 500;
   opacity: 0.72;
+}
+/* ======== AA 收款 ======== */
+.ct-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.ct-desc { margin-top: 3px; font-size: 12px; opacity: 0.6; }
+.ct-btn {
+  flex: 0 0 auto;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 0.5px solid var(--color-border-secondary, rgba(0, 0, 0, 0.2));
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.ct-btn:active { opacity: 0.7; }
+.ct-btn.ghost { opacity: 0.7; }
+.ct-group { margin-bottom: 16px; }
+.ct-group-title {
+  margin-bottom: 8px;
+  font-size: 12px;
+  letter-spacing: 0.4px;
+  opacity: 0.6;
+}
+.ct-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  border-radius: 12px;
+  background: var(--color-background-secondary, rgba(0, 0, 0, 0.03));
+}
+.ct-main { flex: 1; min-width: 0; }
+.ct-name {
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ct-sub { margin-top: 3px; font-size: 12px; opacity: 0.6; }
+.ct-tag {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 400;
+}
+.ct-tag.on { background: rgba(46, 158, 91, 0.14); color: #2e9e5b; }
+.ct-tag.warn { background: rgba(208, 138, 23, 0.16); color: #d08a17; }
+.ct-tag.off { background: rgba(0, 0, 0, 0.08); opacity: 0.7; }
+.ct-summary {
+  margin-bottom: 18px;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--color-background-secondary, rgba(0, 0, 0, 0.03));
+}
+.ct-summary-title { font-size: 15px; font-weight: 500; }
+.ct-summary-sub { margin-top: 4px; font-size: 12px; opacity: 0.6; }
+.ct-amount {
+  font-size: 34px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 .bal-split {
   position: relative;
@@ -2764,4 +3300,177 @@ export default {
 }
 .q-badge.warn { background: #E4574F; color: #fff; }
 .claim-input--phrase .claim-code-input { letter-spacing: 4px; font-size: 24px; }
+
+/* ============ 小铺 ============ */
+.shop-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+  font-size: var(--font-size-footnote);
+  font-weight: 600;
+}
+.shop-note {
+  font-size: var(--font-size-caption);
+  font-weight: 400;
+  color: var(--text-tertiary);
+  text-align: right;
+}
+.shop-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+.shop-card {
+  position: relative;
+  padding: 12px 14px 14px;
+  border-radius: 14px;
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.sc-kind {
+  align-self: flex-start;
+  padding: 1px 7px;
+  border-radius: 7px;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  background: rgba(120, 140, 170, 0.14);
+}
+.sc-name { font-size: var(--font-size-footnote); font-weight: 600; line-height: 1.35; }
+.sc-price { font-size: var(--font-size-caption); color: var(--text-secondary); }
+.sc-price b { font-size: var(--font-size-body, 16px); color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.sc-buy {
+  margin-top: 8px;
+  padding: 6px 0;
+  border: 0;
+  border-radius: 9px;
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  color: #fff;
+  background: var(--primary-color, #0A84FF);
+}
+.sc-buy:active { opacity: .8; }
+
+.shop-quote {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--card-bg);
+  border: 1px solid var(--primary-color, #0A84FF);
+}
+.sq-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.sq-x { color: var(--text-tertiary); padding: 0 4px; }
+.sq-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 3px 0;
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+}
+.sq-row b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.sq-row b.ok { color: #34A853; }
+.sq-row b.no { color: #E5484D; }
+.sq-tip { margin: 8px 0 0; font-size: 11px; line-height: 1.6; color: var(--text-tertiary); }
+.sq-tip.no { color: #E5484D; }
+.sq-actions { display: flex; gap: 10px; margin-top: 12px; }
+.sq-cancel, .sq-ok {
+  flex: 1;
+  padding: 9px 0;
+  border-radius: 10px;
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-secondary);
+}
+.sq-ok {
+  border: 0;
+  color: #fff;
+  background: var(--primary-color, #0A84FF);
+}
+.sq-ok[disabled] { opacity: .6; }
+
+.shop-sec {
+  margin: 18px 0 8px;
+  font-size: var(--font-size-footnote);
+  font-weight: 600;
+}
+.order-list {
+  border-radius: 14px;
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  overflow: hidden;
+}
+.order-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+}
+.order-row + .order-row { border-top: 1px solid var(--separator-color, var(--border-color)); }
+.or-main { flex: 1; min-width: 0; }
+.or-name {
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.or-sub { margin-top: 2px; font-size: 11px; color: var(--text-tertiary); }
+.or-right { text-align: right; }
+.or-amt { font-size: var(--font-size-caption); font-variant-numeric: tabular-nums; }
+.or-act {
+  margin-top: 4px;
+  padding: 3px 9px;
+  border-radius: 8px;
+  font-size: 11px;
+  color: var(--primary-color, #0A84FF);
+  border: 1px solid currentColor;
+  background: transparent;
+}
+
+/* 投资进出：与余额卡同色系，弱化卡片避免盖过主余额 */
+.inv-head { display: flex; gap: 12px; align-items: center; margin-bottom: 14px; }
+.inv-ico {
+  flex: 0 0 38px; height: 38px; display: flex; align-items: center; justify-content: center;
+  border-radius: 12px; font-size: 17px;
+  color: var(--primary-color, #0A84FF);
+  background: rgba(10, 132, 255, 0.10);
+}
+.inv-title { font-size: 15px; font-weight: 600; }
+.inv-sub { margin-top: 3px; font-size: 11px; line-height: 1.6; opacity: 0.65; }
+.inv-grid { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.inv-cell {
+  flex: 1 1 150px; display: flex; flex-direction: column; gap: 5px;
+  padding: 12px 14px; border-radius: 12px;
+  background: rgba(120, 140, 170, 0.08);
+  border: 1px solid rgba(120, 140, 170, 0.18);
+}
+.inv-cell > span { font-size: 11px; opacity: 0.66; }
+.inv-cell > b { font-size: 20px; font-variant-numeric: tabular-nums; }
+.inv-cell > em { font-size: 10px; font-style: normal; opacity: 0.55; line-height: 1.5; }
+.inv-form { display: flex; gap: 8px; flex-wrap: wrap; }
+.inv-input {
+  flex: 1 1 120px; min-width: 0; padding: 9px 12px; border-radius: 10px;
+  border: 1px solid rgba(120, 140, 170, 0.35);
+  background: rgba(120, 140, 170, 0.06);
+  color: inherit; font-size: 14px; font-variant-numeric: tabular-nums;
+}
+.inv-go {
+  padding: 9px 14px; border-radius: 10px; font-size: 12px; cursor: pointer;
+  border: 1px solid rgba(120, 140, 170, 0.35); background: transparent; color: inherit;
+}
+.inv-go.primary {
+  border-color: var(--primary-color, #0A84FF);
+  color: var(--primary-color, #0A84FF);
+  background: rgba(10, 132, 255, 0.08);
+}
+.inv-go:disabled { opacity: 0.5; cursor: not-allowed; }
+.inv-err { margin: 10px 0 0; font-size: 12px; color: #E5533D; }
+.inv-tip { margin: 12px 0 0; font-size: 11px; line-height: 1.7; opacity: 0.66; }
 </style>
