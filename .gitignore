@@ -172,3 +172,7 @@ _root/_tmp_*
 
 # 部署目标（内网拓扑，不入库）
 scripts/sync-env.host.local
+
+# 构建产物与临时文件
+*.tar
+_tmp_*
