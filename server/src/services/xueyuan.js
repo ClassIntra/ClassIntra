@@ -768,6 +768,25 @@ function splitPayable(userId, amountCent) {
   return { cash: useCash, grant: useGrant };
 }
 
+// 按指定资产池拆分（转账 / 发红包共用，2026-11-07）。
+// 与 splitPayable 同一口径（账本单位入、账本单位出），单位换算只在这一处发生：
+//   auto  —— 充值学元优先、不足赠送补（历史行为）
+//   cash  —— 只动充值学元（真金），不足报错并指路「自动」
+//   grant —— 只动赠送学元（不可提现），适合帮同学凑投资本金
+function splitPool(userId, amountCent, pool) {
+  var sel = String(pool || 'auto').toLowerCase();
+  if (['auto', 'cash', 'grant'].indexOf(sel) === -1) throw new Error('资产池只能是 auto / cash / grant');
+  if (sel === 'auto') return splitPayable(userId, amountCent);
+  var a = getAccount(userId);
+  if (!a.exists) throw new Error('账户不存在');
+  var avail = sel === 'cash' ? Math.max(0, a.available_cash) : Math.max(0, a.available_grant);
+  if (avail < amountCent) {
+    throw new Error((sel === 'cash' ? '充值学元不足（可用 ' : '赠送学元不足（可用 ') +
+      fromCent(avail) + ' 学元）' + (sel === 'cash' ? '；想连赠送学元一起用请选「自动」' : ''));
+  }
+  return sel === 'cash' ? { cash: amountCent, grant: 0 } : { cash: 0, grant: amountCent };
+}
+
 // 分池扣款，但限制「赠送学元最多抵扣 amountCent × maxGrantRatio」。
 // ⚠️ 已废弃（2026-11-07）：商品只能用自己充值的学元购买，赠金抵扣恒为 0，
 //    路由与账本层都不再接受这个口径（见 ledger/settlement.maxGrantOffsetCent）。
@@ -811,7 +830,8 @@ function transfer(opts) {
   }
   if (!ledger.findAccount('user', to)) throw new Error('对方尚未开通学元账户');
 
-  var parts = splitPayable(from, amountCent);
+  // 资产池选择（2026-11-07）：auto/cash/grant，统一走 splitPool（口径与护栏单一来源）
+  var parts = splitPool(from, amountCent, o.pool);
   var entries = [];
   if (parts.cash > 0) {
     entries.push({ user_id: from, delta: -parts.cash, pool: POOL.CASH });
@@ -822,7 +842,7 @@ function transfer(opts) {
     entries.push({ user_id: to, delta: parts.grant, pool: POOL.GRANT });
   }
 
-  return post({
+  var out = post({
     entries: entries,
     kind: 'transfer',
     ref: o.ref,
@@ -832,6 +852,9 @@ function transfer(opts) {
     meta: o.meta,
     at: o.at
   });
+  // 回传实际拆分（学元）：前端展示「本次转出：充值 X + 赠送 Y」，钱从哪来不再是一笔糊涂账
+  out.split = { cash: fromCent(parts.cash), grant: fromCent(parts.grant) };
+  return out;
 }
 
 function appEscrow(appName) {
@@ -1996,6 +2019,7 @@ module.exports = {
   refund: refund,
   transfer: transfer,
   splitPayable: splitPayable,
+  splitPool: splitPool,
   splitPayOrder: splitPayOrder,
   rechargedInSemesterCent: rechargedInSemesterCent,
   grantedTodayCent: grantedTodayCent,

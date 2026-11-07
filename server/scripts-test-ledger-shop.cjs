@@ -236,6 +236,46 @@ throws('已支付订单不能重复支付', function () {
 eq('重复支付不扣钱', cash(A), cashAfterPay);
 eq('重复支付不重复托管', escrowOf('CASH'), 5000);
 
+console.log('\n=== 11. C2C 市集：同学开店（卖家侧全链路 + 路由判权矩阵） ===');
+// 2026-11-07 起：人人都可以开小铺。学生经 /xy/market/goods 上架（服务端强制
+// seller=本人，等价服务层直接传 seller 学号），买家照常支付，卖家本人可
+// 履约/结算/同意退款 —— 不需要每单都找班管。平台毛利只记抽成（fee，默认 0）。
+var myGoods = svc.goods.create({ name: '同学手绘', price_cent: 3000, cost_cent: 0, kind: 'digital', seller: B });
+eq('同学商品 seller_kind', myGoods.seller_kind, 'user');
+eq('同学商品 seller_owner', myGoods.seller_owner, B);
+var bBefore = cash(B);
+var mkt = svc.orders.create({ ref: 'mkt:1', buyer: A, goods_id: myGoods.id, face_cent: 3000, cost_cent: 0, seller: B });
+svc.orders.pay(mkt.id, { ref: 'mkt:pay:1', initiator: A });
+eq('支付后托管冻结，卖家还没拿到钱', cash(B), bBefore);
+svc.orders.fulfill(mkt.id, { ref: 'mkt:ful:1', initiator: B });
+svc.orders.settle(mkt.id, { ref: 'mkt:settle:1', initiator: B });
+eq('卖家本人结算后收到全款（fee=0，不经平台）', cash(B) - bBefore, 3000);
+ok('同学订单无赠金托管（I9 同款约束）', svc.orders.detail(mkt.id).holds.every(function (h) { return h.asset === 'CASH'; }));
+
+// 退款链路：买家申请 → 卖家同意 → 托管原路退回
+var mkt2 = svc.orders.create({ ref: 'mkt:2', buyer: A, goods_id: myGoods.id, face_cent: 3000, cost_cent: 0, seller: B });
+svc.orders.pay(mkt2.id, { ref: 'mkt:pay:2', initiator: A });
+svc.orders.requestRefund(mkt2.id, { ref: 'mkt:rr:2' });
+eq('买家申请后状态 refunding', svc.orders.get(mkt2.id).status, 'refunding');
+var aBeforeRefund = cash(A);
+svc.orders.refund(mkt2.id, { ref: 'mkt:rf:2', initiator: B, reason: '卖家同意退款' });
+eq('卖家同意后全款退回买家', cash(A) - aBeforeRefund, 3000);
+eq('卖家分文未动', cash(B) - bBefore, 3000);
+
+// 路由判权矩阵（routes/ledger.js 的 orderFor 与 /goods/:id/status 同款形状）
+function access(actor, mode, isAdmin) {
+  return function () {
+    svc.orders.assertAccess(svc.orders.detail(mkt.id), actor, mode, { isAdmin: !!isAdmin });
+  };
+}
+throws('无关同学不能冒充卖家结算', access(C, 'seller', false), /无权/);
+throws('买家也不能走卖家通道结算自己的单', access(A, 'seller', false), /无权/);
+ok('卖家本人放行', (function () { access(B, 'seller', false)(); return true; })());
+ok('班管放行', (function () { access(A, 'seller', true)(); return true; })());
+var gMine = svc.goods.get(myGoods.id);
+ok('商品归属判定：主人是 B', gMine.seller_kind === 'user' && String(gMine.seller_owner) === B);
+ok('商品归属判定：C 不是主人（不能下架别人的商品）', !(gMine.seller_kind === 'user' && String(gMine.seller_owner) === C));
+
 console.log('\n=== 结果 ===');
 console.log('通过 ' + pass + ' / 失败 ' + fail);
 try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e) { /* 忽略 */ }

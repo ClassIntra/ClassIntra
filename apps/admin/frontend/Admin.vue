@@ -212,7 +212,7 @@
 
         <!-- ========== 学元管理 ========== -->
         <div v-if="activeTab === 'xueyuan'" key="xueyuan" class="admin-section">
-          <div class="section-toolbar">
+          <div v-if="!xyMeshLocked" class="section-toolbar">
             <div class="toolbar-left">
               <h3 class="sub-title">学元发行与对账</h3>
               <span class="xy-rate">1 元 = {{ xySummary ? xySummary.yuan_rate : 1000 }} 学元</span>
@@ -236,12 +236,12 @@
             这些学员不会出现在「用户管理」里 —— 学元管理与用户管理是两本册子。
           </div>
 
-          <div v-if="xyLoading && !xySummary" class="loading-container">
+          <div v-if="!xyMeshLocked && xyLoading && !xySummary" class="loading-container">
             <div class="spinner"></div>
             <p>正在读取学元账本...</p>
           </div>
 
-          <template v-else>
+          <template v-else-if="!xyMeshLocked">
             <div class="stats-grid" style="margin-bottom:16px">
               <div class="stat-card">
                 <div class="stat-icon"><i class="fa-solid fa-wallet"></i></div>
@@ -429,12 +429,19 @@
                 <p>先当面收现金，再录系统。充值学元可转账、红包、跨班、投资、提现；教师发放的赠送学元也可支付，但不可提现。</p>
               </div>
               <div class="xy-form">
-                <input v-model="xyRecharge.userInput" class="search-input xy-input-wide" placeholder="用户ID，多人用空格或逗号分隔（最多 50 人）" />
+                <button class="table-btn sm xy-pick-btn" :disabled="xyRecharge.busy" @click="openXyPicker">
+                  <i class="fa-solid fa-user-plus"></i> 选择学员
+                </button>
+                <input v-model="xyRecharge.userInput" class="search-input xy-input-wide" placeholder="也可手输学号（空格/逗号分隔），或点左侧选择" />
                 <input v-model="xyRecharge.yuan" type="number" min="0" step="0.01" class="search-input xy-input-sm" placeholder="每人金额（元）" />
                 <input v-model="xyRecharge.memo" class="search-input" maxlength="80" placeholder="备注，如：9 月班费充值" />
-                <button class="btn-primary" :disabled="xyRecharge.busy || !xyRecharge.userInput || !xyRecharge.yuan" @click="submitXyRecharge">
+                <button class="btn-primary" :disabled="xyRecharge.busy || !xyRecharge.yuan || (!xyRecharge.userInput && !xyRecharge.selected.length)" @click="submitXyRecharge">
                   {{ xyRecharge.busy ? '录入中…' : '确认充值' }}
                 </button>
+              </div>
+              <div v-if="xyRecharge.selected.length" class="xy-picked">
+                <span v-for="id in xyRecharge.selected" :key="id" class="xy-pick-chip" :title="'点击移除 ' + id" @click="removeXyPick(id)">{{ id }} <i class="fa-solid fa-xmark"></i></span>
+                <span class="xy-picked-count">已选 {{ xyRecharge.selected.length }} 人</span>
               </div>
               <p class="xy-foot-tip">
                 按 1 元 = {{ xySummary ? xySummary.yuan_rate : 1000 }} 学元换算。单人单笔上限
@@ -443,6 +450,34 @@
                 {{ xySummary && xySummary.limits ? xySummary.limits.recharge_quota : 300000 }} 学元
                 —— 拆成多笔也会被拦。重复提交会按请求号去重，不会重复入账。
               </p>
+
+              <!-- 选人弹层：本班拉用户管理同源数据；从班视角用 mesh 已拉的学员列表 -->
+              <transition name="modal-fade">
+                <div v-if="xyPicker.open" class="modal-overlay" @click.self="closeXyPicker">
+                  <div class="modal-card xy-picker-card" @click.stop>
+                    <h3 class="modal-title">选择要充值的学员（最多 50 人）</h3>
+                    <input v-model="xyPicker.search" class="search-input xy-picker-search" :placeholder="xyViewPeer ? ('搜索 ' + xyView + ' 班学员（学号/网名/姓名）') : '搜索学员（学号/网名/姓名）'" />
+                    <div class="xy-picker-list">
+                      <div v-if="xyPicker.loading" class="xy-empty">正在加载学员列表…</div>
+                      <div v-else-if="!filteredXyPicker.length" class="xy-empty">没有匹配的学员</div>
+                      <div v-else class="xy-picker-rows">
+                        <div v-for="u in filteredXyPicker" :key="u.user_id" class="xy-picker-row"
+                          :class="{ picked: xyRecharge.selected.indexOf(u.user_id) > -1, disabled: u.status === 'disabled' }"
+                          @click="toggleXyPick(u)">
+                          <span class="xp-id">{{ u.user_id }}</span>
+                          <span class="xp-name">{{ u.net_name }}<em v-if="u.real_name">{{ u.real_name }}</em></span>
+                          <span v-if="u.status === 'disabled'" class="xp-tag">停用</span>
+                          <i v-if="xyRecharge.selected.indexOf(u.user_id) > -1" class="fa-solid fa-circle-check"></i>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="xy-picker-foot">
+                      <span>已选 {{ xyRecharge.selected.length }} / 50 人</span>
+                      <button class="btn-primary" @click="closeXyPicker">完成</button>
+                    </div>
+                  </div>
+                </div>
+              </transition>
             </div>
 
             <!-- 退款 -->
@@ -546,12 +581,15 @@
                 </table>
               </div>
             </div>
-            <!-- 组网学元配置（仅系统管理员）：主班制授权，改完即时生效 -->
-            <div v-if="isSystemAdmin" class="xy-card">
-              <div class="xy-card-head">
-                <h4><i class="fa-solid fa-network-wired"></i> 组网学元配置</h4>
-                <p>主班班管可在自家管控中心同时管理组网内各班的充值与学元；从班班管的学元管理会被隐藏并封锁（其余班级管理不受影响）。命令通道与跨班支付共用 RELAY_SECRET 验签，配置即时生效、无需重启。</p>
-              </div>
+          </template>
+
+          <!-- 组网学元配置：班管可自助（member 自锁后的唯一自救通道）。
+               999999 是开发账号不日常使用，所以配置权给到班管而非收紧到系统管理员。 -->
+          <div v-if="isAdmin" class="xy-card">
+            <div class="xy-card-head">
+              <h4><i class="fa-solid fa-network-wired"></i> 组网学元配置</h4>
+              <p>主班班管可在自家管控中心同时管理组网内各班的充值与学元；从班班管的学元管理会被隐藏并封锁（其余班级管理不受影响）。命令通道与跨班支付共用 RELAY_SECRET 验签，配置即时生效、无需重启。</p>
+            </div>
               <div class="xy-form">
                 <select v-model="meshForm.role" class="search-input xy-input-sm" @change="changeMeshRole">
                   <option value="">不参与组网</option>
@@ -604,7 +642,6 @@
                 </table>
               </div>
             </div>
-          </template>
         </div>
 
         <!-- ========== 广播管理 ========== -->
@@ -2195,7 +2232,8 @@ export default {
       xyRecharges: [],
       xyRevoke: { id: 0, reason: '', busy: false },
       xyRefund: { userId: '', from: '', yuan: '', pool: 'cash', reason: '', busy: false },
-      xyRecharge: { userInput: '', yuan: '', memo: '', busy: false },
+      xyRecharge: { userInput: '', yuan: '', memo: '', busy: false, selected: [] },
+      xyPicker: { open: false, search: '', loading: false, list: [] },
       xyReviewBusyId: null,
       // 组网学元（xy-mesh）：主班视角切换 / 从班学员 / 配置表单
       xyMeshInfo: { role: '', peers: [], loaded: false },
@@ -2436,6 +2474,21 @@ export default {
     xyViewPeer: function() {
       return this.xyView !== 'local';
     },
+    // 从班封锁：学元管理区块整体隐藏（配置卡保留 —— 班管自救通道）
+    xyMeshLocked: function() {
+      return this.xyMeshInfo.role === 'member' && !this.isSystemAdmin;
+    },
+    // 充值选人弹层的搜索过滤（学号/网名/姓名）
+    filteredXyPicker: function() {
+      var kw = String(this.xyPicker.search || '').toLowerCase().trim();
+      var list = this.xyPicker.list || [];
+      if (!kw) return list;
+      return list.filter(function(u) {
+        return (u.user_id && String(u.user_id).indexOf(kw) > -1) ||
+          (u.net_name && String(u.net_name).toLowerCase().indexOf(kw) > -1) ||
+          (u.real_name && String(u.real_name).toLowerCase().indexOf(kw) > -1);
+      });
+    },
     // member 配置行的 computed 代理（peers[0] 的 class / base 字段）
     meshPeerClass: {
       get: function() { var p = this.meshForm.peers[0]; return p ? p.class : ''; },
@@ -2496,10 +2549,8 @@ export default {
     visibleTabs: function() {
       var self = this;
       if (self.isAdmin) {
-        // 组网从班：学元管理已移交主班，tab 整体隐藏（系统管理员豁免可查看配置）
-        if (self.xyMeshInfo.role === 'member' && !self.isSystemAdmin) {
-          return self.tabs.filter(function(tab) { return tab.key !== 'xueyuan'; });
-        }
+        // 从班（member）班管仍保留学元 tab 入口 —— 里面只显示「组网学元配置」卡，
+        // 是改回角色的自救通道；学元管理区块本身由后端封锁 + 前端隐藏（xyMeshLocked）
         return self.tabs;
       }
       return self.tabs.filter(function(tab) {
@@ -3245,8 +3296,11 @@ export default {
     submitXyRecharge: function() {
       var self = this;
       if (self.xyRecharge.busy) return;
-      var ids = String(self.xyRecharge.userInput || '').split(/[\s,，;；]+/).filter(function(s) { return !!s; });
-      if (!ids.length) return self.$toast && self.$toast.error('请填写要充值的用户ID');
+      // 选人的与手输的合并去重：选人为主，手输兜底（老习惯不改也能用）
+      var picked = (self.xyRecharge.selected || []).slice();
+      var manual = String(self.xyRecharge.userInput || '').split(/[\s,，;；]+/).filter(function(s) { return !!s; });
+      var ids = picked.concat(manual).filter(function(v, i, a) { return a.indexOf(v) === i; });
+      if (!ids.length) return self.$toast && self.$toast.error('请先选择学员，或手输要充值的用户ID');
       var yuan = Number(self.xyRecharge.yuan);
       if (!(yuan > 0)) return self.$toast && self.$toast.error('每人金额必须大于 0 元');
       self.xyRecharge.busy = true;
@@ -3277,6 +3331,7 @@ export default {
         self.xyRecharge.userInput = '';
         self.xyRecharge.yuan = '';
         self.xyRecharge.memo = '';
+        self.xyRecharge.selected = [];
         self.loadXueyuan();
       }).catch(function(err) {
         var msg = (err && err.message) || (err.response && err.response.data && err.response.data.message) || '充值失败';
@@ -3315,11 +3370,10 @@ export default {
         var mesh = ((res.data && res.data.data) || {}).mesh || {};
         self.xyMeshInfo = { role: mesh.role || '', peers: [], loaded: true };
         if (mesh.role === 'member' && self.activeTab === 'xueyuan' && !self.isSystemAdmin) {
-          var tabs = self.visibleTabs;
-          self.activeTab = tabs.length ? tabs[0].key : '';
-          self.$toast && self.$toast.info && self.$toast.info('本班学元管理已移交组网主班');
+          // 从班班管：学元管理区块已锁，但留在 tab 里看组网配置卡（自救通道）
+          self.$toast && self.$toast.info && self.$toast.info('本班学元管理已移交组网主班，可在下方修改组网配置');
         }
-        if (self.isSystemAdmin) self.loadMeshConfig();
+        if (self.isAdmin) self.loadMeshConfig();
       }).catch(function() {
         self.xyMeshInfo = { role: '', peers: [], loaded: true };
       });
@@ -3336,6 +3390,63 @@ export default {
     pickPeerStudent: function(uid) {
       var cur = String(this.xyRecharge.userInput || '').trim();
       this.xyRecharge.userInput = cur ? (cur + ',' + uid) : uid;
+    },
+    // ======== 充值选人 ========
+    // 本班与用户管理同源（/admin/users）；从班视角直接复用 mesh 已拉的学员列表，
+    // 不再单独发请求。停用账号不可选（服务端也会拒，双保险）。
+    openXyPicker: function() {
+      var self = this;
+      self.xyPicker.open = true;
+      if (self.xyViewPeer) {
+        if (self.xyPeerStudents.length) {
+          // 从班视角：复用 mesh 已拉的学员列表，零请求
+          self.xyPicker.list = self.xyPeerStudents;
+        } else {
+          // 刚切完视角、列表还在路上：主动拉一次，别让弹层空着让人误会「没有学员」
+          self.xyPicker.loading = true;
+          self.meshCommand('students', {}).then(function(res) {
+            var d = (res && res.data && res.data.data) || {};
+            self.xyPeerStudents = d.list || [];
+            self.xyPicker.list = self.xyPeerStudents;
+          }).catch(function(err) {
+            var msg = (err.response && err.response.data && err.response.data.message) || '从班学员列表加载失败';
+            self.$toast && self.$toast.error(msg);
+          }).then(function() {
+            self.xyPicker.loading = false;
+          });
+        }
+        return;
+      }
+      if (self.xyPicker.list.length) return;
+      self.xyPicker.loading = true;
+      api.get('/admin/users', { params: { limit: 9999 } }).then(function(res) {
+        var data = (res.data && res.data.data) || {};
+        var users = data.users || (Array.isArray(data) ? data : []);
+        self.xyPicker.list = users;
+      }).catch(function() {
+        self.$toast && self.$toast.error('学员列表加载失败，请刷新重试');
+      }).then(function() {
+        self.xyPicker.loading = false;
+      });
+    },
+    closeXyPicker: function() {
+      this.xyPicker.open = false;
+      this.xyPicker.search = '';
+    },
+    toggleXyPick: function(u) {
+      if (!u || u.status === 'disabled') return;
+      var i = this.xyRecharge.selected.indexOf(u.user_id);
+      if (i > -1) {
+        this.xyRecharge.selected.splice(i, 1);
+      } else if (this.xyRecharge.selected.length >= 50) {
+        this.$toast && this.$toast.error('一次最多为 50 人充值');
+      } else {
+        this.xyRecharge.selected.push(u.user_id);
+      }
+    },
+    removeXyPick: function(id) {
+      var i = this.xyRecharge.selected.indexOf(id);
+      if (i > -1) this.xyRecharge.selected.splice(i, 1);
     },
     // 组网配置（系统管理员）：读取当前库里的配置到表单
     loadMeshConfig: function() {
@@ -8483,6 +8594,60 @@ export default {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: var(--font-size-caption2);
+  color: var(--text-tertiary);
+}
+/* ===== 充值选人 ===== */
+.xy-pick-btn { margin: 0 8px 8px 0; }
+.xy-picked {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 4px 0 8px;
+}
+.xy-pick-chip {
+  padding: 2px 10px;
+  margin: 0 6px 6px 0;
+  border-radius: 999px;
+  background: rgba(255, 59, 48, 0.12);
+  border: 1px solid rgba(255, 59, 48, 0.35);
+  color: var(--text-primary);
+  font-size: var(--font-size-caption2);
+  cursor: pointer;
+}
+.xy-picked-count { font-size: var(--font-size-caption2); color: var(--text-tertiary); }
+.xy-picker-card { width: min(520px, 92vw); display: flex; flex-direction: column; }
+.xy-picker-search { margin-bottom: 10px; }
+.xy-picker-list { max-height: 46vh; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 10px; }
+.xy-picker-row {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-color);
+  cursor: pointer;
+  font-size: var(--font-size-caption);
+}
+.xy-picker-row:last-child { border-bottom: none; }
+.xy-picker-row.picked { background: rgba(48, 209, 88, 0.12); }
+.xy-picker-row.disabled { opacity: 0.45; cursor: not-allowed; }
+.xp-id { width: 90px; flex: 0 0 auto; font-family: monospace; }
+.xp-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.xp-name em { font-style: normal; margin-left: 8px; color: var(--text-tertiary); }
+.xp-tag {
+  margin-left: 8px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: rgba(255, 159, 10, 0.16);
+  color: #d08a17;
+  font-size: 11px;
+  line-height: 18px;
+}
+.xy-picker-row .fa-circle-check { color: #30d158; margin-left: 8px; }
+.xy-picker-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 10px;
   font-size: var(--font-size-caption2);
   color: var(--text-tertiary);
 }

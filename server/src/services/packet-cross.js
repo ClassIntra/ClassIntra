@@ -137,7 +137,25 @@ async function probe(base, locator) {
   }
 }
 
-// 找到红包归属：显式给了 base 就直接问；否则问登记表里的所有班
+// 找到红包归属：显式给了 base 就直接问；否则问登记表里的所有班。
+// 登记表为空时**降级**：从 RELAY_SERVERS 推导候选（relay 主机的 9001 主实例）。
+// 背景：_xy_peer 只能靠 WALLET_PEERS 种子或历史往来「学习」，新装机/没配种子的班
+// 这张表是空的 —— 跨班转账能通（地址随收款码 token 走）而跨班红包永远「对方班级
+// 离线」。probe 只读且带 HMAC 签名，多问一个无主的地址只是多一次 404，无副作用；
+// 一旦命中立即 upsert 进登记表，下次就是正路。
+function relayCandidates() {
+  var out = [];
+  var raw = process.env.RELAY_SERVERS || '';
+  String(raw).split(',').forEach(function (s) {
+    var m = String(s || '').trim().match(/^wss?:\/\/([^\/:]+):(\d+)/);
+    if (m && m[1]) {
+      var base = 'http://' + m[1] + ':9001';
+      if (out.indexOf(base) === -1 && base !== peers.localBaseHint()) out.push(base);
+    }
+  });
+  return out;
+}
+
 async function resolveOwner(locator, baseHint) {
   ensure();
   var hint = peers.normalizeBase(baseHint || '');
@@ -150,14 +168,31 @@ async function resolveOwner(locator, baseHint) {
   if (process.env.WALLET_DEBUG) {
     console.error('[packet-cross] resolve locator=' + locator + ' peers=' + list.length);
   }
-  if (!list.length) return null;
-  var tasks = list.map(function (p) {
-    return probe(p.base_url, locator).then(function (d) {
-      return d ? { base_url: p.base_url, server_id: p.server_id, packet: d.packet } : null;
+
+  async function askAll(candidates) {
+    var tasks = candidates.map(function (p) {
+      return probe(p.base_url || p, locator).then(function (d) {
+        var base = p.base_url || p;
+        if (!d) return null;
+        if (!p.server_id) peers.upsert(d.server_id || base, base, '', 'packet-fallback');
+        return { base_url: base, server_id: d.server_id || p.server_id || '', packet: d.packet };
+      });
     });
-  });
-  var results = await Promise.all(tasks);
-  for (var i = 0; i < results.length; i++) { if (results[i]) return results[i]; }
+    var results = await Promise.all(tasks);
+    for (var i = 0; i < results.length; i++) { if (results[i]) return results[i]; }
+    return null;
+  }
+
+  if (list.length) {
+    var hit = await askAll(list);
+    if (hit) return hit;
+  }
+  // 登记表没找到（可能是空表）→ 用 RELAY_SERVERS 推导的候选再问一圈
+  var relays = relayCandidates();
+  if (relays.length) {
+    var hit2 = await askAll(relays);
+    if (hit2) return hit2;
+  }
   return null;
 }
 
@@ -646,6 +681,7 @@ async function payByUser(opts) {
     fromBase: peers.localBaseHint(),
     amountCent: opts.amountCent,
     memo: opts.memo,
+    pool: opts.pool,
     fromName: opts.fromName || (meRow && (meRow.net_name || meRow.real_name)) || uid
   });
 }

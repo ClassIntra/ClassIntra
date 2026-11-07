@@ -720,13 +720,16 @@ router.post('/admin/mesh/command', requireTreasury, function (req, res) {
   }
 });
 
-// 组网配置（仅系统管理员）：管理端可视化配置，存 app_config 即时生效
-function requireSystemAdmin(req, res, next) {
-  if (req.user && constants.isSystemAdmin(req.user.user_id)) return next();
-  return res.status(403).json({ code: 403, message: '只有系统管理员可以修改组网配置' });
+// 组网配置（班管或系统管理员）：部署自助化 —— 999999 是开发账号不日常使用，
+// 组网角色是「本班架构决策」，班管自助配置。本门刻意独立于 requireTreasury：
+// 从班（member）封锁学元管理后，这里是班管改回角色的唯一自救通道，不能被封锁挡住。
+function requireMeshAdmin(req, res, next) {
+  if (!req.user) return res.status(401).json({ code: 401, message: '未登录' });
+  if (req.user.is_class_admin || req.user.is_admin === 1 || constants.isSystemAdmin(req.user.user_id)) return next();
+  return res.status(403).json({ code: 403, message: '只有班管可以修改组网配置' });
 }
 
-router.get('/admin/mesh-config', requireSystemAdmin, function (req, res) {
+router.get('/admin/mesh-config', requireMeshAdmin, function (req, res) {
   try {
     var m = xyMesh.getConfig();
     res.json({
@@ -743,7 +746,7 @@ router.get('/admin/mesh-config', requireSystemAdmin, function (req, res) {
   }
 });
 
-router.post('/admin/mesh-config', requireSystemAdmin, function (req, res) {
+router.post('/admin/mesh-config', requireMeshAdmin, function (req, res) {
   try {
     var body = req.body || {};
     var m = xyMesh.saveConfig({ role: body.role, peers: body.peers });
@@ -754,7 +757,7 @@ router.post('/admin/mesh-config', requireSystemAdmin, function (req, res) {
 });
 
 // 组网命令审计：最近 N 条（系统管理员排障用，配置卡下方展示）
-router.get('/admin/mesh/log', requireSystemAdmin, function (req, res) {
+router.get('/admin/mesh/log', requireMeshAdmin, function (req, res) {
   try {
     res.json({
       code: 200,
@@ -767,7 +770,7 @@ router.get('/admin/mesh/log', requireSystemAdmin, function (req, res) {
 });
 
 // 保存前先 ping 对端：地址写错宁可当场发现，别等班管充值时才发现
-router.post('/admin/mesh-config/test', requireSystemAdmin, function (req, res) {
+router.post('/admin/mesh-config/test', requireMeshAdmin, function (req, res) {
   try {
     xyMesh.testPeer((req.body || {}).base).then(function (data) {
       res.json({ code: 200, message: '对端连通，签名校验通过', data: data });

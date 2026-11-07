@@ -414,6 +414,8 @@
         :subtitle="pay.kind === 'packet' ? ('共 ' + (pay.count || 1) + ' 个') : ('¥ ' + (pay.amount || '0'))"
         :error="pay.pinError"
         :disabled="pay.busy"
+        :pool.sync="pay.pool"
+        show-pool
         @submit="submitPin"
         @cancel="closePay"
         @forgot="forgotPin"
@@ -937,7 +939,7 @@ export default {
         view: '', kind: 'transfer', to: '', toName: '', amount: '', count: '5', note: '', scope: 'local',
         busy: false, pinError: '', result: null, open: null, openPhrase: '',
         cross: false, people: [], peopleQ: '', targets: [], pkt: 'normal',
-        setupPin: '', setupPassword: ''
+        pool: 'cash', setupPin: '', setupPassword: ''
       },
       payAvailable: '0.00',
       payLimit: '500',
@@ -2358,7 +2360,7 @@ export default {
         view: '', kind: 'transfer', to: '', toName: '', amount: '', count: '5', note: '', scope: 'local',
         busy: false, pinError: '', result: null, open: null, openPhrase: '', detail: null, detailLoading: false,
         cross: false, people: this.pay && this.pay.people || [], peopleQ: '', targets: [], pkt: 'normal',
-        setupPin: '', setupPassword: ''
+        pool: 'cash', setupPin: '', setupPassword: ''
       };
     },
     loadChatPeople: function() {
@@ -2451,9 +2453,9 @@ export default {
       var payload = isPacket
         ? {
             total: amount, count: count, note: f.note, pin: pin, scope: f.scope || 'local',
-            kind: sub, targets: sub === 'designated' ? f.targets : []
+            kind: sub, targets: sub === 'designated' ? f.targets : [], pool: f.pool || 'cash'
           }
-        : { to: f.to, amount: amount, memo: f.note, pin: pin, request_id: 'chat' + Date.now() };
+        : { to: f.to, amount: amount, memo: f.note, pin: pin, pool: f.pool || 'cash', request_id: 'chat' + Date.now() };
 
       api.post(url, payload).then(function(res) {
         var body = (res && res.data) || {};

@@ -121,7 +121,12 @@ router.post('/issue', auth.requireAdmin, wrap(function (req, res) {
 
 // ---------- 商品 ----------
 router.get('/goods', wrap(function (req, res) {
-  return ok(res, svc.goods.list({ status: req.query.status || 'on_shelf', limit: req.query.limit }));
+  return ok(res, svc.goods.list({
+    status: req.query.status || 'on_shelf',
+    limit: req.query.limit,
+    // C2C 市集：卖家查自己的商品（我的小铺）
+    seller: req.query.seller || null
+  }));
 }));
 
 router.post('/goods', auth.requireAdmin, wrap(function (req, res) {
@@ -137,7 +142,30 @@ router.post('/goods', auth.requireAdmin, wrap(function (req, res) {
   return ok(res, r, '商品已上架');
 }));
 
-router.post('/goods/:id/status', auth.requireAdmin, wrap(function (req, res) {
+// 学生开店（C2C 市集）：任何人都可以上架以自己为卖家的商品。
+// 卖家收款走本人 user 账户（orders 结算时按 seller_account_id 分账），
+// 平台成本/毛利口径只对自营生效 —— 同学之间交易不给平台记一分「利润」。
+// 上限沿用班管同款校验（svc.goods.create 内部），越权内容班管可在管理端下架。
+router.post('/market/goods', wrap(function (req, res) {
+  var b = req.body || {};
+  var r = svc.goods.create({
+    name: b.name,
+    price_cent: Number(b.price_cent),
+    cost_cent: 0,                        // 成本是平台自营口径，同学商品没有
+    kind: b.kind === 'physical' ? 'physical' : 'digital',
+    seller: String(req.user.user_id),    // 卖家强制本人，不可自报
+    allowLoss: false
+  });
+  return ok(res, r, '你的商品已上架');
+}));
+
+// 下架/重新上架：班管任意商品都可管；同学卖家只能动自己的商品
+router.post('/goods/:id/status', wrap(function (req, res) {
+  var g = svc.goods.get(Number(req.params.id));
+  var isOwner = g && g.seller_kind === 'user' && String(g.seller_owner) === String(req.user.user_id);
+  if (!isAdmin(req) && !isOwner) {
+    return res.status(403).json({ code: 403, message: '只有班管或商品主人可以操作' });
+  }
   return ok(res, svc.goods.setStatus(Number(req.params.id), req.body && req.body.status));
 }));
 
@@ -224,8 +252,12 @@ router.post('/orders', wrap(function (req, res) {
 router.get('/orders', wrap(function (req, res) {
   var admin = isAdmin(req);
   return ok(res, svc.orders.list({
-    // 非管理员只能看自己的单；管理员可看全部或指定买家
+    // 非管理员只能看自己的单；管理员可看全部或指定买家/卖家
     buyer: admin ? (req.query.buyer || null) : String(req.user.user_id),
+    // C2C 市集：卖家查「我卖出的」订单。同学查别人卖的单没有意义，只允许查自己卖的
+    seller: (admin || !req.query.seller || req.query.seller === String(req.user.user_id))
+      ? (req.query.seller || null)
+      : String(req.user.user_id),
     status: req.query.status || null,
     openOnly: req.query.open === '1',
     asset: req.query.asset,
@@ -254,14 +286,19 @@ router.post('/orders/:id/fulfill', wrap(function (req, res) {
   return ok(res, svc.orders.fulfill(id, { ref: refOf(req, 'fulfill') }), '已标记履约');
 }));
 
-router.post('/orders/:id/settle', auth.requireAdmin, wrap(function (req, res) {
+// 结算：确认交付、解冻托管给卖家。班管可结任何单；
+// C2C 市集里**卖家本人**也可以结自己的单（不然同学开店每单都得找班管）。
+router.post('/orders/:id/settle', wrap(function (req, res) {
+  orderFor(req, Number(req.params.id), 'seller');
   return ok(res, svc.orders.settle(Number(req.params.id), {
     ref: refOf(req, 'settle'),
     initiator: String(req.user.user_id)
   }), '已结算');
 }));
 
-router.post('/orders/:id/refund', auth.requireAdmin, wrap(function (req, res) {
+// 退款（同意退款）：班管或卖家本人。托管原路退回买家，卖家拿不到已退的钱。
+router.post('/orders/:id/refund', wrap(function (req, res) {
+  orderFor(req, Number(req.params.id), 'seller');
   return ok(res, svc.orders.refund(Number(req.params.id), {
     ref: refOf(req, 'refund'),
     initiator: String(req.user.user_id),

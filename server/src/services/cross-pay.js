@@ -199,8 +199,10 @@ async function pay(opts) {
   if (amount > MAX_CROSS_CENT) throw new Error('跨班单笔不能超过 ' + xy.fromCent(MAX_CROSS_CENT) + ' 学元');
   if (to === uid) throw new Error('不能给自己转账');
 
-  // 冻结（可用不足会抛）。资金拆分：充值学元优先，不足由赠送学元补足
-  var parts = xy.splitPayable(uid, amount);
+  // 冻结（可用不足会抛）。资金拆分走统一 splitPool：
+  // auto=充值优先赠送补（原行为）；cash/grant=只动指定池（选池已统一在支付页）。
+  // 拆分写进转账单 pool 列并参与两阶段入账，对端按同池铸造 —— 资产性质跨班不串门。
+  var parts = xy.splitPool(uid, amount, opts.pool);
   if (parts.cash > 0) xy.hold(uid, parts.cash, { pool: 'cash' });
   if (parts.grant > 0) xy.hold(uid, parts.grant, { pool: 'grant' });
 

@@ -303,10 +303,10 @@
           </div>
 
           <div v-if="shopLoading" class="hint">加载中…</div>
-          <div v-else-if="!shopGoods.length" class="hint">小铺还没上架商品，等班管开张。</div>
+          <div v-else-if="!shopGoods.length" class="hint">小铺还没上架商品。你可以第一个开张——在下面「我的小铺」上架。</div>
           <div v-else class="shop-grid">
             <div v-for="g in shopGoods" :key="g.id" class="shop-card">
-              <div class="sc-kind">{{ goodsKindLabel(g.kind) }}</div>
+              <div class="sc-kind">{{ goodsKindLabel(g.kind) }}<em class="sc-seller" :class="{ official: g.seller_kind !== 'user' }">{{ g.seller_kind === 'user' ? ('同学 ' + g.seller_owner) : '官方' }}</em></div>
               <div class="sc-name">{{ g.name }}</div>
               <div class="sc-price"><b>{{ money(unitsOf(g.price_cent)) }}</b> 学元</div>
               <button class="sc-buy" @click="openBuy(g)">兑换</button>
@@ -335,6 +335,46 @@
               <button class="sq-ok" :disabled="shopBusy || !shopQuote.enough" @click="confirmBuy">
                 {{ shopBusy ? '处理中…' : (shopQuote.enough ? '确认兑换' : '充值余额不足') }}
               </button>
+            </div>
+          </div>
+
+          <!-- ============ 我的小铺（人人可卖） ============ -->
+          <div class="shop-sec mys">我的小铺 <em>同学之间自由买卖，货款直接进你的钱包（充值学元）</em></div>
+          <div class="shop-sell-form">
+            <input v-model="myShop.form.name" class="inv-input" maxlength="20" placeholder="商品名，如：手绘贴纸" />
+            <input v-model="myShop.form.price" class="inv-input sm" type="number" min="0" placeholder="售价（学元）" />
+            <select v-model="myShop.form.kind" class="inv-input sm">
+              <option value="digital">虚拟</option>
+              <option value="physical">实物</option>
+            </select>
+            <button class="inv-go primary" :disabled="myShop.form.busy || !myShop.form.name || !(Number(myShop.form.price) > 0)" @click="createSale">
+              {{ myShop.form.busy ? '上架中…' : '上架' }}
+            </button>
+          </div>
+          <div v-if="myShop.goods.length" class="my-goods">
+            <span v-for="g in myShop.goods" :key="g.id" class="my-goods-chip">
+              {{ g.name }} · {{ money(unitsOf(g.price_cent)) }} 学元
+              <em v-if="g.status !== 'on_shelf'">已下架</em>
+              <i v-else class="fa-solid fa-eye-slash" title="下架" @click="offShelfMine(g)"></i>
+            </span>
+          </div>
+          <div v-else class="hint mini">还没有上架商品。手绘、代做、闲置好物……都可以卖。</div>
+
+          <!-- ============ 我卖出的 ============ -->
+          <div class="shop-sec">我卖出的</div>
+          <div v-if="!myShop.sales.length" class="hint">还没有人买你的商品</div>
+          <div v-else class="order-list">
+            <div v-for="o in myShop.sales" :key="o.id" class="order-row">
+              <div class="or-main">
+                <div class="or-name">{{ o.goods_name || ('订单 #' + o.id) }}</div>
+                <div class="or-sub">{{ orderStatusLabel(o.status) }}<template v-if="o.buyer_id"> · 买家 {{ o.buyer_id }}</template> · {{ fmtTime(o.created_at) }}</div>
+              </div>
+              <div class="or-right">
+                <div class="or-amt">+{{ money(unitsOf(o.face_cent)) }}</div>
+                <button v-if="o.status === 'paid'" class="or-act" @click="sellerAct(o, 'fulfill')">已交付</button>
+                <button v-if="o.status === 'fulfilled'" class="or-act" @click="sellerAct(o, 'settle')">结算收款</button>
+                <button v-if="o.status === 'refunding'" class="or-act warn" @click="sellerAct(o, 'refund')">同意退款</button>
+              </div>
             </div>
           </div>
 
@@ -465,15 +505,18 @@
         </div>
         <div class="pay-hint">
           可用学元 {{ money(account.available) }}（充值 {{ money(account.available_cash) }} + 赠送 {{ money(account.available_grant) }}） · 单笔最多 {{ money(limits.transfer) }} 学元 · 今日还可转出 {{ money(limits.daily_left) }} 学元。
+          <template v-if="!transfer.cross"><br />下一步可以在支付页选择用哪种学元。</template>
         </div>
         <button class="pay-primary" :disabled="transfer.busy" @click="transferNext">下一步</button>
       </div>
       <PayPinPad
         v-else
         :title="'转给 ' + (transfer.peerName || transfer.to || '同学')"
-        :subtitle="(transfer.amount || '0') + ' 学元'"
+        :subtitle="(transfer.amount || '0') + ' 学元' + (transfer.cross ? ' · 跨班' : '')"
         :error="transfer.pinError"
         :disabled="transfer.busy"
+        :pool.sync="transfer.pool"
+        show-pool
         @submit="submitTransfer"
         @cancel="closeTransfer"
         @forgot="forgotPin"
@@ -545,10 +588,11 @@
             同学领红包时必须<b>原样输入口令</b>；发到聊天里，让大家照着输。24 小时没领完自动退回。
           </template>
           <template v-else>
-            红包先用充值学元、不足由赠送学元补足，发出去先冻结，同学领到才真正扣款；{{ limits.packet_count }} 个封顶，今日还可转出 {{ money(limits.daily_left) }} 学元。
+            发出去先冻结，同学领到才真正扣款；{{ limits.packet_count }} 个封顶，今日还可转出 {{ money(limits.daily_left) }} 学元。
             <template v-if="packet.scope === 'cross'"><br />跨班红包会生成 6 位红包码，同学在「红包 → 输入红包码」里领取。</template>
-            24 小时没领完自动退回。
+            24 小时没领完自动退回。<br />
           </template>
+          下一步可以在支付页选择用哪种学元（默认充值学元，可切换赠送学元）。
         </div>
         <button class="pay-primary pay-primary--packet" :disabled="packet.busy || !packetReady" @click="packetNext">塞钱进红包</button>
       </div>
@@ -560,6 +604,8 @@
           : ('共 ' + (packet.count || 1) + ' 个红包')"
         :error="packet.pinError"
         :disabled="packet.busy"
+        :pool.sync="packet.pool"
+        show-pool
         @submit="submitPacket"
         @cancel="closePacket"
         @forgot="forgotPin"
@@ -801,6 +847,8 @@ export default {
       direction: '',
 
       // 小铺：商品 / 我的订单 / 试算结果
+      // 我的小铺（C2C）：我上架的商品 + 我卖出的订单
+      myShop: { goods: [], sales: [], form: { name: '', price: '', kind: 'digital', busy: false } },
       shopGoods: [],
       shopOrders: [],
       shopLoading: false,
@@ -861,11 +909,11 @@ export default {
       rank: [],
       rankMe: null,
 
-      transfer: { open: false, step: 'form', to: '', peerName: '', amount: '', memo: '', busy: false, pinError: '', cross: false },
+      transfer: { open: false, step: 'form', to: '', peerName: '', amount: '', memo: '', busy: false, pinError: '', cross: false, pool: 'cash' },
       peerHits: [],
       searchTimer: null,
 
-      packet: { open: false, step: 'form', total: '', count: '5', note: '', scope: 'local', kind: 'normal', targets: [], busy: false, pinError: '' },
+      packet: { open: false, step: 'form', total: '', count: '5', note: '', scope: 'local', kind: 'normal', targets: [], busy: false, pinError: '', pool: 'cash' },
 
       result: { open: false, title: '', amount: 0, text: '', code: '', copied: false },
 
@@ -1116,21 +1164,75 @@ export default {
     loadShop: function () {
       var self = this;
       self.shopLoading = true;
+      var me = (self.$store && self.$store.state.auth && self.$store.state.auth.user) ? self.$store.state.auth.user.user_id : '';
       return Promise.all([
         api.get('/xy/goods', { params: { limit: 30 } }),
-        api.get('/xy/orders', { params: { limit: 10 } })
+        api.get('/xy/orders', { params: { limit: 10 } }),
+        // C2C 市集：我的商品 + 我卖出的（拉不到按空处理，不影响主区块）
+        me ? api.get('/xy/goods', { params: { seller: me, limit: 50 } }).catch(function () { return null; }) : Promise.resolve(null),
+        me ? api.get('/xy/orders', { params: { seller: me, status: 'paid,fulfilled,refunding', limit: 30 } }).catch(function () { return null; }) : Promise.resolve(null)
       ]).then(function (rs) {
         self.shopGoods = ((rs[0].data && rs[0].data.data) || []).filter(function (g) {
           return g.status === 'on_shelf';
         });
         self.shopOrders = (rs[1].data && rs[1].data.data) || [];
+        var mine = (rs[2] && rs[2].data && rs[2].data.data) || [];
+        self.myShop.goods = Array.isArray(mine) ? mine : (mine.list || []);
+        var sales = (rs[3] && rs[3].data && rs[3].data.data) || [];
+        self.myShop.sales = Array.isArray(sales) ? sales : (sales.list || []);
         self.shopLoading = false;
       }).catch(function (err) {
         self.shopLoading = false;
         // 拉不到 ≠ 没有：必须显示错误态，不能渲染成「小铺是空的」
         self.shopGoods = [];
         self.shopOrders = [];
+        self.myShop.goods = [];
+        self.myShop.sales = [];
         self.toast(self.errMsg(err, '小铺加载失败'), 'error');
+      });
+    },
+
+    // ======== 我的小铺（C2C 卖家侧） ========
+    // 上架：服务端强制卖家=本人（/xy/market/goods），价格上限与违禁内容由班管在管理端治理
+    createSale: function () {
+      var self = this;
+      var f = self.myShop.form;
+      var price = Math.round(Number(f.price));
+      if (!f.name || !(price > 0)) return self.toast('商品名和售价必填', 'error');
+      f.busy = true;
+      api.post('/xy/market/goods', { name: f.name, price_cent: price, kind: f.kind }).then(function () {
+        self.toast('已上架，等同学来买', 'success');
+        self.myShop.form = { name: '', price: '', kind: f.kind, busy: false };
+        self.loadShop();
+      }).catch(function (err) {
+        self.toast(self.errMsg(err, '上架失败'), 'error');
+        f.busy = false;
+      });
+    },
+    offShelfMine: function (g) {
+      var self = this;
+      api.post('/xy/goods/' + g.id + '/status', { status: 'off_shelf' }).then(function () {
+        self.toast('已下架', 'success');
+        self.loadShop();
+      }).catch(function (err) {
+        self.toast(self.errMsg(err, '下架失败'), 'error');
+      });
+    },
+    // 卖家订单动作：paid→标记已交付；fulfilled→结算收款（钱进本人钱包）；
+    // refunding→同意退款（托管原路退回买家）。状态机在服务端，重复点会被拒。
+    sellerAct: function (o, act) {
+      var self = this;
+      var rid = 'me:' + act + ':' + o.id + ':' + Date.now();
+      var p;
+      if (act === 'fulfill') p = api.post('/xy/orders/' + o.id + '/fulfill', { ref: rid });
+      else if (act === 'settle') p = api.post('/xy/orders/' + o.id + '/settle', { ref: rid });
+      else p = api.post('/xy/orders/' + o.id + '/refund', { ref: rid, reason: '卖家同意退款' });
+      p.then(function (res) {
+        var msg = (res.data && res.data.message) || '已处理';
+        self.toast(act === 'refund' ? '已同意退款' : msg, 'success');
+        self.loadShop();
+      }).catch(function (err) {
+        self.toast(self.errMsg(err, '操作失败'), 'error');
       });
     },
 
@@ -1355,7 +1457,7 @@ export default {
 
     // ---- 转账：两步（填单 → 支付密码）----
     openTransfer: function () {
-      this.transfer = { open: true, step: 'form', to: '', peerName: '', amount: '', memo: '', busy: false, pinError: '', cross: false };
+      this.transfer = { open: true, step: 'form', to: '', peerName: '', amount: '', memo: '', busy: false, pinError: '', cross: false, pool: 'cash' };
       this.peopleQ = '';
       this.peerHits = [];
       this.loadPeople();
@@ -1497,6 +1599,7 @@ export default {
         amount: amount,
         memo: f.memo,
         pin: pin,
+        pool: f.pool || 'cash',
         request_id: 'w' + Date.now() + '-' + Math.floor(Math.random() * 10000)
       }).then(function (res) {
         var body = res.data || {};
@@ -1509,11 +1612,18 @@ export default {
         if (d.account) self.account = d.account;
         self.transfer.open = false;
         var pendingCross = d.status === 'pending';
+        var splitTxt = '';
+        if (d.split && Number(d.split.cash) > 0 && Number(d.split.grant) > 0) {
+          splitTxt = '（充值 ' + d.split.cash + ' + 赠送 ' + d.split.grant + ' 学元）';
+        } else if (d.split && Number(d.split.grant) > 0) {
+          splitTxt = '（赠送学元，不可提现）';
+        }
         self.result = {
           open: true,
           title: pendingCross ? '转账处理中' : '转账成功',
           amount: 0,
           text: '已转给 ' + (f.peerName || d.to_name || d.to) + ' ' + self.money(d.amount) + ' 学元' +
+            splitTxt +
             (f.memo ? '（' + f.memo + '）' : '') +
             (d.cross ? ' · 跨班，对方班级已入账' : '') +
             (pendingCross ? '（对方班级暂时没响应，稍后自动重试）' : ''),
@@ -1534,7 +1644,7 @@ export default {
 
     // ---- 红包：两步 ----
     openPacket: function () {
-      this.packet = { open: true, step: 'form', total: '', count: '5', note: '', scope: 'local', kind: 'normal', targets: [], busy: false, pinError: '' };
+      this.packet = { open: true, step: 'form', total: '', count: '5', note: '', scope: 'local', kind: 'normal', targets: [], busy: false, pinError: '', pool: 'cash' };
       this.peopleQ = '';
       this.loadPeople();
     },
@@ -1576,7 +1686,7 @@ export default {
       self.packet = Object.assign({}, f, { busy: true, pinError: '' });
       api.post('/wallet/packet', {
         total: total, count: count, note: f.note, pin: pin, scope: f.scope || 'local',
-        kind: f.kind || 'normal', targets: f.kind === 'designated' ? f.targets : []
+        kind: f.kind || 'normal', targets: f.kind === 'designated' ? f.targets : [], pool: f.pool || 'cash'
       }).then(function (res) {
         var body = res.data || {};
         if (body.code !== 200) {
@@ -3473,4 +3583,48 @@ export default {
 .inv-go:disabled { opacity: 0.5; cursor: not-allowed; }
 .inv-err { margin: 10px 0 0; font-size: 12px; color: #E5533D; }
 .inv-tip { margin: 12px 0 0; font-size: 11px; line-height: 1.7; opacity: 0.66; }
+
+/* ============ 转账资产池（选择器已统一上支付页 PayPinPad） ============ */
+
+/* ============ 我的小铺（C2C 市集） ============ */
+.shop-sec em {
+  margin-left: 8px;
+  font-style: normal;
+  font-size: 11px;
+  opacity: 0.6;
+}
+.sc-seller {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-style: normal;
+  font-size: 10px;
+  background: rgba(90, 200, 250, 0.16);
+  color: #5AC8FA;
+}
+.sc-seller.official {
+  background: rgba(208, 138, 23, 0.16);
+  color: #D08A17;
+}
+.shop-sell-form { display: flex; flex-wrap: wrap; margin-bottom: 10px; }
+.shop-sell-form .inv-input { flex: 1 1 140px; min-width: 120px; margin: 0 8px 8px 0; }
+.shop-sell-form .inv-input.sm { flex: 0 0 110px; width: 110px; }
+.shop-sell-form .inv-go { margin-bottom: 8px; }
+.my-goods { display: flex; flex-wrap: wrap; margin-bottom: 8px; }
+.my-goods-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  margin: 0 8px 8px 0;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  font-size: 11px;
+}
+.my-goods-chip em { margin-left: 6px; font-style: normal; opacity: 0.55; }
+.my-goods-chip i { margin-left: 8px; cursor: pointer; opacity: 0.66; }
+.hint.mini { font-size: 11px; margin: 0 0 10px; }
+.or-act.warn {
+  background: rgba(255, 159, 10, 0.16);
+  color: #FFB340;
+}
 </style>

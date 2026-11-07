@@ -198,9 +198,11 @@ function create(sender, totalCent, count, note, appName, opts) {
   var now = Date.now();
   var id = 0;
   var code = '';
+  // 资产池选择（与转账同一套语义，统一走门面 splitPool —— 口径/护栏单一来源）：
+  // auto=充值优先赠送补（原行为）；cash=只发充值学元；grant=只发赠送学元
+  //（适合「发点投资本金给同学」）。领取侧按 xy_packet.pool 的拆分入账，跨班回传也带拆分。
+  var parts = xueyuan.splitPool(sender, total, o.pool);
   var tx = db.transaction(function () {
-    // 红包资金：充值学元优先，不足由赠送学元补足（与转账同一套规则）
-    var parts = xueyuan.splitPayable(sender, total);
     if (parts.cash > 0) xueyuan.hold(sender, parts.cash, { pool: 'cash' });
     if (parts.grant > 0) xueyuan.hold(sender, parts.grant, { pool: 'grant' });
     if (scope === 'cross') code = newCode();

@@ -443,6 +443,7 @@ router.post('/cross/send', function (req, res) {
     fromBase: peers.localBaseHint(),
     amountCent: xy.toCent(b.amount),
     memo: String(b.memo || '').slice(0, 40),
+    pool: b.pool,
     fromName: (me && (me.net_name || me.real_name)) || uid
   }).then(function (tx) {
     res.json({
@@ -673,7 +674,8 @@ router.post('/transfer', function (req, res) {
       userId: String(req.user.user_id),
       to: toUser,
       amountCent: xy.toCent(body0.amount),
-      memo: String(body0.memo || '').slice(0, 40)
+      memo: String(body0.memo || '').slice(0, 40),
+      pool: body0.pool
     }).then(function (tx) {
       res.json({
         code: 200,
@@ -721,19 +723,29 @@ router.post('/transfer', function (req, res) {
       from: uid,
       to: to,
       amountCent: amountCent,
+      pool: body.pool,        // auto（默认，充值优先赠送补）/ cash（只转充值）/ grant（只转赠送）
       ref: ref,
       app: 'wallet',
       memo: memo || '同学转账'
     });
 
+    var splitNote = '';
+    if (r && r.split) {
+      var sc = Number(r.split.cash) || 0;
+      var sg = Number(r.split.grant) || 0;
+      if (sc > 0 && sg > 0) splitNote = '（充值 ' + sc + ' + 赠送 ' + sg + ' 学元）';
+      else if (sg > 0) splitNote = '（赠送学元）';
+    }
+
     res.json({
       code: 200,
-      message: r && r.duplicate ? '这笔转账已经处理过了' : '转账成功',
+      message: (r && r.duplicate ? '这笔转账已经处理过了' : '转账成功') + splitNote,
       data: {
         duplicate: !!(r && r.duplicate),
         to: to,
         to_name: peer.net_name || peer.real_name || to,
         amount: xy.fromCent(amountCent),
+        split: (r && r.split) || null,
         account: xy.viewAccount(uid)
       }
     });
@@ -782,12 +794,15 @@ router.post('/packet', function (req, res) {
       }
     }
     var r = yuanbao.create(uid, totalCent, count, note, 'wallet', {
-      scope: scope, kind: kind, passphrase: body.passphrase, targets: targets
+      scope: scope, kind: kind, passphrase: body.passphrase, targets: targets,
+      pool: body.pool          // auto（默认充值优先赠送补）/ cash / grant
     });
     var msg = '红包已发出';
     if (kind === 'designated') msg = '专属红包已发出，只有选中的同学能领';
     else if (kind === 'phrase') msg = '口令红包已发出，领的时候要输入「' + (r.passphrase || note) + '」';
     else if (scope === 'cross') msg = '跨班红包已发出，把红包码发给同学';
+    if (body.pool === 'grant') msg += '（赠送学元）';
+    else if (body.pool === 'cash') msg += '（充值学元）';
     res.json({
       code: 200,
       message: msg,

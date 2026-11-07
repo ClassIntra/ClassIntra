@@ -125,6 +125,29 @@ async function main() {
     db.prepare("SELECT COUNT(*) c FROM xy_ledger_cashbook WHERE type LIKE 'cross_%'").get().c, 0);
   healthy('本班红包后 I1–I9 全绿');
 
+  console.log('\n=== 2.5 红包资产池：pool 参数（前端真实形状） ===');
+  // grant 红包：显式只发赠送学元（「发点投资本金给同学」场景）
+  var gA0 = grant(A);
+  var pktG = yuanbao.create(B, 300, 1, '赠金红包', 'wallet', { pool: 'grant' });
+  var pg = JSON.parse(db.prepare('SELECT pool FROM xy_packet WHERE id = ?').get(pktG.id).pool);
+  eq('grant 红包拆分全在赠送池', pg.grant, 300);
+  eq('grant 红包没动充值池', pg.cash, 0);
+  var gotG = yuanbao.claim(pktG.id, A, 'wallet', {});
+  eq('领取人拿到的也是赠送学元', grant(A) - gA0, gotG.amount_cent);
+  // cash 红包：显式只发充值学元（领取人拿到可提现的真金）。B 先充一点真金
+  svc.recharge({ to: B, amount_cent: 5000, ref: 'rc:contract:B-cash' });
+  var cA0 = cash(A);
+  var pktC = yuanbao.create(B, 200, 1, '真金红包', 'wallet', { pool: 'cash' });
+  var gotC = yuanbao.claim(pktC.id, A, 'wallet', {});
+  eq('领取人拿到的是充值学元', cash(A) - cA0, gotC.amount_cent);
+  throws('充值学元不足发 cash 红包要指路「自动」', function () {
+    yuanbao.create(B, cash(B) + 500, 1, '超发', 'wallet', { pool: 'cash' });
+  }, /选「自动」|充值学元不足/);
+  throws('非法 pool 拒绝（与转账同款严格校验）', function () {
+    yuanbao.create(B, 100, 1, 'x', 'wallet', { pool: 'silver' });
+  }, /auto \/ cash \/ grant/);
+  healthy('红包资产池后 I1–I9 全绿');
+
   console.log('\n=== 3. 跨班红包：预览 / 领取 / 补账 ===');
   // 发送方准备：CASH 与 GRANT 各一部分，才能验证按池拆分
   svc.recharge({ to: S, amount_cent: xy.toCent(100), ref: 'rc:contract:S' });
@@ -219,6 +242,42 @@ async function main() {
   ok('付款后发起人收到学元', grant(A) >= aGrant0);
   ok('付款后付款人减少学元', grant(B) <= bGrant0);
   healthy('AA 后 I1–I9 全绿');
+
+  console.log('\n=== 5.5 转账资产池：pool 参数（前端钱包真实形状） ===');
+  // 前端形状：{ to, amount, pool: 'auto'|'cash'|'grant', pin 由路由层处理 }
+  // 准备：A 有真金（跨班转入了 200 元），再给 A 一笔赠金
+  svc.mintToUser ? null : null;
+  var gA0 = grant(A);
+  var inv = require('./src/ledger/invariants');
+  // 用 issue 发赠金（skipQuota 走测试通道；issue 是 service 层导出，测试专用跳配额）
+  try {
+    svc.issue({ to: A, asset: 'GRANT', amount_cent: xy.toCent(50), ref: 'ci:grant:a2', skipQuota: true });
+  } catch (e) {
+    if (!/重复|duplicate/.test(e.message)) throw e;
+  }
+  gA0 = grant(A);
+  var cA0 = cash(A);
+  // grant：只动赠送学元
+  var r1 = xy.transfer({ from: A, to: B, amountCent: xy.toCent(10), pool: 'grant', ref: 'ci:tr:g1' });
+  eq('grant 转账只扣赠送', grant(A) - gA0, -xy.toCent(10));
+  eq('grant 转账不碰充值', cash(A) - cA0, 0);
+  ok('响应带拆分明细', r1.split && r1.split.cash === 0 && r1.split.grant === 10, r1.split);
+  // cash：只动充值学元
+  var r2 = xy.transfer({ from: A, to: B, amountCent: xy.toCent(20), pool: 'cash', ref: 'ci:tr:c1' });
+  eq('cash 转账只扣充值', cash(A) - cA0, -xy.toCent(20));
+  eq('cash 转账不碰赠送', grant(A) - gA0, -xy.toCent(10));
+  // cash 不足时明确报错并指路
+  throws('充值学元不足要指路「选自动」', function () {
+    xy.transfer({ from: A, to: B, amountCent: cash(A) + xy.toCent(1), pool: 'cash', ref: 'ci:tr:c2' });
+  }, /选「自动」|充值学元不足/);
+  // auto：默认行为不变（充值优先）
+  var cB = cash(A);
+  var r3 = xy.transfer({ from: A, to: B, amountCent: xy.toCent(5), pool: 'auto', ref: 'ci:tr:a1' });
+  eq('auto 只扣充值（充足时不碰赠送）', cash(A) - cB, -xy.toCent(5));
+  throws('非法 pool 拒绝', function () {
+    xy.transfer({ from: A, to: B, amountCent: xy.toCent(1), pool: 'silver', ref: 'ci:tr:x1' });
+  }, /auto \/ cash \/ grant/);
+  healthy('资产池转账后 I1–I9 全绿');
 
   console.log('\n=== 结果 ===');
   console.log('通过 ' + pass + ' / 失败 ' + fail);

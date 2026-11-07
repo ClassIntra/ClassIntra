@@ -2,7 +2,7 @@
   "name": "wallet",
   "type": "app",
   "version": "1.0.0",
-  "label": "学元钱包",
+  "label": "钱包",
   "description": "学元的统一入口：余额与冻结、每日助学津贴、给同学转账、发红包（收红包在聊天里点气泡）、全部流水与班级学元榜",
   "icon": "/resources/public/icons/Wallet.svg",
   "color": "#E0A020",

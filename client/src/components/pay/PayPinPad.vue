@@ -9,6 +9,23 @@
       <div class="pin-msg" :class="{ error: !!error }">{{ error || hint }}</div>
     </div>
 
+    <!-- 统一资产池选择（2026-11-07）：转账/发红包等所有支付场景在支付页选池，
+         表单页不再各放一份 —— 一处 UI 处处生效。父级用 :pool.sync 接住。
+         只有两个池、必须明选（默认充值学元）——「自动混转」按负责人要求移除，
+         钱的性质要一眼可辨；后端 auto 分支仅为兼容未传参的旧调用保留。 -->
+    <div v-if="showPool" class="pin-pool">
+      <div class="pool-label">用哪种学元</div>
+      <div class="pool-seg">
+        <button type="button" class="pool-opt" :class="{ active: poolValue === 'cash' }" @click="pickPool('cash')">
+          <b>充值学元</b><em>可提现真金</em>
+        </button>
+        <button type="button" class="pool-opt" :class="{ active: poolValue === 'grant' }" @click="pickPool('grant')">
+          <b>赠送学元</b><em>不可提现</em>
+        </button>
+      </div>
+      <div class="pool-note">{{ poolNote }}</div>
+    </div>
+
     <div class="pin-keys">
       <button
         v-for="k in keys"
@@ -40,10 +57,14 @@ export default {
     hint: { type: String, default: '' },
     error: { type: String, default: '' },
     disabled: { type: Boolean, default: false },
-    canCancel: { type: Boolean, default: true }
+    canCancel: { type: Boolean, default: true },
+    // 资产池（可选）：showPool 为 true 时显示二选区（默认充值学元），选中经 update:pool 回传
+    pool: { type: String, default: 'cash' },
+    showPool: { type: Boolean, default: false }
   },
   data: function () {
     return {
+      poolValue: this.pool,
       pin: '',
       keys: [
         { v: '1', label: '1' }, { v: '2', label: '2' }, { v: '3', label: '3' },
@@ -54,13 +75,25 @@ export default {
       ]
     };
   },
+  computed: {
+    poolNote: function () {
+      if (this.poolValue === 'grant') return '只动赠送学元——领到/收到的人拿到的也是赠送学元（不可提现）';
+      return '只动充值学元——对方拿到的是可提现的真金';
+    }
+  },
   watch: {
     error: function (v) {
       // 密码错了：清空重来（微信也是这样，不会留着错误的一串）
       if (v) this.pin = '';
-    }
+    },
+    pool: function (v) { this.poolValue = v; }
   },
   methods: {
+    pickPool: function (v) {
+      if (this.disabled) return;
+      this.poolValue = v;
+      this.$emit('update:pool', v);
+    },
     press: function (v) {
       if (this.disabled || !v) return;
       if (v === 'del') {
@@ -136,6 +169,40 @@ export default {
   color: var(--text-tertiary);
 }
 .pin-msg.error { color: #E4574F; }
+
+/* 资产池选择区（可选） */
+.pin-pool {
+  margin: 4px 16px 0;
+  padding: 10px 12px 12px;
+  border-radius: 12px;
+  background: var(--card-bg);
+}
+.pool-label {
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+.pool-seg { display: flex; }
+.pool-opt {
+  flex: 1;
+  margin: 0 4px;
+  padding: 8px 2px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-color);
+  text-align: center;
+  cursor: pointer;
+}
+.pool-opt b { display: block; font-size: var(--font-size-caption); font-weight: 500; color: var(--text-primary); }
+.pool-opt em { display: block; margin-top: 2px; font-style: normal; font-size: 10px; color: var(--text-tertiary); }
+.pool-opt.active { border-color: var(--primary-color, #E0A020); background: rgba(224, 160, 32, 0.12); }
+.pool-opt.active b { color: var(--primary-color, #E0A020); }
+.pool-note {
+  margin-top: 8px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--text-tertiary);
+}
 
 .pin-keys {
   margin-top: auto;
