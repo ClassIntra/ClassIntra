@@ -87,45 +87,33 @@ function walk(dir, out) {
   const problems = [];
   let maxVersion = -1;
 
+  // 只做**源码文本**解析（version 数字 + up 函数存在性），不 require：
+  // 迁移模块顶部 require db.js → better-sqlite3（原生依赖），CI 不装依赖，require 必炸。
+  // 文本解析同样能查出撞号 / 缺字段 / 文件名错位，且零副作用。
   for (const f of files) {
-    let mod;
-    try {
-      mod = requireCJS(join(dir, f));
-    } catch (e) {
-      problems.push(f + ' 加载失败: ' + e.message);
-      continue;
-    }
-    if (typeof mod.version !== 'number') problems.push(f + ' 缺 version(number)');
-    if (typeof mod.up !== 'function') problems.push(f + ' 缺 up(db)');
-    if (typeof mod.version !== 'number') continue;
+    const src = readFileSync(join(dir, f), 'utf8');
+    const vm = /version:\s*(\d+)\s*[,}]/.exec(src);
+    if (!vm) { problems.push(f + ' 缺 version(number)'); continue; }
+    const ver = parseInt(vm[1], 10);
+    if (!/(^|\W)up\s*:/.test(src)) problems.push(f + ' 缺 up(db)');
 
     // 撞号是这里最值钱的一条：runner 按 version > current 过滤，撞号的后一个会被静默跳过，
     // 表现为「迁移写了但库没变」，而且日志里毫无异常。
-    if (byVersion.has(mod.version)) {
-      problems.push('版本号 ' + mod.version + ' 撞号: ' + byVersion.get(mod.version) + ' ↔ ' + f);
+    if (byVersion.has(ver)) {
+      problems.push('版本号 ' + ver + ' 撞号: ' + byVersion.get(ver) + ' ↔ ' + f);
     } else {
-      byVersion.set(mod.version, f);
+      byVersion.set(ver, f);
     }
-    if (mod.version > maxVersion) maxVersion = mod.version;
+    if (ver > maxVersion) maxVersion = ver;
   }
 
   // 文件名前缀与 version 是否一致（001_xxx.js 里写 version: 2 这种错位）
   for (const f of files) {
     const m = /^(\d+)_/.exec(f);
     if (!m) continue;
-    const fileVer = parseInt(m[1], 10);
-    const mod = byVersion.get(fileVer);
-    if (mod && f !== mod && byVersion.has(fileVer)) {
-      // 仅在「该文件自己的 version 与文件名不一致」时报
-    }
-  }
-  for (const f of files) {
-    const m = /^(\d+)_/.exec(f);
-    if (!m) continue;
-    let mod;
-    try { mod = requireCJS(join(dir, f)); } catch (e) { continue; }
-    if (typeof mod.version === 'number' && mod.version !== parseInt(m[1], 10)) {
-      problems.push(f + ' 文件名序号 ' + m[1] + ' ≠ version ' + mod.version);
+    const vm = /version:\s*(\d+)\s*[,}]/.exec(readFileSync(join(dir, f), 'utf8'));
+    if (vm && parseInt(vm[1], 10) !== parseInt(m[1], 10)) {
+      problems.push(f + ' 文件名序号 ' + m[1] + ' ≠ version ' + vm[1]);
     }
   }
 
@@ -251,6 +239,26 @@ function walk(dir, out) {
 //    这类漂移不影响运行（运行时只读 version.json），但会让人看错版本、查错发版记录。
 // ============================================================
 (function checkVersionConsistency() {
+  // server/version.json 是运行时产物（.gitignore），CI 上不存在。
+  // 此时退化为「5 个 package.json 互相一致 + CHANGELOG 顶部对齐」；本地有 version.json 时走全量比对。
+  const verFile = join(ROOT, 'server/version.json');
+  if (!existsSync(verFile)) {
+    const problems = [];
+    let version = null;
+    for (const p of ['package.json', 'client/package.json', 'server/package.json', 'apps/package.json', 'plugins/package.json']) {
+      const fp = join(ROOT, p);
+      if (!existsSync(fp)) continue;
+      let v;
+      try { v = JSON.parse(readFileSync(fp, 'utf8')).version; } catch (e) { problems.push(p + ' 解析失败'); continue; }
+      if (version == null) version = v;
+      else if (v !== version) problems.push(p + ' = ' + v + ' ≠ ' + version);
+    }
+    const m = /^## \[([^\]]+)\]/m.exec(readFileSync(join(ROOT, 'CHANGELOG.md'), 'utf8'));
+    if (m && version != null && m[1] !== version) problems.push('CHANGELOG 顶部 ' + m[1] + ' ≠ ' + version);
+    if (problems.length) bad('版本一致性', problems.slice(0, 3).join(' | '));
+    else ok('版本一致性（' + version + '，5 个 package.json + CHANGELOG 对齐）');
+    return;
+  }
   let core;
   try {
     core = requireCJS(join(ROOT, 'scripts/version-core.js'));
