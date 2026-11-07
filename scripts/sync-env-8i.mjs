@@ -19,7 +19,13 @@ import { readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const HOST = 'deploy@10.0.0.8';
+// 部署目标不入开源仓库：优先读 scripts/sync-env.host.local（gitignored），其次 SYNC_ENV_HOST 环境变量。
+// 本地文件格式：一行，user@host
+function readLocalHost() {
+  try { return readFileSync(new URL('./sync-env.host.local', import.meta.url), 'utf8').trim(); }
+  catch { return ''; }
+}
+const HOST = readLocalHost() || process.env.SYNC_ENV_HOST || 'user@example-host.invalid';
 const REMOTE_ROOT = 'D:/NetWork/ClassIntra';
 const REMOTE_TMP = 'C:/Users/deploy';
 const LOCAL_ENV = 'server/.env';

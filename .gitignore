@@ -156,3 +156,19 @@ mkcert.exe
 # Mimosa 工具本地状态
 .mimosa/
 .market-signing-key.pem
+
+# ===== v1.7.0 开源发布卫生（真实用户数据与内部过程文件，绝不入库） =====
+# 浏览器代理的真实用户数据（学号/昵称/浏览历史）
+server/database/web-proxy-*.json
+server/database/netease-cache/
+# 股票行情导出（产物文件名含真实学号+姓名）
+exports/
+# 本地 AI 规划文档（含本机路径）
+.zcode/
+# 临时调试脚本
+scripts/_tmp-*
+server/_tmp_*
+_root/_tmp_*
+
+# 部署目标（内网拓扑，不入库）
+scripts/sync-env.host.local

@@ -101,8 +101,8 @@ router.all('/evt', function(req, res) {
   res.json({ ok: true });
 });
 
-// 取证日志
-router.get('/log', function(req, res) {
+// 取证日志（运维面，仅班管可读/清空；设备面 /zxw /evt /:name 保持免鉴权——设备引导无登录态）
+router.get('/log', require('../middleware/auth').requireAdmin, function(req, res) {
   if (req.query.reset === '1') events.length = 0;
   res.json({ events: events, count: events.length });
 });
