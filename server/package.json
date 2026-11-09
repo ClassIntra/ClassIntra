@@ -10,7 +10,7 @@
     "test:ledger": "node scripts-test-ledger-s1.cjs && node scripts-test-ledger-s2.cjs && node scripts-test-ledger-guard.cjs && node scripts-test-ledger-routes.cjs && node scripts-test-ledger-shop.cjs && node scripts-test-ledger-trading.cjs && node scripts-test-ledger-invest.cjs && node scripts-test-stock-ledger.cjs && node scripts-test-ledger-appapi.cjs && node scripts-test-wallet-contract.cjs && node scripts-test-wallet.cjs && node scripts-test-xueyuan.cjs && node scripts-test-xueyuan-limits.cjs && node scripts-test-collect.cjs && node scripts-test-xy-mesh.cjs"
   },
   "dependencies": {
-    "axios": "^1.20.0",
+    "axios": "^1.21.0",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^12.11.1",
     "compression": "^1.8.2",
