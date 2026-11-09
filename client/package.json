@@ -20,7 +20,7 @@
     "lunar-javascript": "^1.6.12",
     "marked": "^4.3.0",
     "mermaid": "^11.17.2",
-    "video.js": "^8.24.0",
+    "video.js": "^10.3.0",
     "videojs-mobile-ui": "^1.2.7",
     "vue": "^2.7.16",
     "vue-router": "^3.6.5",
