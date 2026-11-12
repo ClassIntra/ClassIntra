@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased]
+
+第三方开发者体验与 SDK v1 完善（本地完成，待发布）：
+
+- 独立 devkit 分发 SDK 类型、完整指南、可运行示例；支持 `sdk types` 与 `sdk docs` 离线导出，并保护已有作者文件。
+- 新增可选的 `data.request<T>()`：统一业务错误、超时、取消及账号切换处理；保留原有 HTTP 方法返回值。
+- 修复事件与主题订阅清理、媒体/文件选择器销毁、分享归属和本地存储值类型；补齐类型及浏览器回归。
+- 检查入口文件与安装载荷，打包前校验；损坏索引保留原文，索引写入使用临时文件替换，支持机器可读输出。
+- **真实宿主免安装预览**：`classintra-devkit preview [--watch]` 把本地包挂进真实宿主（与安装同一套校验器与热挂载管线，不落盘、不写数据库、重启即清；`CLASSINTRA_DEV_PREVIEW=1` 闸门 + 管理员双重限制）。前端改动刷新即生效，`--watch` 后端自动重挂；配套 `install --source local` 闭环测试安装。
+- **版本兼容**：manifest 可选 `minHostVersion`（宿主过低时安装/预览拒绝、客户端挂载明确报错）；`context.host`（version / atLeast / supports 特性探测）；`devkit/COMPAT.md` 逐方法兼容矩阵 + 奇偶校验测试。
+- **后端稳定门面**：`require('_sdk/backend/host')` 统一出口（db/auth/config/ledger/appData/…）；官方插件与已装市场应用后端全部迁移；devkit `check`、`market-review`、`diag market` 三处拦截宿主内部路径直连；devkit 脚手架模板改走门面。
+- **生命周期贯通验收**：`pnpm test:lifecycle`（scripts/market-lifecycle-acceptance.mjs，32 项：装/授权/KV/升级/真回滚/降级拒绝/卸载保留/清除/插件任务登记与启停）；local 市场源目录取消 60s 缓存（改完即装）；插件安装即登记定时任务、卸载即注销（此前要手动停启一次才生效）。
+- **真机验收**：`scripts/probe-market-dev-preview.mjs`（真实 Chrome：宿主版本登记 / context.host / 预览挂载-打开-弱网-注销 15 项）；文档站新增《真实使用验收清单》。
+
+以下 `0.x` 条目是桌宠应用的独立版本记录；宿主版本记录仍为后文的 `1.7.0`，本轮未升级宿主版本。
+
 ## [0.51.0] - 2026-11-01
 
 桌宠 · 菜单细节收口

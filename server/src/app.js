@@ -193,13 +193,37 @@ function botMediaPeerBases() {
   return bases;
 }
 
+// 回源内容防线：落盘前确认拿到的确实是媒体字节。
+// 对端若把 SPA 回退页（200 text/html）当媒体吐出来，绝不能写进 botmedia ——
+// 那份脏文件会被 Syncthing 同步回对端，覆盖掉唯一真身（31 个视频/音频毁于此）。
+function looksLikeHtml(buf) {
+  var head = buf.slice(0, 64).toString('utf8').replace(/^\uFEFF/, '').trim().toLowerCase();
+  return head.charAt(0) === '<' || head.indexOf('<!doctype html') === 0;
+}
+
 function fetchPeerMedia(url, dest, cb) {
   var mod = url.indexOf('https://') === 0 ? httpsMod : httpMod;
+  var aborted = false;
   var req = mod.get(url, { timeout: 20000 }, function(resp) {
     if (resp.statusCode !== 200) { resp.resume(); return cb(new Error('HTTP ' + resp.statusCode)); }
+    var ctype = String(resp.headers['content-type'] || '');
+    if (/text\/html|application\/json/i.test(ctype)) {
+      resp.resume();
+      return cb(new Error('peer returned ' + ctype + ', not media'));
+    }
     var chunks = [];
-    resp.on('data', function(c) { chunks.push(c); });
+    resp.on('data', function(c) {
+      if (aborted) return;
+      // 首块就嗅探：有的历史脏文件 content-type 仍是 video/mp4，只能靠字节认
+      if (chunks.length === 0 && looksLikeHtml(c)) {
+        aborted = true;
+        resp.destroy();
+        return cb(new Error('peer returned html for a media path'));
+      }
+      chunks.push(c);
+    });
     resp.on('end', function() {
+      if (aborted) return;
       try {
         fs.mkdirSync(path.dirname(dest), { recursive: true });
         fs.writeFileSync(dest, Buffer.concat(chunks));
@@ -207,7 +231,7 @@ function fetchPeerMedia(url, dest, cb) {
       } catch (e) { cb(e); }
     });
   });
-  req.on('error', cb);
+  req.on('error', function(e) { if (!aborted) cb(e); });
   req.on('timeout', function() { req.destroy(new Error('timeout')); });
 }
 
@@ -334,6 +358,15 @@ try {
   console.warn('[app] market-static 静态路由初始化失败:', e.message);
 }
 
+// 开发预览静态资源（devkit preview 登记；CLASSINTRA_DEV_PREVIEW=1 才可用）
+// 访问路径：/market-static-dev/{appName}/frontend/entry.js → <作者本地预览目录>/frontend/entry.js
+// 与 /market-static 的差别：目录在内存登记（服务重启即清），文件实时从作者目录读取，
+// no-store 保证「改完刷新即生效」。处理器内部校验预览登记、扩展名白名单与路径穿越。
+app.use('/market-static-dev', function(req, res, next) {
+  if (marketService.servePreviewStatic(req, res)) return;
+  next();
+});
+
 // 市场主题静态资源（manifest.json / tokens.json / pack.json / icon）
 // 访问路径：/market-theme-static/<themeId>/pack.json → market-themes/<themeId>/pack.json
 // pack.json 由安装时合成（manifest + tokens 内联），客户端 ThemeEngine.loadExternalTheme 一次取全
@@ -411,6 +444,12 @@ app.get('/setup', function(req, res) {
 });
 
 app.get('*', function(req, res) {
+  // 带扩展名的路径一定是资源请求（媒体/脚本/样式）：静态层没命中就是真不存在。
+  // 绝不能回退成 index.html —— 对端 CI 的 fetchPeerMedia 会把回退页当媒体存进
+  // botmedia，再经 Syncthing 整项目目录同步回来覆盖真身（31 个视频/音频因此变网页）。
+  if (path.extname(req.path)) {
+    return res.status(404).json({ code: 404, message: 'Not Found' });
+  }
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');

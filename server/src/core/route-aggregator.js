@@ -77,6 +77,18 @@ function _mountOne(app, m, backend) {
 // 支持 manifest.backend（主）和 manifest.extraBackends（数组，附加挂载点）
 // 注意：market 来源（market-apps/ 第三方应用）不在此挂载，由 market-service 热挂载（支持安装/卸载/更新不重启）
 function mountAppRoutes(app) {
+  // plugins/ 目录注入 NODE_PATH：官方插件与第一方应用后端可统一 require('_sdk/backend/host')
+  // 引用宿主能力（与 market-service._loadRouter 的注入点保持一致）
+  try {
+    var moduleLib = require('module');
+    var pluginSdkPath = path.resolve(__dirname, '../../../plugins');
+    var nodePaths = (process.env.NODE_PATH || '').split(path.delimiter).filter(function(item) { return item; });
+    if (nodePaths.indexOf(pluginSdkPath) === -1) {
+      nodePaths.push(pluginSdkPath);
+      process.env.NODE_PATH = nodePaths.join(path.delimiter);
+      moduleLib.Module._initPaths();
+    }
+  } catch (e) {}
   var manifests = manifestLoader.loadManifests();
   var mounted = 0;
   var appCount = 0;

@@ -21,6 +21,7 @@ var FIELD_DEFS = {
   extraBackends: { type: 'array', required: false, description: '额外后端路由（阶段 0 引入）' },
   integration: { type: 'object', required: false, description: '插件联动配置（type=plugin 时使用）：contract/frontendBridge/clientEntry/channels' },
   sdk: { type: 'string', required: false, default: '1', description: '所需 SDK 主版本（缺省视为 "1"，向后兼容旧应用）' },
+  minHostVersion: { type: 'string', required: false, description: '最低宿主版本（semver，如 "1.7.0"）：宿主低于此版本时拒绝安装/预览/挂载；格式校验在此，与宿主版本比较在安装与预览链路' },
   capabilities: { type: 'array', required: false, default: [], description: '能力披露清单（仅展示，不拦截）' },
   layout: { type: 'object', required: false, description: '布局偏好：mode(fullscreen/sheet/window) / resizable / minWidth / minHeight' },
   visibleRoles: { type: 'array', required: false, default: [], description: '可见角色白名单（空数组=所有角色可见）：classAdmin / admin / officer / student' },
@@ -212,6 +213,13 @@ function validateManifest(m) {
       '此应用要求 SDK v' + sdk + '，当前系统为 v' + CURRENT_SDK_VERSION +
       '——请升级 ClassIntra 后再安装'
     );
+  }
+
+  // ---- minHostVersion：最低宿主版本（格式校验；大小比较在安装/预览链路，需要宿主版本号） ----
+  if (m.minHostVersion !== undefined) {
+    if (typeof m.minHostVersion !== 'string' || !SEMVER_RE.test(m.minHostVersion)) {
+      errors.push('minHostVersion 应为 semver 字符串（如 "1.7.0"）');
+    }
   }
 
   // ---- capabilities 字段：披露用，非拦截（开放模型） ----

@@ -448,6 +448,25 @@ function diagMarket(onlyName) {
         console.log(mark(true, true) + ' 未提供 backend/cleanup.js（建议提供：卸载时清理自建表与数据）');
       }
 
+      // 4.5 后端稳定门面（backend/*.js 不得直连宿主内部路径）
+      var backendDir = path.join(rootsDir, name, 'backend');
+      if (fs.existsSync(backendDir)) {
+        try {
+          fs.readdirSync(backendDir).forEach(function (f) {
+            if (!f.endsWith('.js')) return;
+            var src = fs.readFileSync(path.join(backendDir, f), 'utf8')
+              .replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+            var bad = /require\(\s*['"][^'"]*server\/src[^'"]*['"]/.test(src) ||
+              /require\(\s*['"](?:\.\.\/){3,}/.test(src) ||
+              /\bprocess\.cwd\(\)/.test(src);
+            if (bad) {
+              console.log(mark(false) + ' backend/' + f + ' 直连宿主内部路径 —— 改用 require(\'_sdk/backend/host\') 稳定门面');
+              allPass = false;
+            }
+          });
+        } catch (e) {}
+      }
+
       // 5. route / mountPath 冲突（官方 + 同批市场应用）
       if (m.frontend && m.frontend.route) {
         if (officialRoutes[m.frontend.route]) {

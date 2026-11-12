@@ -22,7 +22,9 @@
     "review:market": "node scripts/market-review.mjs",
     "create:app": "node scripts/create-app.mjs",
     "probe:market": "node scripts/probe-market-ui.mjs",
-    "test:sdk": "pnpm --dir client test && pnpm --dir devkit test"
+    "probe:lifecycle": "node scripts/market-lifecycle-acceptance.mjs",
+    "test:sdk": "pnpm --dir client test && pnpm --dir devkit test",
+    "test:lifecycle": "node scripts/market-lifecycle-acceptance.mjs"
   },
   "devDependencies": {
     "sharp": "^0.35.5"

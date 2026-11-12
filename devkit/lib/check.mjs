@@ -4,6 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { packageFiles, packageFile, ALLOWED_EXTENSIONS } from './package-files.mjs';
+import { KNOWN_HOST_VERSION, compareSemver } from './compat.mjs';
 
 const KNOWN_CAPABILITIES = [
   'data.storage', 'data.realtime', 'data.http', 'data.store',
@@ -96,6 +97,17 @@ export function checkPackage(targetDir) {
     err('manifest.name (' + info.name + ') 与目录名 (' + dirName + ') 不一致');
   }
   if (!/^\d+\.\d+\.\d+/.test(info.version)) err('version 需为语义化版本: ' + info.version);
+
+  // ---- minHostVersion：最低宿主版本 ----
+  // 格式错误阻断（安装链路同样拒绝）；高于已知最新宿主只警告——可能是为未发布版本开发
+  if (manifest.minHostVersion !== undefined) {
+    const minHost = String(manifest.minHostVersion);
+    if (!/^\d+\.\d+\.\d+/.test(minHost)) {
+      err('minHostVersion 需为语义化版本（如 "1.7.0"）: ' + minHost);
+    } else if (compareSemver(minHost, KNOWN_HOST_VERSION) > 0) {
+      warn('minHostVersion (' + minHost + ') 高于已知最新宿主 v' + KNOWN_HOST_VERSION + '——确认这不是笔误，或同步更新 devkit 的 KNOWN_HOST_VERSION');
+    }
+  }
 
   if (kind === 'app') {
     if (!manifest.label) err('缺少 label');
@@ -255,6 +267,33 @@ export function checkPackage(targetDir) {
     const hasCleanup = /onDestroy\s*\(/.test(stripped);
     if (usesResource && !hasCleanup) {
       warn(rel + ': 使用了监听器/定时器/订阅，但没有 context.app.onDestroy 回收');
+    }
+  }
+
+  // ---- 后端红线：宿主内部路径直连 ----
+  // 第三方后端引用宿主能力一律走 require('_sdk/backend/host') 稳定门面；
+  // 直连 ../../../server/src/... 或 process.cwd() 解析会在宿主重构/部署变化时集体崩碎。
+  // 只对 backend/ 下的 JS 生效（frontend 已另有 ES5 红线）。
+  const backendJs = all.filter((abs) => {
+    const rel = path.relative(dir, abs).replace(/\\/g, '/');
+    return rel.endsWith('.js') && (rel.startsWith('backend/') || rel === 'backend.js');
+  });
+  const HOST_INTERNAL_RULES = [
+    { re: /require\(\s*['"][^'"]*server\/src[^'"]*['"]/ , msg: 'require 直连宿主 server/src 内部模块' },
+    { re: /require\(\s*['"](?:\.\.\/){3,}/, msg: 'require 以三级以上相对路径越出包根' },
+    { re: /\bprocess\.cwd\(\)/, msg: '使用 process.cwd()（依赖宿主启动方式，部署一变就失效）' }
+  ];
+  for (const abs of backendJs) {
+    const rel = path.relative(dir, abs).replace(/\\/g, '/');
+    const src = fs.readFileSync(abs, 'utf8');
+    // 保留字符串字面量（require 目标在字符串里），只去注释——避免文档注释误报
+    const noComments = src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+    for (const rule of HOST_INTERNAL_RULES) {
+      const m = noComments.match(rule.re);
+      if (m) {
+        const line = noComments.slice(0, m.index).split('\n').length;
+        err(rel + ':' + line + ' ' + rule.msg + " —— 改用 require('_sdk/backend/host') 稳定门面（db/auth/config/ledger…）");
+      }
     }
   }
 

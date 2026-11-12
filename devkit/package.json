@@ -4,10 +4,11 @@
   "description": "ClassIntra 第三方应用开发工具：脚手架、体检、打包上架。零依赖，不需要克隆主仓库。",
   "type": "module",
   "types": "./types/sdk.d.ts",
-  "typesVersions": { "*": { "sdk": ["types/sdk.d.ts"] } },
+  "typesVersions": { "*": { "sdk": ["types/sdk.d.ts"], "backend": ["types/backend.d.ts"] } },
   "exports": {
     ".": { "types": "./types/sdk.d.ts" },
-    "./sdk": { "types": "./types/sdk.d.ts" }
+    "./sdk": { "types": "./types/sdk.d.ts" },
+    "./backend": { "types": "./types/backend.d.ts" }
   },
   "bin": {
     "classintra-devkit": "./bin/cli.mjs",
@@ -18,11 +19,12 @@
     "lib",
     "types",
     "SDK.md",
+    "COMPAT.md",
     "README.md"
   ],
   "scripts": {
-    "test": "node --test test/author-workflow.test.mjs && npm run test:types",
-    "test:types": "tsc --noEmit --strict --lib ES2020,DOM --module commonjs --moduleResolution node test/fixtures/sdk-contract.ts"
+    "test": "node --test test/author-workflow.test.mjs test/preview-install.test.mjs && npm run test:types",
+    "test:types": "tsc --noEmit --strict --lib ES2020,DOM --module commonjs --moduleResolution node test/fixtures/sdk-contract.ts test/fixtures/backend-contract.ts"
   },
   "engines": {
     "node": ">=18"

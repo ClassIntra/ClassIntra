@@ -206,6 +206,21 @@ export default {
       }).catch(function() {
       });
     },
+    // 开发预览挂载/注销（devkit preview 推送 market_app_changed action=preview-*）：
+    // 只同步预览清单与路由，不动 app_control / 桌面布局（预览不落库）
+    syncPreviewApps: function() {
+      var self = this;
+      return marketRegistry.fetchPreviews().then(function(apps) {
+        if (router.registerMarketApps) router.registerMarketApps(apps);
+        syncOverlays(apps);
+        syncMarketWidgets(apps);
+        var meta = self.$route.meta || {};
+        if (meta.market && meta.appName && !marketRegistry.getInstalled(meta.appName)) {
+          return self.$router.push({ name: 'Desktop' });
+        }
+        return apps;
+      });
+    },
     syncMarketAppControl: function(appName, enabled, action) {
       var self = this;
       var eventKey = [appName || '', enabled ? 'enabled' : 'disabled', action || 'control'].join(':');
@@ -504,7 +519,11 @@ export default {
         self.syncMarketAppControl(data.appName, !!data.enabled, 'control').catch(function() {});
       }
       if (data.type === 'market_app_changed') {
-        self.syncMarketAppControl(data.appName, true, data.action).catch(function() {});
+        if (data.action === 'preview-mounted' || data.action === 'preview-unmounted') {
+          self.syncPreviewApps().catch(function() {});
+        } else {
+          self.syncMarketAppControl(data.appName, true, data.action).catch(function() {});
+        }
       }
       if (data.type === 'market_theme_changed') {
         // 市场主题安装/卸载：重同步主题注册（失败静默，仅影响新主题可见性）

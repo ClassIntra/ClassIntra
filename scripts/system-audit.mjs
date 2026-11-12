@@ -147,6 +147,14 @@ add('凭据与日志', 'dotenv 显式钉到 server/.env',
 const gitignore = read('.gitignore');
 add('凭据与日志', '.env 已被忽略',
   gitignore.indexOf('.env') !== -1);
+// 开发预览是「服务端按路径读作者目录」的文件读取型端点：必须 admin + 显式环境闸门双保险
+const marketRouteSrc = read('server/src/routes/market.js');
+const marketServiceSrc = read('server/src/core/market-service.js');
+const devPreviewRoutes = marketRouteSrc.match(/router\.(?:post|get|delete)\('\/dev-preview[^]*?_devPreviewGate\(res\)/g) || [];
+add('凭据与日志', 'dev-preview 三路由全部 admin + 环境闸门',
+  devPreviewRoutes.length === 3 &&
+  devPreviewRoutes.every(function (r) { return r.indexOf('auth.requireAdmin') !== -1 && r.indexOf('_devPreviewGate(res)') !== -1; }) &&
+  marketServiceSrc.indexOf("process.env.CLASSINTRA_DEV_PREVIEW === '1'") !== -1);
 
 // ============================================================
 // 3. 事件可靠性

@@ -2,6 +2,9 @@ import api from '@/utils/api';
 import { getRuntimeKernel } from '@/core/runtime-kernel';
 
 var installedApps = [];
+// 开发预览（devkit preview 免安装挂载）：与已装应用合并参与路由/桌面/悬浮层，
+// 但独立保存——不进 knownNames（预览注销不清本地数据），资源随 syncPreviews 单独清理。
+var previewApps = [];
 var definitions = {};
 var loadedScripts = {};
 var loadedStyles = {};
@@ -23,9 +26,15 @@ function getStyle(app) {
 }
 
 function emit() {
+  var merged = allApps();
   listeners.slice().forEach(function(listener) {
-    try { listener(installedApps.slice()); } catch (e) {}
+    try { listener(merged); } catch (e) {}
   });
+}
+
+// 对外清单 = 已安装 + 开发预览。消费方（路由注册/桌面/悬浮层/小组件）无需感知预览概念。
+function allApps() {
+  return previewApps.length ? installedApps.concat(previewApps) : installedApps;
 }
 
 function onChange(listener) {
@@ -48,13 +57,29 @@ function define(definition) {
   return definition;
 }
 
+// 预览应用的静态资源走服务端 /market-static-dev/ 前缀（manifest 带 _staticBase 透传）；
+// 正常安装一律同源 /market-static/。
+function staticBase(app) {
+  return app._staticBase || ('/market-static/' + app.name + '/');
+}
+
+// 缓存击穿参数：正常安装按版本号；预览按挂载时间戳（devkit 重挂会刷新 _previewAt，
+// 改完文件刷新页面即拿到新资源；服务端对该前缀 always no-store 兜底）。
+function bustValue(app) {
+  return app._preview ? String(app._previewAt || '') : (app.version || '');
+}
+
+function bustParam(app) {
+  return (app._preview ? 't=' : 'v=') + encodeURIComponent(bustValue(app));
+}
+
 function scriptUrl(app) {
-  return '/market-static/' + app.name + '/' + getEntry(app).replace(/^\.\//, '');
+  return staticBase(app) + getEntry(app).replace(/^\.\//, '');
 }
 
 function styleUrl(app) {
   if (!getStyle(app)) return '';
-  return '/market-static/' + app.name + '/' + getStyle(app).replace(/^\.\//, '');
+  return staticBase(app) + getStyle(app).replace(/^\.\//, '');
 }
 
 function loadScript(app) {
@@ -62,7 +87,7 @@ function loadScript(app) {
   var generation = loadGeneration[app.name] || 0;
   return new Promise(function(resolve, reject) {
     var script = document.createElement('script');
-    script.src = scriptUrl(app) + '?v=' + encodeURIComponent(app.version || '');
+    script.src = scriptUrl(app) + '?' + bustParam(app);
     script.async = true;
     script.onload = function() {
       if (generation !== (loadGeneration[app.name] || 0) || getInstalled(app.name) !== app) {
@@ -82,7 +107,7 @@ function loadStyle(app) {
   if (!url || loadedStyles[app.name]) return;
   var link = document.createElement('link');
   link.rel = 'stylesheet';
-  link.href = url + '?v=' + encodeURIComponent(app.version || '');
+  link.href = url + '?' + bustParam(app);
   link.dataset.marketApp = app.name;
   loadedStyles[app.name] = link;
   document.head.appendChild(link);
@@ -180,6 +205,11 @@ function syncInstalled(apps) {
   next.forEach(function(app) {
     if (app && app.name) active[app.name] = app;
   });
+  // 预览应用不在已装清单里，资源清理判定必须一并计入，否则每次 syncInstalled
+  // 都会把预览应用的脚本/样式误卸载
+  previewApps.forEach(function(app) {
+    if (app && app.name) active[app.name] = app;
+  });
   var rawNames = {};
   raw.forEach(function(app) {
     if (app && app.name) rawNames[app.name] = true;
@@ -217,24 +247,89 @@ function fetchInstalled() {
   });
 }
 
+// 本地会话是否班管/管理员（与 routes/market.js /installed 的判定口径一致）。
+// 预览是开发期特性：学生端不发注定 403 的请求，也不响应预览 WS 推送。
+function localSessionIsAdmin() {
+  try {
+    var user = JSON.parse(localStorage.getItem('user') || 'null');
+    if (!user) return true; // 登录信息缺失时无法判定 → 仍尝试（服务端闸门兜底）
+    return user.is_admin === 1 || user.is_admin === true || user.is_class_admin === true;
+  } catch (e) {
+    return true;
+  }
+}
+
+// 开发预览清单（仅班管会话能拉到；403 = 非班管或服务端未开 CLASSINTRA_DEV_PREVIEW，
+// 静默清空——预览是开发期特性，不能给普通用户制造噪音）。
+function syncPreviews(apps) {
+  var raw = Array.isArray(apps) ? apps : [];
+  var next = raw.filter(function(app) { return app && app.name && app._preview; });
+  var active = {};
+  next.forEach(function(app) { active[app.name] = app; });
+  previewApps.forEach(function(app) {
+    if (app && app.name && !active[app.name]) unloadAssets(app.name);
+  });
+  previewApps = next;
+  emit();
+  return previewApps.slice();
+}
+
+function fetchPreviews() {
+  if (!localSessionIsAdmin()) {
+    if (previewApps.length) syncPreviews([]);
+    return Promise.resolve([]);
+  }
+  return api.get('/market/dev-preview').then(function(response) {
+    return syncPreviews((response.data && response.data.data && response.data.data.apps) || []);
+  }).catch(function() {
+    if (previewApps.length) syncPreviews([]);
+    return [];
+  });
+}
+
 function getInstalled(name) {
   for (var i = 0; i < installedApps.length; i++) {
     if (installedApps[i].name === name) return installedApps[i];
   }
+  for (var j = 0; j < previewApps.length; j++) {
+    if (previewApps[j].name === name) return previewApps[j];
+  }
   return null;
+}
+
+// semver 比较：host >= min 返回 true（只比 x.y.z 数值段，忽略 prerelease 后缀）
+function hostSatisfies(host, min) {
+  var a = String(host).replace(/^v/, '').split('.');
+  var b = String(min).replace(/^v/, '').split('.');
+  for (var i = 0; i < 3; i++) {
+    var x = parseInt(a[i], 10) || 0;
+    var y = parseInt(b[i], 10) || 0;
+    if (x !== y) return x > y;
+  }
+  return true;
 }
 
 function ensureLoaded(name) {
   var app = getInstalled(name);
   if (!app) return Promise.reject(new Error('应用未安装'));
-  if (loadedVersions[name] !== undefined && loadedVersions[name] !== (app.version || '')) {
+  // minHostVersion 挂载闸（第二道；第一道在服务端安装/预览时）：
+  // 宿主版本已知且不满足 → 明确拒绝，不给用户天书报错。版本未知（接口失败/旧宿主）→ 放行。
+  var minHost = app.minHostVersion;
+  if (minHost && window.ClassIntraMarket && typeof window.ClassIntraMarket.getHostVersion === 'function') {
+    var hostVersion = window.ClassIntraMarket.getHostVersion();
+    if (hostVersion && !hostSatisfies(hostVersion, minHost)) {
+      return Promise.reject(new Error('此应用要求 ClassIntra ≥ v' + minHost + '，当前宿主为 v' + hostVersion + '——请升级宿主后再使用'));
+    }
+  }
+  // 预览以 _previewAt 参与失效判定：devkit 重挂后版本号不变但时间戳变了，必须重新加载
+  if (loadedVersions[name] !== undefined && loadedVersions[name] !== bustValue(app)) {
     unloadAssets(name);
   }
   if (loading[name]) return loading[name];
   var generation = loadGeneration[name] || 0;
   loading[name] = loadScript(app).then(function() {
     loadStyle(app);
-    loadedVersions[name] = app.version || '';
+    loadedVersions[name] = bustValue(app);
     var definition = definitions[name] || (window.ClassIntraMarket && window.ClassIntraMarket.apps && window.ClassIntraMarket.apps[name]);
     if (!definition) throw new Error('应用未注册运行时入口');
     if (generation !== (loadGeneration[name] || 0) || getInstalled(name) !== app) {
@@ -274,7 +369,12 @@ function mount(name, container, definition) {
 }
 
 function refresh() {
-  return fetchInstalled();
+  // 预览清单并入同一次刷新：main.js 启动期 registerMarketApps 拿到的列表必须
+  // 已含预览应用，否则刷新页面打开预览路由会 404 兜底回桌面（WS 推送救不了首屏）。
+  // 非班管会话 fetchPreviews 403 静默清空，不阻断已装应用流程。
+  return Promise.all([fetchInstalled(), fetchPreviews()]).then(function() {
+    return allApps();
+  });
 }
 
 var registry = {
@@ -288,8 +388,10 @@ var registry = {
   unloadAssets: unloadAssets,
   reload: reload,
   syncInstalled: syncInstalled,
+  syncPreviews: syncPreviews,
+  fetchPreviews: fetchPreviews,
   getLoadedVersion: function(name) { return loadedVersions[name] || ''; },
-  getInstalledApps: function() { return installedApps.slice(); }
+  getInstalledApps: function() { return allApps().slice(); }
 };
 
 export { registry as marketRegistry, define };

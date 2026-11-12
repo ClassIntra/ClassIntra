@@ -18,7 +18,7 @@ classintra-devkit pack ./work/docs-sample --write ./market/index.json
 
 能力清单用于安装前向用户说明应用会使用什么，不会拦截同页面代码。第三方代码仍在 ClassIntra 页面内运行并受到当前开放式信任模型约束；能力披露不是 iframe 沙箱或权限边界。安装和发布前应检查来源与代码。
 
-本地预览仍需宿主集成设计，当前工作流使用 devkit 校验后安装到获准的测试环境验证；不要把测试包写入正在使用的市场目录。
+本地预览：宿主开启 `CLASSINTRA_DEV_PREVIEW=1` 后，`classintra-devkit preview ./work/docs-sample` 可把本地包**免安装**挂进真实宿主（与安装同一套校验器和热挂载管线，不落盘、不写数据库，重启即清；`--watch` 支持后端热重载）。调通后再 `pack --write` 进本地市场源并 `classintra-devkit install <name> --source local` 走一遍真实安装链路。预览与安装的凭据与常见故障见随 devkit 分发的 SDK 指南；不要把测试包写入正在使用的市场目录。
 
 类型获取、七个命名空间、数据错误、生命周期与调试流程见随 devkit 分发的 [第三方 SDK 使用与调试](../devkit/SDK.md)。类型导出命令：`classintra-devkit sdk types --write ./types/classintra-sdk.d.ts`。
 

@@ -273,6 +273,11 @@ app.get('/setup', function(req, res) {
 });
 
 app.get('*', function(req, res) {
+  // 带扩展名的路径一定是资源请求：静态层没命中就是真不存在，404 而不是回退页。
+  // 理由同 app.js —— 防止对端把回退页当媒体存盘再被 Syncthing 同步污染真身。
+  if (path.extname(req.path)) {
+    return res.status(404).json({ code: 404, message: 'Not Found' });
+  }
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');

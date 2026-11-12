@@ -41,7 +41,8 @@ var FIELD_DEFS = {
   visibleRoles: { type: 'array', required: false, default: [], description: '可见角色白名单（空数组=所有角色可见）：classAdmin / admin / officer / student' },
   config: { type: 'array', required: false, default: [], description: '配置项声明 [{key,label,type,required,default,description}]：安装时引导管理员填写，值存数据库 app_config 表（读取回退：DB → process.env → default）' }
 ,
-  shareTarget: { type: 'object', required: false, description: '接收分享声明 { title, accept: ["text","url"] }：让本应用出现在宿主的分享面板里' }
+  shareTarget: { type: 'object', required: false, description: '接收分享声明 { title, accept: ["text","url"] }：让本应用出现在宿主的分享面板里' },
+  minHostVersion: { type: 'string', required: false, description: '最低宿主版本（semver，如 "1.7.0"）：宿主低于此版本时拒绝安装/预览/挂载；格式校验在此，与宿主版本比较在安装与预览链路' }
 };
 
 // 配置项类型枚举（type 字段；secret 在管理端回显时打码）
@@ -162,6 +163,13 @@ function validateManifest(m) {
       '此应用要求 SDK v' + sdk + '，当前系统为 v' + CURRENT_SDK_VERSION +
       '——请升级 ClassIntra 后再安装'
     );
+  }
+
+  // ---- minHostVersion：最低宿主版本（格式校验；大小比较在安装/预览链路，需要宿主版本号） ----
+  if (m.minHostVersion !== undefined) {
+    if (typeof m.minHostVersion !== 'string' || !SEMVER_RE.test(m.minHostVersion)) {
+      errors.push('minHostVersion 应为 semver 字符串（如 "1.7.0"）');
+    }
   }
 
   // ---- capabilities 字段：披露用，非拦截 ----

@@ -6,6 +6,7 @@
 // POST /api/market/update             更新应用（仅管理员/班管）
 // POST /api/market/uninstall          卸载应用（仅管理员/班管）
 // POST /api/market/plugin-toggle      启用/暂停插件（仅管理员/班管）
+// *    /api/market/dev-preview        开发预览挂载/列表/注销（仅管理员 + CLASSINTRA_DEV_PREVIEW=1）
 
 var express = require('express');
 var router = express.Router();
@@ -413,6 +414,52 @@ router.get('/app-health', auth.requireAuth, auth.requireAdmin, function(req, res
     res.json({ code: 200, data: { apps: marketService.listAppHealth() } });
   } catch (e) {
     res.status(500).json({ code: 500, message: e.message || '读取健康数据失败' });
+  }
+});
+
+// ========== 开发预览（免安装挂载作者本地目录） ==========
+// 目标读者：第三方作者。在真实宿主里预览/调试本地包，跳过「打包 → 交市场 → 安装」链路。
+// 闸门：CLASSINTRA_DEV_PREVIEW=1 显式开启（生产实例不要开启）+ 管理员。
+// 与安装共用同一套校验器与热挂载管线，但不下载、不落盘、不写数据库，重启即清空。
+function _devPreviewGate(res) {
+  if (!marketService.devPreviewEnabled()) {
+    res.status(403).json({ code: 403, message: '开发预览未开启：需在服务端设置 CLASSINTRA_DEV_PREVIEW=1（仅限开发实例，生产不要开启）' });
+    return false;
+  }
+  return true;
+}
+
+// 挂载/刷新一个预览：body { dir: '<包目录绝对路径>' }。重复挂载同名包 = 刷新（后端改码热重载）
+router.post('/dev-preview', auth.requireAuth, auth.requireAdmin, function(req, res) {
+  if (!_devPreviewGate(res)) return;
+  var dir = req.body && req.body.dir;
+  if (!dir || typeof dir !== 'string') return res.status(400).json({ code: 400, message: '缺少包目录 dir（绝对路径）' });
+  try {
+    var app = marketService.mountPreviewApp(dir);
+    broadcastMarketChange('preview-mounted', app.name, app);
+    integrationEvents.emit('market.preview_mounted', { name: app.name, version: app.version, operator: req.user && req.user.user_id });
+    res.json({ code: 200, data: { app: app }, message: '预览已挂载，刷新宿主即可看到' });
+  } catch (e) {
+    console.error('[market] 预览挂载失败:', e.message);
+    res.status(400).json({ code: 400, message: e.message || '预览挂载失败' });
+  }
+});
+
+// 当前预览列表（客户端仅班管会话拉取，用于把预览应用并入桌面/路由）
+router.get('/dev-preview', auth.requireAuth, auth.requireAdmin, function(req, res) {
+  if (!_devPreviewGate(res)) return;
+  res.json({ code: 200, data: { apps: marketService.listPreviews() } });
+});
+
+// 注销预览
+router.delete('/dev-preview/:name', auth.requireAuth, auth.requireAdmin, function(req, res) {
+  if (!_devPreviewGate(res)) return;
+  try {
+    var result = marketService.unmountPreviewApp(req.params.name);
+    broadcastMarketChange('preview-unmounted', req.params.name, result);
+    res.json({ code: 200, data: result, message: '预览已注销' });
+  } catch (e) {
+    res.status(400).json({ code: 400, message: e.message || '注销失败' });
   }
 });
 

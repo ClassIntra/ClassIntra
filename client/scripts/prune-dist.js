@@ -8,7 +8,7 @@
  * 实测已堆到 11920 个文件 / 786MB（其中 index-*.js 就有 320 份）。
  *
  * 本脚本只删「确认不再被引用」的文件，且只在 dist/assets 下动手：带哈希的产物都落在这里，
- * 而根目录 index.html 与 public 拷贝（如 xgplayer/）是固定名、每次构建覆盖，不参与清理。
+ * 而根目录 index.html 与 public 拷贝是固定名、每次构建覆盖，不参与清理。
  *
  * 安全设计（四道，任意一道判"还在用"就保留）：
  *   1. 当前构建的 .vite/manifest.json（file / css / assets）

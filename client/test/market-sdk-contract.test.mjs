@@ -125,6 +125,26 @@ test('a typed response from the previous account cannot be delivered to the next
   await rejected;
 });
 
+test('typed requests honor a short timeout even when the adapter ignores timeout and signal', async () => {
+  const { createContext } = loadMarketSdk({ AbortController });
+  let signal;
+  const context = createContext('notes-demo', { api: { request: config => { signal = config.signal; return new Promise(() => {}); } } });
+  await assert.rejects(context.data.request({ url: '/notes-demo/slow', timeout: 10 }), error => error.code === 'SDK_TIMEOUT' && error.retryable);
+  assert.equal(signal.aborted, true);
+});
+
+test('already-aborted and unavailable typed requests never start network activity', async () => {
+  const { createContext } = loadMarketSdk({ AbortController });
+  let calls = 0;
+  const context = createContext('notes-demo', { api: { request: async () => { calls++; return envelope(false); } } });
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(context.data.request({ url: '/notes-demo/items', signal: controller.signal }), error => error.code === 'SDK_CANCELLED');
+  assert.equal(calls, 0);
+  const unavailable = createContext('notes-demo');
+  await assert.rejects(unavailable.data.request({ url: '/notes-demo/items' }), error => error.code === 'SDK_UNAVAILABLE');
+});
+
 test('asset URLs stay inside the package and encode filenames without changing queries', () => {
   const { createContext } = loadMarketSdk();
   const context = createContext('notes-demo');
@@ -223,6 +243,39 @@ test('theme tokens accept canonical CSS names and documented short names', () =>
   assert.equal(context.theme.getToken('color-primary'), '#123456');
 });
 
+test('theme unsubscribe and context disposal release each subscription once', () => {
+  const { createContext, EventEmitter } = loadMarketSdk();
+  const bus = new EventEmitter();
+  let removed = 0;
+  const context = createContext('notes-demo', { themeEngine: { subscribe: handler => {
+    const off = bus.on('theme', handler);
+    return () => { removed++; off(); };
+  } } });
+  let changes = 0;
+  const stop = context.theme.subscribe(() => changes++);
+  bus.emit('theme', { id: 'dark' });
+  stop();
+  stop();
+  context.__internal.dispose();
+  context.theme.subscribe(() => changes++);
+  bus.emit('theme', { id: 'light' });
+  assert.equal(changes, 1);
+  assert.equal(removed, 1);
+  assert.equal(bus.listenerCount('theme'), 0);
+});
+
+test('different invalid room names are rejected instead of collapsing into an existing room', async () => {
+  const { createContext } = loadMarketSdk();
+  const sent = [];
+  const context = createContext('notes-demo', { api: { post: async (url, body) => { sent.push(body.channel); return envelope({}); } } });
+  for (const room of ['room!', 'room?', 'a'.repeat(41)]) {
+    assert.equal(context.data.channels.nameOf(room), '');
+    await assert.rejects(context.data.channels.join(room), /房间名/);
+  }
+  await context.data.channels.join('room');
+  assert.deepEqual(sent, ['app:notes-demo:room']);
+});
+
 test('search providers unregister on context disposal', async () => {
   const { createContext, SearchRegistry } = loadMarketSdk();
   const searchRegistry = new SearchRegistry();
@@ -271,6 +324,58 @@ test('datastore rejects business errors returned with HTTP 200', async () => {
   } });
   await assert.rejects(context.data.store.keys(), /应用已停用/);
   await assert.rejects(context.data.store.set('draft', 'text'), /超出配额/);
+});
+
+test('datastore refuses new writes after disposal and missing methods reject asynchronously', async () => {
+  const { createContext } = loadMarketSdk();
+  let writes = 0;
+  const context = createContext('notes-demo', { api: {
+    get: async () => envelope({}), put: async () => { writes++; return envelope({}); }
+  } });
+  context.__internal.dispose();
+  await assert.rejects(context.data.store.set('draft', 'text'), /已销毁/);
+  assert.equal(writes, 0);
+  const incomplete = createContext('notes-demo', { api: { get: async () => envelope({}) } });
+  let operation;
+  assert.doesNotThrow(() => { operation = incomplete.data.store.set('draft', 'text'); });
+  await assert.rejects(operation, /api|接口/);
+});
+
+test('malformed datastore payloads are errors rather than empty lists or a missing draft', async () => {
+  const { createContext } = loadMarketSdk();
+  const context = createContext('notes-demo', { api: { get: async () => envelope({ keys: 'broken', values: [], blobs: null }) } });
+  for (const operation of [() => context.data.store.get('draft'), () => context.data.store.keys(), () => context.data.store.all(), () => context.data.store.listBlobs()]) {
+    await assert.rejects(operation(), /数据|响应/);
+  }
+});
+
+test('private datastore results from a previous account never reach the next account', async () => {
+  const { createContext } = loadMarketSdk();
+  const started = deferred();
+  const request = deferred();
+  const store = { state: { auth: { user: { user_id: 'alice' }, token: 'a' } } };
+  const context = createContext('notes-demo', { store, api: { get: () => { started.resolve(); return request.promise; } } });
+  const operation = context.data.store.get('draft');
+  const rejected = assert.rejects(operation, /账号/);
+  await started.promise;
+  store.state.auth = { user: { user_id: 'bob' }, token: 'b' };
+  request.resolve(envelope({ value: 'Alice private draft' }));
+  await rejected;
+});
+
+test('a missing-key response for the previous account is not a missing draft for the next user', async () => {
+  const { createContext } = loadMarketSdk();
+  const started = deferred();
+  let reject;
+  const pending = new Promise((resolve, fail) => { reject = fail; });
+  const store = { state: { auth: { user: { user_id: 'alice' }, token: 'a' } } };
+  const context = createContext('notes-demo', { store, api: { get: () => { started.resolve(); return pending; } } });
+  const operation = context.data.store.get('draft');
+  const rejected = assert.rejects(operation, /账号/);
+  await started.promise;
+  store.state.auth = { user: { user_id: 'bob' }, token: 'b' };
+  reject({ response: { status: 404, data: { code: 404, message: '键不存在' } } });
+  await rejected;
 });
 
 test('a blob request completing after disposal cannot create a leaking object URL', async () => {

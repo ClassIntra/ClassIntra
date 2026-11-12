@@ -191,6 +191,19 @@ var PERMISSION_LABELS = {
 var sharedIncoming = null;
 var contextSequence = 0;
 
+// 宿主版本登记（main.js 启动时从 /api/system/version 取回后写入；
+// createContext 的 context.host 与 market-registry 的挂载闸都读它）
+var hostVersionInfo = { version: '', at: 0 };
+function setHostVersion(version) {
+  var v = String(version || '').trim().replace(/^v/, '');
+  if (!/^\d+\.\d+\.\d+/.test(v)) return false;
+  hostVersionInfo = { version: v, at: Date.now() };
+  return true;
+}
+function getHostVersion() {
+  return hostVersionInfo.version || '';
+}
+
 // 内存缓存（当前会话）：key = app + ':' + capability，值 true/false
 var permissionCache = {};
 // 并发去重：同一能力同时被调两次，只弹一个窗口
@@ -200,6 +213,12 @@ function permissionIdentity(d) {
   var auth = d.store && d.store.state && d.store.state.auth;
   var user = auth && auth.user;
   return JSON.stringify([user && (user.user_id || user.id) || '', auth && auth.token || '']);
+}
+
+function accountIdentity(d) {
+  var auth = d.store && d.store.state && d.store.state.auth;
+  var user = auth && auth.user;
+  return JSON.stringify([user && (user.user_id || user.id) || '', !!(auth && auth.token)]);
 }
 
 function _permKey(appName, capability, identity) {
@@ -612,9 +631,9 @@ function deviceInfo() {
 }
 
 // 文件选择：返回 File[]，用户取消时 resolve([])（不 reject，避免第三方写 catch 分支）
-function pickFiles(appName, options) {
+function pickFiles(appName, options, d) {
   var opts = options || {};
-  if (typeof document === 'undefined') return Promise.resolve([]);
+  if (typeof document === 'undefined' || d.isDisposed()) return Promise.resolve([]);
   return new Promise(function(resolve) {
     var input = document.createElement('input');
     input.type = 'file';
@@ -627,9 +646,12 @@ function pickFiles(appName, options) {
 
     var settled = false;
     var timer = null;
+    var cancelCleanup = null;
 
     function cleanup() {
+      if (cancelCleanup) cancelCleanup();
       if (timer) { clearTimeout(timer); timer = null; }
+      input.removeEventListener('change', onChange);
       try { window.removeEventListener('focus', onFocus); } catch (e) {}
       try {
         if (input.parentNode) input.parentNode.removeChild(input);
@@ -645,20 +667,23 @@ function pickFiles(appName, options) {
 
     function onFocus() {
       // 某些内核不触发 change：回到焦点后给 600ms 宽限，仍为空视为取消
-      setTimeout(function() {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(function() {
         if (!settled) finish([]);
       }, 600);
     }
 
-    input.addEventListener('change', function() {
+    function onChange() {
       var out = [];
       var list = input.files || [];
       for (var i = 0; i < list.length; i++) out.push(list[i]);
       finish(out);
-    });
+    }
+    input.addEventListener('change', onChange);
 
     try { window.addEventListener('focus', onFocus); } catch (e) {}
     document.body.appendChild(input);
+    cancelCleanup = d.registerCleanup(function() { finish([]); });
     try {
       input.click();
     } catch (e) {
@@ -1184,6 +1209,7 @@ function readToken(name) {
 function createThemeApi(d) {
   var engine = d.themeEngine || null;
   var subs = [];
+  var disposed = false;
 
   function delegate(name) {
     return function() {
@@ -1201,18 +1227,23 @@ function createThemeApi(d) {
     },
     getToken: readToken,
     subscribe: function(fn) {
-      if (typeof fn !== 'function' || !engine || typeof engine.subscribe !== 'function') {
+      if (disposed || typeof fn !== 'function' || !engine || typeof engine.subscribe !== 'function') {
         return function() {};
       }
-      var stop = engine.subscribe(function(payload) {
+      var active = true;
+      var rawStop = engine.subscribe(function(payload) {
+        if (!active || disposed) return;
         try { fn((payload && payload.id) || '', payload || {}); } catch (e) {}
       });
-      subs.push(stop);
-      return function() {
-        try { stop(); } catch (e) {}
+      function stop() {
+        if (!active) return;
+        active = false;
+        try { if (typeof rawStop === 'function') rawStop(); } catch (e) {}
         var idx = subs.indexOf(stop);
         if (idx !== -1) subs.splice(idx, 1);
-      };
+      }
+      subs.push(stop);
+      return stop;
     },
     // —— ThemeEngine 透传（向后兼容 v1）——
     setTheme: delegate('setTheme'),
@@ -1222,8 +1253,11 @@ function createThemeApi(d) {
     listThemes: delegate('listThemes'),
     registerTheme: delegate('registerTheme'),
     __dispose: function() {
-      for (var i = subs.length - 1; i >= 0; i--) {
-        try { subs[i](); } catch (e) {}
+      if (disposed) return;
+      disposed = true;
+      var pending = subs.slice();
+      for (var i = pending.length - 1; i >= 0; i--) {
+        try { pending[i](); } catch (e) {}
       }
       subs = [];
     }
@@ -1476,8 +1510,23 @@ function createContext(appName, deps) {
   d.registerCleanup = appApi.onDestroy;
   var objectUrls = [];
 
-  function apiReady() {
-    return !!(d.api && typeof d.api.get === 'function');
+  function storeRequest(method, url, body, options) {
+    var identity = accountIdentity(d);
+    function checkState() {
+      if (_disposed) throw new Error('应用上下文已销毁');
+      if (identity !== accountIdentity(d)) throw new Error('账号已切换，请重新读取数据');
+    }
+    return Promise.resolve().then(function() {
+      checkState();
+      if (!d.api || typeof d.api[method] !== 'function') throw new Error('api 接口不可用: ' + method);
+      return method === 'get' || method === 'delete' ? d.api[method](url, options) : d.api[method](url, body, options);
+    }).then(function(response) {
+      checkState();
+      return response;
+    }, function(error) {
+      checkState();
+      throw error;
+    });
   }
 
   function responseData(response) {
@@ -1491,13 +1540,22 @@ function createContext(appName, deps) {
     return body.data;
   }
 
+  function storeData(response, field, kind) {
+    var data = responseData(response);
+    var value = data && data[field];
+    var valid = data && Object.prototype.hasOwnProperty.call(data, field);
+    if (kind === 'array') valid = valid && Array.isArray(value);
+    if (kind === 'object') valid = valid && value !== null && typeof value === 'object' && !Array.isArray(value);
+    if (kind === 'boolean') valid = valid && typeof value === 'boolean';
+    if (!valid) throw new Error('存储响应数据无效: ' + field);
+    return value;
+  }
+
   var storeApi = {
     // 读一个键；不存在返回 null（不抛 404，省掉调用方一次 catch）
     get: function(key) {
-      if (!apiReady()) return Promise.reject(new Error('api 不可用'));
-      return d.api.get(storeBase + '/kv/' + encodeURIComponent(key)).then(function(res) {
-        var data = responseData(res);
-        return data ? data.value : null;
+      return storeRequest('get', storeBase + '/kv/' + encodeURIComponent(key)).then(function(res) {
+        return storeData(res, 'value');
       }).catch(function(err) {
         var response = err && err.response;
         if (response && response.status === 404 && response.data && response.data.message === '键不存在') return null;
@@ -1505,47 +1563,37 @@ function createContext(appName, deps) {
       });
     },
     set: function(key, value) {
-      if (!apiReady()) return Promise.reject(new Error('api 不可用'));
-      return d.api.put(storeBase + '/kv/' + encodeURIComponent(key), { value: value }).then(function(res) {
+      return storeRequest('put', storeBase + '/kv/' + encodeURIComponent(key), { value: value }).then(function(res) {
         responseData(res);
         return true;
       });
     },
     remove: function(key) {
-      if (!apiReady()) return Promise.reject(new Error('api 不可用'));
-      return d.api.delete(storeBase + '/kv/' + encodeURIComponent(key)).then(function(res) {
-        var data = responseData(res);
-        return !!(data && data.removed);
+      return storeRequest('delete', storeBase + '/kv/' + encodeURIComponent(key)).then(function(res) {
+        return storeData(res, 'removed', 'boolean');
       });
     },
     keys: function() {
-      if (!apiReady()) return Promise.reject(new Error('api 不可用'));
-      return d.api.get(storeBase + '/kv').then(function(res) {
-        var data = responseData(res);
-        return data ? data.keys : [];
+      return storeRequest('get', storeBase + '/kv').then(function(res) {
+        return storeData(res, 'keys', 'array');
       });
     },
     // 一次取回全部（应用启动时同步用）
     all: function() {
-      if (!apiReady()) return Promise.reject(new Error('api 不可用'));
-      return d.api.get(storeBase + '/kv/all').then(function(res) {
-        var data = responseData(res);
-        return data ? data.values : {};
+      return storeRequest('get', storeBase + '/kv/all').then(function(res) {
+        return storeData(res, 'values', 'object');
       });
     },
 
     // ---- 文件 ----
     listBlobs: function() {
-      if (!apiReady()) return Promise.reject(new Error('api 不可用'));
-      return d.api.get(storeBase + '/blobs').then(function(res) {
-        var data = responseData(res);
-        return data ? data.blobs : [];
+      return storeRequest('get', storeBase + '/blobs').then(function(res) {
+        return storeData(res, 'blobs', 'array');
       });
     },
     uploadBlob: function(name, file, mime) {
-      if (!apiReady()) return Promise.reject(new Error('api 不可用'));
       var type = mime || (file && file.type) || 'application/octet-stream';
-      return d.api.put(storeBase + '/blobs/' + encodeURIComponent(name), file, {
+      return storeRequest('put', storeBase + '/blobs/' + encodeURIComponent(name), file, {
         headers: { 'Content-Type': type }
       }).then(function(res) {
         return responseData(res);
@@ -1553,8 +1601,7 @@ function createContext(appName, deps) {
     },
     // 取可用的 object URL（<img> 不能带 Authorization，所以先下载再本地化）
     getBlobUrl: function(name) {
-      if (!apiReady()) return Promise.reject(new Error('api 不可用'));
-      return d.api.get(storeBase + '/blobs/' + encodeURIComponent(name), { responseType: 'blob' }).then(function(res) {
+      return storeRequest('get', storeBase + '/blobs/' + encodeURIComponent(name), null, { responseType: 'blob' }).then(function(res) {
         if (_disposed) throw new Error('应用上下文已销毁');
         var url = URL.createObjectURL(res.data);
         objectUrls.push(url);
@@ -1569,10 +1616,8 @@ function createContext(appName, deps) {
       return true;
     },
     deleteBlob: function(name) {
-      if (!apiReady()) return Promise.reject(new Error('api 不可用'));
-      return d.api.delete(storeBase + '/blobs/' + encodeURIComponent(name)).then(function(res) {
-        var data = responseData(res);
-        return !!(data && data.removed);
+      return storeRequest('delete', storeBase + '/blobs/' + encodeURIComponent(name)).then(function(res) {
+        return storeData(res, 'removed', 'boolean');
       });
     }
   };
@@ -1582,7 +1627,8 @@ function createContext(appName, deps) {
   // 好处是应用代码里不可能误发到别人的频道；服务端还会二次校验该应用是否启用。
   // 与全局 realtime.publish 的区别：那个是「向全校广播」，这个是「只给同房间的人」。
   function channelFullName(room) {
-    var clean = String(room || '').replace(/[^A-Za-z0-9_.:-]/g, '').slice(0, 40);
+    var clean = room === null || room === undefined ? '' : String(room);
+    if (!/^[A-Za-z0-9_.:-]{1,40}$/.test(clean)) return '';
     return clean ? ('app:' + appName + ':' + clean) : '';
   }
 
@@ -1696,9 +1742,7 @@ function createContext(appName, deps) {
       isDisposed: d.isDisposed,
       onDestroy: appApi.onDestroy,
       getIdentity: function() {
-        var auth = d.store && d.store.state && d.store.state.auth;
-        var user = auth && auth.user;
-        return JSON.stringify([user && (user.user_id || user.id) || '', !!(auth && auth.token)]);
+        return accountIdentity(d);
       }
     }),
     api: d.api || null,
@@ -1942,7 +1986,7 @@ function createContext(appName, deps) {
   var deviceApi = {
     info: deviceInfo,
     filePicker: function(options) {
-      return pickFiles(appName, options);
+      return pickFiles(appName, options, d);
     },
     camera: function(options) {
       return ensurePermission(d, appName, 'device.camera').then(function() {
@@ -2014,6 +2058,39 @@ function createContext(appName, deps) {
     clear: function() { navbarStore.clear(appName); }
   };
 
+  // --- 宿主版本与能力探测（context.host）---
+  // 宿主版本由 main.js 在启动时从 /api/system/version 取回后经 setHostVersion 登记；
+  // 未取到（接口失败/旧宿主）时为空串，atLeast 返回 false、调用方应按「未知」处理。
+  var hostApi = {
+    // 宿主版本（semver 字符串，如 '1.7.0'；未知为 ''）
+    get version() { return hostVersionInfo.version || ''; },
+    // 宿主版本是否 >= 最低要求；宿主版本未知时一律 false（宁可明确不满足，不要假装满足）
+    atLeast: function(min) {
+      var target = String(min || '').replace(/^v/, '');
+      var host = hostVersionInfo.version || '';
+      if (!host || !/^\d+\.\d+\.\d+/.test(target)) return false;
+      var a = host.split('.');
+      var b = target.split('.');
+      for (var i = 0; i < 3; i++) {
+        var x = parseInt(a[i], 10) || 0;
+        var y = parseInt(b[i], 10) || 0;
+        if (x !== y) return x > y;
+      }
+      return true;
+    },
+    // 方法存在性探测：supports('data.request')、supports('ui.hostNavbar.setTitle')。
+    // SDK v1 契约只承诺主版本兼容——宿主后续追加的方法必须先探测再调用（见 devkit/COMPAT.md）。
+    supports: function(dottedPath) {
+      var parts = String(dottedPath || '').split('.');
+      var cur = context;
+      for (var i = 0; i < parts.length; i++) {
+        if (!cur || typeof cur !== 'object') return false;
+        cur = cur[parts[i]];
+      }
+      return typeof cur === 'function';
+    }
+  };
+
   // --- 组装 context ---
   var context = {
     appName: appName,
@@ -2025,6 +2102,7 @@ function createContext(appName, deps) {
     theme: themeApi,
     app: appApi,
     compat: compatApi,
+    host: hostApi,
 
     // ---- 以下为向后兼容层（v1 旧字段），保证既有第三方应用不失效 ----
     // TODO: v2 移除
@@ -2092,6 +2170,8 @@ function createContext(appName, deps) {
 
 export {
   createContext,
+  setHostVersion,
+  getHostVersion,
   createNamespacedStorage,
   detectChromeVersion,
   detectIsX5,

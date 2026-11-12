@@ -132,6 +132,29 @@ export interface ModalOptions {
   cancelText?: string;
 }
 
+/** A single SDK call, inheriting the host client's authentication behavior. */
+export interface SdkRequestOptions {
+  /** Relative to /api; e.g. /notes/items, not a full external URL. */
+  url: string;
+  method?: 'get' | 'post' | 'put' | 'patch' | 'delete' | 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  params?: Record<string, unknown>;
+  data?: unknown;
+  headers?: Record<string, string>;
+  /** Milliseconds; default 10000; 0 disables the request timeout. */
+  timeout?: number;
+  signal?: AbortSignal;
+}
+
+/** Stable error shape returned by data.request. `retryable` is guidance only. */
+export interface SdkRequestError extends Error {
+  name: 'SdkRequestError';
+  code: string;
+  status: number;
+  details: unknown;
+  retryable: boolean;
+  retryAfterMs: number | null;
+}
+
 /** 角色层级（由低到高）；can('officer') 表示「至少是班干」 */
 export type AppRole = 'guest' | 'student' | 'officer' | 'admin' | 'classAdmin';
 
@@ -208,6 +231,8 @@ export interface MarketContext {
 
   // ---- context.data：数据能力 ----
   data: {
+    /** Unwrap { code: 200, data }, reject business errors and cancel on app disposal. */
+    request<T = unknown>(options: SdkRequestOptions): Promise<T>;
     /** 宿主 axios 实例（自动带登录态与统一错误处理） */
     api: ApiClient | null;
     /** 全局实时总线（与宿主共用一条连接；X5 等环境自动降级为 HTTP 长轮询） */
@@ -423,6 +448,19 @@ export interface MarketContext {
     isBelowBaseline: boolean;
   };
 
+  // ---- context.host：宿主版本与方法存在性探测（v1 后期追加，旧宿主可能没有——先 `in` 探测再用） ----
+  host: {
+    /** 宿主版本（semver，如 '1.7.0'）；取不到（接口失败/旧宿主）为空串 */
+    readonly version: string;
+    /** 宿主版本是否 >= 最低要求；宿主版本未知时一律 false（按「不满足」处理，不要当成功） */
+    atLeast(min: string): boolean;
+    /**
+     * 方法存在性探测：'data.request' / 'ui.hostNavbar.setTitle' / 'system.registerSearchProvider'…
+     * SDK v1 只承诺主版本兼容——宿主后续追加的方法先探测再调用，逐方法矩阵见 devkit/COMPAT.md
+     */
+    supports(dottedPath: string): boolean;
+  };
+
   // ---- v1 兼容别名（TODO: v2 移除，新代码不要依赖） ----
   /** @deprecated 用 context.data.api */
   readonly api: ApiClient | null;
@@ -477,6 +515,7 @@ export interface ChannelsApi {
   /** 房间与在线人数（不暴露成员 ID） */
   members(room: string): Promise<{ channel: string; count: number }>;
   /** 完整频道名（调试/日志用）：nameOf('world') → 'app:shiguang:world' */
+  /** 房间名须为 1–40 位字母、数字、_ . : -；非法时返回空串 */
   nameOf(room: string): string;
 }
 
@@ -509,6 +548,7 @@ export interface StoreApi {
 
 /** 宿主 API 客户端（axios 封装；响应为后端统一 { code, message, data? } 结构） */
 export interface ApiClient {
+  request(config: Record<string, unknown>): Promise<any>;
   get(url: string, config?: Record<string, unknown>): Promise<any>;
   post(url: string, body?: unknown, config?: Record<string, unknown>): Promise<any>;
   put(url: string, body?: unknown, config?: Record<string, unknown>): Promise<any>;

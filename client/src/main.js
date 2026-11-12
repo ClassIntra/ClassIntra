@@ -124,7 +124,7 @@ import { getSearchRegistry } from '@/core/search-registry';
 import { getIntegrationManager } from '@/integrations';
 import { getRuntimeKernel } from '@/core/runtime-kernel';
 import { getPerfPolicy } from '@/core/perf-policy';
-import { createContext } from '@/core/market-sdk';
+import { createContext, setHostVersion, getHostVersion } from '@/core/market-sdk';
 import { report as reportMarketError } from '@/core/market-error-report';
 import api from '@/utils/api';
 import wsManager from '@/utils/websocket';
@@ -443,11 +443,21 @@ boot.onStage('sdk', 'sdkExpose', function() {
     // 模块注册表摘要：应用/插件/主题/组件的数量
     moduleSummary: function() {
       try { return kernel.modules.summary(); } catch (e) { return {}; }
-    }
+    },
+
+    // 宿主版本（minHostVersion 挂载闸 / context.host 的数据源；启动期从 /system/version 登记）
+    getHostVersion: function() { return getHostVersion(); }
   };
 
   window.ClassIntraMarket = marketSdk;
   window.ClassIntra = window.ClassIntraMarket; // 别名（文档中的 window.ClassIntra 写法）
+
+  // 宿主版本登记（fire-and-forget）：context.host / market-registry 挂载闸依赖它。
+  // update-checker 也会拉同一接口做升级检查——这里独立取一次，保证不依赖升级检查的触发时机。
+  api.get('/system/version', { timeout: 8000 }).then(function(response) {
+    var info = response && response.data && response.data.data;
+    if (info && info.version) setHostVersion(info.version);
+  }).catch(function() { /* 拉不到时 host.version 为空串，atLeast 按「未知」处理 */ });
 });
 
 // ---------- 阶段：sdk（扩展主题注册） ----------

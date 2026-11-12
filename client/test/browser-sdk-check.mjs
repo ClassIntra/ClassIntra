@@ -13,6 +13,8 @@ const sdk = moduleSource('market-sdk-request.js') + '\n' + moduleSource('token-i
   '\nreturn {setTitle,setStatus,setActions,clear};})();\n' + moduleSource('market-sdk.js');
 const root = mkdtempSync(path.join(os.tmpdir(), 'classintra-browser-sdk-'));
 let entry;
+const guide = readFileSync(new URL('../../devkit/SDK.md', import.meta.url), 'utf8');
+const documentedEntry = guide.match(/```js\s*\n([\s\S]*?)```/)[1];
 try {
   const app = create('app', 'browser-demo', { dir: root });
   entry = readFileSync(path.join(app.dir, 'frontend', 'entry.js'), 'utf8');
@@ -62,6 +64,27 @@ const suite = async function() {
     cleanups.reverse().forEach(fn => fn());
     button.click();
     assert(data.count === 1, 'app event listener leaked');
+    container.remove();
+  });
+  await check('the distributed SDK guide example runs and reports storage failures truthfully', () => {
+    const container = document.createElement('main');
+    document.body.appendChild(container);
+    const cleanups = [];
+    let saved = 0;
+    let canSave = true;
+    window.__sdkGuideDefinition.mount(container, {
+      ui,
+      data: { storage: { get: () => saved, set: (key, value) => { if (!canSave) return false; saved = value; return true; } } },
+      app: { onDestroy: fn => cleanups.push(fn) }
+    });
+    const button = container.querySelector('button');
+    button.click();
+    assert(saved === 1 && container.textContent.includes('已保存：1'), 'guide example did not save visibly');
+    canSave = false;
+    button.click();
+    assert(saved === 1 && container.textContent.includes('保存失败'), 'guide example claimed a failed save succeeded');
+    cleanups.reverse().forEach(fn => fn());
+    assert(!container.querySelector('button'), 'guide example did not clean up DOM');
     container.remove();
   });
   for (const method of ['recordAudio', 'recordVideo']) {
@@ -116,8 +139,39 @@ const suite = async function() {
       else delete navigator.clipboard;
     }
   });
+  await check('file picker closes and resolves an empty selection on context disposal', async () => {
+    const originalClick = HTMLInputElement.prototype.click;
+    HTMLInputElement.prototype.click = function() {};
+    const context = createContext('file-demo');
+    try {
+      const operation = context.device.filePicker();
+      assert(document.querySelector('input[type="file"]'), 'file input did not mount');
+      context.__internal.dispose();
+      const files = await Promise.race([operation, new Promise(resolve => setTimeout(() => resolve(null), 100))]);
+      assert(Array.isArray(files) && files.length === 0, 'file picker remains pending after leaving app');
+      assert(!document.querySelector('input[type="file"]'), 'file input remains mounted');
+    } finally {
+      context.__internal.dispose();
+      HTMLInputElement.prototype.click = originalClick;
+    }
+  });
+  await check('typed requests cancel on disposal in the browser and keep legacy responses intact', async () => {
+    let signal;
+    const raw = { data: { code: 200, data: 7 } };
+    const context = createContext('request-demo', { api: {
+      request: config => { signal = config.signal; return new Promise(() => {}); },
+      get: async () => raw
+    } });
+    assert(await context.data.get('/request-demo/item') === raw, 'legacy response changed');
+    const outcome = context.data.request({ url: '/request-demo/item' }).then(() => 'success', error => error.code);
+    await Promise.resolve();
+    context.__internal.dispose();
+    assert(await outcome === 'SDK_DISPOSED', 'request did not reject on disposal');
+    assert(signal.aborted, 'transport signal remains active');
+  });
   delete window.__sdkSmokeDefinition;
+  delete window.__sdkGuideDefinition;
   delete window.ClassIntraMarket;
   return { passed: results.filter(result => result.passed).length, failed: results.filter(result => !result.passed).length, results };
 };
-process.stdout.write('(function() {\n' + ui + '\n' + sdk + '\nwindow.ClassIntraMarket = { define: function(def) { window.__sdkSmokeDefinition = def; } };\n' + entry + '\nreturn (' + suite.toString() + ')();\n})()');
+process.stdout.write('(function() {\n' + ui + '\n' + sdk + '\nwindow.ClassIntraMarket = { define: function(def) { window.__sdkSmokeDefinition = def; } };\n' + entry + '\nwindow.ClassIntraMarket.define = function(def) { window.__sdkGuideDefinition = def; };\n' + documentedEntry + '\nreturn (' + suite.toString() + ')();\n})()');

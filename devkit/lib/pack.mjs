@@ -65,6 +65,13 @@ export function mergeIndex(indexPath, collected, options) {
     } catch (e) {
       throw new Error('现有 index.json 解析失败: ' + e.message);
     }
+    if (!index || typeof index !== 'object' || Array.isArray(index)) throw new Error('现有 index.json 必须是对象，已保留原文件');
+    for (const section of ['apps', 'plugins', 'themes']) {
+      if (index[section] !== undefined && !Array.isArray(index[section])) throw new Error('现有 index.json 的 ' + section + ' 必须是数组，已保留原文件');
+    }
+    if (index.version !== undefined && (!Number.isSafeInteger(index.version) || index.version < 0)) {
+      throw new Error('现有 index.json 的 version 必须是非负整数，已保留原文件');
+    }
   }
   if (!Array.isArray(index.apps)) index.apps = [];
   if (!Array.isArray(index.plugins)) index.plugins = [];
@@ -91,6 +98,12 @@ export function mergeIndex(indexPath, collected, options) {
   index.updated_at = new Date().toISOString();
 
   fs.mkdirSync(path.dirname(abs), { recursive: true });
-  fs.writeFileSync(abs, JSON.stringify(index, null, 2) + '\n', 'utf8');
+  const temporary = abs + '.' + crypto.randomBytes(8).toString('hex') + '.tmp';
+  try {
+    fs.writeFileSync(temporary, JSON.stringify(index, null, 2) + '\n', { encoding: 'utf8', flag: 'wx' });
+    fs.renameSync(temporary, abs);
+  } finally {
+    if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
+  }
   return { index: abs, replaced: idx >= 0, section: collected.section, name: collected.name, version: index.version };
 }

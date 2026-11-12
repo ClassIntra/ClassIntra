@@ -3,6 +3,7 @@ import VueRouter from 'vue-router';
 import api from '@/utils/api';
 import { appRoutes, ROUTE_APP_MAP } from '@/core/router-aggregator';
 import { loadManifests } from '@/core/manifest-loader';
+import { marketRegistry } from '@/core/market-registry';
 import MarketRuntime from '@/components/MarketRuntime.vue';
 
 Vue.use(VueRouter);
@@ -174,6 +175,13 @@ router.beforeEach(function(to, from, next) {
   // 只对登录用户生效（游客访问 requiresAuth:false 的应用，如音乐）；应用管控不再依赖 requiresAuth 标记
   var appName = ROUTE_APP_MAP[to.path];
   if (appName && token) {
+    // 开发预览应用：不落 app_control（内存态、随挂载存在），清单在即放行。
+    // 挂载/注销由 devkit preview 管理，走这里的应用管控会把预览一律弹回桌面。
+    var routeApp = marketRegistry.getInstalled(appName);
+    if (routeApp && routeApp._preview) {
+      proceedWithAdminCheck(to, next);
+      return;
+    }
     // 管理员/班干不受应用管控限制（确保能管理）
     var isAdminUser = user && (user.is_admin === 1 || user.is_admin === true || user.is_class_admin === true || user.role === 'officer');
     if (isAdminUser && !to.meta.market) {

@@ -74,7 +74,8 @@ function registerOverlayDefinition(definition) {
 function overlayUrl(app) {
   var entry = app && app.overlayEntry;
   if (!entry) return '';
-  return '/market-static/' + app.name + '/' + String(entry).replace(/^\.\//, '');
+  // 预览应用走服务端 /market-static-dev/ 前缀（_staticBase 由描述符透传）
+  return (app._staticBase || '/market-static/' + app.name + '/') + String(entry).replace(/^\.\//, '');
 }
 
 // 摘除单个悬浮层：onDestroy 契约 → 应用 unmount → 资源审计回收 → 移除 DOM/script
@@ -136,14 +137,14 @@ function mountOne(app, generation, retryCount) {
     if (app.frontendStyle) {
       var link = document.createElement('link');
       link.rel = 'stylesheet';
-      link.href = '/market-static/' + app.name + '/' + String(app.frontendStyle).replace(/^\.\//, '') +
-        '?v=' + encodeURIComponent(app.version || '');
+      link.href = (app._staticBase || '/market-static/' + app.name + '/') + String(app.frontendStyle).replace(/^\.\//, '') +
+        '?' + (app._preview ? 't=' + encodeURIComponent(app._previewAt || '') : 'v=' + encodeURIComponent(app.version || ''));
       link.dataset.marketOverlay = app.name;
       loadedStyles[app.name] = link;
       document.head.appendChild(link);
     }
     var script = document.createElement('script');
-    script.src = url + '?v=' + encodeURIComponent(app.version || '');
+    script.src = url + '?' + (app._preview ? 't=' + encodeURIComponent(app._previewAt || '') : 'v=' + encodeURIComponent(app.version || ''));
     script.async = true;
     script.onload = function() {
       if (generation !== (loadGeneration[app.name] || 0)) return resolve(false);

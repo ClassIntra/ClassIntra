@@ -273,10 +273,14 @@ function _loadRouter(manifest, baseDir) {
   _clearRequireCache(appDir);
   var moduleLib = require('module');
   var dependencyPath = path.join(rootDir, 'server', 'node_modules');
+  // plugins/ 一并注入：第三方后端统一 require('_sdk/backend/host') 引用宿主能力，
+  // 不再直连 ../../../server/src/... 内部路径（门面见 plugins/_sdk/backend/host.js）
+  var pluginSdkPath = path.join(rootDir, 'plugins');
   var nodePaths = (process.env.NODE_PATH || '').split(path.delimiter).filter(function(item) {
     return item;
   });
   if (nodePaths.indexOf(dependencyPath) === -1) nodePaths.push(dependencyPath);
+  if (nodePaths.indexOf(pluginSdkPath) === -1) nodePaths.push(pluginSdkPath);
   process.env.NODE_PATH = nodePaths.join(path.delimiter);
   moduleLib.Module._initPaths();
   return require(entryPath);
@@ -525,65 +529,74 @@ function _scanInstalledRaw() {
 }
 
 // 对外：已安装列表（含图标 URL / 安装时间）
+// 客户端描述符（已安装列表与开发预览共用一个形状，字段新增须两处同步语义）
+// staticBase：该应用静态资源的 URL 前缀——正常安装是 /market-static/<name>/，
+// 开发预览是 /market-static-dev/<name>/（资源从作者本地目录实时读取）。
+function _clientDescriptor(m, staticBase, source, enabled, atMs) {
+  var icon = m.icon || '';
+  if (icon.indexOf('./') === 0) icon = staticBase + icon.replace(/^\.\//, '');
+  return {
+    name: m.name,
+    label: m.label,
+    version: m.version || '0.0.0',
+    // 最低宿主版本：客户端挂载前的第二道闸（服务端已在安装/预览时拦过）
+    minHostVersion: m.minHostVersion || '',
+    description: m.description || '',
+    author: m.author || '',
+    icon: icon,
+    color: m.color || '',
+    category: m.category || 'desktop',
+    // 能力披露：安装前告知用户「这个应用会用到什么」。
+    // 非拦截（开放模型），仅用于 UI 展示与市场审核参考。
+    capabilities: Array.isArray(m.capabilities) ? m.capabilities : [],
+    // 布局偏好透传（如 navbar: 'custom' 让应用自绘标题栏）
+    layout: m.layout || null,
+    route: m.frontend && m.frontend.route ? m.frontend.route : '',
+    frontendEntry: m.frontend && m.frontend.entry ? m.frontend.entry : '',
+    frontendStyle: m.frontend && m.frontend.style ? m.frontend.style : '',
+    // 静态站点迁入（iframe 形态）：首页相对路径
+    frontendStatic: m.frontend && m.frontend.static ? m.frontend.static : '',
+    // 独立端口型后端：主服务 spawn 子进程并把 mountPath 反代到 127.0.0.1:port
+    hasProcess: !!(m.backend && m.backend.process),
+    processPort: m.backend && m.backend.process ? (m.backend.process.port || null) : null,
+    // 全局悬浮层入口（可选）：非空表示宿主会在任意页面加载并挂载该悬浮层
+    overlayEntry: m.frontend && m.frontend.overlay ? m.frontend.overlay : '',
+    // 接收分享声明：透传给客户端，宿主的分享面板据此列出可接收的应用
+    shareTarget: (m.shareTarget && typeof m.shareTarget === 'object')
+      ? { title: String(m.shareTarget.title || '').slice(0, 40), accept: Array.isArray(m.shareTarget.accept) ? m.shareTarget.accept.slice(0, 5) : ['text'] }
+      : null,
+    // 桌面小组件声明（可选）：去掉 component 字段（市场应用的 widget 渲染入口
+    // 在 entry.js 的 definition.widgets 契约上，manifest 中的 component 不生效）
+    widgets: (m.frontend && Array.isArray(m.frontend.widgets) ? m.frontend.widgets : []).map(function(w) {
+      return {
+        id: w.id,
+        name: w.name,
+        description: w.description || '',
+        defaultSize: w.defaultSize || { w: 2, h: 2 },
+        minSize: w.minSize || { w: 1, h: 1 },
+        maxSize: w.maxSize || { w: 4, h: 4 },
+        widenable: w.widenable === true,
+        configSchema: w.configSchema || null,
+        permission: w.permission || null
+      };
+    }),
+    hasBackend: !!(m.backend && m.backend.mountPath),
+    enabled: enabled,
+    // 是否声明了配置项（决定管理端是否显示「配置」按钮）
+    hasConfig: Array.isArray(m.config) && m.config.length > 0,
+    // 配置状态：required 声明中三级回退（DB → env → default）后仍缺失的项，
+    // 管理端据此显示「待配置」角标与配置入口
+    configMissing: _configMissing(m),
+    source: source,
+    installedAt: atMs
+  };
+}
+
 function listInstalled() {
   return _scanInstalledRaw().map(function(m) {
     var stat = null;
     try { stat = fs.statSync(path.join(marketAppsDir, m.name, 'manifest.json')); } catch (e) {}
-    var icon = m.icon || '';
-    if (icon.indexOf('./') === 0) icon = '/market-static/' + m.name + '/' + icon.replace(/^\.\//, '');
-    return {
-      name: m.name,
-      label: m.label,
-      version: m.version || '0.0.0',
-      description: m.description || '',
-      author: m.author || '',
-      icon: icon,
-      color: m.color || '',
-      category: m.category || 'desktop',
-      // 能力披露：安装前告知用户「这个应用会用到什么」。
-      // 非拦截（开放模型），仅用于 UI 展示与市场审核参考。
-      capabilities: Array.isArray(m.capabilities) ? m.capabilities : [],
-      // 布局偏好透传（如 navbar: 'custom' 让应用自绘标题栏）
-      layout: m.layout || null,
-      route: m.frontend && m.frontend.route ? m.frontend.route : '',
-      frontendEntry: m.frontend && m.frontend.entry ? m.frontend.entry : '',
-      frontendStyle: m.frontend && m.frontend.style ? m.frontend.style : '',
-      // 静态站点迁入（iframe 形态）：首页相对路径
-      frontendStatic: m.frontend && m.frontend.static ? m.frontend.static : '',
-      // 独立端口型后端：主服务 spawn 子进程并把 mountPath 反代到 127.0.0.1:port
-      hasProcess: !!(m.backend && m.backend.process),
-      processPort: m.backend && m.backend.process ? (m.backend.process.port || null) : null,
-      // 全局悬浮层入口（可选）：非空表示宿主会在任意页面加载并挂载该悬浮层
-      overlayEntry: m.frontend && m.frontend.overlay ? m.frontend.overlay : '',
-      // 桌面小组件声明（可选）：去掉 component 字段（市场应用的 widget 渲染入口
-      // 在 entry.js 的 definition.widgets 契约上，manifest 中的 component 不生效）
-      // 接收分享声明：透传给客户端，宿主的分享面板据此列出可接收的应用
-      shareTarget: (m.shareTarget && typeof m.shareTarget === 'object')
-        ? { title: String(m.shareTarget.title || '').slice(0, 40), accept: Array.isArray(m.shareTarget.accept) ? m.shareTarget.accept.slice(0, 5) : ['text'] }
-        : null,
-      widgets: (m.frontend && Array.isArray(m.frontend.widgets) ? m.frontend.widgets : []).map(function(w) {
-        return {
-          id: w.id,
-          name: w.name,
-          description: w.description || '',
-          defaultSize: w.defaultSize || { w: 2, h: 2 },
-          minSize: w.minSize || { w: 1, h: 1 },
-          maxSize: w.maxSize || { w: 4, h: 4 },
-          widenable: w.widenable === true,
-          configSchema: w.configSchema || null,
-          permission: w.permission || null
-        };
-      }),
-      hasBackend: !!(m.backend && m.backend.mountPath),
-      enabled: isAppEnabled(m.name),
-      // 是否声明了配置项（决定管理端是否显示「配置」按钮）
-      hasConfig: Array.isArray(m.config) && m.config.length > 0,
-      // 配置状态：required 声明中三级回退（DB → env → default）后仍缺失的项，
-      // 管理端据此显示「待配置」角标与配置入口
-      configMissing: _configMissing(m),
-      source: 'market',
-      installedAt: stat ? stat.mtimeMs : 0
-    };
+    return _clientDescriptor(m, '/market-static/' + m.name + '/', 'market', isAppEnabled(m.name), stat ? stat.mtimeMs : 0);
   });
 }
 
@@ -719,8 +732,10 @@ function fetchAsset(sourceId, relPath) {
 function getCatalog(sourceId) {
   var source = getSource(sourceId);
   if (!source) return Promise.reject(new Error('未知市场源: ' + sourceId));
+  // local 源不缓存：本地市场源（开发/验收链路）的 index.json 随时会被 pack --write 改写，
+  // 缓存会让「改完即装」拿到旧目录，也会让验收脚本探测不到新版本。
   var cached = _catalogCache[sourceId];
-  if (cached && Date.now() - cached.at < CATALOG_CACHE_MS) {
+  if (source.type !== 'local' && cached && Date.now() - cached.at < CATALOG_CACHE_MS) {
     return Promise.resolve(cached.data);
   }
   var rawIndex = null;
@@ -735,7 +750,7 @@ function getCatalog(sourceId) {
     var data = _validateCatalog(JSON.parse(rawIndex.toString('utf8')));
     _resolveCatalogIcons(data, source.id);
     data._verified = verified; // true / 'unsigned' / 'local' / 'custom'（路由层透传给前端展示）
-    _catalogCache[sourceId] = { at: Date.now(), data: data };
+    if (source.type !== 'local') _catalogCache[sourceId] = { at: Date.now(), data: data };
     return data;
   }).catch(function(e) {
     throw new Error('获取市场目录失败: ' + (e.message || e));
@@ -1050,6 +1065,32 @@ function compareVersions(a, b) {
   return 0;
 }
 
+// ========== 宿主版本（minHostVersion 兼容闸门的比较基准） ==========
+// server/version.json 由 scripts/version.js 生发（不入库）；缺失（如部分开发环境）
+// 按 0.0.0 处理——声明了 minHostVersion 的包会被拒装，错误信息会说明双方版本。
+// 进程内缓存一次：版本变更伴随发版重启，与 buildHash 的使用节奏一致。
+var _hostVersionCache = null;
+function getHostVersion() {
+  if (_hostVersionCache) return _hostVersionCache;
+  var v = '0.0.0';
+  try {
+    var info = JSON.parse(fs.readFileSync(path.join(rootDir, 'server', 'version.json'), 'utf8'));
+    if (info && info.version) v = String(info.version);
+  } catch (e) {}
+  _hostVersionCache = v;
+  return v;
+}
+
+// minHostVersion 闸门：manifest 声明了最低宿主版本而宿主不满足 → 明确拒绝
+function _checkMinHostVersion(manifest) {
+  var minHost = manifest && manifest.minHostVersion;
+  if (!minHost) return;
+  var host = getHostVersion();
+  if (compareVersions(host, minHost) < 0) {
+    throw new Error('此应用要求 ClassIntra ≥ v' + minHost + '，当前宿主为 v' + host + '——请升级宿主后再安装');
+  }
+}
+
 // ========== 逐文件哈希校验（防镜像损坏/半更新） ==========
 // index.json 条目的可选 hashes: { '<包内相对路径>': '<sha256 hex>' }
 //（scripts/market-index-gen.mjs 自动生成）。安装时逐个比对，不匹配即中止。
@@ -1070,7 +1111,8 @@ function _verifyFileHashes(kindName, entry, downloads) {
   });
 }
 
-// 与官方 apps/、plugins/ 及其他已安装市场应用冲突检测
+// 与官方 apps/、plugins/、已安装市场应用及开发预览的冲突检测
+//（同名预览的冲突由调用方给出更明确的指引信息，这里只查跨名占用）
 function _detectConflicts(manifest) {
   var errors = [];
   var official = manifestLoader.loadManifests().filter(function(m) { return m._sourceType !== 'market'; });
@@ -1083,6 +1125,17 @@ function _detectConflicts(manifest) {
     }
     if (m.backend && manifest.backend && m.backend.mountPath === manifest.backend.mountPath) {
       errors.push('后端挂载路径 ' + manifest.backend.mountPath + ' 已被应用 ' + m.name + ' 占用');
+    }
+  });
+  // 开发预览占用（预览刷新自身除外）
+  Object.keys(_previews).forEach(function(name) {
+    if (name === manifest.name) return;
+    var p = _previews[name].manifest;
+    if (p.frontend && manifest.frontend && p.frontend.route === manifest.frontend.route) {
+      errors.push('前端路由 ' + manifest.frontend.route + ' 已被开发预览应用 ' + name + ' 占用');
+    }
+    if (p.backend && manifest.backend && p.backend.mountPath === manifest.backend.mountPath) {
+      errors.push('后端挂载路径 ' + manifest.backend.mountPath + ' 已被开发预览应用 ' + name + ' 占用');
     }
   });
   return errors;
@@ -1148,9 +1201,15 @@ function installAppFromSource(appName, sourceId) {
     var result = validateManifest(manifest);
     if (!result.valid) throw new Error('manifest 基础校验失败: ' + result.errors.join('; '));
     ctx.manifest = result.manifest;
+    // 最低宿主版本闸门（声明 minHostVersion 且宿主过旧 → 拒装）
+    _checkMinHostVersion(ctx.manifest);
     // 冲突检测（安装前）
     var conflicts = _detectConflicts(ctx.manifest);
     if (conflicts.length) throw new Error(conflicts.join('; '));
+    // 同名预览在挂：安装会与预览争抢同一路由/挂载路径，先注销预览再装
+    if (_previews[appName]) {
+      throw new Error('应用 "' + appName + '" 正在开发预览中——请先注销预览（devkit preview 按 Ctrl+C，或 DELETE /api/market/dev-preview/' + appName + '）再安装');
+    }
     // 独立端口型：端口冲突检测（已装应用声明占用 / 系统实际占用都拒装）
     var portCheck = Promise.resolve();
     if (manifest.backend && manifest.backend.process) {
@@ -1462,7 +1521,7 @@ function _removeTree(dir) {
 // 卸载目录之前执行，应用在里面 DROP 自己建的表、DELETE 自己的 kv 数据 —— 卸载即无痕。
 // 钩子签名：module.exports = function cleanup(ctx) { ... }（同步或返回 Promise），
 // ctx = { name, manifest }；数据库连接用与 backend/routes.js 相同的
-// path.resolve(process.cwd(), 'src/utils/db') 方式获取。
+// require('_sdk/backend/host').db 门面获取（不要直连宿主内部路径）。
 function _runCleanupHook(appName, manifest, baseDir) {
   var dir = baseDir || marketAppsDir;
   var hookPath = path.join(dir, appName, 'backend', 'cleanup.js');
@@ -1782,6 +1841,9 @@ function installPluginFromSource(pluginName, sourceId) {
       try { ctx.swap.commit(); } catch (e) {}
     }
     manifestLoader.clearCache();
+    // 插件定时任务（manifest.backend.jobs）随安装登记——此前只在 toggle 时同步，
+    // 装完从不跑任务的插件要等手动停/启一次才登记，是隐性缺口
+    try { require('./app-scheduler').syncApp(ctx.manifest.name); } catch (e) {}
     try { recordMetric(ctx.manifest.name, ctx.swap && ctx.swap.backupDir ? 'update' : 'install'); } catch (e) {}
     console.log('[market] 插件已安装:', ctx.manifest.name, 'v' + (ctx.manifest.version || '0.0.0'));
     return {
@@ -1839,6 +1901,8 @@ function uninstallPlugin(pluginName) {
     var finalDir = path.join(runtimePluginsDir, pluginName);
     _removeTree(finalDir);
     manifestLoader.clearCache();
+    // 撤掉该插件的定时任务登记（与卸载应用同一处理）
+    try { require('./app-scheduler').unregister(pluginName); } catch (e) {}
     console.log('[market] 插件已卸载:', pluginName);
     return { name: pluginName };
   });
@@ -2052,6 +2116,169 @@ function setPluginEnabled(pluginName, enabled, operatorId) {
   });
 }
 
+// ========== 开发预览（免安装挂载作者本地目录） ==========
+// 目标：第三方作者在真实宿主里预览/调试自己的包，跳过「打包 → 交市场 → 安装」整条链路。
+// 与安装共用同一套校验器与热挂载管线（预览不能说谎），但零持久化：
+//   - 只读作者目录，不拷贝文件、不写数据库（app_control / 指标 / 配置一概不碰）
+//   - 内存态登记，进程重启即清空；须显式设置 CLASSINTRA_DEV_PREVIEW=1 才可用
+//   - 与已安装应用同名 → 拒绝（预览会遮蔽已装应用，语义不清；预览升级版请先卸载旧版）
+//   - 路由 / 挂载路径与官方应用、已装应用、其他预览冲突 → 拒绝（同一检测器）
+// 静态资源由 /market-static-dev/ 前缀从目录实时读取（app.js 注册，no-store 保证改完即生效）；
+// 后端复用 _setMount 热挂载——重复挂载即刷新（_loadRouter 先清 require 缓存），改后端代码后重挂生效。
+// 进程型后端（backend.process）暂不支持预览：spawn 生命周期归安装链管理，请走测试安装流程。
+var _previews = {}; // name → { dir, manifest, mountedAt }
+
+function devPreviewEnabled() {
+  return process.env.CLASSINTRA_DEV_PREVIEW === '1';
+}
+
+// 预览校验：通用字段走 validateManifest；带前端的包走市场应用同一份扩展校验
+//（路由前缀 / 入口 / SDK 版本 / 能力披露…）；纯后端包（插件）只要求 backend 段可挂载。
+function _validatePreviewManifest(m, pkgDirName) {
+  if (!m || typeof m !== 'object') return ['manifest 非对象'];
+  var errors = [];
+  if (m.name !== pkgDirName) {
+    errors.push('manifest.name (' + m.name + ') 与目录名 (' + pkgDirName + ') 不一致');
+  }
+  var result = validateManifest(m);
+  if (!result.valid) errors = errors.concat(result.errors);
+  if (m.frontend && (m.frontend.route || m.frontend.entry || m.frontend.static)) {
+    errors = errors.concat(_validateMarketManifest(m, m.name));
+  } else if (!m.backend || !m.backend.mountPath) {
+    errors.push('包内既无 frontend 也无 backend.mountPath，没有可预览的内容');
+  }
+  if (m.backend && m.backend.process) {
+    errors.push('进程型后端（backend.process）暂不支持预览，请走测试安装流程验证');
+  }
+  return errors;
+}
+
+function _previewDescriptor(manifest, record) {
+  var base = '/market-static-dev/' + manifest.name + '/';
+  return Object.assign(
+    _clientDescriptor(manifest, base, 'preview', true, record.mountedAt),
+    {
+      // 客户端据此走预览资源前缀 + 按 _previewAt 做缓存击穿（改文件刷新即生效）
+      _preview: true,
+      _staticBase: base,
+      _previewAt: record.mountedAt
+    }
+  );
+}
+
+function mountPreviewApp(pkgDir) {
+  var dir = path.resolve(String(pkgDir || ''));
+  if (!fs.existsSync(dir)) throw new Error('包目录不存在: ' + dir);
+  var pkgName = path.basename(dir);
+  var manifestPath = path.join(dir, 'manifest.json');
+  if (!fs.existsSync(manifestPath)) throw new Error('包目录缺少 manifest.json: ' + dir);
+  var manifest;
+  try { manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')); }
+  catch (e) { throw new Error('manifest.json 解析失败: ' + e.message); }
+  var errs = _validatePreviewManifest(manifest, pkgName);
+  if (errs.length) throw new Error(errs.join('; '));
+  // 预览与安装同一套版本闸门：宿主过旧时预览会误导作者
+  _checkMinHostVersion(manifest);
+
+  // 冲突检测：已装应用（含同名拒绝）+ 官方应用 + 其他预览（同一检测器）
+  var installedSame = _scanInstalledRaw().filter(function(m) { return m.name === manifest.name; });
+  if (installedSame.length) {
+    throw new Error('已存在同名已安装应用 "' + manifest.name + '"——预览其更新版请先卸载旧版，或临时改名');
+  }
+  var conflicts = _detectConflicts(manifest);
+  if (conflicts.length) throw new Error(conflicts.join('; '));
+
+  // 热挂载后端。注意 baseDir 必须是包目录的父目录：_loadRouter 按 <baseDir>/<name>/ 解析，
+  // devkit check 同样要求目录名与 manifest.name 一致，预览沿用这条规则。
+  if (manifest.backend && manifest.backend.mountPath) {
+    var mounted = false;
+    try {
+      mounted = _setMount(manifest, path.dirname(dir));
+    } catch (e) {
+      throw new Error('后端入口加载失败: ' + (e && e.message || e));
+    }
+    if (!mounted) throw new Error('后端挂载失败（' + manifest.backend.mountPath + '）——检查 backend.entry 文件是否存在');
+  }
+  _previews[manifest.name] = { dir: dir, manifest: manifest, mountedAt: Date.now() };
+  console.log('[market] 开发预览已挂载:', manifest.name, 'v' + (manifest.version || '0.0.0'), '<-', dir);
+  return _previewDescriptor(manifest, _previews[manifest.name]);
+}
+
+function unmountPreviewApp(name) {
+  var p = _previews[name];
+  if (!p) throw new Error('该应用当前没有开发预览: ' + name);
+  _removeMount(p.manifest);
+  try { _clearRequireCache(p.dir); } catch (e) {}
+  delete _previews[name];
+  console.log('[market] 开发预览已注销:', name);
+  return { name: name };
+}
+
+function listPreviews() {
+  return Object.keys(_previews).map(function(name) {
+    return _previewDescriptor(_previews[name].manifest, _previews[name]);
+  });
+}
+
+function getPreviewDir(name) {
+  var p = _previews[name];
+  return p ? p.dir : null;
+}
+
+// /market-static-dev/* 处理器（app.js 注册）。app.js 已剥掉前缀，req.url 形如 /<name>/frontend/entry.js。
+// 返回 true 表示已接管响应；false 表示非预览请求，交给后续中间件。
+var PREVIEW_MIME = {
+  '.js': 'application/javascript; charset=utf-8', '.mjs': 'application/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8', '.html': 'text/html; charset=utf-8',
+  '.json': 'application/json; charset=utf-8', '.map': 'application/json',
+  '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif', '.webp': 'image/webp', '.ico': 'image/x-icon',
+  '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.otf': 'font/otf',
+  '.txt': 'text/plain; charset=utf-8', '.md': 'text/markdown; charset=utf-8',
+  '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime'
+};
+function servePreviewStatic(req, res) {
+  if (!devPreviewEnabled()) {
+    res.status(403).json({ code: 403, message: '开发预览未开启：需在服务端设置 CLASSINTRA_DEV_PREVIEW=1（仅限开发实例）' });
+    return true;
+  }
+  var urlPath = String(req.url || '').split('?')[0];
+  var segs = urlPath.replace(/^\/+/, '').split('/');
+  var name = segs.shift();
+  var record = _previews[name];
+  if (!record) {
+    res.status(404).json({ code: 404, message: '预览应用不存在或已注销: ' + name });
+    return true;
+  }
+  var rel;
+  try {
+    rel = segs.map(function(s) { return decodeURIComponent(s); }).join('/');
+  } catch (e) {
+    res.status(400).json({ code: 400, message: '路径编码非法' });
+    return true;
+  }
+  var ext = path.extname(rel).toLowerCase();
+  if (!rel || ALLOWED_EXTS.indexOf(ext) === -1) {
+    res.status(404).json({ code: 404, message: '资源类型不在白名单: ' + rel });
+    return true;
+  }
+  var full = _safeJoin(record.dir, rel);
+  if (!full) {
+    res.status(403).json({ code: 403, message: '非法路径' });
+    return true;
+  }
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.sendFile(full, function(err) {
+    if (err && !res.headersSent) {
+      res.status(err.status || 404).json({ code: 404, message: '资源不存在: ' + name + '/' + rel });
+    }
+  });
+  return true;
+}
+
 module.exports = {
   init: init,
   dispatcher: dispatcher,
@@ -2076,6 +2303,13 @@ module.exports = {
   uninstallTheme: uninstallTheme,
   // 逐文件哈希校验（冒烟测试用；安装链内部自动调用）
   verifyFileHashes: _verifyFileHashes,
+  // 开发预览（免安装挂载作者本地目录；路由层负责 CLASSINTRA_DEV_PREVIEW 闸门）
+  devPreviewEnabled: devPreviewEnabled,
+  mountPreviewApp: mountPreviewApp,
+  unmountPreviewApp: unmountPreviewApp,
+  listPreviews: listPreviews,
+  getPreviewDir: getPreviewDir,
+  servePreviewStatic: servePreviewStatic,
   // 独立端口型进程：状态查询 + 启停联动（admin 启停路由调用）
   processStatus: function() { return marketProcess.status(); },
   refreshProcessState: function(appName, enabled) {

@@ -21,6 +21,7 @@ context.device.recordAudio().then(result => result.blob.size.toFixed());
 context.device.recordVideo().then(result => result.hasAudio.valueOf());
 context.data.realtime?.subscribe('changed', payload => void payload)();
 context.data.put('/notes/1', { title: 'Draft' });
+context.data.request<{ title: string }>({ url: '/notes/1', signal: new AbortController().signal }).then(note => note.title.toUpperCase());
 
 const definition: MarketAppDefinition = {
   name: 'typed-demo',
@@ -36,3 +37,5 @@ container.appendChild(fragment);
 context.system.can('clasAdmin');
 // @ts-expect-error camera returns a Blob, not an object with .blob
 context.device.camera().then(result => result.blob);
+// @ts-expect-error unsupported HTTP methods must not type-check
+context.data.request({ url: '/notes', method: 'TRACE' });

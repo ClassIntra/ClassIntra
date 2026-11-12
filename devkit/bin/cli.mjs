@@ -10,23 +10,40 @@ import fs from 'node:fs';
 import { create } from '../lib/create.mjs';
 import { checkPackage } from '../lib/check.mjs';
 import { collectPackage, mergeIndex } from '../lib/pack.mjs';
+import { mountPreview, unmountPreview, watchForReload, readManifest, resolveHost } from '../lib/preview.mjs';
+import { installAction } from '../lib/install.mjs';
 
 const VERSION = '0.1.0';
+
+function usageError(message) {
+  const error = new Error(message);
+  error.exitCode = 2;
+  return error;
+}
 
 function parseArgs(argv) {
   const positional = [];
   const flags = {};
+  const booleans = new Set(['help', 'version', 'json', 'force', 'with-backend', 'watch', 'update', 'uninstall']);
+  const values = new Set(['label', 'dir', 'port', 'type', 'color', 'order', 'write', 'host', 'token', 'secret', 'user', 'source']);
   for (let i = 0; i < argv.length; i++) {
-    const token = argv[i];
+    const token = argv[i] === '-h' ? '--help' : argv[i] === '-v' ? '--version' : argv[i];
+    if (token === '--') { positional.push(...argv.slice(i + 1)); break; }
     if (token.startsWith('--')) {
       const eq = token.indexOf('=');
-      if (eq !== -1) {
-        flags[token.slice(2, eq)] = token.slice(eq + 1);
+      const key = token.slice(2, eq === -1 ? undefined : eq);
+      if (!booleans.has(key) && !values.has(key)) throw usageError('未知选项：--' + key);
+      if (booleans.has(key)) {
+        if (eq !== -1) throw usageError('--' + key + ' 是开关，无需赋值');
+        flags[key] = true;
+      } else if (eq !== -1) {
+        flags[key] = token.slice(eq + 1);
+        if (!flags[key]) throw usageError('--' + key + ' 需要指定值');
       } else {
-        const key = token.slice(2);
         const next = argv[i + 1];
-        if (next && !next.startsWith('--')) { flags[key] = next; i++; }
-        else flags[key] = true;
+        if (!next || next.startsWith('--')) throw usageError('--' + key + ' 需要指定值');
+        flags[key] = next;
+        i++;
       }
     } else {
       positional.push(token);
@@ -49,6 +66,8 @@ function help() {
     '',
     '  classintra-devkit check [目录] [--json]     # manifest + Chrome 80 + 资源回收',
     '  classintra-devkit pack  [目录] [--write index.json] [--json]',
+    '  classintra-devkit preview [目录] [--watch] [--host URL] [--token JWT | --secret KEY --user 账号]',
+    '  classintra-devkit install <名> [--source local] [--update] [--uninstall] [--host URL] [凭据同上]',
     '  classintra-devkit sdk types [--write sdk.d.ts] [--force] # 导出宿主 SDK 类型',
     '  classintra-devkit sdk docs  [--write SDK.md] [--force]   # 离线指南与恢复',
     '',
@@ -94,7 +113,8 @@ function cmdCreate(positional, flags) {
   console.log('  1) 改 manifest.json 的 label / version');
   console.log('  2) 写 frontend/entry.js（微前端）或把 dist 拷进 frontend/（静态站）');
   console.log('  3) npx classintra-devkit check ' + targetArg);
-  console.log('  4) npx classintra-devkit pack ' + targetArg + ' --write <market>/index.json');
+  console.log('  4) npx classintra-devkit preview ' + targetArg + '   # 真实宿主免安装预览（需宿主开启 CLASSINTRA_DEV_PREVIEW=1）');
+  console.log('  5) npx classintra-devkit pack ' + targetArg + ' --write <market>/index.json → install <名> --source local');
   console.log('');
 }
 
@@ -131,6 +151,10 @@ function cmdPack(positional, flags) {
   const collected = collectPackage(target);
   if (flags.write) {
     const result = mergeIndex(flags.write, collected);
+    if (flags.json) {
+      process.stdout.write(JSON.stringify({ ok: true, ...result, entry: collected.entry }, null, 2) + '\n');
+      return;
+    }
     console.log('');
     console.log((result.replaced ? '已更新' : '已追加') + '：' + result.section + '/' + result.name +
       '（index v' + result.version + '）');
@@ -169,27 +193,105 @@ function cmdSdk(positional, flags) {
   console.log((positional[0] === 'types' ? 'SDK 类型已写入：' : 'SDK 指南已写入：') + target);
 }
 
-function main() {
-  const { positional, flags } = parseArgs(process.argv.slice(2));
-  const command = positional.shift();
+function authOptions(flags) {
+  return { host: flags.host, token: flags.token, secret: flags.secret, user: flags.user };
+}
 
-  if (!command || command === 'help' || flags.help) return help();
-  if (command === 'version' || flags.version) {
-    console.log(VERSION);
+async function cmdPreview(positional, flags) {
+  const target = positional[0] || '.';
+  const manifest = readManifest(target); // 目录/manifest 非法时 fail fast
+  const options = authOptions(flags);
+  const app = await mountPreview(target, options);
+  const base = resolveHost(options);
+  console.log('');
+  console.log('预览已挂载：' + app.name + ' v' + (app.version || '0.0.0') + '（免安装，服务重启即清）');
+  if (app.route) {
+    console.log('  前端：' + base + app.route + '  ← 班管账号登录宿主后打开（局域网平板同地址可达）');
+  }
+  if (manifest.backend && manifest.backend.mountPath) {
+    console.log('  后端：' + base + manifest.backend.mountPath);
+  }
+  if (flags.watch) {
+    console.log('  watch：backend/ 与 manifest.json 变更后自动重挂（前端改动刷新页面即生效）');
+    console.log('  退出：Ctrl+C（自动注销预览）');
+    const stopWatch = watchForReload(target, function(what) {
+      mountPreview(target, options).then(function() {
+        console.log('[watch] 已重挂载 ' + app.name + (what ? '（' + path.basename(String(what)) + ' 变更）' : ''));
+      }).catch(function(e) {
+        console.error('[watch] 重挂载失败: ' + e.message);
+      });
+    });
+    let unmounting = false;
+    process.on('SIGINT', function() {
+      if (unmounting) return;
+      unmounting = true;
+      stopWatch();
+      unmountPreview(app.name, options).then(function() {
+        console.log('\n预览已注销');
+        process.exit(0);
+      }).catch(function() {
+        process.exit(0); // 注销失败不阻断退出（服务重启同样会清掉）
+      });
+    });
+  } else {
+    console.log('  注销：Ctrl+C 不会清（本模式挂载保留到服务重启）；要主动注销用 --watch 模式或 DELETE /api/market/dev-preview/' + app.name);
+  }
+  if (flags.json) {
+    process.stdout.write(JSON.stringify({ ok: true, app: app }, null, 2) + '\n');
+  }
+  console.log('');
+}
+
+async function cmdInstall(positional, flags) {
+  const name = positional[0];
+  if (!name) {
+    console.error('缺少参数：install <应用名> [--source local] [--update] [--uninstall]');
+    process.exitCode = 2;
     return;
   }
+  const options = Object.assign(
+    { action: flags.uninstall ? 'uninstall' : (flags.update ? 'update' : 'install') },
+    authOptions(flags),
+    { source: flags.source }
+  );
+  const result = await installAction(name, options);
+  const data = (result && result.data) || {};
+  const verb = options.action === 'uninstall' ? '已卸载' : (options.action === 'update' ? '已更新' : '已安装');
+  console.log('');
+  console.log(verb + '：' + name + (data.version ? ' v' + data.version : ''));
+  if (options.action !== 'uninstall') {
+    console.log('  数据' + (data.dataRetained === false ? '已清除' : '已保留（默认；可用 app-data-purge 主动清）'));
+  }
+  if (Array.isArray(data.configRequired) && data.configRequired.length) {
+    console.log('  待配置项：' + data.configRequired.join(', ') + '（管理端「配置」入口填写）');
+  }
+  console.log('');
+}
 
+async function main() {
   try {
+    const { positional, flags } = parseArgs(process.argv.slice(2));
+    const command = positional.shift();
+
+    if (command === 'help' || flags.help) return help();
+    if (command === 'version' || flags.version) {
+      console.log(VERSION);
+      return;
+    }
+    if (!command) return help();
+
     if (command === 'create') return cmdCreate(positional, flags);
     if (command === 'check') return cmdCheck(positional, flags);
     if (command === 'pack') return cmdPack(positional, flags);
     if (command === 'sdk') return cmdSdk(positional, flags);
+    if (command === 'preview') return await cmdPreview(positional, flags);
+    if (command === 'install') return await cmdInstall(positional, flags);
     console.error('未知命令: ' + command);
     help();
     process.exitCode = 2;
   } catch (e) {
     console.error('出错：' + (e && e.message ? e.message : e));
-    process.exitCode = 1;
+    process.exitCode = e.exitCode || 1;
   }
 }
 

@@ -66,6 +66,26 @@ test('CLI creates, checks and packs an app using only the supplied temporary pat
   assert.equal(await readdir(path.join(root, 'market')).then((files) => files.join(',')), 'index.json');
 });
 
+test('boolean options before positional arguments do not swallow the application name', async (t) => {
+  const root = await temporaryProject(t);
+  assertSuccess(run(['create', '--with-backend', 'app', 'flag-demo', '--dir', root], root), 'create with leading boolean');
+  const manifest = JSON.parse(await readFile(path.join(root, 'flag-demo', 'manifest.json'), 'utf8'));
+  assert.equal(manifest.name, 'flag-demo');
+  assert.equal(manifest.backend.entry, './backend/routes.js');
+  assertSuccess(run(['check', '--json', './flag-demo'], root), 'check with leading json flag');
+});
+
+test('unknown flags and missing option values fail before generating author files', async (t) => {
+  const root = await temporaryProject(t);
+  const result = run(['create', 'app', 'typo-demo', '--dri', './work'], root);
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /未知选项.*dri/);
+  const missing = run(['create', 'app', 'typo-demo', '--dir'], root);
+  assert.equal(missing.status, 2);
+  assert.match(missing.stderr, /dir.*需要/);
+  assert.deepEqual(await readdir(root), []);
+});
+
 test('create prints check and pack commands for the generated --dir target', async (t) => {
   const root = await temporaryProject(t);
   const parent = path.join(root, 'author workspace');
@@ -150,6 +170,33 @@ test('pack refuses invalid packages without modifying the destination catalog', 
   assert.equal(await readFile(index, 'utf8'), '{"version":7,"apps":[]}\n');
 });
 
+test('pack refuses structurally damaged catalogs without erasing their content', async (t) => {
+  const root = await temporaryProject(t);
+  const app = await createApp(root);
+  const indexPath = path.join(root, 'catalog.json');
+  for (const content of ['null', '[]', '{"version":2,"apps":{"author":"content"}}', '{"version":"broken","apps":[]}']) {
+    await writeFile(indexPath, content);
+    const result = run(['pack', app, '--write', indexPath], root);
+    assert.equal(result.status, 1);
+    assert.equal(await readFile(indexPath, 'utf8'), content);
+  }
+});
+
+test('pack JSON mode produces parseable output when updating a catalog', async (t) => {
+  const root = await temporaryProject(t);
+  const app = await createApp(root);
+  const index = path.join(root, 'index.json');
+  const result = run(['pack', app, '--write', index, '--json'], root);
+  assertSuccess(result, 'pack machine output');
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.ok, true);
+  assert.equal(output.name, 'author-demo');
+  assert.equal(output.section, 'apps');
+  assert.equal(output.index, index);
+  assert.equal(output.replaced, false);
+  assert.equal(output.entry.files.length, 4);
+});
+
 test('SDK declaration files stay out of market installation payloads', async (t) => {
   const root = await temporaryProject(t);
   const app = await createApp(root);
@@ -169,7 +216,7 @@ test('check rejects source files that the host installer cannot distribute', asy
   assert.ok(JSON.parse(checked.stdout).errors.some(message => message.includes('source.ts')));
 });
 
-test('generated app and plugin backends resolve the real installation-relative host path', async (t) => {
+test('generated app and plugin backends reference only the stable _sdk/backend/host facade', async (t) => {
   const root = await temporaryProject(t);
   const host = path.join(root, 'host');
   for (const kind of ['app', 'plugin']) {
@@ -177,16 +224,21 @@ test('generated app and plugin backends resolve the real installation-relative h
     const name = 'backend-' + kind;
     assertSuccess(run(['create', kind, name, '--dir', parent, '--with-backend'], root), 'create backend ' + kind);
     const file = path.join(parent, name, 'backend', 'routes.js');
-    const dependencies = [];
+    const specifiers = [];
     const fakeDb = { prepare: () => ({ run() {} }) };
     const router = { get() {}, post() {} };
     const require = specifier => {
+      specifiers.push(specifier);
       if (specifier === 'express') return { Router: () => router };
-      dependencies.push(path.resolve(path.dirname(file), specifier));
-      return specifier.endsWith('/utils/db') ? fakeDb : { requireAuth() {} };
+      assert.equal(specifier, '_sdk/backend/host', 'backend must reference the stable facade, got: ' + specifier);
+      return { auth: { requireAuth() {} }, db: fakeDb };
     };
     vm.runInNewContext(await readFile(file, 'utf8'), { require, module: { exports: {} } }, { filename: file });
-    assert.ok(dependencies.includes(path.join(host, 'server', 'src', 'middleware', 'auth')), 'auth path must resolve inside the host installation');
+    assert.ok(specifiers.includes('_sdk/backend/host'), 'routes must go through the facade');
+    assert.ok(
+      specifiers.every(s => s === 'express' || s === '_sdk/backend/host'),
+      'no host-internal specifier allowed, got: ' + specifiers.join(', ')
+    );
   }
 });
 
@@ -197,12 +249,44 @@ test('generated backend cleanup removes tables created by its scheduled job', as
   const statements = [];
   const module = { exports: {} };
   vm.runInNewContext(await readFile(file, 'utf8'), {
-    module, process: { cwd: () => path.join(root, 'host', 'server') },
-    require: specifier => specifier === 'path' ? path : { prepare: sql => ({ run: () => statements.push(sql) }) }
+    module,
+    require: specifier => {
+      assert.equal(specifier, '_sdk/backend/host');
+      return { db: { prepare: sql => ({ run: () => statements.push(sql) }) } };
+    }
   }, { filename: file });
   module.exports({ name: 'job-demo' });
   assert.ok(statements.includes('DROP TABLE IF EXISTS job_demo_items'));
   assert.ok(statements.includes('DROP TABLE IF EXISTS job_demo_pulse'));
+});
+
+test('check rejects host-internal requires in backend code (facade rule)', async (t) => {
+  const root = await temporaryProject(t);
+  const parent = path.join(root, 'packages');
+  assertSuccess(run(['create', 'app', 'rule-demo', '--dir', parent, '--with-backend'], root), 'create with backend');
+  const file = path.join(parent, 'rule-demo', 'backend', 'routes.js');
+  const original = await readFile(file, 'utf8');
+
+  // 直连宿主内部模块 → 报错
+  await writeFile(file, original.replace("var host = require('_sdk/backend/host');",
+    "var auth = require('../../../server/src/middleware/auth');"));
+  const direct = JSON.parse(run(['check', path.join(parent, 'rule-demo'), '--json'], root).stdout);
+  assert.equal(direct.ok, false);
+  assert.ok(direct.errors.some(e => /稳定门面/.test(e)), JSON.stringify(direct.errors));
+
+  // process.cwd() 解析 → 报错
+  await writeFile(file, original.replace("var host = require('_sdk/backend/host');",
+    "var db = require(require('path').resolve(process.cwd(), 'src/utils/db'));"));
+  const cwd = JSON.parse(run(['check', path.join(parent, 'rule-demo'), '--json'], root).stdout);
+  assert.equal(cwd.ok, false);
+  assert.ok(cwd.errors.some(e => /process\.cwd/.test(e)), JSON.stringify(cwd.errors));
+
+  // 三级相对路径越出包根 → 报错
+  await writeFile(file, original.replace("var host = require('_sdk/backend/host');",
+    "var db = require('../../../server/src/utils/db');"));
+  const escape = JSON.parse(run(['check', path.join(parent, 'rule-demo'), '--json'], root).stdout);
+  assert.equal(escape.ok, false);
+  assert.ok(escape.errors.some(e => /越出包根|稳定门面/.test(e)), JSON.stringify(escape.errors));
 });
 
 test('generated service calls its API relative to the host client base URL', async (t) => {
@@ -365,10 +449,45 @@ test('published devkit files run and provide editor types from outside the monor
     .replace("'../../types/sdk'", "'classintra-devkit/sdk'");
   const fixture = path.join(root, 'consumer.ts');
   await writeFile(fixture, source);
+  const backendSource = (await readFile(path.join(DEVKIT_ROOT, 'test', 'fixtures', 'backend-contract.ts'), 'utf8'))
+    .replaceAll('../../types/backend', 'classintra-devkit/backend');
+  const backendFixture = path.join(root, 'backend-consumer.ts');
+  await writeFile(backendFixture, backendSource);
+  const guide = await readFile(path.join(isolated, 'SDK.md'), 'utf8');
+  const examples = [...guide.matchAll(/```js\s*\n([\s\S]*?)```/g)];
+  assert.ok(examples.length, 'distributed SDK guide needs a runnable JavaScript example');
+  const exampleFiles = [];
+  for (const [index, example] of examples.entries()) {
+    const exampleFile = path.join(root, 'documented-example-' + index + '.js');
+    await writeFile(exampleFile, example[1]);
+    exampleFiles.push(exampleFile);
+  }
   const compiler = createRequire(import.meta.url).resolve('typescript/bin/tsc');
   for (const [module, resolution] of [['commonjs', 'node'], ['esnext', 'bundler'], ['nodenext', 'nodenext']]) {
     const compiled = spawnSync(process.execPath, [compiler, '--noEmit', '--strict', '--lib', 'ES2020,DOM',
-      '--module', module, '--moduleResolution', resolution, fixture], { cwd: root, encoding: 'utf8', timeout: 30000 });
+      '--module', module, '--moduleResolution', resolution, '--allowJs', '--checkJs', fixture, backendFixture, ...exampleFiles], { cwd: root, encoding: 'utf8', timeout: 30000 });
     assertSuccess(compiled, 'isolated SDK consumer compile (' + resolution + ')');
   }
+});
+
+test('check validates minHostVersion format and warns above the known host version', async (t) => {
+  const root = await temporaryProject(t);
+  const app = await createApp(root);
+  const manifestPath = path.join(app, 'manifest.json');
+  const base = JSON.parse(await readFile(manifestPath, 'utf8'));
+
+  await writeFile(manifestPath, JSON.stringify({ ...base, minHostVersion: 'not-a-version' }));
+  const bad = JSON.parse(run(['check', app, '--json'], root).stdout);
+  assert.equal(bad.ok, false);
+  assert.ok(bad.errors.some((e) => /minHostVersion/.test(e)), JSON.stringify(bad.errors));
+
+  await writeFile(manifestPath, JSON.stringify({ ...base, minHostVersion: '99.0.0' }));
+  const future = JSON.parse(run(['check', app, '--json'], root).stdout);
+  assert.equal(future.ok, true, JSON.stringify(future.errors));
+  assert.ok(future.warnings.some((w) => /高于已知最新宿主/.test(w)), JSON.stringify(future.warnings));
+
+  await writeFile(manifestPath, JSON.stringify({ ...base, minHostVersion: '1.0.0' }));
+  const good = JSON.parse(run(['check', app, '--json'], root).stdout);
+  assert.equal(good.ok, true);
+  assert.deepEqual(good.warnings, []);
 });

@@ -309,6 +309,23 @@ for (const file of files) {
       }
     }
 
+    // B3. 宿主内部路径直连（backend/ 文件）：一律走 _sdk/backend/host 稳定门面
+    const relToApp = relative(appDir, file).replace(/\\/g, '/');
+    if (relToApp.startsWith('backend/')) {
+      const HOST_INTERNAL_RULES = [
+        { re: /require\(\s*['"][^'"]*server\/src[^'"]*['"]/, msg: 'require 直连宿主 server/src 内部模块 —— 改用 require("_sdk/backend/host")' },
+        { re: /require\(\s*['"](?:\.\.\/){3,}/, msg: 'require 三级以上相对路径越出包根 —— 改用 require("_sdk/backend/host")' },
+        { re: /require\(\s*(?:[A-Za-z_$][\w$]*\.)?resolve\(\s*process\.cwd\(\)/, msg: 'require 用 process.cwd() 解析宿主内部路径 —— 改用 require("_sdk/backend/host")' },
+      ];
+      for (let i = 0; i < sLines.length; i++) {
+        for (const rule of HOST_INTERNAL_RULES) {
+          if (rule.re.test(sLines[i])) {
+            add('error', 'B3. 后端稳定门面', rel, i + 1, rule.msg);
+          }
+        }
+      }
+    }
+
     // E. 资源回收检查（粗粒度：有监听器/定时器但完全没有 onDestroy）
     const hasListeners = /addEventListener\s*\(/.test(stripped);
     const hasTimers = /\bsetInterval\s*\(|\bsetTimeout\s*\(/.test(stripped);

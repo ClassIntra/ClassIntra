@@ -102,11 +102,15 @@ export default {
       return !this.hideNavbar;
     },
     // 静态站形态的 iframe 地址（manifest frontend.static 透传为 frontendStatic）
+    // 预览应用走服务端 /market-static-dev/ 前缀（_staticBase 透传），按 _previewAt 击穿缓存
     staticUrl: function() {
       var app = marketRegistry.getInstalled(this.appName) || {};
       if (!app.frontendStatic) return '';
-      return '/market-static/' + this.appName + '/' +
-        String(app.frontendStatic).replace(/^\.\//, '') + '?v=' + encodeURIComponent(app.version || '');
+      var base = app._staticBase || ('/market-static/' + this.appName + '/');
+      var bust = app._preview
+        ? 't=' + encodeURIComponent(app._previewAt || '')
+        : 'v=' + encodeURIComponent(app.version || '');
+      return base + String(app.frontendStatic).replace(/^\.\//, '') + '?' + bust;
     }
   },
   mounted: function() {
