@@ -284,7 +284,36 @@
     { id: 'wall', icon: '🛡️', name: '铁壁', text: '防御 +20%', once: false },
     { id: 'spark', icon: '🌟', name: '星火', text: '这一层首击伤害 ×2（一次性）', once: true }
   ];
+  // ---- 云盘上传 mock（v0.38.0）：拼豆「导出到云盘」走 /cloud/upload 的 FormData ----
+  window.__cloudUp = null;
   var ROUTES = [
+    // ---- 云盘读取 mock（v0.41 导入选择器用）：返回真实 Blob，缩略图/原图同源 ----
+    { re: /cloud\/files\/[a-f0-9]{64}\?w=\d+/, raw: true, data: null, before: function () { return cloudBlob(); } },
+    { re: /cloud\/files\/[a-f0-9]{64}$/, raw: true, data: null, before: function () { return cloudBlob(); } },
+    { re: /cloud\/files$/, data: { files: [
+        { hash: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          name: '红色小方块.png', mime_type: 'image/png', size: 1234, folder: '',
+          url: '/api/cloud/files/aaa', uploaded_at: new Date().toISOString() },
+        { hash: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          name: '一张很长的名字用来测试省略号的图片.png', mime_type: 'image/png', size: 2345, folder: '',
+          url: '/api/cloud/files/bbb', uploaded_at: new Date().toISOString() },
+        { hash: 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+          name: '不是图片.mp4', mime_type: 'video/mp4', size: 3456, folder: '',
+          url: '/api/cloud/files/ccc', uploaded_at: new Date().toISOString() }
+      ] } },
+    { re: /cloud\/upload/, data: {}, before: function (body) {
+        var info = { name: null, size: 0, type: null, isFormData: false };
+        try {
+          if (body && typeof body.get === 'function') {
+            info.isFormData = true;
+            var f = body.get('file');
+            if (f) { info.name = f.name; info.size = f.size; info.type = f.type; }
+          }
+        } catch (e) {}
+        window.__cloudUp = info;
+        return { hash: 'stubhash', name: info.name || 'stub.png', size: info.size,
+                 url: '/api/cloud/files/stubhash', existed: false };
+      } },
     { re: /pet\/play$/, data: {}, before: function (body) {
         // 与 backend POST /play 同口径：base = round(score*0.06)+1，每日封顶 PLAY_DAILY_CAP
         var sc = Math.max(0, Math.min(200, Math.floor(Number(body && body.score) || 0)));
@@ -477,7 +506,7 @@
     {
       re: /pet\/state/,
       data: {
-        state: ST, palette: [], templates: [],
+        state: ST, palette: ['#1B1B1F','#8E8E93','#FFFFFF','#E5E5EA','#FF3B30','#FF9EBB','#FF9500','#FFD60A','#A0715F','#34C759','#248A3D','#64D2FF','#0A84FF','#BF5AF2','#FFD8B8','#FF7B92'], templates: [],
         mood: { icon: '🙂', name: '心情不错', text: '今天想被摸摸' },
         personality: { icon: '🍖', name: '贪吃', desc: '闻到吃的就走不动' },
         evolution: { icon: '🐋', name: '大肥鱼', stage: 2 },
@@ -513,6 +542,40 @@
     }
   ];
 
+  // 云盘里的测试图：现场画一张「照片感」的渐变场景（天空/太阳/远山/人物/草地）。
+  // 纯色图只能验证链路，看不出转换质量；预览截图也需要一张像样的图。
+  var cloudBlobCache = null;
+  function cloudBlob() {
+    if (cloudBlobCache) return cloudBlobCache;
+    var c = document.createElement('canvas');
+    c.width = c.height = 160;
+    var g = c.getContext('2d');
+    var sky = g.createLinearGradient(0, 0, 0, 100);
+    sky.addColorStop(0, '#5FB4EA');
+    sky.addColorStop(1, '#DDF2FF');
+    g.fillStyle = sky; g.fillRect(0, 0, 160, 160);
+    g.fillStyle = '#FFD84A';
+    g.beginPath(); g.arc(124, 34, 15, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#4E8B3A';
+    g.beginPath(); g.moveTo(0, 100); g.quadraticCurveTo(46, 64, 94, 100); g.lineTo(0, 114); g.fill();
+    g.fillStyle = '#3A6B2C';
+    g.beginPath(); g.moveTo(80, 106); g.quadraticCurveTo(126, 74, 160, 105); g.lineTo(160, 120); g.lineTo(80, 120); g.fill();
+    g.fillStyle = '#6FBF4A'; g.fillRect(0, 112, 160, 48);
+    g.fillStyle = '#2B2320';
+    g.beginPath(); g.arc(64, 88, 17, Math.PI, 0); g.fill();
+    g.fillStyle = '#E8B48A';
+    g.beginPath(); g.arc(64, 95, 15, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#2B2320'; g.fillRect(61, 98, 2, 2); g.fillRect(67, 98, 2, 2);
+    g.fillStyle = '#C96A5A'; g.fillRect(59, 103, 10, 3);
+    g.fillStyle = '#2F6FD0'; g.fillRect(47, 111, 34, 40);
+    var b64 = c.toDataURL('image/png').split(',')[1];
+    var bin = atob(b64);
+    var arr = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    cloudBlobCache = new Blob([arr], { type: 'image/png' });
+    return cloudBlobCache;
+  }
+
   function respond(verb, url, body) {
     CALLS.push({ verb: verb, url: url, body: body });
     for (var i = 0; i < ROUTES.length; i++) {
@@ -528,6 +591,7 @@
             bond: 180, power: 420, skills: ['combo', 'heavy'],
             type: 'earth', typeName: '土', typeIcon: '⛰️' };
         }
+        if (ROUTES[i].raw) return Promise.resolve({ data: data });
         return Promise.resolve({ data: { code: 200, data: data } });
       }
     }

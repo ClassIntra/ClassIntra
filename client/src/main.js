@@ -1,3 +1,24 @@
+// Chrome 80 flex gap 探测（必须在任何样式生效前给 <html> 打标）
+// CSS.supports('gap','1px') 会误报：grid gap 自 Chrome 68 就支持，属性探测恒为 true。
+// 只有真实布局里第二个 flex 子项被 gap 推开，才算 flex gap 可用；
+// 否则加 .no-flex-gap，启用 vite PostCSS 额外生成的 margin 兜底。
+(function() {
+  try {
+    var box = document.createElement('div');
+    box.style.cssText = 'display:flex;gap:10px;position:absolute;left:-9999px;top:0;visibility:hidden';
+    var a = document.createElement('div');
+    var b = document.createElement('div');
+    a.style.cssText = 'width:1px;height:1px;flex:0 0 1px';
+    b.style.cssText = 'width:1px;height:1px;flex:0 0 1px';
+    box.appendChild(a);
+    box.appendChild(b);
+    (document.body || document.documentElement).appendChild(box);
+    var supported = b.getBoundingClientRect().left - a.getBoundingClientRect().left >= 10;
+    box.parentNode.removeChild(box);
+    if (!supported) document.documentElement.classList.add('no-flex-gap');
+  } catch (e) { /* 探测失败保持原行为，不阻断启动 */ }
+})();
+
 // Polyfills for Chrome 78+ compatibility (Mermaid v11 requires ES2022 APIs)
 (function() {
   // Object.hasOwn (ES2022, Chrome 93+)

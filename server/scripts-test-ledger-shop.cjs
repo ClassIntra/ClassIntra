@@ -38,6 +38,13 @@ function throws(name, fn, re) {
 
 var db = require('./src/utils/db');
 db.exec(fs.readFileSync(path.join(__dirname, 'src', 'ledger', 'schema.sql'), 'utf8'));
+// 商品读取会 LEFT JOIN users 取卖家昵称；真实库里由平台迁移建表，这里补最小列。
+db.exec([
+  'CREATE TABLE IF NOT EXISTS users (',
+  '  user_id TEXT PRIMARY KEY, net_name TEXT, real_name TEXT,',
+  "  password_hash TEXT, status TEXT DEFAULT 'active'",
+  ')'
+].join('\n'));
 
 var svc = require('./src/ledger/service');
 var inv = require('./src/ledger/invariants');
@@ -275,6 +282,59 @@ ok('班管放行', (function () { access(A, 'seller', true)(); return true; })()
 var gMine = svc.goods.get(myGoods.id);
 ok('商品归属判定：主人是 B', gMine.seller_kind === 'user' && String(gMine.seller_owner) === B);
 ok('商品归属判定：C 不是主人（不能下架别人的商品）', !(gMine.seller_kind === 'user' && String(gMine.seller_owner) === C));
+
+console.log('\n=== 12. 集市 v2：库存 / 数量 / 买家确认收货 ===');
+var stocked = svc.goods.create({
+  name: '限量徽章', description: '手作，只有两枚', cover: '🎖️',
+  price_cent: 3000, cost_cent: 0, kind: 'physical', seller: B, stock_qty: 2
+});
+eq('商品库存 2', stocked.stock_qty, 2);
+eq('商品说明已保存', stocked.description, '手作，只有两枚');
+eq('商品封面已保存', stocked.cover, '🎖️');
+throws('超过库存不能下单', function () {
+  svc.orders.create({ ref: 'stock:too-many', buyer: C, goods_id: stocked.id, qty: 3 });
+}, /库存不足/);
+var so1 = svc.orders.create({
+  ref: 'stock:1', buyer: C, goods_id: stocked.id, qty: 2, note: '放到讲台'
+});
+eq('订单记下数量 2', so1.qty, 2);
+eq('订单记下备注', so1.note, '放到讲台');
+eq('下单即占用库存到 0', svc.goods.get(stocked.id).stock_qty, 0);
+throws('库存已占满不能再下单', function () {
+  svc.orders.create({ ref: 'stock:2bad', buyer: C, goods_id: stocked.id, qty: 1 });
+}, /库存不足/);
+svc.orders.pay(so1.id, { ref: 'stock:1:pay', initiator: C });
+svc.orders.refund(so1.id, { ref: 'stock:1:refund', reason: '测试退款' });
+eq('退款归还库存 2', svc.goods.get(stocked.id).stock_qty, 2);
+eq('退款不计销量', svc.goods.get(stocked.id).sold_qty, 0);
+
+var so2 = svc.orders.create({ ref: 'stock:2', buyer: C, goods_id: stocked.id, qty: 2 });
+svc.orders.pay(so2.id, { ref: 'stock:2:pay', initiator: C });
+svc.orders.fulfill(so2.id, { ref: 'stock:2:fulfill' });
+var confirmed = svc.orders.confirm(so2.id, { ref: 'stock:2:confirm', initiator: C });
+eq('买家确认收货后 done', confirmed.status, 'done');
+eq('结算后库存仍为 0', svc.goods.get(stocked.id).stock_qty, 0);
+eq('结算累计销量 2', svc.goods.get(stocked.id).sold_qty, 2);
+
+var closeGoods = svc.goods.create({
+  name: '未付款测试', price_cent: 1000, cost_cent: 0, kind: 'digital', seller: B, stock_qty: 5
+});
+var co = svc.orders.create({ ref: 'stock:close', buyer: C, goods_id: closeGoods.id, qty: 1 });
+eq('下单后库存 4', svc.goods.get(closeGoods.id).stock_qty, 4);
+svc.orders.close(co.id, { ref: 'stock:close:close' });
+eq('关单归还库存 5', svc.goods.get(closeGoods.id).stock_qty, 5);
+eq('无人购买时销量 0', svc.goods.get(closeGoods.id).sold_qty, 0);
+
+var unfulfilled = svc.orders.create({ ref: 'stock:unfulfilled', buyer: C, goods_id: closeGoods.id, qty: 1 });
+svc.orders.pay(unfulfilled.id, { ref: 'stock:unfulfilled:pay', initiator: C });
+throws('未履约不能确认收货', function () {
+  svc.orders.confirm(unfulfilled.id, { ref: 'stock:unfulfilled:confirm' });
+}, /状态不允许/);
+svc.orders.refund(unfulfilled.id, { ref: 'stock:unfulfilled:refund', reason: '用例清理' });
+eq('退款后库存回到 5', svc.goods.get(closeGoods.id).stock_qty, 5);
+
+var searched = svc.goods.list({ q: '手作' });
+ok('商品可按名称/说明搜索', searched.some(function (g) { return g.id === stocked.id; }), searched.length);
 
 console.log('\n=== 结果 ===');
 console.log('通过 ' + pass + ' / 失败 ' + fail);

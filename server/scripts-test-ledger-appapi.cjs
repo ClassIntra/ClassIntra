@@ -82,7 +82,10 @@ app.reserve('stock', U, 30000);
 var s1 = app.settleBuy('stock', { userId: U, holdCent: 30000, costCent: 29000, feeCent: 1000, ref: 'stock:order:1' });
 eq('差额退回 0', s1.back_cent, 0);
 eq('结算后可用', app.practiceAccount('stock', U).available_practice_cent, 70000);
-eq('成本口径恒为练习金', s1.spent.practice_cent, 29000);
+// 口径：总成本 = 成交额 + 手续费（见 app-api.js settleBuy 注释）。
+// 学生实际冻结并支出 30000 分，所以 spent 应为 29000 + 1000 = 30000；
+// 旧断言 29000 是「不含费」的旧口径残留，与 back_cent=0 / 结算后可用 70000 自相矛盾。
+eq('成本口径恒为练习金（含手续费）', s1.spent.practice_cent, 30000);
 eq('spent 不含真钱', s1.spent.cash_cent, 0);
 
 app.settleSell('stock', U, 31000, { ref: 'stock:order:2' });

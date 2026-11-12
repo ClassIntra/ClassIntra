@@ -20,6 +20,11 @@ function create(opts) {
   var o = opts || {};
   var name = String(o.name == null ? '' : o.name).trim();
   if (!name) throw new Error('商品名称不能为空');
+  if (name.length > 40) throw new Error('商品名称不能超过 40 个字');
+
+  var description = String(o.description == null ? '' : o.description).trim();
+  if (description.length > 300) throw new Error('商品说明不能超过 300 个字');
+  var cover = String(o.cover == null ? '' : o.cover).trim().slice(0, 8);
 
   var price = Number(o.price_cent);
   if (!isFinite(price) || Math.floor(price) !== price || price < 0) throw new Error('商品价格必须是非负整数分');
@@ -33,22 +38,33 @@ function create(opts) {
   var kind = String(o.kind || 'digital');
   if (KINDS.indexOf(kind) === -1) throw new Error('未知商品类型: ' + kind);
 
+  var stock = o.stock_qty == null ? -1 : Math.floor(Number(o.stock_qty));
+  if (!isFinite(stock) || stock < -1 || stock > 99999) {
+    throw new Error('库存必须是不小于 -1 的整数（-1 = 不限量）');
+  }
+
   var seller = (o.seller && String(o.seller) !== 'platform')
     ? ledger.accountOf('user', o.seller)
     : ledger.systemAccount('platform');
 
+  // v2：有真实成本 / 实物 / 服务的商品，必须只用 external_cost=1 的资产购买。
+  // 判定落在数据行上（不是散落在业务代码里的 if），新增品类时门禁自动生效。
+  var requiresExternal = (cost > 0 || kind === 'physical' || kind === 'service') ? 1 : 0;
   var info = q([
-    'INSERT INTO xy_ledger_goods (seller_account_id, name, price_cent, cost_cent, kind, status)',
-    "VALUES (?, ?, ?, ?, ?, 'on_shelf')"
-  ].join(' ')).run(seller.id, name, price, cost, kind);
+    'INSERT INTO xy_ledger_goods',
+    '(seller_account_id, name, description, cover, price_cent, cost_cent, kind, stock_qty, status, requires_external)',
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'on_shelf', ?)"
+  ].join(' ')).run(seller.id, name, description, cover, price, cost, kind, stock, requiresExternal);
 
   return get(Number(info.lastInsertRowid));
 }
 
 function get(id) {
   var row = q([
-    'SELECT g.*, a.kind AS seller_kind, a.owner_id AS seller_owner',
+    'SELECT g.*, a.kind AS seller_kind, a.owner_id AS seller_owner,',
+    '       COALESCE(NULLIF(u.net_name, \'\'), NULLIF(u.real_name, \'\')) AS seller_name',
     'FROM xy_ledger_goods g JOIN xy_ledger_accounts a ON a.id = g.seller_account_id',
+    'LEFT JOIN users u ON a.kind = \'user\' AND u.user_id = a.owner_id',
     'WHERE g.id = ?'
   ].join('\n')).get(id);
   if (!row) throw new Error('商品不存在: ' + id);
@@ -66,12 +82,19 @@ function list(opts) {
     where.push('g.seller_account_id = ?');
     args.push(s.id);
   }
+  if (o.q) {
+    var like = '%' + String(o.q).trim() + '%';
+    where.push('(g.name LIKE ? OR g.description LIKE ?)');
+    args.push(like, like);
+  }
   var limit = Math.min(Math.max(parseInt(o.limit, 10) || 50, 1), 200);
   args.push(limit);
 
   var sql = [
-    'SELECT g.*, a.kind AS seller_kind, a.owner_id AS seller_owner',
+    'SELECT g.*, a.kind AS seller_kind, a.owner_id AS seller_owner,',
+    '       COALESCE(NULLIF(u.net_name, \'\'), NULLIF(u.real_name, \'\')) AS seller_name',
     'FROM xy_ledger_goods g JOIN xy_ledger_accounts a ON a.id = g.seller_account_id',
+    'LEFT JOIN users u ON a.kind = \'user\' AND u.user_id = a.owner_id',
     where.length ? 'WHERE ' + where.join(' AND ') : '',
     'ORDER BY g.id DESC LIMIT ?'
   ].filter(Boolean).join('\n');

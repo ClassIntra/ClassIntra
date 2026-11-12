@@ -106,6 +106,9 @@
       </button>
     </transition>
 
+    <!-- 首屏钩子：把「今天为什么回来」直接摆到桌面上，不用学生自己找到钱包 -->
+    <TodayXueyuanBar v-if="isLoaded" />
+
     <!-- iPad 桌面模式：多页面容器 + 4×6 网格 -->
     <div
       v-if="isGridLayout && isLoaded"
@@ -395,6 +398,8 @@ import DesktopPageIndicator from '@/components/DesktopPageIndicator.vue';
 import DesktopSettingsPanel from '@/components/DesktopSettingsPanel.vue';
 import DesktopContextMenu from '@/components/DesktopContextMenu.vue';
 import BirthdayCelebration from '@/components/BirthdayCelebration.vue';
+// 今日学元钩子：独立组件，不往 4000+ 行的 Desktop.vue 里堆逻辑
+import TodayXueyuanBar from '@/components/TodayXueyuanBar.vue';
 import desktopDrag from '@/mixins/desktop-drag.js';
 import desktopGestures from '@/mixins/desktop-gestures.js';
 import { APP_REGISTRY } from '@/store/modules/desktop.js';
@@ -445,7 +450,8 @@ export default {
     DesktopPageIndicator: DesktopPageIndicator,
     DesktopSettingsPanel: DesktopSettingsPanel,
     DesktopContextMenu: DesktopContextMenu,
-    BirthdayCelebration: BirthdayCelebration
+    BirthdayCelebration: BirthdayCelebration,
+    TodayXueyuanBar: TodayXueyuanBar
   },
   mixins: [desktopDrag, desktopGestures],
   data: function() {

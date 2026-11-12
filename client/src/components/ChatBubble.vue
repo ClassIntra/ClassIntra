@@ -193,6 +193,9 @@
         <span v-if="isOwn && status === 'sending'" class="status-icon status-sending">
           <i class="fa-solid fa-spinner fa-spin"></i>
         </span>
+        <span v-else-if="isOwn && status === 'queued'" class="status-icon status-queued">
+          <i class="fa-solid fa-clock"></i><span class="status-queued-text">排队中</span>
+        </span>
         <span v-else-if="isOwn && status === 'sent'" class="status-icon status-sent">
           <i class="fa-solid fa-check"></i>
         </span>
@@ -236,6 +239,12 @@ export default {
     isOwn: {
       type: Boolean,
       default: false
+    },
+    // 机器人带 Markdown 的回复由上层预先渲染（先转义再插标签），
+    // 为空时走原本的 renderRichText，媒体 / 链接 / 支付卡片行为一字不动。
+    botHtml: {
+      type: String,
+      default: ''
     },
     canRecall: {
       type: Boolean,
@@ -645,6 +654,7 @@ export default {
       return RichTextRenderer.applyHighlight(htmlEscaped, this.searchTerm);
     },
     renderContent: function(content) {
+      if (this.botHtml && this.message.recalled !== 1) return this.botHtml;
       return RichTextRenderer.renderRichText(content, {
         highlightTerm: this.searchTerm,
         // 无超能岛浏览器权限时，链接显示为纯文本
@@ -1740,4 +1750,18 @@ export default {
   background: rgba(255, 255, 255, 0.24);
   color: #FFF3D6;
 }
+/* 上一条还在飞时的排队态：不吞消息，也不假装已发送 */
+.status-queued { color: var(--text-secondary, #8a8f98); font-size: 11px; }
+.status-queued-text { margin-left: 3px; }
+/* 机器人回复的轻量 Markdown：代码块 / 行内代码 / 列表 */
+.inline-code {
+  padding: 1px 5px; border-radius: 4px; font-size: .92em;
+  background: rgba(127,127,127,.16);
+}
+.bot-code-block {
+  display: block; margin: 6px 0; padding: 9px 11px; max-width: 100%;
+  overflow-x: auto; white-space: pre-wrap; word-break: break-word;
+  border-radius: 8px; background: rgba(127,127,127,.12); font-size: 12px;
+}
+.bot-list-item { display: inline-block; }
 </style>

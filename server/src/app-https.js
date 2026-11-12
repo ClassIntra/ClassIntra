@@ -18,7 +18,7 @@ crashLogger.installCrashHandlers();
 var errorsLib = require('./core/errors');
 var globalErrorHandler = errorsLib.globalErrorHandler;
 
-require('dotenv').config();
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 var express = require('express');
 var https = require('https');
 var path = require('path');

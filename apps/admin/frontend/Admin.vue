@@ -229,6 +229,9 @@
             </div>
           </div>
 
+          <!-- 一个入口看清六套自检：独立组件，拉不到时显示错误态而不是伪装正常 -->
+          <XueyuanOverview v-if="!xyMeshLocked" />
+
           <!-- 从班视角提示条 -->
           <div v-if="xyViewPeer" class="mesh-banner">
             <i class="fa-solid fa-tower-broadcast"></i>
@@ -254,7 +257,7 @@
                 <div class="stat-icon"><i class="fa-solid fa-gift"></i></div>
                 <div class="stat-info">
                   <div class="stat-value">{{ xyMoney(xySummary && xySummary.grant) }}</div>
-                  <div class="stat-label">赠送学元（仅投资）</div>
+                  <div class="stat-label">赠送学元（可转账/红包，不可购物）</div>
                 </div>
               </div>
               <div class="stat-card">
@@ -316,7 +319,7 @@
               <div class="xy-ledger-head">
                 <i class="fa-solid fa-book"></i>
                 <b>学元账本健康度</b>
-                <span class="xy-ledger-badge">{{ xyLedger.ok ? '八项不变量全绿' : (xyLedger.issues.length + ' 项异常') }}</span>
+                <span class="xy-ledger-badge">{{ xyLedger.ok ? '不变量全绿' : (xyLedger.issues.length + ' 项异常') }}</span>
                 <span class="xy-ledger-note">钱包 / 红包 / 收款 / 证券均已切到此账本</span>
               </div>
               <div class="xy-ledger-metrics">
@@ -325,6 +328,9 @@
                 <span>真金台账 <b>{{ ledgerYuan(xyLedger.metrics.cashbook_liability_cent) }}</b> 元</span>
                 <span>兑付覆盖率 <b>{{ ledgerPct(xyLedger.metrics.reserve_coverage) }}</b></span>
                 <span>平台已实现毛利 <b>{{ ledgerYuan(xyLedger.metrics.gross_cent) }}</b> 元</span>
+                <span v-if="xyLedger.loans && xyLedger.loans.ready">
+                  学元贷款未还 <b>{{ loanMoney(xyLedger.loans.principal_outstanding) }}</b> 学元 · 逾期 <b>{{ xyLedger.loans.overdue }}</b> 笔
+                </span>
               </div>
               <ul v-if="xyLedger.issues && xyLedger.issues.length" class="xy-ledger-issues">
                 <li v-for="(it, idx) in xyLedger.issues" :key="idx">[{{ it.code }}] {{ it.detail }}</li>
@@ -334,6 +340,81 @@
                 2026-11-07 完成切换：可兑付余额已按真实充值校准，超出真金支撑的部分转为「只能花」的赠送学元，每人总资产不变。
                 旧账本三张表（xy_account / xy_tx / xy_entry）已停止写入。
               </p>
+            </div>
+
+            <!-- 学元贷款：未还/逾期列表 + 坏账核销 -->
+            <div v-if="xyLedger && xyLedger.loans && xyLedger.loans.ready" class="xy-loans">
+              <div class="xy-loans-head">
+                <i class="fa-solid fa-hand-holding-dollar"></i>
+                <b>学元贷款</b>
+                <span class="xy-loans-badge" :class="{ bad: xyLedger.loans.overdue > 0 }">
+                  未还 {{ loanMoney(xyLedger.loans.principal_outstanding) }} 学元 · 逾期 {{ xyLedger.loans.overdue }} 笔
+                </span>
+                <span class="xy-loans-note">
+                  额度池 {{ loanMoney(xyLedger.loans.pool_used) }} / {{ loanMoney(xyLedger.loans.pool_cap) }} 学元
+                  · 逾期本金 {{ loanMoney(xyLedger.loans.overdue_principal) }}
+                  · 7 天内到期 {{ loanMoney(xyLedger.loans.due_7d_principal) }}
+                  · 按时 {{ xyLedger.loans.on_time_repaid }} · 逾期还清 {{ xyLedger.loans.late_repaid }}
+                  · 核销 {{ xyLedger.loans.written_off }}
+                  · 信用 A{{ (xyLedger.loans.tiers || {}).A || 0 }} B{{ (xyLedger.loans.tiers || {}).B || 0 }} C{{ (xyLedger.loans.tiers || {}).C || 0 }} S{{ (xyLedger.loans.tiers || {}).S || 0 }}
+                </span>
+                <button class="xy-loans-refresh" :disabled="xyLoanBusy" @click="loadLoanAdmin">刷新</button>
+              </div>
+              <div v-if="xyLoanError && !xyLoanList.length" class="xy-loans-error">
+                贷款列表加载失败，请稍后重试。不要把「拉不到」当成「没有未还贷款」。
+              </div>
+              <div v-else-if="xyLoanList.length" class="xy-loans-list">
+                <template v-for="l in xyLoanList">
+                  <div :key="l.id" class="xy-loan-row">
+                    <span class="xyl-user">{{ l.user_name || l.user_id }}</span>
+                    <span class="xyl-credit">{{ l.tier }} · {{ l.score }}</span>
+                    <span class="xyl-amt">{{ l.product_name }} · 借 {{ loanMoney(l.principal) }} · 待还 {{ loanMoney(l.remaining) }}</span>
+                    <span class="xyl-due" :class="{ bad: l.overdue }">
+                      {{ l.overdue ? ('逾期 ' + l.overdue_days + ' 天') : ('下期 ' + formatDate(l.next_due_at || l.due_at)) }}
+                    </span>
+                    <span class="xyl-state">{{ l.in_grace ? '宽限期' : (l.overdue ? '逾期' : '还款中') }}</span>
+                    <span class="xyl-auto" v-if="l.auto_repay" :class="{ forced: l.auto_repay_forced }"
+                      :title="l.auto_repay_forced ? '津贴预支：强制用每日津贴自动还' : '学生已开启每日津贴自动还款'">津贴自动还</span>
+                    <span class="xyl-actions">
+                      <button class="xyl-btn ghost" :disabled="xyLoanBusy" @click="openCredit(l)">信用</button>
+                      <button class="xyl-btn ghost" :disabled="xyLoanBusy" @click="adminExtend(l)">延期</button>
+                      <button class="xyl-btn" :disabled="xyLoanBusy" @click="writeOffLoan(l)">核销</button>
+                    </span>
+                  </div>
+                  <div v-if="xyCredit.open && xyCredit.userId === l.user_id" :key="'c' + l.id" class="xy-credit-panel">
+                    <div v-if="xyCredit.loading" class="hint">加载中…</div>
+                    <div v-else-if="xyCredit.error" class="xy-loans-error">{{ xyCredit.error }}</div>
+                    <template v-else-if="xyCredit.data">
+                      <div class="xy-credit-head">
+                        <b>{{ xyCredit.data.user_name }}</b>
+                        <span>{{ xyCredit.data.profile.tier }} · {{ xyCredit.data.profile.tier_name }} · {{ xyCredit.data.profile.score }} 分</span>
+                        <span>额度 {{ loanMoney(xyCredit.data.limit) }} · 已用 {{ loanMoney(xyCredit.data.used) }}</span>
+                        <span>按时 {{ xyCredit.data.on_time_count }} · 逾期 {{ xyCredit.data.late_count }}</span>
+                        <span v-if="xyCredit.data.profile.blacklisted" class="bad">暂停至 {{ (xyCredit.data.profile.blacklist_until || '').slice(0, 10) }}</span>
+                      </div>
+                      <div class="xy-credit-actions">
+                        <button :disabled="xyLoanBusy" @click="adminLimit(xyCredit.data.user_id)">限额</button>
+                        <button :disabled="xyLoanBusy" @click="adminScore(xyCredit.data.user_id)">调分</button>
+                        <button v-if="!xyCredit.data.profile.blacklisted" :disabled="xyLoanBusy" @click="adminBlacklist(xyCredit.data.user_id)">暂停借款</button>
+                        <button v-else :disabled="xyLoanBusy" @click="adminUnblacklist(xyCredit.data.user_id)">解除暂停</button>
+                      </div>
+                      <div class="xy-credit-events">
+                        <div v-for="(e, i) in xyCredit.data.events" :key="i" class="xy-credit-event">
+                          <span>{{ e.reason }}</span>
+                          <b>{{ e.delta > 0 ? '+' : '' }}{{ e.delta }}</b>
+                          <em>{{ e.score_after }}</em>
+                        </div>
+                      </div>
+                      <div v-if="xyCredit.data.audits && xyCredit.data.audits.length" class="xy-credit-audits">
+                        <div v-for="(a, i) in xyCredit.data.audits" :key="i" class="xy-credit-audit">
+                          {{ a.action }} · {{ a.operator }} · {{ a.reason || '无备注' }} · {{ formatDate(a.created_at) }}
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+              </div>
+              <p v-else class="xy-loans-empty">当前没有未还贷款。</p>
             </div>
 
             <!-- 小铺：商品上架 + 订单处理（结算/退款） -->
@@ -348,7 +429,7 @@
               <div v-if="xyOrders.length" class="xy-order-list">
                 <div v-for="o in xyOrders" :key="o.id" class="xy-order">
                   <span class="xo-name">{{ o.goods_name || ('订单 #' + o.id) }}</span>
-                  <span class="xo-meta">{{ o.buyer_id }} · {{ ledgerYuan(o.face_cent) }} 元 · {{ orderStatusText(o.status) }}</span>
+                  <span class="xo-meta">{{ o.buyer_id }} · {{ ledgerYuan(o.face_cent) }} 元 × {{ o.qty || 1 }} · {{ orderStatusText(o.status) }}</span>
                   <span class="xo-actions">
                     <button class="xo-btn" :disabled="orderBusy" @click="settleOrder(o)">结算</button>
                     <button class="xo-btn danger" :disabled="orderBusy" @click="refundOrder(o)">退款</button>
@@ -360,6 +441,7 @@
               <div class="xy-goods-row" v-if="xyGoods.length">
                 <span v-for="g in xyGoods" :key="g.id" class="xy-goods-chip">
                   {{ g.name }} · {{ ledgerYuan(g.price_cent) }} 元
+                  · {{ Number(g.stock_qty) < 0 ? '不限量' : ('库存 ' + g.stock_qty) }}
                   <em @click="offShelf(g)">下架</em>
                 </span>
               </div>
@@ -368,6 +450,7 @@
                 <input v-model="newGoods.name" class="xg-input xg-name" placeholder="商品名" />
                 <input v-model="newGoods.price" class="xg-input" placeholder="售价(元)" />
                 <input v-model="newGoods.cost" class="xg-input" placeholder="成本(元)" />
+                <input v-model="newGoods.stock" class="xg-input" placeholder="库存(空=不限)" />
                 <select v-model="newGoods.kind" class="xg-input">
                   <option value="digital">数字</option>
                   <option value="physical">实物</option>
@@ -377,8 +460,8 @@
               </div>
               <p class="xy-shop-tip">
                 成本填真实进价（数字品一般是 0），只用于算毛利和成本台账。
-                <b>定价用充值学元</b>：学生只能用自己充的钱买，赠送学元和炒股赚来的学元一分都抵不了
-                （那些钱可以转账、发红包，但买不了东西）。所以单个商品定价别超过学生的充值余额。
+                <b>定价用充值学元</b>：赠送学元可转账、发红包、跨班、投资，但买不了东西、也不可提现
+                —— 商品订单只能用充值学元支付。所以单个商品定价别超过学生的充值余额。
               </p>
             </div>
 
@@ -426,7 +509,7 @@
             <div class="xy-card">
               <div class="xy-card-head">
                 <h4><i class="fa-solid fa-cash-register"></i> 线下充值</h4>
-                <p>先当面收现金，再录系统。充值学元可转账、红包、跨班、投资、提现；教师发放的赠送学元也可支付，但不可提现。</p>
+                <p>先当面收现金，再录系统。充值学元可买东西、转账、红包、跨班、投资，也可申请提现；赠送学元可转账、红包、跨班、投资，但买不了东西、不可提现。</p>
               </div>
               <div class="xy-form">
                 <button class="table-btn sm xy-pick-btn" :disabled="xyRecharge.busy" @click="openXyPicker">
@@ -445,9 +528,9 @@
               </div>
               <p class="xy-foot-tip">
                 按 1 元 = {{ xySummary ? xySummary.yuan_rate : 1000 }} 学元换算。单人单笔上限
-                {{ xySummary && xySummary.limits ? xySummary.limits.max_recharge : 200000 }} 学元，
+                {{ xySummary && xySummary.limits ? xySummary.limits.max_recharge : '—' }} 学元，
                 每学期累计上限
-                {{ xySummary && xySummary.limits ? xySummary.limits.recharge_quota : 300000 }} 学元
+                {{ xySummary && xySummary.limits ? xySummary.limits.recharge_quota : '—' }} 学元
                 —— 拆成多笔也会被拦。重复提交会按请求号去重，不会重复入账。
               </p>
 
@@ -2144,6 +2227,8 @@ import api from '@/utils/api';
 import AppNavBar from '@/components/AppNavBar.vue';
 // 预览用设备端同一个渲染组件，保证「所见即所得」
 import BigTextStage from '@/components/BigTextStage.vue';
+// 学元状态总览独立成文件：Admin.vue 已经很大，不再往里堆卡片
+import XueyuanOverview from './XueyuanOverview.vue';
 
 /**
  * 字体 key → CSS font-family。
@@ -2165,7 +2250,8 @@ export default {
   name: 'Admin',
   components: {
     AppNavBar: AppNavBar,
-    BigTextStage: BigTextStage
+    BigTextStage: BigTextStage,
+    XueyuanOverview: XueyuanOverview
   },
   data: function() {
     return {
@@ -2220,10 +2306,15 @@ export default {
       xySummary: null,
       xyHealth: null,
       xyLedger: null,
+      // 学元贷款：未还/逾期列表 + 核销
+      xyLoanList: [],
+      xyLoanError: false,
+      xyLoanBusy: false,
+      xyCredit: { open: false, userId: '', loading: false, error: '', data: null },
       // 小铺：待处理订单 / 在架商品 / 上架表单
       xyOrders: [],
       xyGoods: [],
-      newGoods: { name: '', price: '', cost: '', kind: 'digital' },
+      newGoods: { name: '', price: '', cost: '', stock: '', kind: 'digital' },
       goodsBusy: false,
       orderBusy: false,
       xyAudit: null,
@@ -2979,11 +3070,26 @@ export default {
     },
 
     // ======== 学元管理 ========
-    // 新账本 1 元 = 1000 学元分；旧 xyMoney 是学元展示，不能混用
+    // 唯一单位链（server/src/ledger/units.js）：1 元 = yuan_rate 学元 × 100 账本单位。
+    // 旧代码把「1 元 = 1000」当成单位换算，结果管理端金额显示放大 100 倍、
+    // 上架标价缩小 100 倍。ledgerYuan / yuanToLedger 必须互逆且同源。
+    unitsPerYuan: function() {
+      var rate = (this.xySummary && Number(this.xySummary.yuan_rate)) || 1000;
+      return rate * 100;
+    },
     ledgerYuan: function(v) {
       var n = Number(v);
       if (!isFinite(n)) return '0.00';
-      return (n / 1000).toFixed(2);
+      return (n / this.unitsPerYuan()).toFixed(2);
+    },
+    // 贷款/额度池在接口里已经是「学元」，这里只做千分位与两位小数。
+    loanMoney: function(v) {
+      var n = Number(v);
+      if (!isFinite(n)) return '0.00';
+      var s = n.toFixed(2);
+      var parts = s.split('.');
+      parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+      return parts.join('.');
     },
     ledgerPct: function(v) {
       if (v == null || !isFinite(Number(v))) return '—';
@@ -3000,6 +3106,24 @@ export default {
       return map[s] || s;
     },
 
+    // 红线「拉不到 ≠ 没有」：失败时保留上一次结果并明确报错，
+    // 绝不把网络错误渲染成「班里没有商品 / 没有订单」的空态。
+    pickShopData: function(r) {
+      if (!r || !r.data) return null;
+      var d = r.data;
+      if (d.code !== undefined && d.code !== 200) return null;
+      if (d.data === undefined || d.data === null) return null;
+      return d.data;
+    },
+    applyShopData: function(rs, label) {
+      var a = this.pickShopData(rs[0]);
+      var b = this.pickShopData(rs[1]);
+      if (a) this.xyOrders = a;
+      if (b) this.xyGoods = b;
+      if (!a || !b) {
+        this.$toast && this.$toast.error(label + '数据拉取失败，已保留上次结果，可点刷新重试');
+      }
+    },
     loadShopAdmin: function() {
       // 从班视角：小铺（交易体系）同样经 mesh 管理——商品/订单数据与操作
       // 都作用在对端账本上，形状与本地同构所以复用同一份展示模板
@@ -3008,27 +3132,21 @@ export default {
       return Promise.all([
         api.get('/xy/orders', { params: { status: 'paid,fulfilled,disputed', limit: 30 } }).catch(function() { return null; }),
         api.get('/xy/goods', { params: { status: 'on_shelf', limit: 50 } }).catch(function() { return null; })
-      ]).then(function(rs) {
-        self.xyOrders = (rs[0] && rs[0].data && rs[0].data.data) || [];
-        self.xyGoods = (rs[1] && rs[1].data && rs[1].data.data) || [];
-      });
+      ]).then(function(rs) { self.applyShopData(rs, '本班市集'); });
     },
     loadShopPeer: function() {
       var self = this;
       return Promise.all([
         self.meshCommand('orders_list', { status: 'paid,fulfilled,disputed', limit: 30 }).catch(function() { return null; }),
         self.meshCommand('goods_list', { status: 'on_shelf', limit: 50 }).catch(function() { return null; })
-      ]).then(function(rs) {
-        self.xyOrders = (rs[0] && rs[0].data && rs[0].data.data) || [];
-        self.xyGoods = (rs[1] && rs[1].data && rs[1].data.data) || [];
-      });
+      ]).then(function(rs) { self.applyShopData(rs, '对班市集'); });
     },
 
-    // 元 → 学元分（1 元 = 1000）。不要用 100，那是人民币分。
+    // 元 → 账本单位（学元分）。与 ledgerYuan 互逆，共用同一条单位链。
     yuanToLedger: function(v) {
       var n = Number(v);
       if (!isFinite(n) || n < 0) return NaN;
-      return Math.round(n * 1000);
+      return Math.round(n * this.unitsPerYuan());
     },
 
     createGoods: function() {
@@ -3041,16 +3159,19 @@ export default {
         return;
       }
       self.goodsBusy = true;
+      var stock = String(g.stock || '').trim() === '' ? -1 : Math.max(0, Math.floor(Number(g.stock)));
       var req = self.xyView === 'local'
         ? api.post('/xy/goods', {
-            name: g.name, price_cent: price, cost_cent: isFinite(cost) ? cost : 0, kind: g.kind
+            name: g.name, price_cent: price, cost_cent: isFinite(cost) ? cost : 0,
+            kind: g.kind, stock_qty: stock
           })
         : self.meshCommand('goods_create', {
-            name: g.name, price_cent: price, cost_cent: isFinite(cost) ? cost : 0, kind: g.kind
+            name: g.name, price_cent: price, cost_cent: isFinite(cost) ? cost : 0,
+            kind: g.kind, stock_qty: stock
           });
       req.then(function() {
         self.$toast && self.$toast.success('已上架');
-        self.newGoods = { name: '', price: '', cost: '', kind: 'digital' };
+        self.newGoods = { name: '', price: '', cost: '', stock: '', kind: 'digital' };
         self.loadShopAdmin();
       }).catch(function(err) {
         var msg = (err.response && err.response.data && err.response.data.message) || '上架失败';
@@ -3067,6 +3188,120 @@ export default {
         self.$toast && self.$toast.success('已下架');
         self.loadShopAdmin();
       }).catch(function() { self.$toast && self.$toast.error('下架失败'); });
+    },
+
+    // ======== 学元贷款 ========
+    // 列表与健康度分开拉：贷款接口失败不能把整个学元页拖挂；
+    // 失败时保留旧列表并显式标错误，绝不当成「没有未还贷款」。
+    loadLoanAdmin: function() {
+      var self = this;
+      return api.get('/xy/admin/loans', { params: { status: 'active', limit: 50 } }).then(function(res) {
+        var d = (res.data && res.data.data) || {};
+        self.xyLoanList = d.list || [];
+        self.xyLoanError = false;
+        if (d.stats && self.xyLedger) self.xyLedger.loans = d.stats;
+      }).catch(function() {
+        self.xyLoanError = true;
+      });
+    },
+
+    writeOffLoan: function(l) {
+      var self = this;
+      if (self.xyLoanBusy) return;
+      var reason = window.prompt(
+        '核销这笔 ' + l.principal + ' 学元贷款？\n未还本金将记为班级坏账，学生核销后 ' +
+        ((self.xyLedger && self.xyLedger.loans && self.xyLedger.loans.write_off_cooldown_days) || 7) +
+        ' 天内不能再次借款。\n核销原因（可留空）：', '');
+      if (reason === null) return;
+      self.xyLoanBusy = true;
+      api.post('/xy/admin/loan/' + l.id + '/write-off', { reason: reason }).then(function() {
+        self.$toast && self.$toast.success('已核销');
+        self.loadLoanAdmin();
+      }).catch(function(err) {
+        var msg = (err.response && err.response.data && err.response.data.message) || '核销失败';
+        self.$toast && self.$toast.error(msg);
+      }).then(function() {
+        self.xyLoanBusy = false;
+      });
+    },
+
+    // ======== 信用档案与班管控制 ========
+    openCredit: function(l) {
+      var self = this;
+      if (this.xyCredit.open && this.xyCredit.userId === l.user_id) {
+        this.xyCredit.open = false;
+        return;
+      }
+      this.xyCredit = { open: true, userId: l.user_id, loading: true, error: '', data: null };
+      this.loadCredit(l.user_id);
+    },
+
+    loadCredit: function(userId) {
+      var self = this;
+      return api.get('/xy/admin/credit/' + userId).then(function(res) {
+        if (self.xyCredit.userId !== userId) return;
+        self.xyCredit.data = (res.data && res.data.data) || null;
+        self.xyCredit.error = '';
+      }).catch(function() {
+        if (self.xyCredit.userId !== userId) return;
+        self.xyCredit.error = '信用档案加载失败，请重试';
+      }).then(function() {
+        if (self.xyCredit.userId === userId) self.xyCredit.loading = false;
+      });
+    },
+
+    creditPost: function(userId, path, body, msg) {
+      var self = this;
+      if (self.xyLoanBusy) return;
+      self.xyLoanBusy = true;
+      return api.post(path, body).then(function() {
+        self.$toast && self.$toast.success(msg);
+        self.loadLoanAdmin();
+        if (self.xyCredit.open) self.loadCredit(userId);
+      }).catch(function(err) {
+        var m = (err.response && err.response.data && err.response.data.message) || '操作失败';
+        self.$toast && self.$toast.error(m);
+      }).then(function() {
+        self.xyLoanBusy = false;
+      });
+    },
+
+    adminExtend: function(l) {
+      var days = window.prompt('延期天数（1–90 天）\n只把未还账单整体往后推，不改变已发生的逾期记录。', '7');
+      if (days === null) return;
+      this.creditPost(l.user_id, '/xy/admin/loan/' + l.id + '/extend',
+        { days: Number(days), reason: '班管延期' }, '已延期');
+    },
+
+    adminLimit: function(userId) {
+      var amount = window.prompt('专属额度（学元，0 = 恢复按规则计算）', '1000');
+      if (amount === null) return;
+      this.creditPost(userId, '/xy/admin/credit/' + userId + '/limit',
+        { amount: Number(amount), reason: '班管调整限额' }, '已调整限额');
+    },
+
+    adminScore: function(userId) {
+      var delta = window.prompt('调分幅度（-200 到 200）', '20');
+      if (delta === null) return;
+      var reason = window.prompt('调分原因', '班管调分');
+      if (reason === null) return;
+      this.creditPost(userId, '/xy/admin/credit/' + userId + '/score',
+        { delta: Number(delta), reason: reason }, '已调整信用分');
+    },
+
+    adminBlacklist: function(userId) {
+      var days = window.prompt('暂停借款天数（1–365）', '7');
+      if (days === null) return;
+      var reason = window.prompt('暂停原因', '班管暂停借款');
+      if (reason === null) return;
+      var until = new Date(Date.now() + Math.max(1, Number(days) || 7) * 86400000).toISOString();
+      this.creditPost(userId, '/xy/admin/credit/' + userId + '/blacklist',
+        { until: until, reason: reason }, '已暂停借款');
+    },
+
+    adminUnblacklist: function(userId) {
+      this.creditPost(userId, '/xy/admin/credit/' + userId + '/blacklist',
+        { until: null, reason: '班管解除' }, '已解除借款限制');
     },
 
     settleOrder: function(o) {
@@ -3164,6 +3399,7 @@ export default {
         self.xyHealth = hl || null;
         var lg = results[4] && results[4].data && results[4].data.data;
         self.xyLedger = lg || null;
+        self.loadLoanAdmin();
         self.loadShopAdmin();
       }).catch(function(err) {
         var msg = (err.response && err.response.data && err.response.data.message) || '学元数据加载失败';
@@ -8390,6 +8626,104 @@ export default {
 .xy-ledger-metrics b { font-variant-numeric: tabular-nums; }
 .xy-ledger-issues { margin: 8px 0 0; padding-left: 18px; line-height: 1.7; color: var(--danger-color); }
 .xy-ledger-ok { margin: 8px 0 0; opacity: 0.6; }
+
+/* ---------- 学元贷款 ---------- */
+.xy-loans {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-md, 12px);
+  border: 1px solid rgba(127, 127, 127, 0.25);
+  background: rgba(127, 127, 127, 0.06);
+}
+.xy-loans-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.xy-loans-head > i { color: #D08A17; }
+.xy-loans-badge {
+  padding: 1px 7px;
+  border-radius: var(--radius-sm, 8px);
+  font-size: var(--font-size-caption2);
+  background: rgba(208, 138, 23, 0.14);
+  color: #D08A17;
+}
+.xy-loans-badge.bad { background: rgba(228, 87, 79, 0.14); color: var(--danger-color); }
+.xy-loans-note { opacity: 0.6; font-size: var(--font-size-caption2); }
+.xy-loans-refresh {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm, 8px);
+  font-size: var(--font-size-caption2);
+  cursor: pointer;
+}
+.xy-loans-error { color: var(--danger-color); line-height: 1.6; }
+.xy-loans-list { display: flex; flex-direction: column; }
+.xy-loan-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 6px 0;
+  border-top: 1px solid rgba(127, 127, 127, 0.14);
+  line-height: 1.5;
+}
+.xyl-user { min-width: 80px; font-weight: 600; }
+.xyl-amt { font-variant-numeric: tabular-nums; }
+.xyl-due { opacity: 0.7; }
+.xyl-due.bad { color: var(--danger-color); opacity: 1; }
+.xyl-state {
+  padding: 0 6px;
+  border-radius: var(--radius-xs, 4px);
+  font-size: var(--font-size-caption2);
+  background: rgba(127, 127, 127, 0.12);
+}
+.xyl-auto {
+  padding: 0 6px;
+  border-radius: var(--radius-xs, 4px);
+  font-size: var(--font-size-caption2);
+  color: #8a6d1f;
+  background: rgba(224, 160, 32, 0.14);
+}
+.xyl-auto.forced { color: #8a3b1f; background: rgba(224, 96, 32, 0.16); }
+.xyl-btn {
+  margin-left: auto;
+  padding: 2px 10px;
+  border-radius: var(--radius-sm, 8px);
+  cursor: pointer;
+  border: 1px solid rgba(228, 87, 79, 0.35);
+  color: var(--danger-color);
+  background: rgba(228, 87, 79, 0.08);
+}
+.xyl-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.xyl-credit { font-size: 10px; opacity: 0.65; }
+.xyl-actions { margin-left: auto; display: flex; gap: 6px; }
+.xyl-actions .xyl-btn { margin-left: 0; }
+.xyl-btn.ghost { border-color: rgba(127, 127, 127, 0.35); color: inherit; background: transparent; }
+.xy-credit-panel {
+  margin: 4px 0 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md, 12px);
+  border: 1px solid rgba(127, 127, 127, 0.18);
+  background: rgba(127, 127, 127, 0.05);
+}
+.xy-credit-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 14px; font-size: 11px; }
+.xy-credit-head > b { font-size: 13px; }
+.xy-credit-head .bad { color: var(--danger-color); }
+.xy-credit-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.xy-credit-actions button {
+  padding: 2px 10px;
+  border-radius: var(--radius-sm, 8px);
+  border: 1px solid rgba(127, 127, 127, 0.3);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 11px;
+}
+.xy-credit-events { margin-top: 6px; }
+.xy-credit-event { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 10px; opacity: 0.75; }
+.xy-credit-event > span { flex: 1; }
+.xy-credit-event > b { min-width: 32px; text-align: right; font-variant-numeric: tabular-nums; }
+.xy-credit-event > em { font-style: normal; opacity: 0.65; font-variant-numeric: tabular-nums; }
+.xy-credit-audits { margin-top: 6px; font-size: 10px; opacity: 0.6; }
+.xy-credit-audit { padding: 2px 0; line-height: 1.5; }
+.xy-loans-empty { margin: 4px 0 0; opacity: 0.55; }
 
 /* ---------- 小铺 ---------- */
 .xy-shop {

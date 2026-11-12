@@ -23,6 +23,7 @@
 //   GET  /api/wallet/collect/:id    收款单详情
 //   POST /api/wallet/collect/:id/pay    付我那一份（支付密码 + 当日额度）
 //   POST /api/wallet/collect/:id/close  结束收款单
+//   信用/贷款已移到学元证券：/api/wallet/loan* 一律 410 指路
 //   GET  /api/wallet/leaderboard    学元榜
 //
 // 编码约定：var / function
@@ -40,6 +41,7 @@ var packetCross = require('../services/packet-cross');
 var peers = require('../services/peers');
 var db = require('../utils/db');
 var ledger = require('../ledger/ledger');
+var loan = require('../ledger/loan');
 var constants = require('../utils/constants');
 var payGuard = require('../services/pay-guard');
 
@@ -51,7 +53,7 @@ var OFFSET = 8 * 3600 * 1000;   // 全平台按东八区记账
 // 业务错误 400 / 未预期 500，前端据此区分「余额不足」与「服务器挂了」
 function fail(res, err) {
   var msg = err && err.message ? err.message : '操作失败';
-  var known = /余额不足|可用学元不足|超过上限|不能超过|非法|不存在|已被冻结|至少|不能为空|尚未开通|已关闭|未知的业务类型|不平衡|重复出现|不能给自己|必须|请填写|请选择|一次最多|无法|不能|已领|过期|不够|红包|学号|支付密码|输错|锁定|未设置|额度|收款码|地址|请输入|红包码|口令|跨班|班级|连通|离线|格式|不对|发给你的|还没选|至少选/.test(msg);
+  var known = /余额不足|可用学元不足|超过上限|不能超过|非法|不存在|已被冻结|至少|不能为空|尚未开通|已关闭|未知的业务类型|不平衡|重复出现|不能给自己|必须|请填写|请选择|一次最多|无法|不能|已领|过期|不够|红包|学号|支付密码|输错|锁定|未设置|额度|收款码|地址|请输入|红包码|口令|跨班|班级|连通|离线|格式|不对|发给你的|还没选|至少选|贷款|借款|还款|逾期|应还|核销|额度池|分期|暂停|产品|期数/.test(msg);
   if (!known) console.error('[wallet] 未预期错误:', err);
   var body = { code: known ? 400 : 500, message: msg };
   // 支付密码/额度这类「可恢复的业务拒绝」要带结构化信息：
@@ -368,6 +370,7 @@ router.post('/pay-code/pay', function (req, res) {
       fromBase: peers.localBaseHint(),
       amountCent: amountCent,
       memo: String(b.memo || '扫码付款').slice(0, 40),
+      pool: b.pool,
       fromName: (meRow && (meRow.net_name || meRow.real_name)) || uid
     }).then(function (tx) {
       res.json({
@@ -398,6 +401,7 @@ router.post('/pay-code/pay', function (req, res) {
       amountCent: amountCent,
       ref: 'qr:' + uid + ':' + String(b.request_id || Date.now()),
       app: 'wallet',
+      pool: b.pool,
       memo: String(b.memo || '扫码付款').slice(0, 40)
     });
     payCode.touch(info.token);
@@ -556,7 +560,18 @@ router.get('/ledger', function (req, res) {
 // ---------------- 津贴 ----------------
 router.post('/daily', function (req, res) {
   try {
-    var r = xy.claimDaily(String(req.user.user_id));
+    var uid = String(req.user.user_id);
+    var r = xy.claimDaily(uid);
+    var loanRepay = null;
+    if (!r.duplicate && r.amount_cent > 0) {
+      // 自动还款失败不能连坐「今天领不到津贴」：吞掉异常，还款另有独立入口
+      try {
+        loanRepay = loan.autoRepayFromDaily(
+          uid, r.amount_cent, 'daily:' + uid + ':' + r.date + ':loan');
+      } catch (e) {
+        loanRepay = null;
+      }
+    }
     res.json({
       code: 200,
       message: r.duplicate ? '今天已经领过了' : '津贴已到账',
@@ -564,8 +579,14 @@ router.post('/daily', function (req, res) {
         duplicate: !!r.duplicate,
         amount: r.amount,
         streak: r.streak,
-        account: r.account,
-        daily: dailyState(String(req.user.user_id))
+        account: loanRepay ? xy.viewAccount(uid) : r.account,
+        daily: dailyState(uid),
+        loan_repay: loanRepay ? {
+          amount: loanRepay.amount,
+          loan_id: loanRepay.loan && loanRepay.loan.id,
+          remaining: loanRepay.loan && loanRepay.loan.remaining,
+          closed: !!(loanRepay.loan && loanRepay.loan.status === 'repaid')
+        } : null
       }
     });
   } catch (err) {
@@ -956,7 +977,7 @@ router.post('/collect/:id/pay', function (req, res) {
     // 先把单子读出来拿金额，再走风控 —— 顺序反了就是「先扣钱后验密码」
     var d = collect.detail(req.params.id, uid);
     payGuard.guardPay(uid, body.pin, d.per_cent);
-    var r = collect.pay(req.params.id, uid);
+    var r = collect.pay(req.params.id, uid, { pool: body.pool });
     res.json({
       code: 200,
       message: r.duplicate ? '你已经付过这一份了' : ('已付 ' + d.per + ' 学元'),
@@ -980,6 +1001,18 @@ router.post('/collect/:id/close', function (req, res) {
   } catch (err) {
     fail(res, err);
   }
+});
+
+// ---------------- 信用 / 贷款（已迁到学元证券） ----------------
+// 贷款是投资/信用能力，学生端入口在「学元证券」的「信用」页；
+// 班管的信用控制台在 ClassIntra 管理端。钱包不再提供第二个入口。
+['/loan', '/loan/:id', '/loan/apply', '/loan/repay'].forEach(function (p) {
+  router.all(p, function (req, res) {
+    return res.status(410).json({
+      code: 410,
+      message: '信用/贷款已迁移到「学元证券」应用，请打开学元证券的「信用」页'
+    });
+  });
 });
 
 router.get('/leaderboard', function (req, res) {

@@ -9,10 +9,16 @@
           @touchend="onTouchEnd"
           @touchcancel="onTouchEnd"
           @wheel="onWheel">
-          <img :src="imageUrl" class="preview-image"
+          <img :src="resolvedImageUrl" class="preview-image"
             :style="{ transform: 'translate(' + x + 'px,' + y + 'px) scale(' + scale + ')', transition: (isPinching || isDragging) ? 'none' : 'transform var(--duration-normal) var(--ease-decelerate)' }"
             @load="onImageLoad"
+            @error="onImageError"
             draggable="false" />
+          <div v-if="imageFailed" class="preview-image-failed">
+            <i class="fa-regular fa-image"></i>
+            <span>图片加载失败</span>
+            <button type="button" @click.stop="retryImage">点一下重试</button>
+          </div>
         </div>
         <div class="preview-hint" v-if="scale === 1">双指缩放 · 双击放大 · 点击关闭</div>
       </div>
@@ -75,10 +81,18 @@ export default {
       isPinching: false, isDragging: false,
       pinchStartDist: 0, pinchStartScale: 1,
       dragStartX: 0, dragStartY: 0,
-      lastTapTime: 0
+      lastTapTime: 0,
+      imageFailed: false,
+      imageRetryKey: 0
     };
   },
   computed: {
+    // 重试时换 src 才会真正重新发起请求（原实现只有 @load，失败是白屏）
+    resolvedImageUrl: function() {
+      if (!this.imageRetryKey) return this.imageUrl;
+      var sep = this.imageUrl.indexOf('?') >= 0 ? '&' : '?';
+      return this.imageUrl + sep + '_retry=' + this.imageRetryKey;
+    },
     videoSourceType: function() { return getMimeType(this.imageUrl, VIDEO_EXT_MAP) || 'video/mp4'; },
     audioSourceType: function() { return getMimeType(this.imageUrl, AUDIO_EXT_MAP) || 'audio/mpeg'; }
   },
@@ -89,6 +103,7 @@ export default {
         self.scale = 1; self.x = 0; self.y = 0;
         self.isPinching = false; self.isDragging = false;
         self.lastTapTime = 0;
+        self.imageFailed = false; self.imageRetryKey = 0;
       } else {
         // 关闭时暂停原生播放器
         if (self.$refs.videoPlayer) self.$refs.videoPlayer.pause();
@@ -102,6 +117,13 @@ export default {
     if (this.$refs.audioPlayer) this.$refs.audioPlayer.pause();
   },
   methods: {
+    onImageError: function() {
+      this.imageFailed = true;
+    },
+    retryImage: function() {
+      this.imageFailed = false;
+      this.imageRetryKey += 1;
+    },
     onVideoError: function(e) {
       console.error('[ImagePreview] 视频加载失败:', e);
       this.$store.commit('toast/SHOW_TOAST', { message: '视频加载失败，请重试', type: 'error' });
@@ -208,6 +230,7 @@ export default {
   overflow: hidden;
 }
 .preview-image-wrap {
+  position: relative;
   display: flex; align-items: center; justify-content: center;
   width: 100%; height: 100%;
   -webkit-user-select: none; user-select: none;
@@ -250,4 +273,17 @@ export default {
 .preview-action-btn:active { background: rgba(255,255,255,0.35); transform: scale(0.94); }
 .preview-close-btn { right: 16px; }
 .preview-save-btn { right: 64px; }
+/* 图片加载失败不再是一片白屏：给明确原因 + 一键重试 */
+.preview-image-failed {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  display: flex; flex-direction: column; align-items: center;
+  color: rgba(255,255,255,.85); font-size: 14px; text-align: center;
+  pointer-events: auto;
+}
+.preview-image-failed i { font-size: 40px; margin-bottom: 12px; opacity: .6; }
+.preview-image-failed button {
+  margin-top: 14px; min-height: 44px; padding: 0 18px;
+  border: none; border-radius: 10px; cursor: pointer;
+  background: rgba(255,255,255,.2); color: #fff; font-size: 14px;
+}
 </style>

@@ -51,7 +51,7 @@ var CURRENT_SDK_VERSION = '1';
 var KNOWN_CAPABILITIES = [
   'data.storage', 'data.realtime', 'data.http',
   'data.store',
-  'system.notification', 'system.clipboard', 'system.share', 'system.shareTarget', 'system.navigate',
+  'system.notification', 'system.clipboard', 'system.clipboard.read', 'system.share', 'system.shareTarget', 'system.navigate',
   'system.badge', 'system.openApp', 'system.search',
   'ui.toast', 'ui.modal', 'ui.sheet',
   // ui.overlay：声明 frontend.overlay 后可在任意页面挂载全局悬浮层（宿主 z-index 9400）

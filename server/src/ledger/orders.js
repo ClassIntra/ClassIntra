@@ -20,6 +20,7 @@ var assets = require('./assets');
 var settle = require('./settlement');
 var cashbook = require('./cashbook');
 var units = require('./units');
+var errors = require('./errors');
 
 // 账本内部一律整数（学元分，1 元 = 1000 分）；报错文案给人看的是「元」。
 // ⚠️ 不要用 100（人民币分）——那会把 100 元说成 10 元。
@@ -82,6 +83,14 @@ function patchOrder(orderId, fields) {
   q('UPDATE xy_ledger_orders SET ' + sets + ' WHERE id = ?').run(...vals);
 }
 
+// 下单时占用的库存，在「未支付关单 / 退款」时归还一次。
+// 不限量商品（stock_qty = -1）保持 -1，不参与增减。
+function restoreGoodsStock(order) {
+  if (!order || !order.goods_id || !(Number(order.qty) > 0)) return;
+  q('UPDATE xy_ledger_goods SET stock_qty = stock_qty + ? WHERE id = ? AND stock_qty >= 0')
+    .run(Number(order.qty), order.goods_id);
+}
+
 // ---------- 创建 ----------
 // opts = { ref, buyer, seller: 'platform'|学号, goods_id, kind, asset,
 //          face_cent, cost_cent, fee_cent, rebate_cent, initiator }
@@ -96,19 +105,26 @@ function create(opts) {
 
   // 有 goods_id 时价格与卖家一律以商品为准，避免调用方自己算错面值
   var goodsId = o.goods_id == null ? null : Number(o.goods_id);
+  var goodsRequiresExternal = 0;
   var face;
   var cost;
   var sellerAccount;
+  var qty = Math.max(1, Math.floor(Number(o.qty) || 1));
+  var note = String(o.note == null ? '' : o.note).trim().slice(0, 200);
 
   if (goodsId != null) {
     var g = q('SELECT * FROM xy_ledger_goods WHERE id = ?').get(goodsId);
     if (!g) throw new Error('商品不存在: ' + goodsId);
     if (g.status !== 'on_shelf') throw new Error('商品已下架');
-    var qty = Math.max(1, Math.floor(Number(o.qty) || 1));
+    if (qty > 999) throw new Error('单笔最多购买 999 件');
     face = g.price_cent * qty;
     cost = o.cost_cent == null ? g.cost_cent * qty : Math.max(0, Math.floor(Number(o.cost_cent)));
+    // 只记录商品是否需要外部成本门禁，真正校验放在资产检查之后：
+    // 保证「商品只能用充值学元」这条既有制度先报，既有错误文案不漂移。
+    goodsRequiresExternal = Number(g.requires_external) === 1 ? 1 : 0;
     sellerAccount = q('SELECT * FROM xy_ledger_accounts WHERE id = ?').get(g.seller_account_id);
   } else {
+    qty = 1;
     face = Number(o.face_cent);
     cost = Math.max(0, Math.floor(Number(o.cost_cent) || 0));
     sellerAccount = (o.seller && String(o.seller) !== 'platform')
@@ -118,12 +134,31 @@ function create(opts) {
 
   if (!isFinite(face) || Math.floor(face) !== face || face <= 0) throw new Error('订单面值必须是正整数分');
 
+  // 自己买自己上架的商品 = 钱从左口袋回右口袋的空转，还会污染交易量/榜单口径。
+  // 在 create 服务层拦（路由之外也可能被内部代码调用）。
+  if (sellerAccount && String(sellerAccount.owner_id) === String(o.buyer)) {
+    throw new Error('不能买自己上架的商品');
+  }
+
   // 2026-11-07 定：商品只能用自己充值的学元购买。
   // 赠金（津贴 / 成就 / 同学转账 / 红包 / 证券撤出的投资收益）只能转账、发红包，
   // 不构成购买力。这条放在 create 而不是只放在路由，是因为服务层也可能被内部代码调用。
   // 需要「补一件商品给学生」时，走发放（grant），不要走订单。
   if (asset.asset !== 'CASH') {
-    throw new Error('商品只能用充值学元购买：赠送学元（含投资收益）可以转账、发红包，但不能买东西');
+    throw errors.of('EXTERNAL_COST_FORBIDDEN',
+      '商品只能用充值学元购买：赠送学元（含投资收益）可以转账、发红包，但不能买东西');
+  }
+  // 有真实成本 / 实物商品的门禁由数据决定，不由硬编码常量决定。
+  // 即使将来把「订单只能 CASH」这条制度放宽，这一层仍能挡住印出来的额度。
+  if (goodsRequiresExternal === 1 && !assets.canBuyExternal(asset.asset)) {
+    throw errors.of('EXTERNAL_COST_FORBIDDEN',
+      '该商品有真实成本，只能用可兑付资产购买（external_cost 门禁）');
+  }
+  // 数据驱动的结构断言：制度可以比资产属性更严，但绝不能比它更松。
+  // 将来新增资产时，只要 external_cost=0 就自动被挡在订单之外，不必改这里。
+  if (!assets.canBuyExternal(asset.asset)) {
+    throw errors.of('EXTERNAL_COST_FORBIDDEN',
+      '资产 ' + asset.asset + ' 不可用于有外部成本的交易（external_cost 门禁）');
   }
 
   var fee = Math.max(0, Math.floor(Number(o.fee_cent) || 0));
@@ -136,16 +171,28 @@ function create(opts) {
   var kind = String(o.kind || 'goods');
   if (['goods', 'transfer', 'fee'].indexOf(kind) === -1) throw new Error('未知订单类型: ' + kind);
 
-  var info = q([
-    'INSERT INTO xy_ledger_orders',
-    '(ref, buyer_account_id, seller_account_id, goods_id, kind, status, asset,',
-    ' face_cent, cost_cent, rebate_cent, fee_cent, created_at)',
-    "VALUES (?, ?, ?, ?, ?, 'created', ?, ?, ?, ?, ?, ?)"
-  ].join(' ')).run(
-    ref, buyer.id, sellerAccount.id,
-    goodsId,
-    kind, asset.asset, face, cost, rebate, fee, nowIso()
-  );
+  var info = db.transaction(function () {
+    if (goodsId != null) {
+      var stock = q('SELECT stock_qty FROM xy_ledger_goods WHERE id = ?').get(goodsId);
+      if (stock && Number(stock.stock_qty) >= 0) {
+        var upd = q([
+          'UPDATE xy_ledger_goods SET stock_qty = stock_qty - ?',
+          'WHERE id = ? AND stock_qty >= ?'
+        ].join(' ')).run(qty, goodsId, qty);
+        if (!upd.changes) throw new Error('库存不足：这件商品只剩 ' + Math.max(0, Number(stock.stock_qty)) + ' 件');
+      }
+    }
+    return q([
+      'INSERT INTO xy_ledger_orders',
+      '(ref, buyer_account_id, seller_account_id, goods_id, kind, status, asset,',
+      ' qty, note, face_cent, cost_cent, rebate_cent, fee_cent, created_at)',
+      "VALUES (?, ?, ?, ?, ?, 'created', ?, ?, ?, ?, ?, ?, ?, ?)"
+    ].join(' ')).run(
+      ref, buyer.id, sellerAccount.id,
+      goodsId,
+      kind, asset.asset, qty, note, face, cost, rebate, fee, nowIso()
+    );
+  })();
 
   return getOrder(Number(info.lastInsertRowid));
 }
@@ -258,6 +305,10 @@ function settleOrder(orderId, opts) {
 
   var run = db.transaction(function () {
     requireTransition(order, 'done');
+    if (order.goods_id) {
+      q('UPDATE xy_ledger_goods SET sold_qty = sold_qty + ? WHERE id = ?')
+        .run(Number(order.qty) || 1, order.goods_id);
+    }
     var tx = ledger.post({
       ref: ref,
       kind: 'order_settle',
@@ -295,6 +346,7 @@ function refund(orderId, opts) {
 
   var run = db.transaction(function () {
     requireTransition(order, 'refunded');
+    restoreGoodsStock(order);
     var tx = ledger.post({
       ref: ref,
       kind: 'order_refund',
@@ -329,6 +381,14 @@ function requestRefund(orderId, opts) {
   return run();
 }
 
+// 买家确认收货：已履约 → 直接结算给卖家。
+// 真实交易里这是买家的动作；卖家仍保留「收钱」按钮作为兜底/班管处理。
+function confirm(orderId, opts) {
+  var order = getOrder(orderId);
+  assertStatus(order, 'fulfilled');
+  return settleOrder(orderId, opts);
+}
+
 // ---------- 关单（未支付） ----------
 function close(orderId, opts) {
   var o = opts || {};
@@ -338,6 +398,7 @@ function close(orderId, opts) {
 
   var run = db.transaction(function () {
     requireTransition(order, 'closed');
+    restoreGoodsStock(order);
     writeTransition(order, 'closed', null, ref);
     patchOrder(order.id, { status: 'closed', closed_at: nowIso() });
     return getOrder(order.id);
@@ -381,10 +442,45 @@ function sweepUnpaid(maxAgeMs, opts) {
   return n;
 }
 
+// ---------- 滞留订单收尾（2026-11-10） ----------
+// 已支付的单若卖家迟迟不履约，钱会永远压在托管里；已履约却没人结算，卖家永远收不到钱。
+// 14 天（校园设备不天天发，给足缓冲）后自动给个交代：
+//   paid      → 原路退款给买家（卖家没交付，钱不能无限期占着）
+//   fulfilled → 结算给卖家（卖家已标记交付，钱该归他）
+// 幂等：ref 固定，ledger.post 天然去重；班管可在超时期前随时介入。
+var STALE_MS = 14 * 24 * 60 * 60 * 1000;
+function sweepStale(maxAgeMs) {
+  var age = Math.max(60 * 60 * 1000, Number(maxAgeMs) || STALE_MS);
+  var cutoff = new Date(Date.now() - age).toISOString();
+  var rows = q("SELECT id, status FROM xy_ledger_orders WHERE status IN ('paid', 'fulfilled') AND created_at <= ?")
+    .all(cutoff);
+  var n = 0;
+  rows.forEach(function (r) {
+    try {
+      if (r.status === 'paid') {
+        refund(r.id, {
+          ref: 'auto-refund:' + r.id,
+          initiator: 'system',
+          reason: '超时未履约，自动退款给买家'
+        });
+      } else {
+        settleOrder(r.id, { ref: 'auto-settle:' + r.id, initiator: 'system' });
+      }
+      n++;
+    } catch (e) {
+      console.error('[orders] 滞留订单收尾失败 #' + r.id + ':', e.message);
+    }
+  });
+  return n;
+}
+
 // ---------- 查询 ----------
 function list(opts) {
   var o = opts || {};
-  if (o.sweep !== false) sweepUnpaid(o.maxAgeMs);
+  if (o.sweep !== false) {
+    sweepUnpaid(o.maxAgeMs);
+    sweepStale();
+  }
 
   var where = [];
   var args = [];
@@ -466,10 +562,12 @@ module.exports = {
   paySplitCent: paySplitCent,
   fulfill: fulfill,
   settle: settleOrder,
+  confirm: confirm,
   refund: refund,
   requestRefund: requestRefund,
   close: close,
   sweepUnpaid: sweepUnpaid,
+  sweepStale: sweepStale,
   dispute: dispute,
   get: getOrder,
   getByRef: getByRef,

@@ -123,8 +123,11 @@ function release(userId, amountCent, ref, memo) {
     ]
   });
 
+  // 与 reserve 不同：解冻「已退过」是正常结果（撤单重试、结算失败后的补退、
+  // 同一订单多条路径都来解冻），不能用抛错把调用方吓退 —— 一抛错，钱就卡在
+  // 托管槽里，学生再买就报练习金不足。带确定性 ref 的重复解冻以 duplicate 静默返回。
   if (tx.duplicate) {
-    throw new Error('解冻 ref 已被使用，本次解冻未生效: ' + ref);
+    return { tx_id: 0, duplicate: true, view: view(uid) };
   }
 
   return { tx_id: tx.tx_id, duplicate: false, view: view(uid) };

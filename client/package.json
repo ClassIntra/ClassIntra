@@ -7,7 +7,8 @@
     "dev": "vite",
     "prebuild": "node scripts/prebuild.js",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test test/daily-allowance-controller.test.mjs test/daily-allowance-visibility.test.mjs test/market-sdk-contract.test.mjs"
   },
   "dependencies": {
     "@fortawesome/fontawesome-free": "^6.7.2",

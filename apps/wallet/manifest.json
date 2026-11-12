@@ -1,9 +1,9 @@
 {
   "name": "wallet",
   "type": "app",
-  "version": "1.0.0",
+  "version": "1.2.1",
   "label": "钱包",
-  "description": "学元的统一入口：余额与冻结、每日助学津贴、给同学转账、发红包（收红包在聊天里点气泡）、全部流水与班级学元榜",
+  "description": "学元的统一入口：余额与冻结、每日助学津贴、给同学转账、发红包（收红包在聊天里点气泡）、全部流水与班级学元榜；信用/贷款已迁到「学元证券」的信用页",
   "icon": "/resources/public/icons/Wallet.svg",
   "color": "#E0A020",
   "category": "desktop",

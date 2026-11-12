@@ -16,17 +16,17 @@ var SEED = [
   {
     asset: 'CASH', label: '充值学元',
     redeemable: 1, transferable: 1, external_cost: 1,
-    supply: 'cash', sink: 'withdraw,goods'
+    supply: 'cash', sink: 'withdraw,goods', supply_cap_cent: 0
   },
   {
     asset: 'GRANT', label: '赠送学元',
     redeemable: 0, transferable: 1, external_cost: 0,
-    supply: 'quota', sink: 'goods_offset'
+    supply: 'quota', sink: 'goods_offset', supply_cap_cent: 0
   },
   {
     asset: 'PRACTICE', label: '练习金',
     redeemable: 0, transferable: 0, external_cost: 0,
-    supply: 'closed', sink: 'games'
+    supply: 'closed', sink: 'games', supply_cap_cent: 0
   }
 ];
 
@@ -59,6 +59,8 @@ function list() {
 // 幂等写入资产表；已存在则不动（避免把线上改过的属性覆盖回去）
 function seed(db) {
   var now = new Date().toISOString();
+  // supply_cap_cent 刻意**不写**：线上资产行可能已被班管调过上限，
+  // INSERT OR IGNORE 只建缺失行，绝不把配置覆盖回 0。改 cap 走管理端 UPDATE。
   var ins = db.prepare([
     'INSERT OR IGNORE INTO xy_ledger_assets',
     '(asset, label, redeemable, transferable, external_cost, supply, sink, unit, created_at)',

@@ -332,7 +332,10 @@ export default {
 /* 三分构图参考线：裁横幅封面时比圆环更有用 */
 .ic-grid-guide {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   pointer-events: none;
   background-image:
     linear-gradient(to right, rgba(255, 255, 255, 0.28) 1px, transparent 1px),

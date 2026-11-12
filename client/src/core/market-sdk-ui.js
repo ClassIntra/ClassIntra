@@ -260,9 +260,11 @@ function searchBar(options) {
   }
   if (typeof opts.onSearch === 'function') {
     var hs = function(e) { opts.onSearch(input.value, e); };
-    input.addEventListener('keydown', function(e) {
+    var onKeydown = function(e) {
       if (e.key === 'Enter') hs(e);
-    });
+    };
+    input.addEventListener('keydown', onKeydown);
+    cleanups.push(function() { input.removeEventListener('keydown', onKeydown); });
   }
 
   wrap.appendChild(input);
@@ -521,7 +523,7 @@ function sheet(options) {
 
   var mask = document.createElement('div');
   mask.setAttribute('style', [
-    'position:fixed', 'inset:0', 'z-index:60000', 'background:rgba(0,0,0,0.42)',
+    'position:fixed', 'top:0','right:0','bottom:0','left:0', 'z-index:60000', 'background:rgba(0,0,0,0.42)',
     'display:flex', 'align-items:flex-end', 'justify-content:center',
     'opacity:0', 'transition:opacity .18s ease'
   ].join(';'));

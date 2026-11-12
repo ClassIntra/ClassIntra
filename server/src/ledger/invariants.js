@@ -1,4 +1,4 @@
-// 学元账本 · 不变量自检 I1–I9
+// 学元账本 · 不变量自检 I1–I10
 // ============================================================
 // 三个执行点：
 //   1) ledger.post() 内联局部断言（I1 分组守恒 / I8 负余额）—— 每笔都跑，O(1)
@@ -10,8 +10,13 @@
 // 编码约定：var / function（服务端 CommonJS 风格）
 
 var ALL = [
-  'I1a', 'I1b', 'I1c', 'I2', 'I3', 'I4', 'I5', 'I6', 'I7', 'I8', 'I9'
+  'I1a', 'I1b', 'I1c', 'I2', 'I3', 'I4', 'I5', 'I6', 'I7', 'I8', 'I9', 'I10'
 ];
+
+// v2 深度自检层：这三项要做全表摘要 / 交叉聚合，刻意**不塞进 check()。
+// check() 是启动与健康度的轻量层（V.14 修正 2），深度层由 checkDeep() /
+// 日终对账 / 管理端点调用。分层是为了不拿 O(n) 的东西去拖慢每次自检。
+var DEEP = ['I11', 'I12', 'I13'];
 
 function q(sql) {
   return require('../utils/db').prepare(sql);
@@ -207,6 +212,23 @@ function checkOrderRules(issues) {
   }
 }
 
+// I10 贷款账实一致：贷款表缓存 ↔ 还款明细 ↔ 放款分录。
+// 表不存在时跳过（老库还没跑迁移 040 的极端情况），不让健康检查整页报错。
+function checkLoans(issues) {
+  try {
+    var loan = require('./loan');
+    var r = loan.audit();
+    if (r.skipped) return { skipped: true };
+    (r.issues || []).forEach(function (i) {
+      push(issues, i.code || 'I10', i.detail);
+    });
+    return { skipped: false, issues: (r.issues || []).length };
+  } catch (e) {
+    push(issues, 'I10', '贷款自检无法执行：' + (e && e.message ? e.message : e));
+    return { skipped: false, error: true };
+  }
+}
+
 // I8 allow_negative=0 的账户不得为负
 function checkNegative(issues) {
   var rows = q([
@@ -234,6 +256,7 @@ function check(opts) {
   summary.reserve = checkReserve(issues, o.reserveCent); // I3
   summary.escrow = checkEscrow(issues);    // I4
   checkOrderRules(issues);            // I6 / I7 / I9 结构约束
+  summary.loans = checkLoans(issues); // I10 贷款账实一致
   checkNegative(issues);              // I8
 
   return {
@@ -245,12 +268,113 @@ function check(opts) {
   };
 }
 
+// ---------- v2 深度自检 I11–I13 ----------
+// 三者共同回答一个问题：「有人绕过 post() 或改了历史，系统能不能自己发现？」
+// 老库 / 未跑 046 的临时库一律安静跳过，绝不让健康检查整页报错。
+
+// I11 哈希链：重算历史段 digest + 新段逐笔 entry_hash / chain_hash / 链接关系
+function proofCheck(issues) {
+  try {
+    var proof = require('./proof');
+    var state = proof.head();
+    if (!state) return { skipped: true, ok: true, reason: '哈希链未初始化' };
+    var r = proof.verify();
+    (r.issues || []).forEach(function (i) {
+      push(issues, 'I11', (i.code || 'SEAL') + '：' + (i.detail || ''));
+    });
+    return {
+      skipped: false, ok: r.ok, checked: r.checked,
+      legacy_checked: r.legacy_checked, head_hash: r.head_hash
+    };
+  } catch (e) {
+    push(issues, 'I11', '哈希链自检无法执行：' + (e && e.message ? e.message : e));
+    return { skipped: false, ok: false, error: true };
+  }
+}
+
+// I12 累计发行计数器 ≡ 分录（物化视图必须能被流水重算出来）
+function supplyCheck(issues) {
+  try {
+    var supply = require('./supply');
+    if (!supply.tableReady()) return { skipped: true, ok: true };
+    var state = {};
+    supply.all().forEach(function (r) { state[r.asset] = Number(r.issued_cent); });
+    var real = {};
+    q([
+      'SELECT e.asset, COALESCE(SUM(e.amount_cent), 0) AS s FROM xy_ledger_entries e',
+      "JOIN xy_ledger_accounts a ON a.id = e.account_id WHERE a.kind = 'clearing' AND e.direction = -1",
+      'GROUP BY e.asset'
+    ].join('\n')).all().forEach(function (r) { real[r.asset] = Number(r.s); });
+    var keys = {};
+    [state, real].forEach(function (m) { Object.keys(m).forEach(function (k) { keys[k] = true; }); });
+    var drift = 0;
+    Object.keys(keys).forEach(function (asset) {
+      var s = state[asset] || 0, r = real[asset] || 0;
+      if (s !== r) {
+        drift++;
+        push(issues, 'I12', '资产 ' + asset + ' 累计发行计数器 ' + s + ' 分与分录 ' + r + ' 分不一致');
+      }
+    });
+    return { skipped: false, ok: drift === 0, drift: drift, state: state };
+  } catch (e) {
+    push(issues, 'I12', '发行计数器自检无法执行：' + (e && e.message ? e.message : e));
+    return { skipped: false, ok: false, error: true };
+  }
+}
+
+// I13 余额版本断层：有分录却 version=0，说明有人绕过 ledger.post 直接写余额
+function versionCheck(issues) {
+  try {
+    var rows = q([
+      'SELECT b.account_id, b.asset FROM xy_ledger_balances b WHERE b.version = 0',
+      'AND EXISTS (SELECT 1 FROM xy_ledger_entries e WHERE e.account_id = b.account_id AND e.asset = b.asset) LIMIT 20'
+    ].join('\n')).all();
+    rows.forEach(function (r) {
+      push(issues, 'I13', '账户 ' + r.account_id + ' 资产 ' + r.asset +
+        ' 有分录但 version=0（疑似绕过 ledger.post 写入）');
+    });
+    return { skipped: false, ok: rows.length === 0, drift: rows.length };
+  } catch (e) {
+    // 老库没有 version 列：跳过，而不是让健康检查报错
+    return { skipped: true, ok: true, reason: 'balances.version 列不存在' };
+  }
+}
+
+// 深度自检 = 轻量层 + I11–I13。给日终对账与排障脚本用。
+function checkDeep(opts) {
+  var base = check(opts);
+  var issues = [];
+  var summary = {
+    proof: proofCheck(issues),
+    supply: supplyCheck(issues),
+    version: versionCheck(issues)
+  };
+  return {
+    ok: base.ok && issues.length === 0,
+    base_ok: base.ok,
+    base_issues: base.issues,
+    checked: DEEP,
+    issues: issues,
+    summary: summary
+  };
+}
+
 // 健康度：给管理端一屏看的数
 function health(opts) {
   var result = check(opts);
   var cash = result.summary.cash || {};
   var escrow = result.summary.escrow || {};
   var book = require('./cashbook').totals();
+
+  // 深度层单独算、单独放：health.ok 只看轻量层，避免把「链尚未初始化」
+  // 这种老库兼容状态变成全站红灯；管理端仍能一眼看到真实证明状态。
+  var deepIssues = [];
+  var deep = {
+    proof: proofCheck(deepIssues),
+    supply: supplyCheck(deepIssues),
+    version: versionCheck(deepIssues)
+  };
+
   return {
     ok: result.ok,
     issues: result.issues,
@@ -268,14 +392,31 @@ function health(opts) {
       pnl_cent: book.pnl_cent,
       escrow_held: escrow.holds || {},
       escrow_balance: escrow.escrow || {},
-      reserve_coverage: (result.summary.reserve || {}).coverage
-    }
+      reserve_coverage: (result.summary.reserve || {}).coverage,
+      proof_ok: deep.proof.ok !== false,
+      proof_checked: deep.proof.checked || 0,
+      supply_ok: deep.supply.ok !== false,
+      version_drift: deep.version.drift || 0
+    },
+    deep: {
+      ok: deepIssues.length === 0,
+      issues: deepIssues,
+      summary: deep
+    },
+    last_reconcile: (function () {
+      try {
+        var l = require('./reconcile').latest();
+        return l ? l.run : null;
+      } catch (e) { return null; }
+    })()
   };
 }
 
 module.exports = {
   ALL: ALL,
+  DEEP: DEEP,
   check: check,
+  checkDeep: checkDeep,
   health: health,
   cashOnBookCent: cashOnBookCent,
   cashLiabilityCent: cashLiabilityCent,

@@ -13,6 +13,12 @@ var invariants = require('./invariants');
 var orders = require('./orders');
 var goods = require('./goods');
 var settlement = require('./settlement');
+var loan = require('./loan');
+var overview = require('./overview');
+var proof = require('./proof');
+var reconcile = require('./reconcile');
+var supply = require('./supply');
+var errors = require('./errors');
 var recharge = require('./templates/recharge');
 var grant = require('./templates/grant');
 var transfer = require('./templates/transfer');
@@ -31,6 +37,10 @@ function ensureReady() {
   ledger.systemAccount('platform');
   ledger.systemAccount('escrow', 'orders');
   ledger.systemAccount('clearing');
+  // 服务启动时就把链起点与发行计数器钉好，别让第一笔真实交易承担初始化成本。
+  // 两个函数都幂等：老库未跑 046 时安静跳过，不会阻断启动。
+  proof.ensureGenesis(db);
+  supply.ensure(db);
   return true;
 }
 
@@ -56,6 +66,12 @@ module.exports = {
   orders: orders,
   goods: goods,
   settlement: settlement,
+  loan: loan,
+  proof: proof,
+  reconcile: reconcile,
+  supply: supply,
+  errors: errors,
+  overview: overview,
 
   recharge: recharge.recharge,
   withdraw: recharge.withdraw,

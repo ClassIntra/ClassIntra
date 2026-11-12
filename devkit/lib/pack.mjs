@@ -4,18 +4,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-
-function walk(dir, out) {
-  let entries = [];
-  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return out; }
-  for (const ent of entries) {
-    if (ent.name === 'node_modules' || ent.name.startsWith('.')) continue;
-    const full = path.join(dir, ent.name);
-    if (ent.isDirectory()) walk(full, out);
-    else out.push(full);
-  }
-  return out;
-}
+import { packageFiles } from './package-files.mjs';
+import { checkPackage } from './check.mjs';
 
 function sha256(file) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
@@ -23,6 +13,8 @@ function sha256(file) {
 
 export function collectPackage(targetDir) {
   const dir = path.resolve(targetDir || '.');
+  const checked = checkPackage(dir);
+  if (!checked.ok) throw new Error('包校验失败:\n' + checked.errors.join('\n'));
   const manifestPath = path.join(dir, 'manifest.json');
   if (!fs.existsSync(manifestPath)) throw new Error('缺少 manifest.json: ' + dir);
 
@@ -35,7 +27,7 @@ export function collectPackage(targetDir) {
   const name = String(kind === 'theme' ? manifest.id : manifest.name || '');
   if (!name) throw new Error('manifest 缺少 name/id');
 
-  const absFiles = walk(dir, []);
+  const absFiles = packageFiles(dir);
   const files = [];
   const hashes = {};
   let bytes = 0;
@@ -98,6 +90,7 @@ export function mergeIndex(indexPath, collected, options) {
   index.version = (typeof index.version === 'number' ? index.version : 1) + 1;
   index.updated_at = new Date().toISOString();
 
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
   fs.writeFileSync(abs, JSON.stringify(index, null, 2) + '\n', 'utf8');
   return { index: abs, replaced: idx >= 0, section: collected.section, name: collected.name, version: index.version };
 }

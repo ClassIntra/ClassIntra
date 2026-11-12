@@ -34,6 +34,13 @@ function throws(name, fn, re) {
 
 var db = require('./src/utils/db');
 db.exec(fs.readFileSync(path.join(__dirname, 'src', 'ledger', 'schema.sql'), 'utf8'));
+// 商品读取会 LEFT JOIN users 取卖家昵称；真实库里由平台迁移建表，这里补最小列。
+db.exec([
+  'CREATE TABLE IF NOT EXISTS users (',
+  '  user_id TEXT PRIMARY KEY, net_name TEXT, real_name TEXT,',
+  "  password_hash TEXT, status TEXT DEFAULT 'active'",
+  ')'
+].join('\n'));
 
 var svc = require('./src/ledger/service');
 var inv = require('./src/ledger/invariants');

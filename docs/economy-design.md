@@ -1,5 +1,8 @@
 # ClassIntra 价值体系设计总纲
 
+> 📍 **先读 [`economy-current.md`](./economy-current.md)**：一页速查，覆盖单位链、三种资产、学生/班管入口、改钱规矩、发版门禁与已撤销的东西。
+> 本文（2000+ 行）是**决策史料与完整论证**：v0.1–v0.6 的讨论记录、口径纠错经过、ADR、风险清单。只有改内核或要追溯「为什么这么定」时才需要从头翻；**日常查口径请勿在本文里搜关键词**，那会撞上已被推翻的旧结论。
+
 > **状态：V 章（学元账本）已实施并上线生产（2026-11-07，见 V.15–V.24）；v0.1–v0.6 为前置讨论史料，其中与现行制度矛盾的结论以 V 章为准** · v0.6 · 2026-11-06
 > **v0.2 变更（运营方方向，同日两条）**：①「后续把积分体系统一为学元体系」；②「引入可持续运营目标（自负盈亏）」。
 > 因此：Cluss 从「永久只读」改为「分阶段接入统一账本」，新增统一三层模型与 P5；**同时把「可盈利」提为一等目标**——新增盈利模型（7.3.1）、外部成本护栏（2.1 / 6.3 / 9.3）、按盈利重排的执行顺序（第 11 章）与 ADR 016–017。统一是**放大器**，不是收入来源。
@@ -2001,3 +2004,47 @@ v0.3 曾把优先级写成「先赚钱 → P3 重建放倒数第二」。**那�
 5. 账本 `invariants.check().ok === true`（I1–I9）
 6. `node scripts/build-app.js wallet` + `node scripts/sync-dist-8i.mjs`
 7. 双入口 `classintra-server` / `classintra-https` 定点重建（见 `ops.md`），8i 同理
+8. `node server/scripts-test-ledger-hardening.cjs`（v2 加固，99 项）
+9. `node server/scripts/ledger-verify-migration-046.cjs --db <库副本>`（迁移副本验证）
+10. `node server/scripts/ledger-daily-reconcile.cjs --db <库副本>`（日终对账零差异）
+
+---
+
+## V.25 账本 v2 加固（2026-11-11，工程层，不改任何制度口径）
+
+> 总纲见 `docs/ledger-hardening-v2.md`。本章只记「对现行制度产生了什么影响」，实现细节不重复。
+
+### 25.1 做了什么
+
+V 章把账本从「余额 + 流水」变成了归一化三维度账本；V.25 不改变其中任何一条金额、方向、账户、资产或状态迁移，只给内核补上**可证明性与不可击穿性**：
+
+| 能力 | 之前 | 之后 |
+|---|---|---|
+| 幂等 | `ref` 唯一即返回 duplicate，同键换载荷会被静默吞掉 | 请求指纹落 `transactions.request_hash`；同 ref 异载荷抛 `IDEMPOTENCY_CONFLICT` 并留凭证；迁移前无指纹的历史交易走 legacy 兼容 |
+| 历史不可篡改 | 只有 I1c 金额比对，同时改余额与流水查不出 | `xy_ledger_tx_seals` 哈希链 + `xy_ledger_chain_state` genesis digest；改任意历史分录报 `LEGACY_DIGEST_MISMATCH` |
+| 日终自证 | 只有即时 `invariants.check()`，结果不落库 | `reconcile.run()` 三方对平（分录 / 余额 / 真金台账）+ 托管三数 + 供给 + 链 + 版本，差异按行落 `xy_ledger_reconcile_diffs`，按天去重 |
+| 失败可追 | 中文正则猜 400/500，失败无痕 | `LedgerError.error_code` 结构化分类 + `xy_ledger_post_attempts` 凭证（事务内失败由路由层事务外补写） |
+| 并发 | 余额读改写靠 SQLite 串行 | 事务内二次守恒 + `balances.version` 乐观锁 + `BEGIN IMMEDIATE`；绕过 `post()` 写余额会留下版本断层（I13） |
+| 供给 | 单笔 / 每日配额，无累计硬顶 | `xy_ledger_supply_state` O(1) 计数器 + `assets.supply_cap_cent`（默认 0 不限，线上行为不变） |
+| 外部成本门禁 | `canBuyExternal()` 定义了但 `orders.js` 硬编码 CASH 绕过 | 数据驱动双保险：订单层强制 `external_cost=1`；有真实成本 / 实物的商品自动打 `requires_external=1` |
+
+### 25.2 分层自检（重要工程决定）
+
+`check()` 保持 I1–I10 不变 —— 它是启动与健康度的轻量层，不能把 O(n) 的全表摘要塞进去（V.14 修正 2）。新增 `checkDeep()` 作为独立深度层（I11 哈希链 / I12 供给账实 / I13 版本断层），由 `health().deep`、日终对账与管理端点 `/api/xy/admin/*` 使用。`health.ok` 只看轻量层，避免老库「链未初始化」把全站变红灯。
+
+### 25.3 V.24 四项未决的处置
+
+1. **「亏光 → 补发 → 撤出」套取**：`invest.metrics(userId)` 现在给出累计转入 / 累计撤出 / 累计平台补发 / 提取比 / 风险等级四个可查数，`health()` 与管理端可读；`LEDGER_INVEST_OUT_CAP_CENT` 提供可配置的累计撤出信用上限，**默认 0（不限）以不误挡成就 / 周冠军奖励提取**。是否开启及取值仍需产品拍板 —— 本轮不擅自改变补发目标，也不擅自限制学生提取。
+2. **V.16 三项**：① 归位公示仍待产品决定；② `STOCK_LEDGER` 开关已澄清撤销（无运行时消费方）；③ 账户 251800 的 CASH ¥1,001 若背后有真实收款，**必须班管核对后补录 `xy_recharge`**，本轮不动任何存量数据。
+3. **`xy_recharge` 两条 `rate=100`**：仅作业务凭证保留，净充值口径已从账本分录聚合，无资金影响 —— 维持原处置。
+4. **ledger 发放模板配额比班管默认更紧**：维持「刻意从严」，是否与班管配额对齐仍待产品定。
+
+### 25.4 验收
+
+- 21 个脚本 **1448 项断言全绿**（`test:ledger` 从 15 个补到 21 个，纳入 5 个原本漏网的贷款 / 巡检脚本）。
+- 生产快照副本上跑迁移 046：**29/29**，1023 笔交易 / 2046 条分录 / 135 行余额逐字段等价，账面现金与真金负债均 100000 分未变；genesis 钉在 #1023。
+- 日终对账 CLI 退出码 0、零差异；8 进程真并发不同 ref 全部成功、同 ref 仅 1 笔落账、无 `SQLITE_BUSY`。
+
+### 25.5 边界
+
+Cluss 侧回执拉取、xy-mesh 两阶段确认与补偿事务需对端同步升级，本轮只在本仓提供可查端点与观测能力，**未改跨班协议**。`LEDGER_REQUIRE_IDEMPOTENCY_KEY=1` 严格模式默认关闭，需先用 `X-Ledger-Idempotency: generated` 响应头巡检确认前端全量补齐后再开。

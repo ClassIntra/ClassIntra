@@ -10,7 +10,14 @@ function cleanupStore() {
   }
 }
 
-setInterval(cleanupStore, 60000);
+// 模块级定时器只挂一次：热重载 / 多入口 require 会重复叠加清理任务。
+// unref 让它不阻止进程退出（探针、CLI 尤其需要）。
+var CLEANUP_TIMER_KEY = '__ci_rate_limit_cleanup_timer__';
+if (!global[CLEANUP_TIMER_KEY]) {
+  var cleanupTimer = setInterval(cleanupStore, 60000);
+  if (cleanupTimer.unref) cleanupTimer.unref();
+  global[CLEANUP_TIMER_KEY] = cleanupTimer;
+}
 
 function createRateLimiter(options) {
   var maxRequests = options.max || 100;

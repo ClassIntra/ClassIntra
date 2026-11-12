@@ -22,6 +22,7 @@
 import { ui, ensureStyles } from '@/core/market-sdk-ui';
 import { getTokenInjector, collectTokens } from '@/core/token-injector';
 import * as navbarStore from '@/core/app-navbar-store';
+import { createSdkRequest } from '@/core/market-sdk-request';
 
 // ============================================================
 // 一、版本与兼容探测（context.compat）
@@ -111,7 +112,8 @@ function createNamespacedStorage(appName, auditor) {
     },
     set: function(key, value) {
       try {
-        var raw = (typeof value === 'string') ? value : JSON.stringify(value);
+        var raw = JSON.stringify(value);
+        if (raw === undefined) return false;
         localStorage.setItem(fullKey(key), raw);
         return true;
       } catch (e) {
@@ -187,14 +189,21 @@ var PERMISSION_LABELS = {
 //    绑在 context 上会导致第二个 context 读不到，注册 onShare 也就永远收不到。
 //    用时间戳限界：同一导航内注册的多个 handler 都能收到，5 秒后自然失效。
 var sharedIncoming = null;
+var contextSequence = 0;
 
 // 内存缓存（当前会话）：key = app + ':' + capability，值 true/false
 var permissionCache = {};
 // 并发去重：同一能力同时被调两次，只弹一个窗口
 var permissionPending = {};
 
-function _permKey(appName, capability) {
-  return String(appName) + ':' + String(capability);
+function permissionIdentity(d) {
+  var auth = d.store && d.store.state && d.store.state.auth;
+  var user = auth && auth.user;
+  return JSON.stringify([user && (user.user_id || user.id) || '', auth && auth.token || '']);
+}
+
+function _permKey(appName, capability, identity) {
+  return JSON.stringify([identity, appName, capability]);
 }
 
 function _permLabel(capability) {
@@ -217,7 +226,7 @@ function askPermissionDialog(d, appName, capability) {
     mask.setAttribute('role', 'dialog');
     mask.setAttribute('aria-modal', 'true');
     mask.setAttribute('style', [
-      'position:fixed', 'inset:0', 'z-index:60000',
+      'position:fixed', 'top:0','right:0','bottom:0','left:0', 'z-index:60000',
       'background:rgba(0,0,0,0.42)',
       'display:flex', 'align-items:center', 'justify-content:center',
       'padding:24px', 'box-sizing:border-box',
@@ -274,8 +283,13 @@ function askPermissionDialog(d, appName, capability) {
 
     var allow = makeBtn('允许', true);
     var deny = makeBtn('不允许', false);
+    var settled = false;
+    var cancelCleanup = null;
 
     function done(value) {
+      if (settled) return;
+      settled = true;
+      if (cancelCleanup) cancelCleanup();
       try { if (mask.parentNode) mask.parentNode.removeChild(mask); } catch (e) {}
       resolve(value);
     }
@@ -299,6 +313,7 @@ function askPermissionDialog(d, appName, capability) {
     card.appendChild(actions);
     mask.appendChild(card);
     document.body.appendChild(mask);
+    if (typeof d.registerCleanup === 'function') cancelCleanup = d.registerCleanup(function() { done(false); });
     try { allow.focus(); } catch (e) {}
   });
 }
@@ -319,11 +334,17 @@ function _grantRemote(d, appName, capability) {
  * @returns Promise<true>（已授权/刚授权）或 reject（用户拒绝）
  */
 function ensurePermission(d, appName, capability, options) {
+  if (typeof d.isDisposed === 'function' && d.isDisposed()) return Promise.reject(new Error('应用上下文已销毁'));
   var opts = options || {};
-  var key = _permKey(appName, capability);
+  var identity = permissionIdentity(d);
+  var key = _permKey(appName, capability, identity);
+  function checkIdentity() {
+    if (permissionIdentity(d) !== identity) throw new Error('账号已切换，请重新操作');
+    if (typeof d.isDisposed === 'function' && d.isDisposed()) throw new Error('应用上下文已销毁');
+  }
 
   if (!opts.force) {
-    if (permissionCache[key] === true) return Promise.resolve(true);
+    if (permissionCache[key] === true) return Promise.resolve().then(function() { checkIdentity(); return true; });
     if (permissionCache[key] === false) {
       return Promise.reject(new Error('你已拒绝「' + _permLabel(capability) + '」权限，可在应用设置里重新开启'));
     }
@@ -337,7 +358,7 @@ function ensurePermission(d, appName, capability, options) {
       var data = (res && res.data && res.data.data) || {};
       var granted = Array.isArray(data.granted) ? data.granted : [];
       for (var i = 0; i < granted.length; i++) {
-        permissionCache[_permKey(appName, granted[i])] = true;
+        permissionCache[_permKey(appName, granted[i], identity)] = true;
       }
       return granted.indexOf(capability) !== -1;
     }).catch(function () {
@@ -349,11 +370,13 @@ function ensurePermission(d, appName, capability, options) {
   }
 
   var chain = remote.then(function (already) {
+    checkIdentity();
     if (already) {
       permissionCache[key] = true;
       return true;
     }
     return askPermissionDialog(d, appName, capability).then(function (allowed) {
+      checkIdentity();
       permissionCache[key] = !!allowed;
       if (!allowed) {
         throw new Error('用户拒绝了「' + _permLabel(capability) + '」权限');
@@ -645,7 +668,20 @@ function pickFiles(appName, options) {
 }
 
 // 拍照：getUserMedia → video → canvas → Blob。失败给出人话错误。
-function capturePhoto(options) {
+function acquireMedia(d, constraints) {
+  var identity = permissionIdentity(d);
+  if (d.isDisposed && d.isDisposed()) return Promise.reject(new Error('应用上下文已销毁'));
+  return navigator.mediaDevices.getUserMedia(constraints).then(function(stream) {
+    if ((d.isDisposed && d.isDisposed()) || identity !== permissionIdentity(d)) {
+      var tracks = stream.getTracks ? stream.getTracks() : [];
+      for (var i = 0; i < tracks.length; i++) tracks[i].stop();
+      throw new Error('应用上下文已销毁或账号已切换');
+    }
+    return stream;
+  });
+}
+
+function capturePhoto(options, d) {
   var opts = options || {};
   if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     return Promise.reject(new Error('当前浏览器不支持摄像头采集（需要 HTTPS 或 localhost）'));
@@ -659,7 +695,7 @@ function capturePhoto(options) {
     audio: false
   };
 
-  return navigator.mediaDevices.getUserMedia(constraints).then(function(stream) {
+  return acquireMedia(d, constraints).then(function(stream) {
     return new Promise(function(resolve, reject) {
       var video = document.createElement('video');
       video.setAttribute('playsinline', '');
@@ -667,8 +703,13 @@ function capturePhoto(options) {
       video.style.position = 'fixed';
       video.style.left = '-9999px';
       document.body.appendChild(video);
+      var stopped = false;
+      var cancelCleanup = null;
 
       function stop() {
+        if (stopped) return;
+        stopped = true;
+        if (cancelCleanup) cancelCleanup();
         try {
           var tracks = stream.getTracks ? stream.getTracks() : [];
           for (var i = 0; i < tracks.length; i++) tracks[i].stop();
@@ -676,6 +717,10 @@ function capturePhoto(options) {
         try { video.pause(); } catch (e) {}
         try { if (video.parentNode) video.parentNode.removeChild(video); } catch (e) {}
       }
+      cancelCleanup = d.registerCleanup(function() {
+        stop();
+        reject(new Error('应用上下文已销毁'));
+      });
 
       video.onerror = function() {
         stop();
@@ -683,6 +728,7 @@ function capturePhoto(options) {
       };
 
       video.onloadedmetadata = function() {
+        if (stopped) return;
         var w = video.videoWidth || 640;
         var h = video.videoHeight || 480;
         var maxW = opts.maxWidth || 1280;
@@ -703,6 +749,7 @@ function capturePhoto(options) {
           return;
         }
         canvas.toBlob(function(blob) {
+          if (stopped) return;
           stop();
           if (!blob) { reject(new Error('照片生成失败')); return; }
           resolve(blob);
@@ -751,7 +798,7 @@ function recordAudio(d, appName, options) {
   }
 
   return ensurePermission(d, appName, 'device.microphone').then(function () {
-    return navigator.mediaDevices.getUserMedia({ audio: true });
+    return acquireMedia(d, { audio: true });
   }).then(function (stream) {
     return new Promise(function (resolve, reject) {
       var mimeType = pickMime();
@@ -770,6 +817,7 @@ function recordAudio(d, appName, options) {
       var cancelled = false;
       var ticker = null;
       var autoStop = null;
+      var cancelCleanup = null;
 
       // ---- UI ----
       var bar = document.createElement('div');
@@ -818,6 +866,7 @@ function recordAudio(d, appName, options) {
       }
 
       function cleanup() {
+        if (cancelCleanup) cancelCleanup();
         try { if (ticker) clearInterval(ticker); } catch (e) {}
         try { if (autoStop) clearTimeout(autoStop); } catch (e) {}
         try { stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
@@ -878,6 +927,11 @@ function recordAudio(d, appName, options) {
       bar.appendChild(stopBtn);
       bar.appendChild(cancelBtn);
       document.body.appendChild(bar);
+      cancelCleanup = d.registerCleanup(function() {
+        cancelled = true;
+        settle(reject, new Error('应用上下文已销毁'));
+        try { if (rec.state !== 'inactive') rec.stop(); } catch (e) {}
+      });
 
       try {
         rec.start(200); // 分片，避免长时间录音全压在内存
@@ -932,7 +986,7 @@ function recordVideo(d, appName, options) {
     if (!withAudio) return true;
     return ensurePermission(d, appName, 'device.microphone');
   }).then(function () {
-    return navigator.mediaDevices.getUserMedia({
+    return acquireMedia(d, {
       video: {
         facingMode: opts.facingMode || 'user',
         width: opts.width ? { ideal: opts.width } : undefined,
@@ -958,11 +1012,12 @@ function recordVideo(d, appName, options) {
       var cancelled = false;
       var ticker = null;
       var autoStop = null;
+      var cancelCleanup = null;
 
       // ---- UI：全屏遮罩 + 预览窗口 ----
       var mask = document.createElement('div');
       mask.setAttribute('style', [
-        'position:fixed', 'inset:0', 'z-index:60000',
+        'position:fixed', 'top:0','right:0','bottom:0','left:0', 'z-index:60000',
         'background:rgba(0,0,0,0.62)',
         'display:flex', 'align-items:center', 'justify-content:center', 'padding:20px',
         'box-sizing:border-box', '-webkit-tap-highlight-color:transparent'
@@ -1024,6 +1079,7 @@ function recordVideo(d, appName, options) {
       }
 
       function cleanup() {
+        if (cancelCleanup) cancelCleanup();
         try { if (ticker) clearInterval(ticker); } catch (e) {}
         try { if (autoStop) clearTimeout(autoStop); } catch (e) {}
         try { stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
@@ -1082,6 +1138,11 @@ function recordVideo(d, appName, options) {
       card.appendChild(footer);
       mask.appendChild(card);
       document.body.appendChild(mask);
+      cancelCleanup = d.registerCleanup(function() {
+        cancelled = true;
+        settle(reject, new Error('应用上下文已销毁'));
+        try { if (rec.state !== 'inactive') rec.stop(); } catch (e) {}
+      });
 
       video.srcObject = stream;
       var play = video.play();
@@ -1113,6 +1174,13 @@ function recordVideo(d, appName, options) {
 
 // 主题便捷层：让文档里的 context.theme.current / getToken / subscribe 真实存在。
 // 同时把 ThemeEngine 的原有方法透传出去——v1 应用里 context.theme.setTheme() 不能失效。
+function readToken(name) {
+  try {
+    var tokens = collectTokens() || {};
+    return tokens[name] || tokens['--ci-' + name] || tokens['--' + name] || '';
+  } catch (e) { return ''; }
+}
+
 function createThemeApi(d) {
   var engine = d.themeEngine || null;
   var subs = [];
@@ -1131,11 +1199,7 @@ function createThemeApi(d) {
       } catch (e) {}
       return '';
     },
-    getToken: function(name) {
-      try {
-        return (collectTokens() || {})[name] || '';
-      } catch (e) { return ''; }
-    },
+    getToken: readToken,
     subscribe: function(fn) {
       if (typeof fn !== 'function' || !engine || typeof engine.subscribe !== 'function') {
         return function() {};
@@ -1176,7 +1240,7 @@ function createThemeApi(d) {
 //   getAuditor, define   —— 见 main.js 的装配处
 // }
 function createContext(appName, deps) {
-  var d = deps || {};
+  var d = Object.assign({}, deps || {});
 
   // 确保 UI 片段的样式已注入
   try { ensureStyles(); } catch (e) {}
@@ -1184,23 +1248,49 @@ function createContext(appName, deps) {
   // --- 清理函数登记表（context.app.onDestroy 的实现） ---
   var cleanups = [];
   var _disposed = false;
+  d.isDisposed = function() { return _disposed; };
 
   // --- 订阅归属：本 context 经 eventBus 登记的订阅统一挂 'market:<appName>' ---
   // dispose 时自动 offOwner——第三方忘了退订也不再泄漏总线
-  var BUS_OWNER = 'market:' + appName;
+  var BUS_OWNER = 'market:' + appName + ':' + (++contextSequence);
   var scopedEventBus = null;
   if (d.eventBus && typeof d.eventBus.on === 'function') {
     var rawBus = d.eventBus;
+    var busListeners = [];
+    function subscribeBus(topic, fn, once) {
+      if (_disposed || typeof fn !== 'function') return function() {};
+      var active = true;
+      var record = { topic: topic, fn: fn, stop: stop };
+      var cancelCleanup;
+      function listener() {
+        if (!active || _disposed) return;
+        if (once) stop();
+        fn.apply(null, arguments);
+      }
+      function stop() {
+        if (!active) return;
+        active = false;
+        rawBus.off(topic, listener);
+        var index = busListeners.indexOf(record);
+        if (index !== -1) busListeners.splice(index, 1);
+        if (cancelCleanup) cancelCleanup();
+      }
+      rawBus.on(topic, listener, BUS_OWNER);
+      busListeners.push(record);
+      // Called only after context construction has finished.
+      cancelCleanup = appApi.onDestroy(stop);
+      return stop;
+    }
     scopedEventBus = {
-      on: function(topic, fn) { return rawBus.on(topic, fn, BUS_OWNER); },
-      once: function(topic, fn) {
-        var wrapper = function() {
-          rawBus.off(topic, wrapper);
-          try { fn.apply(null, arguments); } catch (e) {}
-        };
-        return rawBus.on(topic, wrapper, BUS_OWNER);
+      on: function(topic, fn) { return subscribeBus(topic, fn, false); },
+      once: function(topic, fn) { return subscribeBus(topic, fn, true); },
+      off: function(topic, fn) {
+        var snapshot = busListeners.slice();
+        for (var i = 0; i < snapshot.length; i++) {
+          if (snapshot[i].topic === topic && snapshot[i].fn === fn) snapshot[i].stop();
+        }
+        return true;
       },
-      off: function(topic, fn) { rawBus.off(topic, fn); return true; },
       emit: function(topic) { return rawBus.emit.apply(rawBus, arguments); },
       listenerCount: function(topic) { return rawBus.listenerCount(topic); }
     };
@@ -1224,6 +1314,7 @@ function createContext(appName, deps) {
     var _q = (d.router && d.router.currentRoute && d.router.currentRoute.query) || null;
     if (_q && String(_q.ci_share) === '1') {
       sharedIncoming = {
+        appName: appName,
         at: Date.now(),
         data: {
           title: String(_q.ci_share_title || ''),
@@ -1276,15 +1367,47 @@ function createContext(appName, deps) {
     name: appName,
     version: d.appVersion || '0.0.0',
     manifest: d.manifest || null,
-    // 注册清理函数：应用卸载时被调用（契约优于约定）
+    // 注册清理函数：应用卸载时被调用（契约优于约定）。
+    // 返回退订函数（与 onPause / onResume / onShare 对齐）：
+    // 应用在长生命周期里临时挂的清理（如某个面板打开时才用的监听），
+    // 面板关掉就该能撤掉，否则会攒一堆无用回调，卸载时挨个空跑。
     onDestroy: function(fn) {
-      if (typeof fn !== 'function') return;
+      if (typeof fn !== 'function') return function() {};
       if (_disposed) {
         // 已卸载则立即执行，避免泄漏
         try { fn(); } catch (e) {}
-        return;
+        return function() {};
       }
       cleanups.push(fn);
+      var off = false;
+      return function() {
+        if (off) return;
+        off = true;
+        var idx = cleanups.indexOf(fn);
+        if (idx !== -1) cleanups.splice(idx, 1);
+      };
+    },
+    // 应用静态资源 URL：assetUrl('frontend/logo.png')
+    //   → /market-static/<appName>/frontend/logo.png
+    // 市场应用的目录由平台按名字分配，硬编 /market-static/<名字>/... 的代码
+    // 一旦换名/被 fork 就整片 404；用这个方法拿路径即可。
+    assetUrl: function(relativePath) {
+      var input = String(relativePath == null ? '' : relativePath);
+      if (/^[a-z][a-z\d+.-]*:/i.test(input) || input.indexOf('//') === 0 || /[\\\x00-\x1f]/.test(input)) {
+        throw new Error('资源路径必须是包内相对路径');
+      }
+      var split = input.search(/[?#]/);
+      var suffix = split === -1 ? '' : input.slice(split);
+      var pathname = (split === -1 ? input : input.slice(0, split)).replace(/^\.\//, '').replace(/^\//, '');
+      var segments = pathname.split('/');
+      var encoded = [];
+      for (var i = 0; i < segments.length; i++) {
+        var segment;
+        try { segment = decodeURIComponent(segments[i]); } catch (e) { throw new Error('资源路径编码无效'); }
+        if (segment === '.' || segment === '..' || /[%\\/\x00-\x1f]/.test(segment)) throw new Error('资源路径不能越出包目录');
+        encoded.push(encodeURIComponent(segment));
+      }
+      return '/market-static/' + encodeURIComponent(appName) + '/' + encoded.join('/') + suffix;
     },
     // 日志：统一前缀，便于第三方问题归因
     log: function() {
@@ -1326,16 +1449,19 @@ function createContext(appName, deps) {
     // 接收分享（需 manifest 声明 shareTarget）：别的应用 system.share 选了本应用时触发。
     // 若这次启动本身就是被分享唤起的，注册时会立刻补发一次，应用不必自己去读 URL。
     onShare: function(fn) {
-      if (typeof fn !== 'function') return function() {};
-      shareHandlers.push(fn);
-      if (sharedIncoming && Date.now() - sharedIncoming.at < 5000) {
+      if (_disposed || typeof fn !== 'function') return function() {};
+      var active = true;
+      var listener = function(data) { if (active && !_disposed) fn(data); };
+      shareHandlers.push(listener);
+      if (sharedIncoming && sharedIncoming.appName === appName && Date.now() - sharedIncoming.at < 5000) {
         var data = sharedIncoming.data;
         setTimeout(function() {
-          try { fn(data); } catch (e) {}
+          try { listener(data); } catch (e) {}
         }, 0);
       }
       return function() {
-        var idx = shareHandlers.indexOf(fn);
+        active = false;
+        var idx = shareHandlers.indexOf(listener);
         if (idx !== -1) shareHandlers.splice(idx, 1);
       };
     }
@@ -1347,10 +1473,22 @@ function createContext(appName, deps) {
   //   storage       = 本机缓存，卸载即清，不跨设备
   //   store / blob  = 服务端数据，按 (应用, 用户) 隔离，登录即可取回
   var storeBase = '/app-data/' + appName;
+  d.registerCleanup = appApi.onDestroy;
   var objectUrls = [];
 
   function apiReady() {
     return !!(d.api && typeof d.api.get === 'function');
+  }
+
+  function responseData(response) {
+    var body = response && response.data;
+    if (!body || Number(body.code) !== 200) {
+      var error = new Error(body && body.message || 'SDK 数据响应无效');
+      error.code = body && body.code || 'SDK_INVALID_RESPONSE';
+      error.response = response;
+      throw error;
+    }
+    return body.data;
   }
 
   var storeApi = {
@@ -1358,38 +1496,41 @@ function createContext(appName, deps) {
     get: function(key) {
       if (!apiReady()) return Promise.reject(new Error('api 不可用'));
       return d.api.get(storeBase + '/kv/' + encodeURIComponent(key)).then(function(res) {
-        var body = res && res.data;
-        return body && body.data ? body.data.value : null;
+        var data = responseData(res);
+        return data ? data.value : null;
       }).catch(function(err) {
-        if (err && err.response && err.response.status === 404) return null;
+        var response = err && err.response;
+        if (response && response.status === 404 && response.data && response.data.message === '键不存在') return null;
         throw err;
       });
     },
     set: function(key, value) {
       if (!apiReady()) return Promise.reject(new Error('api 不可用'));
-      return d.api.put(storeBase + '/kv/' + encodeURIComponent(key), { value: value }).then(function() {
+      return d.api.put(storeBase + '/kv/' + encodeURIComponent(key), { value: value }).then(function(res) {
+        responseData(res);
         return true;
       });
     },
     remove: function(key) {
       if (!apiReady()) return Promise.reject(new Error('api 不可用'));
       return d.api.delete(storeBase + '/kv/' + encodeURIComponent(key)).then(function(res) {
-        return !!(res && res.data && res.data.data && res.data.data.removed);
+        var data = responseData(res);
+        return !!(data && data.removed);
       });
     },
     keys: function() {
       if (!apiReady()) return Promise.reject(new Error('api 不可用'));
       return d.api.get(storeBase + '/kv').then(function(res) {
-        var body = res && res.data;
-        return body && body.data ? body.data.keys : [];
+        var data = responseData(res);
+        return data ? data.keys : [];
       });
     },
     // 一次取回全部（应用启动时同步用）
     all: function() {
       if (!apiReady()) return Promise.reject(new Error('api 不可用'));
       return d.api.get(storeBase + '/kv/all').then(function(res) {
-        var body = res && res.data;
-        return body && body.data ? body.data.values : {};
+        var data = responseData(res);
+        return data ? data.values : {};
       });
     },
 
@@ -1397,8 +1538,8 @@ function createContext(appName, deps) {
     listBlobs: function() {
       if (!apiReady()) return Promise.reject(new Error('api 不可用'));
       return d.api.get(storeBase + '/blobs').then(function(res) {
-        var body = res && res.data;
-        return body && body.data ? body.data.blobs : [];
+        var data = responseData(res);
+        return data ? data.blobs : [];
       });
     },
     uploadBlob: function(name, file, mime) {
@@ -1407,31 +1548,164 @@ function createContext(appName, deps) {
       return d.api.put(storeBase + '/blobs/' + encodeURIComponent(name), file, {
         headers: { 'Content-Type': type }
       }).then(function(res) {
-        var body = res && res.data;
-        return body && body.data ? body.data : null;
+        return responseData(res);
       });
     },
     // 取可用的 object URL（<img> 不能带 Authorization，所以先下载再本地化）
     getBlobUrl: function(name) {
       if (!apiReady()) return Promise.reject(new Error('api 不可用'));
       return d.api.get(storeBase + '/blobs/' + encodeURIComponent(name), { responseType: 'blob' }).then(function(res) {
+        if (_disposed) throw new Error('应用上下文已销毁');
         var url = URL.createObjectURL(res.data);
         objectUrls.push(url);
         return url;
       });
     },
+    releaseBlobUrl: function(url) {
+      var index = objectUrls.indexOf(url);
+      if (index === -1) return false;
+      URL.revokeObjectURL(url);
+      objectUrls.splice(index, 1);
+      return true;
+    },
     deleteBlob: function(name) {
       if (!apiReady()) return Promise.reject(new Error('api 不可用'));
       return d.api.delete(storeBase + '/blobs/' + encodeURIComponent(name)).then(function(res) {
-        return !!(res && res.data && res.data.data && res.data.data.removed);
+        var data = responseData(res);
+        return !!(data && data.removed);
       });
     }
   };
 
+  // --- 频道（多人房间 / 大世界）---
+  // 契约：应用只传房间名，SDK 统一补 `app:<应用名>:` 前缀。
+  // 好处是应用代码里不可能误发到别人的频道；服务端还会二次校验该应用是否启用。
+  // 与全局 realtime.publish 的区别：那个是「向全校广播」，这个是「只给同房间的人」。
+  function channelFullName(room) {
+    var clean = String(room || '').replace(/[^A-Za-z0-9_.:-]/g, '').slice(0, 40);
+    return clean ? ('app:' + appName + ':' + clean) : '';
+  }
+
+  function channelRequest(method, path, body) {
+    if (!d.api || typeof d.api[method] !== 'function') return Promise.reject(new Error('api 不可用'));
+    var call = method === 'get' ? d.api.get(path) : d.api.post(path, body);
+    return call.then(function(res) {
+      return responseData(res);
+    });
+  }
+
+  // Keep subscription lifetime local to this context while sharing transport.
+  var scopedRealtime = null;
+  if (d.realtime && typeof d.realtime.on === 'function') {
+    var rawRealtime = d.realtime;
+    var realtimeListeners = [];
+    scopedRealtime = Object.create(rawRealtime);
+    scopedRealtime.on = function(event, handler) {
+      if (_disposed || typeof handler !== 'function') return function() {};
+      var active = true;
+      var listener = function() { if (active && !_disposed) handler.apply(null, arguments); };
+      var rawStop = rawRealtime.on(event, listener);
+      var cancelCleanup;
+      var record = { event: event, handler: handler, stop: stop };
+      realtimeListeners.push(record);
+      function stop() {
+        if (!active) return;
+        active = false;
+        if (typeof rawStop === 'function') rawStop();
+        else if (typeof rawRealtime.off === 'function') rawRealtime.off(event, listener);
+        var index = realtimeListeners.indexOf(record);
+        if (index !== -1) realtimeListeners.splice(index, 1);
+        if (cancelCleanup) cancelCleanup();
+      }
+      cancelCleanup = appApi.onDestroy(stop);
+      return stop;
+    };
+    scopedRealtime.off = function(event, handler) {
+      var snapshot = realtimeListeners.slice();
+      for (var i = 0; i < snapshot.length; i++) {
+        if (snapshot[i].event === event && snapshot[i].handler === handler) snapshot[i].stop();
+      }
+    };
+    scopedRealtime.subscribe = function(event, handler) {
+      return scopedRealtime.on('extension_event', function(message) {
+        if (message && message.event === event) handler(message.payload, message);
+      });
+    };
+    ['publish', 'isReady', 'getConnectionState'].forEach(function(method) {
+      if (typeof rawRealtime[method] === 'function') {
+        scopedRealtime[method] = function() { return rawRealtime[method].apply(rawRealtime, arguments); };
+      }
+    });
+  }
+
+  var channelsApi = {
+    // 加入房间：幂等 —— 重连、刷新、从后台切回来都可以无脑再调一次
+    join: function(room) {
+      var channel = channelFullName(room);
+      if (!channel) return Promise.reject(new Error('房间名无效'));
+      return channelRequest('post', '/realtime/channels/join', { channel: channel });
+    },
+    leave: function(room) {
+      var channel = channelFullName(room);
+      if (!channel) return Promise.resolve(false);
+      return channelRequest('post', '/realtime/channels/leave', { channel: channel });
+    },
+    // 房间内广播：只有成员能发（服务端校验），非成员调用会 403
+    publish: function(room, event, payload) {
+      var channel = channelFullName(room);
+      if (!channel) return Promise.reject(new Error('房间名无效'));
+      return channelRequest('post', '/realtime/channels/publish', {
+        channel: channel,
+        event: event,
+        payload: payload === undefined ? null : payload
+      });
+    },
+    // 订阅房间事件：返回退订函数，并自动挂到 context.app.onDestroy —— 应用忘了退订也不会泄漏
+    subscribe: function(room, event, handler) {
+      var channel = channelFullName(room);
+      if (!channel || !d.realtime || typeof d.realtime.on !== 'function' || typeof handler !== 'function') {
+        return function() {};
+      }
+      var off = null;
+      var listener = function(message) {
+        if (!message || message.channel !== channel) return;
+        if (event && message.event !== event) return;
+        try { handler(message.payload, message); } catch (e) {}
+      };
+      d.realtime.on('extension_event', listener);
+      off = function() {
+        if (!off) return;
+        try { d.realtime.off('extension_event', listener); } catch (e) {}
+        off = null;
+      };
+      appApi.onDestroy(function() { if (off) off(); });
+      return off;
+    },
+    members: function(room) {
+      var channel = channelFullName(room);
+      if (!channel) return Promise.reject(new Error('房间名无效'));
+      return channelRequest('get', '/realtime/channels/members?channel=' + encodeURIComponent(channel));
+    },
+    // 暴露完整频道名，便于调试与日志
+    nameOf: function(room) { return channelFullName(room); }
+  };
+
   var dataApi = {
+    request: createSdkRequest({
+      api: d.api,
+      isDisposed: d.isDisposed,
+      onDestroy: appApi.onDestroy,
+      getIdentity: function() {
+        var auth = d.store && d.store.state && d.store.state.auth;
+        var user = auth && auth.user;
+        return JSON.stringify([user && (user.user_id || user.id) || '', !!(auth && auth.token)]);
+      }
+    }),
     api: d.api || null,
-    realtime: d.realtime || null,
+    realtime: scopedRealtime || d.realtime || null,
     websocket: d.websocket || null,
+    // 频道：多人房间 / 大世界 / 对局室的定向实时通道
+    channels: channelsApi,
     storage: createNamespacedStorage(appName, auditor),
     store: storeApi,
     // 便捷方法：拉取 JSON
@@ -1442,16 +1716,57 @@ function createContext(appName, deps) {
     post: function(url, body, options) {
       if (d.api && typeof d.api.post === 'function') return d.api.post(url, body, options);
       return Promise.reject(new Error('api 不可用'));
+    },
+    // PUT / PATCH / DELETE 与 get/post 对称：
+    // 第三方后端的「更新」「局部更新」「删除」不该逼开发者去碰 data.api（axios 细节）
+    put: function(url, body, options) {
+      if (d.api && typeof d.api.put === 'function') return d.api.put(url, body, options);
+      return Promise.reject(new Error('api 不可用'));
+    },
+    patch: function(url, body, options) {
+      if (d.api && typeof d.api.patch === 'function') return d.api.patch(url, body, options);
+      return Promise.reject(new Error('api 不可用'));
+    },
+    delete: function(url, options) {
+      if (d.api && typeof d.api.delete === 'function') return d.api.delete(url, options);
+      return Promise.reject(new Error('api 不可用'));
     }
   };
 
   // --- context.system ---
+  // 当前用户（响应式引用，而非快照）：多个 getter 都要读它，抽出来避免重复 try/catch
+  function currentUser() {
+    try {
+      return (d.store && d.store.state && d.store.state.auth && d.store.state.auth.user) || null;
+    } catch (e) { return null; }
+  }
+
+  // 角色归一化：宿主内部有 is_class_admin / is_admin / role 三种表达，
+  // 第三方只该面对 manifest.visibleRoles 里的四个词：classAdmin / admin / officer / student。
+  // 不归一化的话，每个应用都要自己写一遍这段判断，写错一次就是权限绕过。
+  var ROLE_RANK = { guest: 0, student: 1, officer: 2, admin: 3, classAdmin: 4 };
+  function currentRole() {
+    var u = currentUser();
+    if (!u) return 'guest';
+    if (u.is_class_admin || u.is_admin === 1 || u.role === 'classAdmin' || u.role === 'admin') return 'classAdmin';
+    if (u.role === 'officer') return 'officer';
+    return 'student';
+  }
+
   var systemApi = {
     // 当前用户（响应式引用，而非快照）
     get user() {
-      try {
-        return (d.store && d.store.state && d.store.state.auth && d.store.state.auth.user) || null;
-      } catch (e) { return null; }
+      return currentUser();
+    },
+    // 当前角色（classAdmin / officer / student / guest）
+    get role() {
+      return currentRole();
+    },
+    // 角色判定：can('officer') 表示「至少是班干」。
+    // 层级 classAdmin > admin > officer > student，满足「班管天然拥有班干权限」的直觉。
+    can: function(role) {
+      if (!Object.prototype.hasOwnProperty.call(ROLE_RANK, role)) return false;
+      return (ROLE_RANK[currentRole()] || 0) >= (ROLE_RANK[role] || 0);
     },
     get isLoggedIn() {
       try {
@@ -1468,11 +1783,7 @@ function createContext(appName, deps) {
     // 主题引擎
     theme: d.themeEngine || null,
     // 令牌读取
-    getToken: function(name) {
-      try {
-        return (collectTokens() || {})[name] || '';
-      } catch (e) { return ''; }
-    },
+    getToken: readToken,
     // 事件总线（scoped：订阅统一归属 market:<appName>，dispose 时自动整批退订）
     eventBus: scopedEventBus || d.eventBus || null,
     // 提示
@@ -1550,7 +1861,7 @@ function createContext(appName, deps) {
     // provider = { id?, category?, search(query) => items[] | Promise<items[]> }
     // item = { id?, title, description?, icon?, action? }
     registerSearchProvider: function(provider) {
-      if (!provider || typeof provider.search !== 'function') return function() {};
+      if (_disposed || !provider || typeof provider.search !== 'function') return function() {};
       var registry = d.searchRegistry;
       if (!registry || typeof registry.registerProvider !== 'function') return function() {};
       var localId = String(provider.id || 'main').slice(0, 24);
@@ -1574,8 +1885,8 @@ function createContext(appName, deps) {
         return out;
       }
 
-      return registry.registerProvider({
-        id: 'market:' + appName + ':' + localId,
+      var stopProvider = registry.registerProvider({
+        id: BUS_OWNER + ':' + localId,
         category: String(provider.category || appName).slice(0, 20),
         search: function(query) {
           try {
@@ -1589,6 +1900,15 @@ function createContext(appName, deps) {
           }
         }
       });
+      var stopped = false;
+      function stop() {
+        if (stopped) return;
+        stopped = true;
+        if (typeof stopProvider === 'function') stopProvider();
+        if (cancelCleanup) cancelCleanup();
+      }
+      var cancelCleanup = appApi.onDestroy(stop);
+      return stop;
     },
     // 返回桌面（应用内提供「退出」入口时使用）
     goDesktop: function() {
@@ -1626,7 +1946,7 @@ function createContext(appName, deps) {
     },
     camera: function(options) {
       return ensurePermission(d, appName, 'device.camera').then(function() {
-        return capturePhoto(options);
+        return capturePhoto(options, d);
       });
     },
     // 录音（capability: device.microphone）。返回 { blob, duration, mimeType }。
@@ -1731,10 +2051,12 @@ function createContext(appName, deps) {
     if (_disposed) return 0;
     _disposed = true;
     var count = 0;
+    var pendingCleanups = cleanups.slice();
+    cleanups = [];
     // 逆序执行（后注册的先清理）
-    for (var i = cleanups.length - 1; i >= 0; i--) {
+    for (var i = pendingCleanups.length - 1; i >= 0; i--) {
       try {
-        cleanups[i]();
+        pendingCleanups[i]();
         count++;
       } catch (e) {
         try { console.error('[app:' + appName + '] onDestroy 清理失败:', e); } catch (_) {}

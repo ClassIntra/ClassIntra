@@ -8,21 +8,22 @@
 // 拿到 CASH / GRANT，等于把「印钱」和「提现」的钥匙交给插件。这里把能力
 // 收窄成「练习金 + 自己域内的结算」，资产名写死，不暴露 asset 参数。
 //
-// ⚠️ 唯一例外是 invest()：学生要把赠金投进沙盘、把赚的撤出到钱包花。
-//    这是唯一允许触碰 GRANT 的能力，且被写死成三条：只改本人账户、
-//    只在 GRANT ⇄ PRACTICE 之间、CASH 永不参与。第三方仍然拿不到 CASH，
-//    也不能指定收款方。放在能力面里而不是让应用直连 /api/xueyuan/*，
-//    是为了让平台能审计、限流、随时收回这条通道。
+// ⚠️ 两个例外（都只碰 GRANT，永远碰不到 CASH）：
+//    1) invest()：学生要把赠金投进沙盘、把赚的撤出到钱包花。
+//    2) loan*()：学元证券的「信用」页。借出/还入都是 GRANT，能力面只开放
+//       本人视图、申请、还款、明细；限额/调分/拉黑/核销属于班管后台，绝不暴露。
+//    两个例外都写死在能力面里，第三方拿不到 CASH，也不能指定收款方。
 //
 // 编码约定：var / function（服务端 CommonJS 风格）
 
 var ledger = require('./ledger');
 var trading = require('./trading');
 var invest = require('./invest');
+var loan = require('./loan');
 
 // 已接入的第三方应用白名单。新增应用要在这里显式登记。
 var APPS = {
-  stock: { label: '学元证券', asset: 'PRACTICE' }
+  stock: { label: '学元证券', asset: 'PRACTICE', loan: true }
 };
 
 function assertApp(appId) {
@@ -98,10 +99,12 @@ function settleBuy(appId, opts) {
   });
   // 兼容旧口径：证券要按「成本来自哪个池」记持仓。
   // 第三方只能拿到练习金，所以成本恒为 practice。
+  // 总成本 = 成交额 + 手续费（调用方分别传 costCent / feeCent，不含费的成交额）
   r.spent = {
     cash_cent: 0,
     grant_cent: 0,
-    practice_cent: Math.max(0, Math.floor(Number(o.costCent) || 0))
+    practice_cent: Math.max(0, Math.floor(Number(o.costCent) || 0)) +
+      Math.max(0, Math.floor(Number(o.feeCent) || 0))
   };
   return r;
 }
@@ -228,6 +231,151 @@ function withdrawnOut(appId, userId) {
   return invest.withdrawnOutCent(String(userId == null ? '' : userId));
 }
 
+// ---------- 信用 / 贷款（学元证券专用） ----------
+// 只暴露学生本人的四件事：看、借、还、明细；班管的核销/限额/调分/拉黑
+// 绝不在这里出现。金额入参是账本单位，ref 统一加 app 前缀，防止跨应用撞号。
+function loanApp(appId) {
+  var a = assertApp(appId);
+  if (!a.cfg.loan) throw new Error('该应用未开通信用能力');
+  return a;
+}
+
+function loanUser(appId, userId) {
+  var a = loanApp(appId);
+  var uid = String(userId == null ? '' : userId);
+  if (!uid) throw new Error('缺少用户标识');
+  return { app: a, uid: uid };
+}
+
+function loanRef(a, kind, ref) {
+  var r = String(ref == null ? '' : ref).trim();
+  if (!r) throw new Error('必须提供 ref（幂等键）');
+  return 'app:' + a.id + ':' + kind + ':' + r;
+}
+
+function loanCall(fn) {
+  try {
+    return fn();
+  } catch (e) {
+    e.isLoanError = true;
+    throw e;
+  }
+}
+
+function loanSummary(appId, userId) {
+  var x = loanUser(appId, userId);
+  return loanCall(function () { return loan.summary(x.uid); });
+}
+
+function loanAlert(appId, userId) {
+  var x = loanUser(appId, userId);
+  return loanCall(function () { return loan.alert(x.uid); });
+}
+
+function loanDetail(appId, userId, loanId) {
+  var x = loanUser(appId, userId);
+  return loanCall(function () { return loan.detail(loanId, x.uid); });
+}
+
+function loanApply(appId, userId, amountCent, opts) {
+  var x = loanUser(appId, userId);
+  var o = opts || {};
+  var cent = Math.floor(Number(amountCent));
+  if (!isFinite(cent) || cent <= 0) {
+    var e = new Error('金额不合法');
+    e.isLoanError = true;
+    throw e;
+  }
+  var ref = loanRef(x.app, 'loan', o.ref);
+  return loanCall(function () {
+    return loan.apply(x.uid, cent, {
+      ref: ref,
+      product: o.product,
+      installments: o.installments,
+      auto_repay: !!o.auto_repay
+    });
+  });
+}
+
+function loanRepay(appId, userId, amountCent, opts) {
+  var x = loanUser(appId, userId);
+  var o = opts || {};
+  var cent = o.full ? null : Math.floor(Number(amountCent));
+  if (!o.full && (!isFinite(cent) || cent <= 0)) {
+    var e = new Error('还款金额不合法');
+    e.isLoanError = true;
+    throw e;
+  }
+  var ref = loanRef(x.app, 'loanrepay', o.ref);
+  return loanCall(function () {
+    return loan.repay(x.uid, cent, { ref: ref, full: !!o.full });
+  });
+}
+
+// 学生自己开关「每日津贴自动还款」。津贴预支是强制的，关不掉（内核会拦）。
+function loanSetAutoRepay(appId, userId, loanId, on) {
+  var x = loanUser(appId, userId);
+  return loanCall(function () {
+    var v = loan.setAutoRepay(x.uid, loanId, !!on, {
+      operator: 'app:' + x.app.id,
+      reason: on ? '学生开启津贴自动还款' : '学生关闭津贴自动还款'
+    });
+    return { loan: v, summary: loan.summary(x.uid), alert: loan.alert(x.uid) };
+  });
+}
+
+// 用证券里的练习金直接还贷。三步在同一个事务里：
+//   练习金作废 → 等额发赠金 → 赠金还进 clearing。
+// 少了这一步，投资贷学生就得先「撤出到钱包」再去钱包还款 —— 而钱包已经没有
+// 贷款入口了，等于把人逼进死角。
+// 练习金流出照常计入 withdrawnOut（补足基数），否则平台会在下月把还贷的钱补回来。
+function loanRepayFromPractice(appId, userId, opts) {
+  var x = loanUser(appId, userId);
+  var o = opts || {};
+  var ref = loanRef(x.app, 'loanrepay', o.ref);
+  return loanCall(function () {
+    var db = require('../utils/db');
+    var dup = db.prepare('SELECT * FROM xy_ledger_loan_repays WHERE ref = ?').get(ref);
+    if (dup) {
+      var dupLoan = db.prepare('SELECT * FROM xy_ledger_loans WHERE id = ?').get(dup.loan_id);
+      if (!dupLoan || String(dupLoan.user_id) !== x.uid) throw new Error('重复的还款号');
+      return {
+        duplicate: true,
+        repaid_cent: dup.amount_cent,
+        repaid: dup.amount_cent / 100,
+        loan: loan.view(dupLoan),
+        summary: loan.summary(x.uid),
+        alert: loan.alert(x.uid),
+        account: practiceAccount(appId, x.uid)
+      };
+    }
+
+    var sum = loan.summary(x.uid);
+    if (!sum.active) throw new Error('没有待还的贷款');
+    var amt = o.full ? sum.active.remaining_cent : Math.floor(Number(o.amountCent));
+    if (!isFinite(amt) || amt <= 0) throw new Error('还款金额不合法');
+    if (amt > sum.active.remaining_cent) {
+      throw new Error('还款金额超过应还（应还 ' + sum.active.remaining + ' 学元）');
+    }
+
+    var run = db.transaction(function () {
+      invest.move(x.uid, amt, 'out', { ref: ref + ':invest' });
+      return loan.repay(x.uid, amt, { ref: ref });
+    });
+    var r = run();
+    return {
+      duplicate: !!r.duplicate,
+      repaid_cent: r.repaid_cent,
+      repaid: r.repaid,
+      allocation: r.allocation,
+      loan: r.loan,
+      summary: loan.summary(x.uid),
+      alert: loan.alert(x.uid),
+      account: practiceAccount(appId, x.uid)
+    };
+  });
+}
+
 module.exports = {
   APPS: APPS,
   practiceAccount: practiceAccount,
@@ -241,5 +389,12 @@ module.exports = {
   withdrawnOut: withdrawnOut,
   topUpBase: topUpBase,
   grantAvailable: grantAvailable,
-  history: history
+  history: history,
+  loanSummary: loanSummary,
+  loanAlert: loanAlert,
+  loanDetail: loanDetail,
+  loanApply: loanApply,
+  loanRepay: loanRepay,
+  loanSetAutoRepay: loanSetAutoRepay,
+  loanRepayFromPractice: loanRepayFromPractice
 };

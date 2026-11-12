@@ -18,6 +18,7 @@
 var crypto = require('crypto');
 var db = require('../utils/db');
 var xueyuan = require('./xueyuan');
+var ledger = require('../ledger/ledger');
 var peers = require('./peers');
 var cashbook = require('../ledger/cashbook');
 
@@ -684,7 +685,17 @@ function claims(packetId, viewerId) {
   };
 }
 
-// 过期退款：把还没领完的冻结点解冻（无定时任务，懒清理）
+// 某用户冻结槽里指定资产还剩多少（账本事实，不是红包记录说了算）
+function frozenIn(uid, asset) {
+  var acc = ledger.findAccount('escrow', 'hold:' + String(uid));
+  return acc ? Math.max(0, ledger.balanceOf(acc.id, String(asset).toUpperCase())) : 0;
+}
+
+// 过期退款：把还没领完的冻结点解冻。
+// ⚠️ 幂等（2026-11-10 修）：旧版 release 不带 ref 且 catch 里纯吞错，
+// 一旦「退了钱但没标 expired」，下一轮会再退一次；部分领取后又退一笔也可能重复。
+// 现在每个池一个确定性 ref，ledger.post 天然幂等；再挂 startSweeper 定时跑，
+// 不再依赖「有人来读接口才顺手清理」——无人访问的过期红包也能自己退。
 function sweepExpired() {
   ensure();
   var now = Date.now();
@@ -694,14 +705,61 @@ function sweepExpired() {
   for (var i = 0; i < rows.length; i++) {
     var p = rows[i];
     try {
-      var ps = poolSplit(p);
-      if (ps.cash > 0) xueyuan.release(p.sender, ps.cash, { pool: 'cash' });
-      if (ps.grant > 0) xueyuan.release(p.sender, ps.grant, { pool: 'grant' });
+      var ps = poolSplit(p);   // 领取后回写的就是「剩余冻结拆分」，不是创建时全额
+      // 按池以「冻结槽实额」封顶：账本切换期遗留的红包记录可能声明了已不在槽里的
+      // 冻结额（旧 cash 池），硬退会凭空造钱，硬抛错又永远清不掉。退真实存在的，
+      // 尾差只关状态 —— 账本守恒与状态卫生两全（2026-11-10 生产实证 8i #35-38）。
+      var cashWant = Math.min(Math.max(0, ps.cash), frozenIn(p.sender, 'CASH'));
+      var grantWant = Math.min(Math.max(0, ps.grant), frozenIn(p.sender, 'GRANT'));
+      if (cashWant > 0) {
+        xueyuan.release(p.sender, cashWant, {
+          pool: 'cash', ref: 'packet:expire:' + p.id + ':cash'
+        });
+      }
+      if (grantWant > 0) {
+        xueyuan.release(p.sender, grantWant, {
+          pool: 'grant', ref: 'packet:expire:' + p.id + ':grant'
+        });
+      }
       db.prepare("UPDATE xy_packet SET status = 'expired', remaining_count = 0 WHERE id = ?").run(p.id);
       n++;
-    } catch (e) { /* 下一轮再试 */ }
+    } catch (e) {
+      // 尾差容错：领取时分币尾差已随 transfer 释放，冻结槽已空，但红包记录仍剩 1 分。
+      // 这时账本本来就是平的（I 全绿），硬退会凭空造钱，旧版却会一直抛错卡住状态。
+      // 仅当「该发送者确实没有任何冻结余额」时关掉状态，其余错误留给下轮重试。
+      var noFrozen = /没有冻结中的资金|冻结额不足|解冻额超过冻结总额/.test(e.message) &&
+        Number(xueyuan.viewAccount(p.sender).frozen || 0) === 0;
+      if (noFrozen) {
+        db.prepare("UPDATE xy_packet SET status = 'expired', remaining_count = 0 WHERE id = ?").run(p.id);
+        n++;
+      } else {
+        console.error('[yuanbao] 过期红包退还失败 #' + p.id + ':', e.message);
+      }
+    }
   }
   return n;
+}
+
+// 交易体系自愈定时器（global 挂点防热重载重复；与证券撮合器同款）
+var SWEEP_GAP = 60 * 1000;
+function startSweeper() {
+  if (global.__ciTradingSweeper) return global.__ciTradingSweeper;
+  var timer = setInterval(function () {
+    try {
+      // 红包过期退还（幂等 ref 兜底）
+      sweepExpired();
+      // 市集：已支付但长期未履约 / 已履约但长期未结算的订单自动收尾
+      require('../ledger/orders').sweepStale();
+      // AA 收款：过期的单自动关掉（只改状态，不碰资金）
+      require('./collect').sweepExpired();
+    } catch (e) {
+      console.error('[trading-sweeper] 自愈巡检异常:', e.message);
+    }
+  }, SWEEP_GAP);
+  if (timer.unref) timer.unref();
+  global.__ciTradingSweeper = timer;
+  console.log('[trading-sweeper] 交易体系自愈巡检已启动（60s）');
+  return timer;
 }
 
 module.exports = {
@@ -719,6 +777,7 @@ module.exports = {
   list: list,
   claims: claims,
   sweepExpired: sweepExpired,
+  startSweeper: startSweeper,
   userName: userName,
   MAX_TOTAL_CENT: MAX_TOTAL_CENT,
   MAX_COUNT: MAX_COUNT,

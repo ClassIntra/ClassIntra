@@ -24,6 +24,35 @@ import { marketRegistry } from '@/core/market-registry';
 var OVERLAY_Z_INDEX = 9400;
 var OVERLAY_MAX_RETRIES = 3;   // 挂载失败自动重试次数（服务崩溃自动恢复的类比）
 var OVERLAY_RETRY_BASE_MS = 15000;
+// 悬浮层可见性门禁：登录页 / 注册页 / 封禁页、或未登录、或账号被封时，
+// 悬浮层必须整体隐藏 —— 桌宠盖在登录页和封禁页上是最刺眼的一处「层级事故」。
+// 放在宿主层做：所有悬浮层应用同享，第三方不必自己判断登录态。
+var overlayGateVisible = true;
+// 当前路由归属的全屏应用（layout.mode === 'fullscreen'）。
+// 常驻悬浮层（桌宠这种 frontend.overlay 应用）必须让位：它们游走到右下角时，
+// 正好压住全屏应用的底部动作栏 —— 实测「拾光群岛」的「漂流瓶」按钮被桌宠
+// 整块盖住，文字都看不清；棋类/证券的底部操作区是同一个位置。
+// 规则放在宿主层：全屏应用激活 → 只留它自己；否则只留非全屏的常驻悬浮层。
+var activeFullscreenApp = null;
+
+function isFullscreenApp(app) {
+  return !!(app && app.layout && app.layout.mode === 'fullscreen');
+}
+
+function shouldShowContainer(name) {
+  if (!overlayGateVisible) return false;
+  if (activeFullscreenApp) return name === activeFullscreenApp;
+  var app = marketRegistry.getInstalled(name);
+  return !isFullscreenApp(app);
+}
+
+function applyContainerVisibility() {
+  Object.keys(containers).forEach(function(name) {
+    var c = containers[name];
+    if (!c) return;
+    c.style.display = shouldShowContainer(name) ? '' : 'none';
+  });
+}
 var definitions = {};      // name -> { name, mount, unmount }
 var containers = {};       // name -> 全屏悬浮容器 div
 var loadedStyles = {};     // name -> <link> 元素（悬浮层样式）
@@ -131,6 +160,9 @@ function mountOne(app, generation, retryCount) {
       container.style.cssText = 'position:fixed;left:0;top:0;right:0;bottom:0;' +
         'pointer-events:none;z-index:' + OVERLAY_Z_INDEX + ';overflow:hidden;';
       container.dataset.marketOverlay = app.name;
+      // 新挂载的容器也要继承当前门禁与激活态（否则登录页上刚装的应用、
+      // 或全屏应用里刚热更的桌宠会闪一下）
+      if (!shouldShowContainer(app.name)) container.style.display = 'none';
       document.body.appendChild(container);
       containers[app.name] = container;
       var context = null;
@@ -181,6 +213,9 @@ function syncOverlays(apps) {
     var app = list[i];
     if (app && app.overlayEntry) wanted[app.name] = app;
   }
+  // 清单刚同步完才第一次能算出路由归属（mounted 时 registry 还是空的）。
+  // 不重算的话，直接刷新停在 /shiguang 会先挂出桌宠、再被路由 watcher 收起，闪一下。
+  activeFullscreenApp = computeActiveOwner(location.pathname);
   // 摘除：已挂载但不再需要（卸载 / 停用 / 版本更新）
   Object.keys(containers).forEach(function(name) {
     var app = wanted[name];
@@ -195,4 +230,34 @@ function syncOverlays(apps) {
   return Promise.all(jobs).then(function() { return true; }).catch(function() { return false; });
 }
 
-export { registerOverlayDefinition, syncOverlays };
+// 显示 / 隐藏全部悬浮层（由 App.vue 在路由与登录态变化时调用）
+function setOverlaysVisible(visible) {
+  var v = visible !== false;
+  if (v === overlayGateVisible) return;
+  overlayGateVisible = v;
+  applyContainerVisibility();
+}
+
+// 由 App.vue 在每次路由变化时调用：算出当前路径属于哪个全屏应用。
+// 只认 layout.mode === 'fullscreen' 的应用；常驻悬浮层（pet 之类）没有 route，
+// 也不会抢走归属权。前缀匹配带边界，避免 /pet 误伤 /petition。
+function computeActiveOwner(path) {
+  var apps = (marketRegistry.getInstalledApps && marketRegistry.getInstalledApps()) || [];
+  var p = String(path || '');
+  for (var i = 0; i < apps.length; i++) {
+    var a = apps[i];
+    var r = a && a.route;
+    if (!r || !isFullscreenApp(a)) continue;
+    if (p === r || p.indexOf(r + '/') === 0) return a.name;
+  }
+  return null;
+}
+
+function setActiveRoute(path) {
+  var owner = computeActiveOwner(path);
+  if (owner === activeFullscreenApp) return;
+  activeFullscreenApp = owner;
+  applyContainerVisibility();
+}
+
+export { registerOverlayDefinition, syncOverlays, setOverlaysVisible, setActiveRoute };

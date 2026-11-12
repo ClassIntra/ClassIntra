@@ -94,7 +94,11 @@
                   <div v-if="unread[contact.user_id]" class="chat-item-badge">{{ unread[contact.user_id] }}</div>
                 </div>
               </div>
-              <div v-if="filteredContacts.length === 0 && contactSearch" class="empty-hint">未找到匹配的联系人</div>
+              <div v-if="contactsLoadError" class="empty-hint chat-sidebar-error">
+                <i class="fa-solid fa-triangle-exclamation"></i> 联系人没加载出来
+                <button type="button" @click="retryContacts">重试</button>
+              </div>
+              <div v-else-if="filteredContacts.length === 0 && contactSearch" class="empty-hint">未找到匹配的联系人</div>
             </div>
             <!-- Group Chats -->
             <div v-else-if="activeTab === 'group'" key="group">
@@ -181,22 +185,29 @@
           </div>
           <button class="search-close-btn" @click="closeSearch">取消</button>
         </div>
-        <div v-if="wsConnecting && currentMessages.length === 0" class="chat-connecting">
+        <div v-if="viewState.kind === 'loading'" class="chat-connecting">
           <div class="loading-spinner-sm"></div>
           <span>正在连接聊天服务器...</span>
         </div>
-        <div v-else-if="currentMessages.length === 0" class="chat-empty">
+        <div v-else-if="viewState.kind === 'error'" class="chat-empty">
+          <i class="fa-solid fa-triangle-exclamation chat-empty-icon"></i>
+          <div class="chat-empty-text">{{ viewState.text }}</div>
+          <div class="chat-empty-hint">{{ viewState.hint }}</div>
+          <button class="chat-retry-btn" type="button" @click="retryLoadCurrentChat">重新加载</button>
+        </div>
+        <div v-else-if="viewState.kind === 'empty'" class="chat-empty">
           <i class="fa-regular fa-comments chat-empty-icon"></i>
-          <div class="chat-empty-text">暂无消息，开始聊天吧</div>
+          <div class="chat-empty-text">{{ viewState.text }}</div>
         </div>
         <div v-else class="chat-messages scrollbar-thin" ref="messageContainer" role="log" aria-live="polite" @scroll="onMessageScroll">
-          <div v-if="wsConnecting" class="chat-reconnecting-bar">
+          <div v-if="wsConnecting || wsDegraded" class="chat-reconnecting-bar">
             <div class="loading-spinner-sm"></div>
-            <span>重新连接中...</span>
+            <span>{{ wsConnecting ? '重新连接中...' : '网络不稳定，正在用备用通道收消息' }}</span>
           </div>
-          <div v-if="chatLoadingMore || (isGroupChat(currentChat) && groupLoadingMore[currentChat])" class="loading-more-indicator">
+          <div v-if="chatLoadingMore || groupLoadingMore[currentChat] || privateLoadingMore[currentChat]" class="loading-more-indicator">
             <div class="spinner-small"></div>
           </div>
+          <div v-if="!hasMoreMessages && currentMessages.length > 0" class="no-more-indicator">没有更早的消息了</div>
           <div v-if="searchText && filteredMessages.length === 0" class="chat-empty">
             <i class="fa-solid fa-magnifying-glass chat-empty-icon"></i>
             <div class="chat-empty-text">未找到匹配的消息</div>
@@ -207,6 +218,7 @@
               :key="msg.id || msg.message_id"
               :message="msg"
               :isOwn="isOwnMessage(msg)"
+              :botHtml="botHtmlFor(msg)"
               :canRecall="canRecallMessage(msg)"
               :status="getMessageStatus(msg)"
               :showDateSeparator="shouldShowDateSeparator(index)"
@@ -233,6 +245,11 @@
               @pay-card="onPayCard"
             />
           </transition-group>
+          <!-- 机器人不发 user_typing：本地给一个会自己熄灭的等待气泡，发完不再盯着死寂 -->
+          <div v-if="botTyping" class="bot-typing-row">
+            <div class="bot-typing-bubble"><span></span><span></span><span></span></div>
+            <span class="bot-typing-label">{{ botName }} 正在回复…</span>
+          </div>
         </div>
         <!-- 新消息悬浮提示 / 回到底部（对齐 QQ：翻看历史时新消息不打扰，但给出计数与一键回底） -->
         <transition name="fade-quick">
@@ -282,9 +299,17 @@
                     <span class="plus-ico"><i class="fa-solid fa-cloud"></i></span>
                     <span>云盘</span>
                   </button>
+                  <!-- 聊天是全班最常待的地方：把领津贴放进主动线，不必专程去钱包 -->
+                  <button class="plus-item" @click="claimDailyInChat">
+                    <span class="plus-ico gold"><i class="fa-solid fa-coins"></i></span>
+                    <span>领津贴</span>
+                  </button>
                 </div>
               </transition>
             </div>
+            <button class="newline-btn" type="button" title="插入换行" aria-label="插入换行" @click="insertNewlineAtCaret">
+              <i class="fa-solid fa-arrow-turn-down"></i>
+            </button>
             <textarea
               v-model="inputText"
               class="chat-input"
@@ -294,7 +319,7 @@
               @focus="showEmoji = false"
               @input="onInputChange"
             ></textarea>
-            <button class="send-btn" @click="sendMessage" :disabled="sending || !inputText.trim()">发送</button>
+            <button class="send-btn" @click="sendMessage" :disabled="!inputText.trim()">发送</button>
           </div>
         </div>
       </div>
@@ -501,6 +526,11 @@
           :style="{ top: contextMenuPos.y + 'px', left: contextMenuPos.x + 'px' }"
           @click.stop
         >
+          <!-- 表情回应此前只有「点已有徽章」一条路，没人能加第一个 → message_reactions 恒为 0 -->
+          <div v-if="contextMenuTarget" class="ctx-reactions">
+            <button v-for="e in reactionEmojis" :key="e" class="ctx-reaction" type="button"
+              :aria-label="'回应 ' + e" @click="addReaction(e)">{{ e }}</button>
+          </div>
           <button class="ctx-item" @click="handleContextAction('reply')">
             <i class="fa-solid fa-reply"></i> 回复
           </button>
@@ -910,6 +940,7 @@ import api from '@/utils/api';
 import { hashColor } from '@/utils/ios-palette';
 import richTextRenderer from '@/utils/rich-text-renderer';
 import cloudPickerReceiver from '@/mixins/cloud-picker-receiver';
+import * as ChatX from './chat-experience.js';
 var detectMediaType = richTextRenderer.detectMediaType;
 
 export default {
@@ -1024,10 +1055,47 @@ export default {
       privateLoadingMore: {},
       groupHasMore: {},
       groupLoadingMore: {},
+      // 加载失败必须可见：拉不到 ≠ 没有（聊天红线）
+      chatLoadError: '',
+      contactsLoadError: '',
+      wsDegraded: false,
+      // 与后端 VALID_REACTIONS 白名单逐字一致（apps/community/backend/routes.js:36）
+      reactionEmojis: ['👍', '❤️', '😂', '😮', '😢', '😡'],
+      // 机器人不会发 typing，本地给一个会自己熄灭的等待指示
+      botTyping: false,
+      // 上一条还在飞时的待发队列，替代「静默吞掉第二句」
+      sendQueue: [],
       showClearChatConfirmDialog: false,
     };
   },
   computed: {
+    // 消息区该显示什么：错误态优先于空态，杜绝「拉不到被渲染成没有」
+    viewState: function() {
+      return ChatX.emptyState({
+        loading: this.wsConnecting && this.currentMessages.length === 0,
+        // 已有旧消息时保留列表，别把「加载失败」渲染成整屏空白
+        error: this.currentMessages.length === 0 ? this.chatLoadError : '',
+        rows: this.currentMessages,
+        emptyText: ChatX.isBotChat(this.currentChat) ? '给林晞发第一条消息吧' : '暂无消息，开始聊天吧'
+      });
+    },
+    pagingFlags: function() {
+      return {
+        chatHasMore: this.chatHasMore,
+        chatLoadingMore: this.chatLoadingMore,
+        privateHasMore: this.privateHasMore,
+        privateLoadingMore: this.privateLoadingMore,
+        groupHasMore: this.groupHasMore,
+        groupLoadingMore: this.groupLoadingMore
+      };
+    },
+    hasMoreMessages: function() {
+      return ChatX.hasMoreFor(ChatX.chatKind(this.currentChat), this.currentChat, this.pagingFlags);
+    },
+    botName: function() {
+      var c = this.currentPrivateContact;
+      return (c && (c.net_name || c.real_name)) || '林晞';
+    },
     chatFilteredPeople: function() {
       var q = String(this.pay.peopleQ || '').trim().toLowerCase();
       var list = this.pay.people || [];
@@ -1080,7 +1148,12 @@ export default {
       var self = this;
       var privateChats = self.$store.state.chat.privateChats;
       var contacts = self.contacts.slice();
+      // 置顶此前只在群组/其它列表生效，私聊开了置顶毫无反应 —— 这里补上
+      var pinned = self.$store.state.chat.pinnedChats || [];
       contacts.sort(function(a, b) {
+        var pa = ChatX.pinnedRank(a.user_id, pinned);
+        var pb = ChatX.pinnedRank(b.user_id, pinned);
+        if (pa !== pb) return pb - pa;
         var aMsgs = privateChats[a.user_id];
         var bMsgs = privateChats[b.user_id];
         var aTime = '';
@@ -1432,11 +1505,23 @@ export default {
   },
   mounted: function() {
     var self = this;
+    self._botTyping = ChatX.createBotTyping();
+    self._readTracker = ChatX.createReadTracker();
+    // 回前台补报已读：生产库 61% 未读里，有一批是「看过了但回执丢了」
+    self._onVisibilityChange = function() {
+      if (document.hidden) return;
+      self.sendMarkRead({ force: true });
+    };
+    document.addEventListener('visibilitychange', self._onVisibilityChange);
+    window.addEventListener('focus', self._onVisibilityChange);
     var loadPromise = Promise.all([
       self.$store.dispatch('chat/loadMessages'),
       self.$store.dispatch('chat/loadContacts'),
       self.$store.dispatch('chat/loadGroups')
-    ]);
+    ]).catch(function() {
+      self.chatLoadError = '聊天记录没加载出来，点下面的按钮重试';
+      self.contactsLoadError = '联系人没加载出来';
+    });
     self.loadFriendRemarks();
     self.connectWS();
     // 超能岛通知点击跳转：打开对应会话（公共聊天室/群聊/私聊）
@@ -1480,6 +1565,22 @@ export default {
       });
       self.$router.replace({ query: {} }).catch(function() {});
     }
+    // 回到上次聊的人：934 个会话里，每次都从只有 47 条的公共频道重新找人太费劲。
+    // 通知跳转 / 转发 / 预填优先，其次才恢复上次会话。
+    if (!targetChat && !forwardData && !prefillText) {
+      loadPromise.then(function() {
+        var last = '';
+        try { last = localStorage.getItem('ci:chat:last') || ''; } catch (e) {}
+        if (!last || last === 'public') return;
+        var known = self.contacts || [];
+        var found = ChatX.isBotChat(last);
+        for (var ci = 0; ci < known.length && !found; ci++) {
+          if (String(known[ci].user_id) === String(last)) found = true;
+        }
+        if (!found) return;
+        self.$nextTick(function() { self.selectChat(last); });
+      });
+    }
     document.addEventListener('click', self.onDocumentClick);
   },
   beforeDestroy: function() {
@@ -1490,6 +1591,9 @@ export default {
       clearTimeout(this._levelDebounce);
     }
     this._clearAllTypingTimers();
+    if (this._botTypingTimer) clearTimeout(this._botTypingTimer);
+    document.removeEventListener('visibilitychange', this._onVisibilityChange);
+    window.removeEventListener('focus', this._onVisibilityChange);
     document.removeEventListener('click', this.onDocumentClick);
     if (this._wsHandlers) {
       var handlerKeys = Object.keys(this._wsHandlers);
@@ -1547,6 +1651,7 @@ export default {
 
       self._wsHandlers['connected'] = function(data) {
         self.wsConnecting = false;
+        self.wsDegraded = false;
         self._processConnectedData(data);
         // 重连补偿：断线期间的消息不会补发，需主动刷新当前会话 + 会话列表摘要
         self._resyncAfterReconnect();
@@ -1564,12 +1669,16 @@ export default {
 
       self._wsHandlers['_wsTimeout'] = function() {
         self.wsConnecting = false;
+        self.wsDegraded = true;
+        if (self._readTracker) self._readTracker.invalidate();
         self.$store.commit('toast/SHOW_TOAST', { message: '连接超时，请检查网络', type: 'error' });
       };
       wsManager.on('_wsTimeout', self._wsHandlers['_wsTimeout']);
 
       self._wsHandlers['_wsError'] = function() {
         self.wsConnecting = false;
+        self.wsDegraded = true;
+        if (self._readTracker) self._readTracker.invalidate();
         self.$store.commit('toast/SHOW_TOAST', { message: '连接失败，请重试', type: 'error' });
       };
       wsManager.on('_wsError', self._wsHandlers['_wsError']);
@@ -1611,6 +1720,8 @@ export default {
 
       self._wsHandlers['private_message'] = function(data) {
         if (data.message) {
+          // 机器人回复到了 → 熄灭本地等待气泡（自己发的消息不会误停）
+          self._stopBotTyping(data.from_user_id, data.message.sender_id);
           var chatId = data.from_user_id;
           var isPmOwn = data.message.sender_id === (self.currentUser ? self.currentUser.user_id : '') ||
                         data.message.from_user_id === (self.currentUser ? self.currentUser.user_id : '');
@@ -2065,8 +2176,13 @@ export default {
           }).catch(function() {});
         } else {
           self.$store.dispatch('chat/loadPrivateMessages', chatId).then(function() {
+            self.chatLoadError = '';
             self.$nextTick(function() { self.scrollToBottomIfNear(); });
-          }).catch(function() {});
+            // 重连后把断线期间丢掉的已读回执补上
+            self.sendMarkRead({ force: true });
+          }).catch(function() {
+            self.chatLoadError = '重连后消息没同步上，点「重新加载」再试一次';
+          });
         }
       }
       self.$store.dispatch('chat/loadContacts').catch(function() {});
@@ -2232,8 +2348,14 @@ export default {
       self.currentChat = chatId;
       self.chatHasMore = true;
       self.chatLoadingMore = false;
+      self.chatLoadError = '';
+      self.botTyping = false;
+      // 回到该会话时重新允许往上翻（期间可能又产生了新历史）
+      self.$delete(self.privateHasMore, chatId);
+      self.$delete(self.privateLoadingMore, chatId);
       self.$store.commit('chat/SET_CURRENT_CHAT', chatId);
       self.$store.commit('chat/CLEAR_UNREAD', chatId);
+      try { localStorage.setItem('ci:chat:last', String(chatId)); } catch (e) {}
       if (chatId === 'public') {
         // 公共聊天室的消息来自全局 store.messages，切换时不需要重新拉取，
         // 但必须显式滚到底部——否则会沿用上一条会话的 scrollTop，
@@ -2256,10 +2378,15 @@ export default {
         return;
       } else {
         self.$store.dispatch('chat/loadPrivateMessages', chatId).then(function() {
+          self.chatLoadError = '';
           self.$nextTick(function() {
             self.scrollToBottom();
           });
           self.sendMarkRead();
+        }).catch(function() {
+          // 拉不到 ≠ 没有：旧实现静默落进「暂无消息」，且已读回执也跟着丢了
+          self.chatLoadError = '这个会话的消息没加载出来';
+          self.$store.commit('toast/SHOW_TOAST', { message: '消息加载失败，点「重新加载」再试一次', type: 'error' });
         });
       }
     },
@@ -2406,6 +2533,34 @@ export default {
     },
     closePay: function() {
       this.pay = this.payReset();
+    },
+    // 聊天「+」里的领津贴：全班最常待的地方直接给钩子，不必专程跑钱包。
+    // 后端 daily 自带按天幂等（duplicate），双击不会重复入账。
+    claimDailyInChat: function() {
+      var self = this;
+      self.showPlusMenu = false;
+      return api.post('/wallet/daily').then(function(res) {
+        var body = res.data || {};
+        var d = body.data || {};
+        if (body.code !== 200) throw { message: body.message || '领取失败' };
+        self.pay = Object.assign({}, self.pay, {
+          view: 'result',
+          result: {
+            ok: true,
+            title: d.duplicate ? '今天已经领过啦' : '津贴已到账',
+            amount: '+' + String(d.amount || 0) + ' 学元',
+            text: d.duplicate
+              ? '明天再来，连签越久津贴越多'
+              : ('连签 ' + (d.streak || 1) + ' 天 · 攒着去给同学发个红包吧')
+          }
+        });
+        try { window.dispatchEvent(new CustomEvent('ci:xueyuan-changed')); } catch (e) {}
+      }).catch(function(err) {
+        self.$store.commit('toast/SHOW_TOAST', {
+          message: (err && err.message) || '领取失败，稍后再试',
+          type: 'error'
+        });
+      });
     },
     payNext: function() {
       var self = this;
@@ -2652,7 +2807,8 @@ export default {
       var fromOption = !!(options && options.text);
       var content = isForward ? JSON.stringify(options.forwardData) : (fromOption ? String(options.text) : self.inputText.trim());
       var msgType = isForward ? 'community_forward' : 'text';
-      if (!content || self.sending) return;
+      var decision = ChatX.sendDecision({ content: content, sending: self.sending });
+      if (decision === 'drop') return;
       var user = self.currentUser;
       var msgId = Date.now().toString() + '_' + Math.random().toString(36).substr(2, 6);
       var msg = {
@@ -2665,7 +2821,6 @@ export default {
         chatId: self.currentChat,
         created_at: new Date().toISOString()
       };
-      // Include reply_to if replying
       if (self.replyingTo) {
         msg.reply_to = {
           message_id: self.replyingTo.message_id,
@@ -2673,37 +2828,41 @@ export default {
           content_preview: self.replyingTo.content_preview
         };
       }
+      // 入队即清空输入：连打第二句不再出现「按了发送没反应、字还留着」。
+      // 失败气泡自带「重试」，不必靠输入框保留原文。
+      if (!isForward && !fromOption) self.inputText = '';
+      if (self.replyingTo) self.replyingTo = null;
+      self.$set(self.messageStatuses, msgId, decision === 'queue' ? 'queued' : 'sending');
+      if (decision === 'queue') {
+        // 排队消息也要立刻上屏，否则学生仍以为被吞了；
+        // ADD_MESSAGE 按 tempId 去重，派发时再 commit 一次不会重复气泡。
+        self.$store.commit('chat/ADD_MESSAGE', msg);
+        self.sendQueue.push(msg);
+        return;
+      }
+      self._deliverMessage(msg);
+    },
+    _deliverMessage: function(msg) {
+      var self = this;
+      var msgId = msg.tempId || msg.id;
       self.sending = true;
       self.$set(self.messageStatuses, msgId, 'sending');
       var sendAction;
-      if (self.currentChat === 'public') {
+      if (msg.chatId === 'public') {
         sendAction = 'chat/sendMessage';
-      } else if (self.isGroupChat(self.currentChat)) {
+      } else if (self.isGroupChat(msg.chatId)) {
         sendAction = 'chat/sendGroupMessage';
       } else {
         sendAction = 'chat/sendPrivateMessage';
       }
-      var payload = Object.assign({}, msg, { msg_type: msgType });
       self.$store
-        .dispatch(sendAction, payload)
+        .dispatch(sendAction, Object.assign({}, msg, { msg_type: msg.type }))
         .then(function(result) {
           var ok = self._applySendResult(msgId, result);
-          if (!ok) {
-            // dropped：消息实际未发出，保留输入内容便于用户重试
-            return;
-          }
-          if (!isForward && !fromOption) {
-            self.inputText = '';
-          }
-          // 自己发言说明已读到当前底部，未读分隔线完成使命后应消失
+          if (!ok) return;
           self.showUnreadDivider = false;
-          // Clear reply state after sending
-          if (self.replyingTo) {
-            self.replyingTo = null;
-          }
-          self.$nextTick(function() {
-            self.scrollToBottom();
-          });
+          self.$nextTick(function() { self.scrollToBottom(); });
+          self._startBotTyping(msg.chatId);
         })
         .catch(function() {
           self.$set(self.messageStatuses, msgId, 'failed');
@@ -2711,7 +2870,92 @@ export default {
         })
         .finally(function() {
           self.sending = false;
+          self._drainSendQueue();
         });
+    },
+    _drainSendQueue: function() {
+      if (this.sending || !this.sendQueue.length) return;
+      var next = this.sendQueue.shift();
+      if (next) this._deliverMessage(next);
+    },
+    // 机器人不会发 user_typing：本地给一个会自己熄灭的等待气泡。
+    // 生产库最热 8 个私聊会话里 6 个是 linxi_ai，这是学生最常走的路径。
+    _startBotTyping: function(chatId) {
+      var self = this;
+      if (!self._botTyping || !ChatX.isBotChat(chatId)) return;
+      self._botTyping.start(chatId);
+      self.botTyping = true;
+      if (self._botTypingTimer) clearTimeout(self._botTypingTimer);
+      self._botTypingTimer = setTimeout(function() {
+        self._botTypingTimer = null;
+        if (self.currentChat === chatId) self.botTyping = self._botTyping.isActive(chatId);
+      }, 21000);
+    },
+    _stopBotTyping: function(chatId, senderId) {
+      var own = this.currentUser ? this.currentUser.user_id : '';
+      if (!this._botTyping || !this._botTyping.onIncoming(chatId, senderId, own)) return;
+      if (this._botTypingTimer) { clearTimeout(this._botTypingTimer); this._botTypingTimer = null; }
+      if (this.currentChat === chatId) this.botTyping = false;
+    },
+    // Chrome 80 平板的软键盘没有 Shift+Enter，裸 Enter 会把半句话发出去。
+    // 不改键位习惯，只给一个明确的换行按钮。
+    insertNewlineAtCaret: function() {
+      var self = this;
+      var el = self.$el.querySelector('.chat-input');
+      var start = el ? el.selectionStart : self.inputText.length;
+      var end = el ? el.selectionEnd : start;
+      var r = ChatX.insertNewline(self.inputText, start, end);
+      self.inputText = r.text;
+      self.$nextTick(function() {
+        if (el) {
+          el.focus();
+          try { el.setSelectionRange(r.caret, r.caret); } catch (e) {}
+        }
+        self.autoResizeInput();
+      });
+    },
+    // 加载失败的可见出口：拉不到 ≠ 没有
+    retryLoadCurrentChat: function() {
+      var self = this;
+      var chatId = self.currentChat;
+      self.chatLoadError = '';
+      var p;
+      if (chatId === 'public') p = self.$store.dispatch('chat/loadMessages');
+      else if (self.isGroupChat(chatId)) p = self.$store.dispatch('chat/loadGroupMessages', chatId);
+      else p = self.$store.dispatch('chat/loadPrivateMessages', chatId);
+      return p.then(function() {
+        self.$nextTick(function() { self.scrollToBottom(); });
+        self.sendMarkRead({ force: true });
+      }).catch(function() {
+        self.chatLoadError = '还是没加载出来，请检查网络后重试';
+      });
+    },
+    retryContacts: function() {
+      var self = this;
+      self.contactsLoadError = '';
+      return self.$store.dispatch('chat/loadContacts').catch(function() {
+        self.contactsLoadError = '联系人没加载出来';
+      });
+    },
+    // 只有「机器人 + 确实带 Markdown 标记」的消息才换渲染路径；
+    // HTML 由内核先整体转义再插自生成标签，不给用户输入任何可乘之机。
+    botHtmlFor: function(msg) {
+      if (!msg || msg.recalled === 1) return '';
+      if (!ChatX.isBotChat(msg.sender_id)) return '';
+      if (!ChatX.needsMarkdown(msg.content)) return '';
+      return ChatX.renderBotReply(msg.content);
+    },
+    addReaction: function(emoji) {
+      var msg = this.contextMenuTarget;
+      this.closeContextMenu();
+      if (!msg) return;
+      var id = msg.id || msg.message_id;
+      // 本地乐观消息还没有数据库 id，后端 parseInt 会拒；等服务端确认再回应
+      if (!/^\d+$/.test(String(id))) {
+        this.$store.commit('toast/SHOW_TOAST', { message: '消息刚发出，稍等一下再回应', type: 'info' });
+        return;
+      }
+      this.toggleReaction(msg, emoji);
     },
     // 重发失败消息：以原消息内容与类型重新走一次发送流程。
     // 只允许重试本会话内、未被服务端确认（无真实 id）且当前标记为 failed 的消息，
@@ -3382,7 +3626,10 @@ export default {
         self._scrollRaf = null;
         var container = self.$refs.messageContainer;
         if (!container) return;
-        if (container.scrollTop <= 50 && !self.chatLoadingMore && self.chatHasMore) {
+        var kind = ChatX.chatKind(self.currentChat);
+        if (container.scrollTop <= 50 &&
+            !ChatX.loadingFor(kind, self.currentChat, self.pagingFlags) &&
+            ChatX.hasMoreFor(kind, self.currentChat, self.pagingFlags)) {
           self.loadOlderMessages();
         }
         // 滚到底部（读完全部未读）后，未读分隔线应消失，否则会长期滞留在列表中
@@ -3456,6 +3703,38 @@ export default {
           self.$set(self.groupLoadingMore, chatId, false);
         }).catch(function() {
           self.$set(self.groupLoadingMore, chatId, false);
+        });
+      } else {
+        // 私聊历史：后端 /chat/private/:userId 一直支持 before_id，
+        // 前端却从没有这个分支 —— 4965 条的会话只能看最近 50 条，往上翻毫无反应。
+        var pmList = self.$store.state.chat.privateChats[chatId] || [];
+        if (pmList.length === 0) return;
+        var req = ChatX.olderRequest({
+          kind: 'private', chatId: chatId,
+          oldestId: pmList[0].id || pmList[0].message_id, limit: 50
+        });
+        if (!req) { self.$set(self.privateHasMore, chatId, false); return; }
+        if (ChatX.loadingFor('private', chatId, self.pagingFlags)) return;
+        self.$set(self.privateLoadingMore, chatId, true);
+        api.get(req.url, { params: req.params }).then(function(response) {
+          var older = ChatX.pickOlderMessages(response.data, req.payload);
+          self.$set(self.privateHasMore, chatId, !!(response.data && response.data.has_more));
+          if (older.length > 0) {
+            var container = self.$refs.messageContainer;
+            var prevHeight = container ? container.scrollHeight : 0;
+            var prevTop = container ? container.scrollTop : 0;
+            // SET_PRIVATE_MESSAGES 是合并语义：传入更早的一页即自动按时间归并去重
+            self.$store.commit('chat/SET_PRIVATE_MESSAGES', { chatId: chatId, messages: older });
+            self.$nextTick(function() {
+              if (container) {
+                container.scrollTop = ChatX.scrollAnchor(prevHeight, container.scrollHeight, prevTop);
+              }
+            });
+          }
+          self.$set(self.privateLoadingMore, chatId, false);
+        }).catch(function() {
+          self.$set(self.privateLoadingMore, chatId, false);
+          self.$store.commit('toast/SHOW_TOAST', { message: '更早的消息没加载出来，再往上滑一次可重试', type: 'error' });
         });
       }
     },
@@ -3901,9 +4180,9 @@ export default {
       }
     },
     // Read receipts
-    sendMarkRead: function() {
+    sendMarkRead: function(options) {
       var self = this;
-      if (!self.isPrivateChat) return;
+      if (!self.isPrivateChat || !self._readTracker) return;
       var chatId = self.currentChat;
       var msgs = self.$store.state.chat.privateChats[chatId];
       if (!msgs || msgs.length === 0) return;
@@ -3918,20 +4197,23 @@ export default {
           break;
         }
       }
-      // 没有任何对方消息 → 无需回执
       if (!lastOtherMsgId) return;
-      // 同一会话内仅当回执点位前移时才重发，避免频繁请求；
-      // 注意不能只按 chatId 去重 —— 否则同一会话收到后续新消息时永不补发已读，
-      // 对方会一直显示未读。
-      if (self._lastMarkReadChat === chatId && self._lastMarkReadMsgId === lastOtherMsgId) return;
+      // 回前台 / 重连 / 加载失败恢复时强制补报，绕过去重
+      if (options && options.force) self._readTracker.invalidate(chatId);
+      if (!self._readTracker.shouldSend(chatId, lastOtherMsgId)) return;
 
-      self._lastMarkReadChat = chatId;
-      self._lastMarkReadMsgId = lastOtherMsgId;
-      wsManager.send({
+      var result = wsManager.send({
         type: 'mark_read',
         chat_id: chatId,
         message_id: lastOtherMsgId
       });
+      // 'queued' 会在重连后补发、'dropped' 根本没进通道；两者都标记待补报。
+      // 重复 mark_read 只是幂等 UPDATE，宁可多报一次也不让对方一直显示未读。
+      if (result === 'queued' || result === 'dropped') {
+        self._readTracker.invalidate(chatId);
+        return;
+      }
+      self._readTracker.committed(chatId, lastOtherMsgId);
     },
     showClearChatConfirm: function() {
       this.showClearChatConfirmDialog = true;
@@ -6350,4 +6632,54 @@ export default {
 }
 .open-pk-phrase input::placeholder { color: rgba(255,255,255,.7); }
 .open-pk-phrase-tip { margin-top: 8px; font-size: 11px; color: rgba(255,255,255,.8); }
+
+/* ===== 聊天体验 v2：可见的等待 / 错误出口 / 平板换行 ===== */
+/* 不使用 flex gap：基线 Chrome 80 不支持，间距一律用 margin。 */
+.chat-empty-hint { margin-top: 8px; font-size: 12px; opacity: .72; }
+.chat-retry-btn {
+  margin-top: 14px; min-height: 44px; padding: 0 20px;
+  border: none; border-radius: 12px; cursor: pointer;
+  background: var(--primary-color, #4a7cf7); color: #fff; font-size: 14px;
+}
+.chat-retry-btn:active { transform: scale(.97); }
+.no-more-indicator { text-align: center; padding: 10px 0 4px; font-size: 12px; opacity: .5; }
+.chat-sidebar-error { color: #e5533d; }
+.chat-sidebar-error button {
+  margin-left: 8px; min-height: 32px; border: none; background: none;
+  color: var(--primary-color, #4a7cf7); cursor: pointer;
+}
+.bot-typing-row { display: flex; align-items: center; padding: 6px 14px 14px; }
+.bot-typing-bubble {
+  display: inline-flex; align-items: center;
+  background: var(--card-bg, #fff); border-radius: 16px; padding: 10px 14px;
+  box-shadow: 0 1px 4px rgba(0,0,0,.08);
+}
+.bot-typing-bubble span {
+  width: 6px; height: 6px; margin-right: 5px; border-radius: 50%;
+  background: var(--primary-color, #4a7cf7); opacity: .45;
+  animation: bot-dot 1.2s infinite ease-in-out;
+}
+.bot-typing-bubble span:last-child { margin-right: 0; }
+.bot-typing-bubble span:nth-child(2) { animation-delay: .18s; }
+.bot-typing-bubble span:nth-child(3) { animation-delay: .36s; }
+@keyframes bot-dot {
+  0%, 60%, 100% { opacity: .3; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-3px); }
+}
+.bot-typing-label { margin-left: 10px; font-size: 12px; opacity: .6; }
+.newline-btn {
+  flex: 0 0 auto; min-width: 44px; min-height: 44px;
+  border: none; background: transparent; border-radius: 10px; cursor: pointer;
+  color: var(--text-secondary, #8a8f98);
+}
+.newline-btn:active { background: rgba(127,127,127,.12); }
+.ctx-reactions {
+  display: flex; align-items: center; justify-content: space-around;
+  padding: 6px 4px 8px; border-bottom: 1px solid rgba(127,127,127,.18);
+}
+.ctx-reaction {
+  min-width: 44px; min-height: 44px; border: none; background: transparent;
+  font-size: 20px; line-height: 1; cursor: pointer; border-radius: 10px;
+}
+.ctx-reaction:active { background: rgba(127,127,127,.14); transform: scale(.92); }
 </style>

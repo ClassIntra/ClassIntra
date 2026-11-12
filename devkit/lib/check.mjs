@@ -3,10 +3,11 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { packageFiles, packageFile, ALLOWED_EXTENSIONS } from './package-files.mjs';
 
 const KNOWN_CAPABILITIES = [
   'data.storage', 'data.realtime', 'data.http', 'data.store',
-  'system.notification', 'system.clipboard', 'system.share', 'system.shareTarget', 'system.navigate',
+  'system.notification', 'system.clipboard', 'system.clipboard.read', 'system.share', 'system.shareTarget', 'system.navigate',
   'system.badge', 'system.openApp', 'system.search',
   'ui.toast', 'ui.modal', 'ui.sheet', 'ui.overlay',
   'app.config', 'app.storage',
@@ -22,18 +23,6 @@ const CSS_RULES = [
   { re: /aspect-ratio\s*:/, msg: 'aspect-ratio（Chrome 88+）', hint: '用 padding-top 百分比' },
   { re: /transition\s*:\s*all\b/, msg: 'transition: all', hint: '只过渡 transform / opacity' }
 ];
-
-function walk(dir, out) {
-  let entries = [];
-  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return out; }
-  for (const ent of entries) {
-    if (ent.name === 'node_modules' || ent.name.startsWith('.')) continue;
-    const full = path.join(dir, ent.name);
-    if (ent.isDirectory()) walk(full, out);
-    else out.push(full);
-  }
-  return out;
-}
 
 function stripJsLiterals(src) {
   let out = src.replace(/\/\*[\s\S]*?\*\//g, ' ');
@@ -86,6 +75,10 @@ export function checkPackage(targetDir) {
     return { ok: false, errors, warnings, info };
   }
 
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
+    err('manifest.json 必须是对象');
+    return { ok: false, errors, warnings, info };
+  }
   // ---- 类型判定 ----
   let kind = 'app';
   if (manifest.type === 'plugin') kind = 'plugin';
@@ -133,6 +126,21 @@ export function checkPackage(targetDir) {
     else if (!fs.existsSync(path.join(dir, manifest.tokens))) err('tokens 文件不存在: ' + manifest.tokens);
   }
 
+  const declaredFiles = [
+    ['frontend.entry', manifest.frontend && manifest.frontend.entry],
+    ['frontend.static', manifest.frontend && manifest.frontend.static],
+    ['frontend.style', manifest.frontend && manifest.frontend.style],
+    ['frontend.overlay', manifest.frontend && manifest.frontend.overlay],
+    ['backend.entry', manifest.backend && manifest.backend.entry],
+    ['backend.process.entry', manifest.backend && manifest.backend.process && manifest.backend.process.entry],
+    ['tokens', manifest.tokens]
+  ];
+  for (const [field, value] of declaredFiles) {
+    if (value === undefined) continue;
+    try { packageFile(dir, value); }
+    catch (error) { err(field + ': 文件不存在或路径无效（' + error.message + '）'); }
+  }
+
   // ---- backend.jobs：定时任务声明 ----
   if (manifest.backend && manifest.backend.jobs !== undefined) {
     if (!Array.isArray(manifest.backend.jobs)) {
@@ -147,6 +155,9 @@ export function checkPackage(targetDir) {
         else names.add(job.name);
         if (!job.handler || String(job.handler).indexOf('./') !== 0 || String(job.handler).indexOf('..') !== -1) {
           err(at + '.handler 必须是包内相对路径（./backend/jobs/x.js）');
+        } else {
+          try { packageFile(dir, job.handler); }
+          catch (error) { err(at + '.handler: 文件不存在或路径无效（' + error.message + '）'); }
         }
         if (job.every === undefined && job.daily === undefined) err(at + ' 需要 every 或 daily');
         if (job.every !== undefined) {
@@ -171,10 +182,18 @@ export function checkPackage(targetDir) {
   }
 
   // ---- 文件规模与图标 ----
-  const all = walk(dir, []);
+  let all;
+  try { all = packageFiles(dir); }
+  catch (error) {
+    err(error.message);
+    return { ok: false, errors, warnings, info };
+  }
   info.files = all.length;
   let bytes = 0;
   for (const abs of all) {
+    if (!ALLOWED_EXTENSIONS.has(path.extname(abs).toLowerCase())) {
+      err('宿主不支持此文件类型: ' + path.relative(dir, abs) + '（请将开发源码编译到包外，或只保留运行产物）');
+    }
     const size = fs.statSync(abs).size;
     bytes += size;
     if (size > LIMITS.fileBytes) err('单文件超过 60MB: ' + path.relative(dir, abs));

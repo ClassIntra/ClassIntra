@@ -48,8 +48,16 @@ function emit(event, data) {
   // 2) 进程外出站 Webhook：班级门户/大屏等外部系统
   try {
     var dispatcher = require('./outbound-dispatcher');
+    var scope = EVENT_SCOPE_MAP[event];
+    if (!scope) {
+      // ⚠️ 未登记事件绝不能把 dispatcher 的 scope 覆写成 undefined：
+      // outbound-dispatcher.js:46 的 `if (requiredScope && ...)` 会被跳过，
+      // 于是内部事件被推给**所有**活跃集成，等于一次越权外发。
+      console.warn('[integrations] 事件未登记 scope，跳过出站投递:', event);
+      return false;
+    }
     // 事件表以本文件为准（dispatcher 里的那份是历史副本，两处都补会漂移）
-    dispatcher.EVENT_SCOPE_MAP[event] = EVENT_SCOPE_MAP[event];
+    dispatcher.EVENT_SCOPE_MAP[event] = scope;
     dispatcher.dispatch(event, payload);
     return true;
   } catch (e) {

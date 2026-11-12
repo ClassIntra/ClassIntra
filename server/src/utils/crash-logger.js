@@ -76,6 +76,12 @@ function trackActivity(action, detail) {
 }
 
 function installCrashHandlers() {
+  // app.js / app-https.js 都会调用，热重载还会重复 require。
+  // 不防重的话 process.exit 会被一层层包装，日志重复且可能递归。
+  var INSTALLED_KEY = '__ci_crash_handlers_installed__';
+  if (global[INSTALLED_KEY]) return;
+  global[INSTALLED_KEY] = true;
+
   process.on('uncaughtException', function(err) {
     console.error('[CRASH] Uncaught exception:', err.message || err);
     if (err.stack) console.error(err.stack);

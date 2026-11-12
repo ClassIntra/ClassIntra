@@ -2,9 +2,29 @@
 
 面向第三方开发者：如何在 ClassIntra 上开发**应用**、**插件**、**主题**、**桌面小组件**。
 
-## 统一入口（从这里开始）
+## 外部开发者快速开始
 
-所有骨架生成走同一个命令，模板即正确示例（Chrome 80 / 令牌 / 生命周期回收）：
+需要 Node.js 18 或更高版本。前端微应用按 Chrome 80 基线开发，并在 Chrome 80、腾讯 X5 / Android 9 平板上验证。使用已从团队认可的分发源取得的独立 `classintra-devkit` 命令，不需要克隆 ClassIntra 主仓库。
+
+```bash
+classintra-devkit create app docs-sample --label 示例应用 --dir ./work
+classintra-devkit check ./work/docs-sample --json
+classintra-devkit pack ./work/docs-sample --write ./market/index.json
+```
+
+`check --json` 适合 CI：退出码 `0` 表示通过，`1` 表示检查发现错误。`pack --write` 输出现有目录式市场包所需的文件清单和逐文件 SHA-256；目标目录不存在时会在指定位置创建。重新打包会保留市场维护者填写的截图、更新日志、标签、精选状态和主页地址。不要把包目录改成自定义归档格式。
+
+离线或使用本地 devkit 源码时，在 devkit 目录运行同一组命令，将可执行文件换为 `node ./bin/cli.mjs`。devkit 不依赖 npm 运行时依赖；应用可在临时目录完成脚手架、检查和打包，再把最终目录提交给市场维护者审核。
+
+能力清单用于安装前向用户说明应用会使用什么，不会拦截同页面代码。第三方代码仍在 ClassIntra 页面内运行并受到当前开放式信任模型约束；能力披露不是 iframe 沙箱或权限边界。安装和发布前应检查来源与代码。
+
+本地预览仍需宿主集成设计，当前工作流使用 devkit 校验后安装到获准的测试环境验证；不要把测试包写入正在使用的市场目录。
+
+类型获取、七个命名空间、数据错误、生命周期与调试流程见随 devkit 分发的 [第三方 SDK 使用与调试](../devkit/SDK.md)。类型导出命令：`classintra-devkit sdk types --write ./types/classintra-sdk.d.ts`。
+
+## 主仓库贡献者工作流（仅第一方应用）
+
+以下 `scripts/` 命令服务于修改 ClassIntra 主仓库 `apps/*`、官方组件和内置市场源的贡献者，不是外部开发者的默认工具。外部市场包请使用上面的独立 devkit。
 
 ```bash
 node scripts/create.mjs app <name> [--label 显示名] [--with-backend]   # 市场应用（微前端，market-apps/）
@@ -14,10 +34,10 @@ node scripts/create.mjs theme <id> [--type light|dark]                 # 市场�
 node scripts/create.mjs widget <app> <widget-id>                       # 桌面小组件（官方应用内）
 ```
 
-生成后固定三步：`diag` 装前预检 → 本地市场源安装调试 → `market-index-gen` + `market-sign` 发布。
+第一方应用的本地构建、预检和市场发布仍走主仓库工具。
 市场分发（应用/插件/主题）的完整契约见 **docs/market-dev-guide.md**。
 
-## 工具速查（细粒度命令，统一入口的底层）
+## 主仓库工具速查（第一方贡献者）
 
 ```bash
 # 脚手架（30 秒生成骨架）
@@ -60,13 +80,15 @@ cd server && $env:CLASSINTRA_HOT_RELOAD='1'; node src/app.js
 # 前端仍需重启/构建；模块内存状态（缓存等）随重载重置
 ```
 
-插件（backend-only 扩展）的开发见 `plugins/README.md`；应用/主题/小组件均属**主仓**，直接提交。
+插件（backend-only 扩展）的开发见 `plugins/README.md`；以下应用、主题、小组件示例仅适用于第一方主仓，外部作者请使用上面的独立 devkit。
 
 ---
 
-## 一、应用开发
+## 一、应用开发（第一方主仓）
 
-应用 = 前端页面（+ 可选后端 + 可选桌面小组件），位于 `apps/<app-name>/`。
+本节描述随主仓构建的 Vue 应用。外部 devkit 包使用 `frontend.entry`（而不是本节的 `frontend.component`），以独立目录交给市场维护者审核，不要把外部包复制到 `apps/` 后提交。
+
+第一方应用 = 前端页面（+ 可选后端 + 可选桌面小组件），位于 `apps/<app-name>/`。
 
 ### 目录结构
 
@@ -144,7 +166,7 @@ apps/my-app/
 - `apps/` 模式：执行 vite 全量构建（vite 单页架构决定无法单应用构建，vendor chunk 共享）
 - `market-apps/` 模式：检查 entry/style/icon 文件存在性 + 输出直出说明；`--watch` 监听文件变化（防抖 300ms）自动重跑 lint，backend 变更单独提示需重启服务器
 
-market-app 前端的 SDK context 完整类型见 `plugins/_sdk/sdk.d.ts`（五大命名空间 `ui/data/system/app/compat`，TS 项目可直接引用获得补全）。
+market-app 的 SDK 权威类型位于 `devkit/types/sdk.d.ts`（`ui/data/system/device/theme/app/compat` 七个命名空间）；外部项目使用 `classintra-devkit/sdk` 类型入口。旧 `plugins/_sdk/sdk.d.ts` 路径兼容主仓引用。
 
 ---
 
@@ -175,7 +197,7 @@ market-app 前端的 SDK context 完整类型见 `plugins/_sdk/sdk.d.ts`（五�
 
 ---
 
-## 二、桌面小组件开发
+## 二、桌面小组件开发（第一方主仓）
 
 小组件归属应用（`apps/<app>/frontend/widgets/`），随应用启停，渲染在桌面网格上。
 
@@ -218,9 +240,10 @@ node scripts/scaffold.js widget my-app my-clock --name "时钟"
 
 ---
 
-## 三、主题开发
+## 三、主题开发（第一方主仓）
 
 主题是独立视觉层，位于 `themes/<theme-id>/`，与系统主题机制深度集成（token 级切换）。
+外部 devkit 主题包使用 `tokens.json` 纯数据契约；本节的 `tokens.js` 仅适用于第一方主仓主题，不要把两种包格式混用。
 
 ### 目录结构
 

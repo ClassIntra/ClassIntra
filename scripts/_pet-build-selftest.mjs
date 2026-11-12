@@ -19,7 +19,11 @@ function makeEnv() {
   const fakeRouter = {
     get: (...a) => { ROUTES['GET ' + a[0]] = pick(a); },
     post: (...a) => { ROUTES['POST ' + a[0]] = pick(a); },
-    put: (...a) => { ROUTES['PUT ' + a[0]] = pick(a); }
+    put: (...a) => { ROUTES['PUT ' + a[0]] = pick(a); },
+    // v0.38.0：后端新增了 router.delete('/designs/:id')（作品库删除），
+    // 假 Router 不补这一项，整个 routes.js 会在加载时抛「router.delete is not a function」，
+    // 自测直接连跑都跑不起来。
+    delete: (...a) => { ROUTES['DELETE ' + a[0]] = pick(a); }
   };
   const KV = new Map();
   const fakeDb = {

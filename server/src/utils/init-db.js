@@ -31,6 +31,7 @@ function initDatabase() {
 function _initData() {
   // ========== 预注册名单导入 ==========
   var allPreRecords = [];
+  var preRecordsLoaded = false;
   try {
     var preRecordsData = require('../../config/pre-records.json');
     // 动态读取所有班级 (classXX)，不再硬编码 class08/class18
@@ -42,13 +43,21 @@ function _initData() {
         }
       }
     });
+    preRecordsLoaded = true;
   } catch (e) {
-    console.warn('[init-db] pre-records.json not found, skipping pre-records import');
+    console.warn('[init-db] pre-records.json 读取失败，跳过本次导入:', e && e.message);
   }
 
-  // 清除旧的预注册名单后重新导入
-  // 注意：user_id 已由 setup.js /save 路由与 users 表同步（已注册学生保留原 ID）
-  db.exec('DELETE FROM pre_records');
+  // ⚠️ 名单文件读取失败时绝不能清空表。
+  // 旧实现把 DELETE 放在 catch 之外：文件缺失 / 损坏 / JSON 非法 → allPreRecords 为空
+  // → 仍然 DELETE 全表再导入空数组，一次重启就抹掉全班预注册名单。
+  // 现在只有确认读到文件才重建；读不到保留原表并大声报错。
+  if (!preRecordsLoaded) {
+    console.error('[init-db] 预注册名单未加载，保留现有 pre_records 不动（请检查 server/config/pre-records.json）');
+  } else {
+    // user_id 已由 setup.js /save 路由与 users 表同步（已注册学生保留原 ID）
+    db.exec('DELETE FROM pre_records');
+  }
 
   var insertPreRecord = db.prepare(
     'INSERT OR IGNORE INTO pre_records (real_name, user_id, gender) VALUES (@real_name, @user_id, @gender)'
@@ -60,7 +69,7 @@ function _initData() {
     }
   });
 
-  insertManyPreRecords(allPreRecords);
+  if (preRecordsLoaded) insertManyPreRecords(allPreRecords);
 
   // ========== 班管账号 ==========
   var config = require('../config');

@@ -70,6 +70,12 @@ var CAPABILITY_CATALOG = {
     icon: 'fa-clipboard',
     level: 'notice'
   },
+  'system.clipboard.read': {
+    label: '读取剪贴板',
+    description: '请求读取你复制的内容；使用时需确认授权',
+    icon: 'fa-clipboard',
+    level: 'notice'
+  },
   'system.shareTarget': {
     label: '接收分享',
     description: '出现在系统分享面板里，接收其他应用分享的文本与链接',

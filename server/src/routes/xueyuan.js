@@ -44,19 +44,11 @@ function fail(res, err) {
   return res.status(known ? 400 : 500).json({ code: known ? 400 : 500, message: msg });
 }
 
-// 班管 / 系统管理员（不接受普通班干 —— 发钱是财政权，不是日常事务权）
-//
-// 组网封锁（xy-mesh）：本实例被配置为从班（member）时，本班班管的
-// 学元管理整体移交给组网主班 —— 学元是钱，谁收钱谁管账（主班负责人）。
-// 从班班管的其他班级管理不受影响；系统管理员（999999 等）保留豁免以便排障。
-function requireTreasury(req, res, next) {
-  if (!req.user) return res.status(401).json({ code: 401, message: '未登录' });
-  if (xyMesh.blockTreasury(req.user.user_id)) {
-    return res.status(403).json({ code: 403, message: '本班学元管理已移交组网主班统一管理，如有需要请联系主班班管' });
-  }
-  if (req.user.is_class_admin || req.user.is_admin === 1) return next();
-  return res.status(403).json({ code: 403, message: '只有班管可以管理学元发行' });
-}
+// 财政权判定收敛到共享中间件：/api/xueyuan 与 /api/xy 两个门面必须用同一份，
+// 否则「从班封锁」会从一个门面漏出去（2026-11-12 修的正是 /api/xy/issue）。
+// 语义不变：只认班管/系统管理员（不接受普通班干），member 角色下封锁，
+// 系统管理员豁免；从班班管的其他班级管理不受影响。
+var requireTreasury = require('../middleware/treasury').requireTreasury;
 
 // ---------------- 组网命令通道（xy-mesh） ----------------
 // 唯一不吃 JWT 的入口：只认 HMAC(RELAY_SECRET) 签名（与跨班支付同一把钥匙）。

@@ -106,7 +106,15 @@
           <div v-else-if="!rows.length" class="empty">
             <i class="fa-solid fa-receipt"></i>
             <p>还没有学元流水</p>
-            <p class="empty-sub">领一次津贴，或让同学给你转一笔，这里就会开始记账</p>
+            <p class="empty-sub">先领今天的津贴，再给同学发个红包，这里就会开始记账</p>
+            <!-- 空态不能只是「没有」：给三个能立刻点的下一步 -->
+            <div style="margin-top:14px; display:flex; flex-wrap:wrap; justify-content:center; align-items:center;">
+              <button v-if="!daily.claimed" class="daily-btn" style="margin:4px;" @click="claimDaily">
+                领今日津贴 +{{ money(daily.amount) }}
+              </button>
+              <button class="table-btn sm" style="margin:4px;" @click="openPacket">给同学发红包</button>
+              <button class="table-btn sm" style="margin:4px;" @click="switchTab('rank')">看看学元榜</button>
+            </div>
           </div>
           <div v-else class="ledger">
             <div v-for="row in rows" :key="row.id" class="ledger-row">
@@ -228,8 +236,8 @@
           </div>
 
           <div v-if="!collectTodo.length && !collects.created.length" class="empty small">
-            <i class="fa-solid fa-users"></i>
-            <p>还没有 AA 收款</p>
+            <i :class="collectError ? 'fa-solid fa-triangle-exclamation' : 'fa-solid fa-users'"></i>
+            <p>{{ collectError ? 'AA 收款加载失败，请重新打开钱包页' : '还没有 AA 收款' }}</p>
           </div>
         </div>
 
@@ -244,14 +252,14 @@
           <div class="wd-form">
             <div class="pay-row">
               <span>提现金额</span>
-              <input v-model="withdraw.amount" type="number" inputmode="decimal" :placeholder="'最低 ' + money(limits.withdraw_min)" />
+              <input v-model="withdraw.amount" type="number" inputmode="decimal" :placeholder="'最低 ' + limitText(limits.withdraw_min)" />
             </div>
             <div class="pay-row">
               <span>备注</span>
               <input v-model="withdraw.memo" maxlength="30" placeholder="选填，给班管看" />
             </div>
             <div class="wd-hint">
-              1 元 = {{ money(yuanRate) }} 学元 · 单笔 {{ money(limits.withdraw_min) }}–{{ money(limits.withdraw) }} 学元。
+              1 元 = {{ money(yuanRate) }} 学元 · 单笔 {{ limitText(limits.withdraw_min) }}–{{ limitText(limits.withdraw) }} 学元。
               提交后学元先冻结，班管审批通过并当面给你现金后才真正扣除。
             </div>
             <button class="pay-primary" :disabled="withdraw.busy || !canWithdraw" @click="submitWithdraw">
@@ -295,102 +303,14 @@
           <p class="rank-tip">榜单只统计余额，不含冻结。钱多不代表会投资 —— 证券里的收益率榜更值得看。</p>
         </div>
 
-        <!-- ============ 小铺 ============ -->
+        <!-- ============ 集市（小铺已搬去社区，这里只留指路牌） ============ -->
         <div v-else-if="tab === 'shop'" class="panel">
-          <div class="shop-head">
-            <span>班级小铺</span>
-            <span class="shop-note">只能用自己充值的学元购买</span>
-          </div>
-
-          <div v-if="shopLoading" class="hint">加载中…</div>
-          <div v-else-if="!shopGoods.length" class="hint">小铺还没上架商品。你可以第一个开张——在下面「我的小铺」上架。</div>
-          <div v-else class="shop-grid">
-            <div v-for="g in shopGoods" :key="g.id" class="shop-card">
-              <div class="sc-kind">{{ goodsKindLabel(g.kind) }}<em class="sc-seller" :class="{ official: g.seller_kind !== 'user' }">{{ g.seller_kind === 'user' ? ('同学 ' + g.seller_owner) : '官方' }}</em></div>
-              <div class="sc-name">{{ g.name }}</div>
-              <div class="sc-price"><b>{{ money(unitsOf(g.price_cent)) }}</b> 学元</div>
-              <button class="sc-buy" @click="openBuy(g)">兑换</button>
-            </div>
-          </div>
-
-          <!-- 支付确认：商品只收自己充值的学元。赚来的学元不构成购买力，但可以转账/发红包 -->
-          <div v-if="shopQuote" class="shop-quote">
-            <div class="sq-head">
-              <b>{{ shopQuote.name }}</b>
-              <span class="sq-x" @click="closeBuy">✕</span>
-            </div>
-            <div class="sq-row"><span>价格</span><b>{{ money(unitsOf(shopQuote.face_cent)) }} 学元</b></div>
-            <div class="sq-row">
-              <span>你的充值学元</span>
-              <b :class="shopQuote.enough ? '' : 'no'">{{ money(unitsOf(shopQuote.balance_cash_cent)) }}</b>
-            </div>
-            <p class="sq-tip">
-              只能用自己充值的学元购买。赠送学元和炒股赚来的学元不能买东西，但可以转账、发红包。
-            </p>
-            <p class="sq-tip no" v-if="!shopQuote.enough">
-              还差 {{ money(unitsOf(shopQuote.short_cent)) }} 学元，请先找班管充值。
-            </p>
-            <div class="sq-actions">
-              <button class="sq-cancel" @click="closeBuy">取消</button>
-              <button class="sq-ok" :disabled="shopBusy || !shopQuote.enough" @click="confirmBuy">
-                {{ shopBusy ? '处理中…' : (shopQuote.enough ? '确认兑换' : '充值余额不足') }}
-              </button>
-            </div>
-          </div>
-
-          <!-- ============ 我的小铺（人人可卖） ============ -->
-          <div class="shop-sec mys">我的小铺 <em>同学之间自由买卖，货款直接进你的钱包（充值学元）</em></div>
-          <div class="shop-sell-form">
-            <input v-model="myShop.form.name" class="inv-input" maxlength="20" placeholder="商品名，如：手绘贴纸" />
-            <input v-model="myShop.form.price" class="inv-input sm" type="number" min="0" placeholder="售价（学元）" />
-            <select v-model="myShop.form.kind" class="inv-input sm">
-              <option value="digital">虚拟</option>
-              <option value="physical">实物</option>
-            </select>
-            <button class="inv-go primary" :disabled="myShop.form.busy || !myShop.form.name || !(Number(myShop.form.price) > 0)" @click="createSale">
-              {{ myShop.form.busy ? '上架中…' : '上架' }}
-            </button>
-          </div>
-          <div v-if="myShop.goods.length" class="my-goods">
-            <span v-for="g in myShop.goods" :key="g.id" class="my-goods-chip">
-              {{ g.name }} · {{ money(unitsOf(g.price_cent)) }} 学元
-              <em v-if="g.status !== 'on_shelf'">已下架</em>
-              <i v-else class="fa-solid fa-eye-slash" title="下架" @click="offShelfMine(g)"></i>
-            </span>
-          </div>
-          <div v-else class="hint mini">还没有上架商品。手绘、代做、闲置好物……都可以卖。</div>
-
-          <!-- ============ 我卖出的 ============ -->
-          <div class="shop-sec">我卖出的</div>
-          <div v-if="!myShop.sales.length" class="hint">还没有人买你的商品</div>
-          <div v-else class="order-list">
-            <div v-for="o in myShop.sales" :key="o.id" class="order-row">
-              <div class="or-main">
-                <div class="or-name">{{ o.goods_name || ('订单 #' + o.id) }}</div>
-                <div class="or-sub">{{ orderStatusLabel(o.status) }}<template v-if="o.buyer_id"> · 买家 {{ o.buyer_id }}</template> · {{ fmtTime(o.created_at) }}</div>
-              </div>
-              <div class="or-right">
-                <div class="or-amt">+{{ money(unitsOf(o.face_cent)) }}</div>
-                <button v-if="o.status === 'paid'" class="or-act" @click="sellerAct(o, 'fulfill')">已交付</button>
-                <button v-if="o.status === 'fulfilled'" class="or-act" @click="sellerAct(o, 'settle')">结算收款</button>
-                <button v-if="o.status === 'refunding'" class="or-act warn" @click="sellerAct(o, 'refund')">同意退款</button>
-              </div>
-            </div>
-          </div>
-
-          <div class="shop-sec">我的订单</div>
-          <div v-if="!shopOrders.length" class="hint">还没有订单</div>
-          <div v-else class="order-list">
-            <div v-for="o in shopOrders" :key="o.id" class="order-row">
-              <div class="or-main">
-                <div class="or-name">{{ o.goods_name || ('订单 #' + o.id) }}</div>
-                <div class="or-sub">{{ orderStatusLabel(o.status) }} · {{ fmtTime(o.created_at) }}</div>
-              </div>
-              <div class="or-right">
-                <div class="or-amt">{{ money(unitsOf(o.face_cent)) }}</div>
-                <button v-if="canAskRefund(o)" class="or-act" @click="askRefund(o)">申请退款</button>
-              </div>
-            </div>
+          <div class="shop-moved">
+            <div class="sm-lamps"><span>🏮</span><span>🏮</span></div>
+            <h3>小铺搬到社区集市啦</h3>
+            <p class="sm-desc">官铺、同学摊位、我的摊位，都搬进了社区那条街。灯笼一亮就能逛。</p>
+            <button class="sm-go" type="button" @click="goMarket">去社区集市 →</button>
+            <p class="sm-note">还是只能用自己充值的学元买东西；赠送学元可以转账、发红包。</p>
           </div>
         </div>
 
@@ -429,6 +349,14 @@
             1:1 不收手续费，钱始终在你自己名下。<b>充值的真钱不参与</b>：进不了股市，股市里也变不出现金。
             撤出的钱仍是赠金：可以转账、发红包、送同学，但买不了小铺的东西，也不能提现。
           </p>
+          <div class="credit-moved" @click="goStockCredit">
+            <i class="fa-solid fa-hand-holding-dollar"></i>
+            <span class="cm-main">
+              <b>信用 / 借款</b>
+              <em>已搬到「学元证券」的信用页：信用分、周转贷、分期贷、投资贷</em>
+            </span>
+            <span class="cm-go">去学元证券 →</span>
+          </div>
         </div>
 
         <!-- 支付密码（没有入口的话，转账/红包会被拦住却无处设置） -->
@@ -497,14 +425,14 @@
             <span v-if="p.class_admin" class="cp-admin">班管</span>
             <span v-if="p.remote" class="cp-cross">跨班</span>
           </button>
-          <div v-if="!filteredPeople.length" class="people-empty">没有匹配的同学（外班同学要两个班连通后才会出现）</div>
+          <div v-if="!filteredPeople.length" class="people-empty">{{ peopleError ? '同学名单加载失败，请重新打开钱包重试' : '没有匹配的同学（外班同学要两个班连通后才会出现）' }}</div>
         </div>
         <div class="pay-row">
           <span>备注</span>
           <input v-model="transfer.memo" maxlength="30" placeholder="选填，对方能看到" />
         </div>
         <div class="pay-hint">
-          可用学元 {{ money(account.available) }}（充值 {{ money(account.available_cash) }} + 赠送 {{ money(account.available_grant) }}） · 单笔最多 {{ money(limits.transfer) }} 学元 · 今日还可转出 {{ money(limits.daily_left) }} 学元。
+          可用学元 {{ money(account.available) }}（充值 {{ money(account.available_cash) }} + 赠送 {{ money(account.available_grant) }}） · 单笔最多 {{ limitText(limits.transfer) }} 学元 · 今日还可转出 {{ limitText(limits.daily_left) }} 学元。
           <template v-if="!transfer.cross"><br />下一步可以在支付页选择用哪种学元。</template>
         </div>
         <button class="pay-primary" :disabled="transfer.busy" @click="transferNext">下一步</button>
@@ -567,7 +495,7 @@
               <span v-if="p.remote" class="cp-cross">跨班</span>
               <i class="pi-check fa-solid fa-check"></i>
             </button>
-            <div v-if="!filteredPeople.length" class="people-empty">没有匹配的同学</div>
+            <div v-if="!filteredPeople.length" class="people-empty">{{ peopleError ? '同学名单加载失败，请重新打开钱包重试' : '没有匹配的同学' }}</div>
           </div>
         </div>
 
@@ -588,7 +516,7 @@
             同学领红包时必须<b>原样输入口令</b>；发到聊天里，让大家照着输。24 小时没领完自动退回。
           </template>
           <template v-else>
-            发出去先冻结，同学领到才真正扣款；{{ limits.packet_count }} 个封顶，今日还可转出 {{ money(limits.daily_left) }} 学元。
+            发出去先冻结，同学领到才真正扣款；{{ limits.packet_count || '—' }} 个封顶，今日还可转出 {{ limitText(limits.daily_left) }} 学元。
             <template v-if="packet.scope === 'cross'"><br />跨班红包会生成 6 位红包码，同学在「红包 → 输入红包码」里领取。</template>
             24 小时没领完自动退回。<br />
           </template>
@@ -634,7 +562,7 @@
             <span class="pi-id">{{ p.user_id }}</span>
             <i class="pi-check fa-solid fa-check"></i>
           </button>
-          <div v-if="!filteredPeople.length" class="people-empty">没有匹配的同学</div>
+          <div v-if="!filteredPeople.length" class="people-empty">{{ peopleError ? '同学名单加载失败，请重新打开钱包重试' : '没有匹配的同学' }}</div>
         </div>
         <div class="pay-hint">
           已选 {{ collectForm.members.length }} 人，合计 <b>{{ money(collectFormTotal) }}</b> 学元。
@@ -668,6 +596,8 @@
         :subtitle="collectPay.item ? collectPay.item.title : ''"
         :error="collectPay.error"
         :disabled="collectPay.busy"
+        :pool.sync="collectPay.pool"
+        show-pool
         @submit="submitPayCollect"
         @cancel="closePayCollect"
         @forgot="forgotPin"
@@ -775,7 +705,7 @@
           <div class="rc-split-item grant"><i class="fa-solid fa-gift"></i><b>赠送学元</b><span>可转账 / 红包 / 跨班 / 投资，不能买东西、不可提现</span></div>
         </div>
         <div class="pay-hint">
-          单次充值上限 {{ money(limits.recharge) }} 学元，本学期还能充 {{ money(limits.recharge_left) }} 学元。
+          单次充值上限 {{ limitText(limits.recharge) }} 学元，本学期还能充 {{ limitText(limits.recharge_left) }} 学元。
           学期配额是为了防止一次充太多把班级物价打乱；充值记录可查，班管乱录会被审计对账发现。
         </div>
         <button class="pay-primary" @click="recharge.open = false">知道了</button>
@@ -801,6 +731,8 @@ var KIND_ICON = {
   fee: 'fa-solid fa-receipt',
   reward: 'fa-solid fa-medal',
   refund: 'fa-solid fa-rotate-left',
+  loan_out: 'fa-solid fa-hand-holding-dollar',
+  loan_repay: 'fa-solid fa-circle-check',
   adjust: 'fa-solid fa-sliders'
 };
 
@@ -837,7 +769,7 @@ export default {
         { key: 'withdraw', label: '提现' },
         { key: 'rank', label: '学元榜' },
         { key: 'invest', label: '投资' },
-        { key: 'shop', label: '小铺' }
+        { key: 'shop', label: '集市' }
       ],
       filters: [
         { key: '', label: '全部' },
@@ -860,6 +792,7 @@ export default {
       investBusy: false,
       investErr: '',
 
+
       account: {
         balance: 0,
         available: 0,
@@ -879,7 +812,10 @@ export default {
       week: { in: 0, out: 0, count: 0 },
       month: { in: 0, out: 0, count: 0 },
       sources: [],
-      limits: { transfer: 500000, packet_total: 500000, packet_count: 20, recharge: 200000, recharge_quota: 300000, recharge_left: 300000, withdraw: 1000000, withdraw_min: 1000, daily_out: 2000000, daily_left: 2000000 },
+      // 限额唯一真相源是 /wallet（与 /xueyuan/config 同源）。首屏不再硬编码一份
+      // 假数字：以前后端改了限额、接口又拉不到时，学生会看到过期的上限。
+      // 未加载时模板走 limitText 显示「—」，加载失败由 loadOverview 弹错误。
+      limits: {},
 
       withdrawals: [],
       withdraw: { amount: '', memo: '', busy: false },
@@ -888,8 +824,9 @@ export default {
       // AA 收款：列表 + 新建表单 + 付款弹层三份状态分开存，
       // 免得「付款到一半去关掉列表」时把彼此的状态冲掉。
       collects: { created: [], joined: [] },
+      collectError: false,   // 拉不到 ≠ 没有
       collectForm: { open: false, title: '', per: '', members: [], busy: false },
-      collectPay: { open: false, item: null, step: 'form', error: '', busy: false },
+      collectPay: { open: false, item: null, step: 'form', error: '', busy: false, pool: 'cash' },
 
       claiming: false,
 
@@ -904,6 +841,7 @@ export default {
       people: [],
       peopleQ: '',
       peopleLoaded: false,
+      peopleError: false,    // 名单加载失败要显示错误态，不能渲染空名单
       claimCode: { open: false, mode: 'code', input: '', info: null, busy: false, error: '' },
 
       rank: [],
@@ -997,6 +935,10 @@ export default {
       var parts = s.split('.');
       parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
       return (neg ? '-' : '') + parts.join('.');
+    },
+    // 限额专用：没拉到就明确显示「—」，绝不显示 0.00 或上一版的假上限
+    limitText: function (v) {
+      return (v === undefined || v === null || v === '') ? '—' : this.money(v);
     },
 
     // 学元 → 人民币参考值，只用于「≈¥」角标。
@@ -1113,7 +1055,7 @@ export default {
       if (key === 'collect') this.loadCollects();
       if (key === 'withdraw') this.loadWithdrawals();
       if (key === 'rank' && !this.rank.length) this.loadRank();
-      if (key === 'shop') this.loadShop();
+      // 集市已搬去社区，这个 tab 只剩指路牌，不再拉商品数据
       if (key === 'invest') { this.investErr = ''; this.loadOverview(); }
     },
 
@@ -1137,9 +1079,28 @@ export default {
       });
     },
 
+    // 信用/贷款已迁到学元证券；钱包只做指路。
+    goStockCredit: function () {
+      var to = '/stock?tab=credit';
+      if (this.$router) {
+        this.$router.push(to).catch(function () { window.location.href = to; });
+      } else {
+        window.location.href = to;
+      }
+    },
+
     // ======== 小铺 ========
     // 账本内部一律「学元分」（1 元 = 1000），钱包页展示的是「学元」（÷100），
     // 这个换算只做一次，别在模板里到处写 /100。
+    goMarket: function () {
+      var to = '/community?tab=market';
+      if (this.$router) {
+        this.$router.push(to).catch(function () { window.location.href = to; });
+      } else {
+        window.location.href = to;
+      }
+    },
+
     unitsOf: function (cent) { return toNum(cent) / 100; },
 
     goodsKindLabel: function (k) {
@@ -1200,7 +1161,7 @@ export default {
       var price = Math.round(Number(f.price));
       if (!f.name || !(price > 0)) return self.toast('商品名和售价必填', 'error');
       f.busy = true;
-      api.post('/xy/market/goods', { name: f.name, price_cent: price, kind: f.kind }).then(function () {
+      api.post('/xy/market/goods', { name: f.name, price_cent: Math.round(price * 100), kind: f.kind }).then(function () {
         self.toast('已上架，等同学来买', 'success');
         self.myShop.form = { name: '', price: '', kind: f.kind, busy: false };
         self.loadShop();
@@ -1390,12 +1351,20 @@ export default {
         if (d.duplicate) {
           self.toast('今天已经领过了', 'info');
         } else {
-          self.toast('津贴 +' + self.money(d.amount) + ' 学元，已到账', 'success');
-          self.result = {
-            open: true,
-            amount: d.amount,
-            text: '连签 ' + (d.streak || 1) + ' 天' + (d.streak >= self.daily.bonus_from ? '，今天拿的是加倍津贴' : '，第 ' + self.daily.bonus_from + ' 天起翻倍')
-          };
+          var rep = d.loan_repay;
+          var streakText = '连签 ' + (d.streak || 1) + ' 天' + (d.streak >= self.daily.bonus_from ? '，今天拿的是加倍津贴' : '，第 ' + self.daily.bonus_from + ' 天起翻倍');
+          if (rep && rep.amount > 0) {
+            self.toast('津贴 +' + self.money(d.amount) + ' 学元 · 自动还贷 ' + self.money(rep.amount) + ' 学元', 'success');
+            self.result = {
+              open: true,
+              amount: d.amount,
+              text: streakText + '；已按约定自动还贷 ' + self.money(rep.amount) + ' 学元' +
+                (rep.closed ? '，该笔贷款已结清' : '，剩余 ' + self.money(rep.remaining) + ' 学元')
+            };
+          } else {
+            self.toast('津贴 +' + self.money(d.amount) + ' 学元，已到账', 'success');
+            self.result = { open: true, amount: d.amount, text: streakText };
+          }
         }
         if (d.account) self.account = d.account;
         if (d.daily) self.daily = d.daily;
@@ -1474,7 +1443,12 @@ export default {
         var d = (res.data && res.data.data) || {};
         self.people = d.list || [];
         self.peopleLoaded = true;
-      }).catch(function () { self.people = []; });
+        self.peopleError = false;
+      }).catch(function (err) {
+        // 旧版直接清空名单 → 学生以为「班里没有同学」。保留旧数据、标记错误、允许重试
+        self.peopleError = true;
+        self.toast(self.errMsg(err, '同学名单加载失败'), 'error');
+      });
     },
     toggleTarget: function (p) {
       var arr = this.packet.targets.slice();
@@ -1510,8 +1484,11 @@ export default {
       return api.get('/wallet/collect/list').then(function (res) {
         var d = (res.data && res.data.data) || {};
         self.collects = { created: d.created || [], joined: d.joined || [] };
-      }).catch(function () {
-        // 列表失败不打断整个钱包页；发起点钱时后端还会再校验一次
+        self.collectError = false;
+      }).catch(function (err) {
+        // 拉不到 ≠ 没有：保留已有数据并显示错误态，绝不渲染「还没有 AA 收款」
+        self.collectError = true;
+        self.toast(self.errMsg(err, 'AA 收款加载失败'), 'error');
       });
     },
     openCollectForm: function () {
@@ -1551,7 +1528,7 @@ export default {
       });
     },
     startPayCollect: function (c) {
-      this.collectPay = { open: true, item: c, step: 'form', error: '', busy: false };
+      this.collectPay = { open: true, item: c, step: 'form', error: '', busy: false, pool: 'cash' };
     },
     closePayCollect: function () {
       this.collectPay.open = false;
@@ -1562,7 +1539,7 @@ export default {
       if (!item || self.collectPay.busy) return;
       self.collectPay.busy = true;
       self.collectPay.error = '';
-      api.post('/wallet/collect/' + item.id + '/pay', { pin: pin }).then(function (res) {
+      api.post('/wallet/collect/' + item.id + '/pay', { pin: pin, pool: self.collectPay.pool || 'cash' }).then(function (res) {
         var d = (res.data && res.data.data) || {};
         if (d.account) self.account = d.account;
         self.$toast && self.$toast.success('已付 ' + self.money(item.per) + ' 学元');
@@ -2287,6 +2264,7 @@ export default {
   background: rgba(var(--primary-rgb, 0, 122, 255), 0.06);
 }
 .seg-btn {
+  position: relative;
   flex: 1;
   height: 32px;
   border-radius: 9px;
@@ -3583,6 +3561,35 @@ export default {
 .inv-go:disabled { opacity: 0.5; cursor: not-allowed; }
 .inv-err { margin: 10px 0 0; font-size: 12px; color: #E5533D; }
 .inv-tip { margin: 12px 0 0; font-size: 11px; line-height: 1.7; opacity: 0.66; }
+.credit-moved {
+  display: flex; align-items: center; margin-top: 12px; padding: 11px 12px;
+  border-radius: var(--radius-md, 12px);
+  border: 1px solid rgba(var(--primary-rgb, 0, 122, 255), 0.22);
+  background: rgba(var(--primary-rgb, 0, 122, 255), 0.06);
+  cursor: pointer;
+}
+.credit-moved > i { flex: 0 0 auto; margin-right: 10px; font-size: 18px; color: var(--primary-color, #0A84FF); }
+.cm-main { flex: 1; display: flex; flex-direction: column; }
+.cm-main b { font-size: 13px; }
+.cm-main em { margin-top: 3px; font-style: normal; font-size: 10px; line-height: 1.5; opacity: 0.6; }
+.cm-go { flex: 0 0 auto; margin-left: 8px; font-size: 11px; font-weight: 600; color: var(--primary-color, #0A84FF); }
+
+/* ============ 集市指路牌（小铺已搬去社区） ============ */
+.shop-moved {
+  margin: 12px 0; padding: 34px 20px 28px; text-align: center;
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(196, 76, 48, 0.9), rgba(214, 138, 48, 0.85), rgba(168, 62, 42, 0.9));
+  color: #fff8ea;
+}
+.sm-lamps span { font-size: 24px; margin: 0 14px; }
+.shop-moved h3 { margin: 10px 0 8px; font-size: 20px; letter-spacing: 3px; }
+.sm-desc { margin: 0 0 18px; font-size: 12px; opacity: 0.94; }
+.sm-go {
+  padding: 10px 26px; border-radius: 999px; cursor: pointer;
+  border: 1px solid rgba(255,255,255,0.7); background: rgba(255,255,255,0.16);
+  color: #fff8ea; font-size: 13px; font-weight: 600;
+}
+.sm-note { margin: 18px 0 0; font-size: 11px; opacity: 0.8; line-height: 1.6; }
 
 /* ============ 转账资产池（选择器已统一上支付页 PayPinPad） ============ */
 

@@ -43,7 +43,7 @@ import { getThemeEngine } from '@/core/theme-engine';
 import { getHotkeyManager } from '@/core/hotkey-manager';
 import router from '@/router';
 import { marketRegistry } from '@/core/market-registry';
-import { syncOverlays } from '@/core/market-overlay-host';
+import { syncOverlays, setOverlaysVisible, setActiveRoute } from '@/core/market-overlay-host';
 import { syncMarketWidgets } from '@/core/widget-aggregator';
 import { syncMarketThemes } from '@/core/theme-market';
 import appOpenTransition from '@/core/app-open-transition';
@@ -70,6 +70,9 @@ export default {
     // （此前把动画挂在 transition 钩子上，真机时序竞态导致"卡在应用界面"，已彻底移除）
     '$route': function(to, from) {
       var self = this;
+      // 悬浮层门禁：登录/注册/封禁页、未登录、账号被封 —— 必须整体隐藏。
+      // 放在动画分支之前：后面有 early return，漏在这里就会「登录页上还蹲着桌宠」。
+      this.syncOverlayGate(to);
       if (!appOpenTransition.enabled()) return;
       var fromDesktop = !!from && (from.name === 'Desktop' || from.path === '/');
       var toDesktop = !to || to.name === 'Desktop' || to.path === '/';
@@ -110,7 +113,10 @@ export default {
           } catch (e) {}
         });
       }
-    }
+    },
+    // 登录 / 登出 / 被封禁（WS 推送改 user.status）时也要立即生效，不必等路由跳转
+    '$store.state.auth.token': function() { this.syncOverlayGate(); },
+    '$store.state.auth.user': function() { this.syncOverlayGate(); }
   },
   computed: {
     theme: function() {
@@ -133,6 +139,22 @@ export default {
     }
   },
   methods: {
+    // 悬浮层门禁：未登录 / 登录页 / 注册页 / 封禁页 / 账号被封 → 隐藏
+    // 同时算出当前路由归属的全屏应用，让常驻悬浮层（桌宠）让位
+    syncOverlayGate: function(route) {
+      var r = route || this.$route || {};
+      var name = r.name;
+      var isGatePage = (name === 'Login' || name === 'Register' || name === 'Banned');
+      var auth = (this.$store && this.$store.state && this.$store.state.auth) || {};
+      var token = auth.token || null;
+      if (!token) { try { token = localStorage.getItem('token'); } catch (e) { token = null; } }
+      var user = auth.user || null;
+      if (!user) { try { user = JSON.parse(localStorage.getItem('user') || 'null'); } catch (e) { user = null; } }
+      var disabled = !!(user && user.status === 'disabled');
+      setOverlaysVisible(!!token && !isGatePage && !disabled);
+      setActiveRoute(r.path || r.fullPath || '');
+    },
+
     handleGlobalTap: function() {
       if (this.isLocked) return;
       // 管理员在管控中心关闭锁屏功能后，锁屏手势不再生效
@@ -390,6 +412,12 @@ export default {
   },
   mounted: function() {
     var self = this;
+    this.syncOverlayGate();
+    // 调试/探针钩子：直接切悬浮层门禁（登录页 / 封禁页两条路径由路由驱动，
+    // 但真机封禁态不好造，探针用它验证同一条链路）
+    try {
+      window.__ciOverlayGate = function(route) { self.syncOverlayGate(route); return 1; };
+    } catch (e) {}
     // 全局搜索里的「锁定屏幕」命令：isLocked 是组件内状态（不在 store），
     // 命令侧通过自定义事件解耦，避免 search-sources 反向依赖 App 组件。
     this._onLockRequest = function() { self.lockScreen(); };
@@ -697,6 +725,7 @@ export default {
     }
   },
   beforeDestroy: function() {
+    try { delete window.__ciOverlayGate; } catch (e) { window.__ciOverlayGate = null; }
     reminderChecker.stop();
     if (this._onLockRequest) {
       window.removeEventListener('classintra:lock', this._onLockRequest);

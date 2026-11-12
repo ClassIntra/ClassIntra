@@ -30,6 +30,10 @@ const OUT = join(process.cwd(), 'logs', 'pet-ui');
 //            hover:hover 会把 hover 相关的 bug 全部遮住。
 const JS = argOf('js', '') || (argOf('jsfile', '') ? readFileSync(argOf('jsfile', ''), 'utf8') : '');
 const TOUCH = argOf('touch', '') === '1';
+// --ready=<selector>：截图前等这个选择器出现。
+// 场景里的物件是「角色先走过去再开抽屉」，注入脚本后的同步时刻页面还停在屋子，
+// 早就在这上面拍错过一整轮（截图里是空屋子，看着像切页失败）。
+const READY = argOf('ready', '');
 mkdirSync(OUT, { recursive: true });
 
 
@@ -207,6 +211,10 @@ const PAGES = {
 try {
   await send('Page.enable');
   await send('Runtime.enable');
+  // ⚠️ user-data-dir 复用 + ?v=版本号不变时，HTTP 缓存会把上一版 entry.js/style.css 喂进来：
+  //    改了代码却测到旧界面（v0.44 就因此漏看了一个新加的 DOM 节点）。一律禁缓存。
+  await send('Network.enable');
+  await send('Network.setCacheDisabled', { cacheDisabled: true });
   await send('Fetch.enable', { patterns: [{ urlPattern: '*harness*', requestStage: 'Request' }] });
   await send('Emulation.setDeviceMetricsOverride', { width: W, height: H, deviceScaleFactor: 1, mobile: false });
   // --motion=full|reduce：强制 prefers-reduced-motion 的取值。
@@ -268,6 +276,27 @@ try {
       })()`);
       console.log('  当前页面内容:', where);
       await sleep(1100);
+    }
+    if (READY) {
+      const t0 = Date.now();
+      let okReady = false;
+      while (Date.now() - t0 < 12000) {
+        okReady = await ev(`!!document.querySelector(${JSON.stringify(READY)})`);
+        if (okReady) break;
+        await sleep(200);
+      }
+      console.log('  等待 ' + READY + '：' + (okReady ? '已就绪' : '超时'));
+      await sleep(500);
+    }
+    {
+      // 截图时到底是哪一页：探针里切了页之后，这里能第一时间发现「拍错了对象」
+      const dbg = await ev(`(function(){
+        var r = document.querySelector('.ci-pethome');
+        return JSON.stringify({ cls: r ? r.className : 'none',
+          editor: !!document.querySelector('.ci-pet-editor'),
+          sheet: !!document.querySelector('.world-sheet-wrap') });
+      })()`);
+      console.log('  截图时页面:', dbg);
     }
     await shot(name);
     // ⚠️ 整页长图必须在这一页还活着的时候拍。
@@ -401,11 +430,11 @@ try {
     // 小卖部/助战探针（window.__shopProbe）同样在这里读取。
     {
       for (let k = 0; k < 20; k++) {
-        const done = await ev(`!!((window.__cmdProbe && window.__cmdProbe.done) || (window.__shopProbe && window.__shopProbe.done) || (window.__expProbe && window.__expProbe.done))`);
+        const done = await ev(`!!((window.__cmdProbe && window.__cmdProbe.done) || (window.__shopProbe && window.__shopProbe.done) || (window.__expProbe && window.__expProbe.done) || (window.__beadProbe && window.__beadProbe.done) || (window.__restoreProbe && window.__restoreProbe.done))`);
         if (done) break;
         await sleep(500);
       }
-      for (const key of ['__cmdProbe', '__shopProbe', '__abyssProbe', '__expProbe']) {
+      for (const key of ['__cmdProbe', '__shopProbe', '__abyssProbe', '__expProbe', '__beadProbe', '__restoreProbe']) {
         const pr = await ev(`JSON.stringify(window.${key} || null)`);
         if (pr && pr !== 'null') {
           const p = JSON.parse(pr);

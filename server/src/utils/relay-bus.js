@@ -150,23 +150,18 @@ function processRelayed(data) {
     delete payload._pw_obfuscated;
   }
 
-  // 去重检查
+  // 去重检查（只判，不在这里置位 —— 见下方「成功后才标记」）
   var relayMsgId = data.relay_msg_id || '';
   if (relayMsgId && processedRelayMsgIds[relayMsgId]) {
     return;
-  }
-  if (relayMsgId) {
-    processedRelayMsgIds[relayMsgId] = true;
-    var msgIdKeys = Object.keys(processedRelayMsgIds);
-    if (msgIdKeys.length > MAX_PROCESSED_MSG_IDS) {
-      delete processedRelayMsgIds[msgIdKeys[0]];
-    }
   }
 
   // 查找注册的处理器
   var config = registry[payload.type];
   if (!config) {
-    console.warn('[RelayBus] Unknown event type:', payload.type);
+    // 未知事件不记去重：对端重传 / 本端升级后仍有机会处理
+    console.warn('[RelayBus] Unknown event type:', payload.type,
+      'ref=' + (payload.ref || '-'));
     return;
   }
 
@@ -174,7 +169,20 @@ function processRelayed(data) {
   try {
     config.handler(payload, ctx);
   } catch (e) {
-    console.error('[RelayBus] Error processing', payload.type + ':', e.message);
+    // ⚠️ 处理失败绝不记去重。旧实现在 handler 之前就置位，抛错后重传被
+    // 去重判断直接 return —— 这条消息永久丢失。这里带 ref 便于对端定位重放。
+    console.error('[RelayBus] Error processing', payload.type + ':', e.message,
+      'ref=' + (payload.ref || payload.id || '-') + ' relay_msg_id=' + (relayMsgId || '-'));
+    return;
+  }
+
+  // 只有真正处理成功才记去重
+  if (relayMsgId) {
+    processedRelayMsgIds[relayMsgId] = true;
+    var msgIdKeys = Object.keys(processedRelayMsgIds);
+    if (msgIdKeys.length > MAX_PROCESSED_MSG_IDS) {
+      delete processedRelayMsgIds[msgIdKeys[0]];
+    }
   }
 }
 

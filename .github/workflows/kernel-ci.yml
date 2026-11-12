@@ -40,5 +40,33 @@ jobs:
         with:
           node-version: '22'
 
-      - name: 运行体检
+      - name: 内核体检（语法 / 迁移 / 契约）
         run: node scripts/ci-check.mjs
+
+      # 纯 Node 内置模块、不装依赖、<10s：资金完整性 / 凭据与日志 /
+      # 事件可靠性 / Chrome80 与主题 / 工程质量 / 错误态
+      - name: 全维度系统体检
+        run: node scripts/system-audit.mjs
+
+      - name: 第三方 SDK 运行时回归（无外部依赖）
+        run: node --test client/test/daily-allowance-controller.test.mjs client/test/daily-allowance-visibility.test.mjs client/test/market-sdk-contract.test.mjs
+
+  devkit:
+    name: devkit 和 SDK 类型 / Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      matrix:
+        node: ['18', '22']
+    defaults:
+      run:
+        working-directory: devkit
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: 安装 devkit 开发期编译器
+        run: npm install --ignore-scripts --no-audit --no-fund --package-lock=false
+      - name: 独立工作流与类型契约
+        run: npm test

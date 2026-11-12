@@ -94,21 +94,30 @@ function flexGapPolyfillPlugin() {
         marginValue = colGap;
       }
 
-      // Create @supports not (gap: 1px) { selector > * + * { margin: value; } }
-      var atRule = postcss.atRule({
-        name: 'supports',
-        params: 'not (gap: 1px)'
-      });
-      var newRule = postcss.rule({
-        selector: rule.selector + ' > * + *'
-      });
-      newRule.append(postcss.decl({
-        prop: marginProp,
-        value: marginValue,
-        important: gapImportant
+      // ① 保留 @supports 兜底（对更老的浏览器仍有用）
+      // ② 额外生成一份 .no-flex-gap 兜底：Chrome 80 支持 **grid** gap，
+      //    CSS.supports('gap','1px') 恒为 true，所以 `not (gap:1px)` 在平板上
+      //    永远不命中 —— 这就是过去 flex gap 静默失效的根因。
+      //    main.js 用真实布局测量给 <html> 加 .no-flex-gap 来启用这一份。
+      //    两份并存互不干扰，探测失败也至少不比原来差。
+      var childSelector = rule.selector + ' > * + *';
+      var atRule = postcss.atRule({ name: 'supports', params: 'not (gap: 1px)' });
+      var supportsRule = postcss.rule({ selector: childSelector });
+      supportsRule.append(postcss.decl({
+        prop: marginProp, value: marginValue, important: gapImportant
       }));
-      atRule.append(newRule);
+      atRule.append(supportsRule);
       rule.parent.insertAfter(rule, atRule);
+
+      // 多选择器（逗号）要逐个加前缀，否则只有第一个生效
+      var classSelectors = rule.selector.split(',').map(function (s) {
+        return '.no-flex-gap ' + s.trim() + ' > * + *';
+      }).join(', ');
+      var classRule = postcss.rule({ selector: classSelectors });
+      classRule.append(postcss.decl({
+        prop: marginProp, value: marginValue, important: gapImportant
+      }));
+      atRule.parent.insertAfter(atRule, classRule);
     }
   };
 }

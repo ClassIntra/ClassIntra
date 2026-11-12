@@ -3,6 +3,12 @@
   "version": "0.1.0",
   "description": "ClassIntra 第三方应用开发工具：脚手架、体检、打包上架。零依赖，不需要克隆主仓库。",
   "type": "module",
+  "types": "./types/sdk.d.ts",
+  "typesVersions": { "*": { "sdk": ["types/sdk.d.ts"] } },
+  "exports": {
+    ".": { "types": "./types/sdk.d.ts" },
+    "./sdk": { "types": "./types/sdk.d.ts" }
+  },
   "bin": {
     "classintra-devkit": "./bin/cli.mjs",
     "ci-devkit": "./bin/cli.mjs"
@@ -10,8 +16,14 @@
   "files": [
     "bin",
     "lib",
+    "types",
+    "SDK.md",
     "README.md"
   ],
+  "scripts": {
+    "test": "node --test test/author-workflow.test.mjs && npm run test:types",
+    "test:types": "tsc --noEmit --strict --lib ES2020,DOM --module commonjs --moduleResolution node test/fixtures/sdk-contract.ts"
+  },
   "engines": {
     "node": ">=18"
   },
@@ -26,5 +38,8 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/ClassIntra/ClassIntra.git"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
   }
 }

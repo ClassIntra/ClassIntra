@@ -232,7 +232,10 @@ export default {
 /* 装饰光晕 */
 .banned-aurora {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 0;
   pointer-events: none;
   overflow: hidden;
@@ -321,7 +324,10 @@ export default {
 
 .banned-icon-glow {
   position: absolute;
-  inset: -8px;
+  top: -8px;
+  right: -8px;
+  bottom: -8px;
+  left: -8px;
   border-radius: 50%;
   background: radial-gradient(circle, rgba(255, 69, 58, 0.35), transparent 70%);
   filter: blur(12px);

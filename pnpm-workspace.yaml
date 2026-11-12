@@ -1,6 +1,7 @@
 packages:
   - 'server'
   - 'client'
+  - 'devkit'
 # 安全补丁覆盖：强制使用无漏洞版本（解决 Dependabot/audit 上报的传递依赖漏洞）
 overrides:
   form-data: ">=4.0.6"

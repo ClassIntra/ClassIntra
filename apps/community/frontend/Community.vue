@@ -25,6 +25,11 @@
       </div>
 
       <div class="community-content">
+        <!-- 班级集市：独立组件，社区本体不再膨胀 -->
+        <div v-if="activeTab === 'market'" class="content-panel market-panel">
+          <MarketStreet />
+        </div>
+
         <!-- 论坛 -->
         <div v-if="activeTab === 'forum'" class="content-panel">
           <div class="content-header">
@@ -1191,6 +1196,7 @@
 
 <script>
 import AppNavBar from '@/components/AppNavBar.vue';
+import MarketStreet from './MarketStreet.vue';   // 班级集市：独立文件，别塞进这个 4600 行的大宅子
 import UserAvatar from '@/components/UserAvatar.vue';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import CloudImagePicker from '@/components/CloudImagePicker.vue';
@@ -1322,11 +1328,12 @@ var _mineListsAt = 0;
 export default {
   name: 'Community',
   mixins: [cloudPickerReceiver],
-  components: { AppNavBar: AppNavBar, UserAvatar: UserAvatar, ConfirmDialog: ConfirmDialog, CloudImagePicker: CloudImagePicker, ImagePreview: ImagePreview, FollowListSheet: FollowListSheet },
+  components: { AppNavBar: AppNavBar, UserAvatar: UserAvatar, ConfirmDialog: ConfirmDialog, CloudImagePicker: CloudImagePicker, ImagePreview: ImagePreview, FollowListSheet: FollowListSheet, MarketStreet: MarketStreet },
   data: function() {
     return {
       tabs: [
         { key: 'forum', label: '论坛', icon: 'fa-solid fa-comments' },
+        { key: 'market', label: '集市', icon: 'fa-solid fa-store' },
         { key: 'food', label: '美食榜', icon: 'fa-solid fa-utensils' },
         { key: 'hot', label: '热事榜', icon: 'fa-solid fa-fire' },
         { key: 'mine', label: '我的', icon: 'fa-solid fa-user' }
@@ -1636,6 +1643,8 @@ export default {
     // 非响应式：登记「封面还没生成、已排队」的帖子 id（响应式会让 delete 失效且徒增开销）
     self._deferCovers = {};
     self.initData();
+    // 钱包等入口可以 /community?tab=market 直接把学生送到集市
+    if (self.$route.query.tab === 'market') { self.activeTab = 'market'; }
     window.addEventListener('resize', self.onViewportResize);
     // 拉取部署方可配置项（食堂列表）；失败静默回落内置默认值
     self.$store.dispatch('community/fetchConfig');
@@ -3257,6 +3266,9 @@ export default {
 
 .community-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
 .content-panel { display: flex; flex-direction: column; height: 100%; }
+/* 集市面板：自身必须成为滚动容器。
+   .community-page 是 overflow:hidden，没有这行内容会被直接裁掉（表现为「滑不动」）。 */
+.market-panel { overflow-y: auto; overflow-x: hidden; min-height: 0; -webkit-overflow-scrolling: touch; overscroll-behavior-y: contain; }
 .content-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; border-bottom: 0.5px solid var(--separator-color); flex-shrink: 0; }
 .content-title { font-size: var(--font-size-subheadline); font-weight: 600; color: var(--text-primary); margin: 0; }
 .header-actions { display: flex; align-items: center; gap: 10px; }

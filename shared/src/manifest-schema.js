@@ -69,7 +69,7 @@ var KNOWN_CAPABILITIES = [
   // data.store：服务端 KV / 文件（跟账号走，换设备可取回）
   'data.store',
   // 系统
-  'system.notification', 'system.clipboard', 'system.share', 'system.shareTarget', 'system.navigate',
+  'system.notification', 'system.clipboard', 'system.clipboard.read', 'system.share', 'system.shareTarget', 'system.navigate',
   // 系统级操作：桌面角标 / 打开其他应用 / 被全局搜索收录
   'system.badge', 'system.openApp', 'system.search',
   // 界面

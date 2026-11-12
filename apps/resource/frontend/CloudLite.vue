@@ -842,7 +842,7 @@ export default {
 }
 .login-card {
   margin: 60px 24px 0;
-  background: #fff; border-radius: var(--radius-lg); padding: 28px 22px;
+  background: var(--card-bg, #fff); border-radius: var(--radius-lg); padding: 28px 22px;
   display: flex; flex-direction: column; align-items: center;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
 }
@@ -855,7 +855,7 @@ export default {
   border: 1px solid rgba(0, 0, 0, 0.1); border-radius: var(--radius-sm);
   font-size: 15px; outline: none; background: #f7f7fa;
 }
-.lite-input:focus { border-color: #5856D6; background: #fff; }
+.lite-input:focus { border-color: #5856D6; background: var(--card-bg, #fff); }
 .lite-error { color: #FF3B30; font-size: 13px; margin: -4px 0 10px; align-self: flex-start; }
 .lite-btn {
   width: 100%; padding: 12px; border: none; border-radius: var(--radius-md);
@@ -886,7 +886,7 @@ export default {
 /* ====== 上传入口 ====== */
 .upload-card {
   margin: 14px 16px 0;
-  background: #fff; border-radius: var(--radius-lg); padding: 16px 14px;
+  background: var(--card-bg, #fff); border-radius: var(--radius-lg); padding: 16px 14px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 .entry-grid { display: grid; grid-template-columns: repeat(4, 1fr); }
@@ -905,7 +905,7 @@ export default {
 /* ====== 队列 ====== */
 .queue-card {
   margin: 12px 16px 0;
-  background: #fff; border-radius: var(--radius-lg); padding: 12px 14px;
+  background: var(--card-bg, #fff); border-radius: var(--radius-lg); padding: 12px 14px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 .queue-head { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-bottom: 6px; }
@@ -956,7 +956,7 @@ export default {
 }
 .lite-item {
   display: flex; align-items: center; gap: 12px;
-  background: #fff; border-radius: var(--radius-md); padding: 10px 12px;
+  background: var(--card-bg, #fff); border-radius: var(--radius-md); padding: 10px 12px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05); margin-bottom: 10px;
 }
 .lite-thumb {
@@ -998,7 +998,7 @@ export default {
   width: 30px; height: 30px; border-radius: 50%; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
 }
-.sh-sec { background: #fff; border-radius: var(--radius-md); padding: 14px; margin-bottom: 12px; }
+.sh-sec { background: var(--card-bg, #fff); border-radius: var(--radius-md); padding: 14px; margin-bottom: 12px; }
 .sh-sec h4 { font-size: 13px; color: #8e8e93; margin-bottom: 10px; font-weight: 600; }
 .row { display: flex; align-items: center; }
 .row-inp { margin-bottom: 0; margin-right: 10px; flex: 1; }
@@ -1068,7 +1068,7 @@ export default {
 .audio-name { color: rgba(255, 255, 255, 0.85); font-size: 15px; margin: 14px 0 22px; }
 .viewer-audio { width: 100%; max-width: 480px; }
 .text-panel {
-  background: #fff; width: 100%; max-width: 720px; max-height: 100%;
+  background: var(--card-bg, #fff); width: 100%; max-width: 720px; max-height: 100%;
   overflow: auto; border-radius: var(--radius-md); padding: 16px;
   display: flex; align-items: center; justify-content: center; min-height: 120px;
   -webkit-overflow-scrolling: touch;

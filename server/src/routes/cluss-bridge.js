@@ -588,32 +588,68 @@ router.post('/app-credit', requireBridgeSecret, function(req, res) {
       return res.status(400).json({ code: 400, message: 'ref（幂等键）必填，长度 8~128' });
     }
 
-    // 日流出预算：与钱包转账 / 红包同池（kind='transfer' 出账自动计入）
-    var used = payGuard.dailyOutCent(uid);
-    if (used + amount > payGuard.MAX_DAILY_OUT_CENT) {
-      var left = Math.max(0, payGuard.MAX_DAILY_OUT_CENT - used);
-      return res.status(400).json({
-        code: 400,
-        message: '今日转出额度已用完（还剩 ' + Math.floor(left / 100) + ' 学元），明天再来'
+    // 日流出预算与扣款必须在**同一个写事务**里。
+    // 旧实现「先查 dailyOutCent、再 ledger.post」是 TOCTOU：两个并发请求
+    // （不同 ref）能同时通过额度检查，各扣一次。BEGIN IMMEDIATE 让第二个
+    // 等第一个提交后再统计，此时第一笔 transfer 分录已可见 → 被拦。
+    // post() 内部也是 immediate，嵌套时自动退化 SAVEPOINT，安全。
+    var creditTx = db.transaction(function () {
+      var used = payGuard.dailyOutCent(uid, { strict: true });
+      if (used + amount > payGuard.MAX_DAILY_OUT_CENT) {
+        var left = Math.max(0, payGuard.MAX_DAILY_OUT_CENT - used);
+        var quotaErr = new Error('今日转出额度已用完（还剩 ' + Math.floor(left / 100) + ' 学元），明天再来');
+        quotaErr.quota = true;
+        throw quotaErr;
+      }
+      return ledger.post({
+        ref: 'cluss-credit:' + ref,
+        kind: 'transfer',
+        memo: 'Cluss AI 额度转入',
+        entries: [
+          { kind: 'user', owner: uid, asset: 'CASH', direction: -1, amount_cent: amount },
+          { kind: 'platform', owner: '', asset: 'CASH', direction: 1, amount_cent: amount }
+        ]
       });
+    });
+
+    var tx;
+    try {
+      tx = creditTx.immediate();
+    } catch (quotaEx) {
+      if (quotaEx && quotaEx.quota) {
+        return res.status(400).json({ code: 400, message: quotaEx.message });
+      }
+      if (quotaEx && quotaEx.quota_error) {
+        return res.status(503).json({ code: 503, message: quotaEx.message });
+      }
+      throw quotaEx;
     }
 
-    var tx = ledger.post({
-      ref: 'cluss-credit:' + ref,
-      kind: 'transfer',
-      memo: 'Cluss AI 额度转入',
-      entries: [
-        { kind: 'user', owner: uid, asset: 'CASH', direction: -1, amount_cent: amount },
-        { kind: 'platform', owner: '', asset: 'CASH', direction: 1, amount_cent: amount }
-      ]
-    });
+    // v2：留一行可查回执，让对端能按 ref 对账（本仓侧闭环，Cluss 侧拉取另议）。
+    // INSERT OR IGNORE 保证重试 / 重放不产生第二行；写失败只记日志，不改资金结果。
+    try {
+      var hasReceiptTable = db.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='xy_ledger_bridge_receipts'"
+      ).get();
+      if (hasReceiptTable) {
+        db.prepare([
+          'INSERT OR IGNORE INTO xy_ledger_bridge_receipts',
+          '  (ref, tx_id, user_id, amount_cent, actor, created_at)',
+          'VALUES (?, ?, ?, ?, ?, ?)'
+        ].join(' ')).run(ref, tx.tx_id, uid, amount, 'cluss-bridge', new Date().toISOString());
+      }
+    } catch (e) {
+      console.error('[ClussBridge] 回执写入失败（不影响资金）:', e.message);
+    }
 
     return res.json({
       code: 200,
       message: 'ok',
       data: {
         balance_cent: ledger.userBalance(uid, 'CASH'),
-        duplicate: !!tx.duplicate
+        duplicate: !!tx.duplicate,
+        receipt_ref: ref,
+        tx_id: tx.tx_id
       }
     });
   } catch (err) {
@@ -626,6 +662,39 @@ router.post('/app-credit', requireBridgeSecret, function(req, res) {
       return res.status(400).json({ code: 400, message: '还没有开通学元钱包，请先在 ClassIntra 钱包领取或充值' });
     }
     console.error('[ClussBridge] app-credit error:', err);
+    return res.status(500).json({ code: 500, message: '服务器内部错误' });
+  }
+});
+
+// ============================================================
+// GET /api/cluss-bridge/app-credit/receipts —— 渠道回执（只读）
+// ------------------------------------------------------------
+// 对端按 userId 拉自己发过的 ref 与金额，逐笔与本侧账本比对。
+// 只返回本桥产生的回执，不带任何凭据类字段；与 /verify 的脱敏边界互不渗透。
+// ============================================================
+router.get('/app-credit/receipts', requireBridgeSecret, function (req, res) {
+  try {
+    var uid = String(req.query.userId || '').trim();
+    if (!/^\d{6}$/.test(uid)) {
+      return res.status(400).json({ code: 400, message: 'userId 必须是 6 位学号' });
+    }
+    var has = db.prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='xy_ledger_bridge_receipts'"
+    ).get();
+    if (!has) {
+      return res.json({ code: 200, message: 'ok', data: { list: [], total_cent: 0, note: '尚未跑迁移 046' } });
+    }
+    var limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 200);
+    var list = db.prepare([
+      'SELECT ref, tx_id, user_id, amount_cent, created_at',
+      'FROM xy_ledger_bridge_receipts WHERE user_id = ? ORDER BY id DESC LIMIT ?'
+    ].join('\n')).all(uid, limit);
+    var total = db.prepare(
+      'SELECT COALESCE(SUM(amount_cent), 0) AS s FROM xy_ledger_bridge_receipts WHERE user_id = ?'
+    ).get(uid).s;
+    return res.json({ code: 200, message: 'ok', data: { list: list, total_cent: total } });
+  } catch (err) {
+    console.error('[ClussBridge] app-credit/receipts error:', err);
     return res.status(500).json({ code: 500, message: '服务器内部错误' });
   }
 });

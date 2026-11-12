@@ -4,7 +4,9 @@ crashLogger.installCrashHandlers();
 var errorsLib = require('./core/errors');
 var globalErrorHandler = errorsLib.globalErrorHandler;
 
-require('dotenv').config();
+// 显式钉到 server/.env：PM2 已设 cwd=server/，但手动从项目根 `node src/app.js`
+// 启动时 dotenv 会去找根目录的 .env（不存在）→ 密钥静默为空。不依赖 cwd 更稳。
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 var express = require('express');
 var path = require('path');
 var fs = require('fs');
@@ -67,7 +69,13 @@ app.use(function(req, res, next) {
 // ⚠️ 不要退回 morgan('dev')：dev 是预定义格式，无法插入自定义 token，
 //    那样每条普通请求就没有 rid，排障时只能靠时间戳猜。
 morgan.token('rid', function(req) { return (req && req.requestId) || '-'; });
-app.use(morgan(':method :url :status :response-time ms - :res[content-length] rid=:rid'));
+// ⚠️ 不要用内置 :url：extractToken 接受 ?token=，图片/下载这类裸链接带 7 天 JWT，
+// 原样记进 pm2 日志等于把凭据写进明文文件。这里对敏感 query 值脱敏。
+morgan.token('safe-url', function(req) {
+  var u = (req && (req.originalUrl || req.url)) || '';
+  return String(u).replace(/([?&](?:token|access_token|refresh_token|secret|key|password|pwd)=)[^&]*/gi, '$1[REDACTED]');
+});
+app.use(morgan(':method :safe-url :status :response-time ms - :res[content-length] rid=:rid'));
 // 关停期拒新：gracefulShutdown 触发后新 API 请求返回 503（客户端重试语义），
 // 静态资源照常放行，让已打开的页面不至于白屏
 app.use(function(req, res, next) {
@@ -567,6 +575,42 @@ try {
   require('./core/app-scheduler').start();
 } catch (e) {
   console.error('[Scheduler] 启动失败:', e.message);
+}
+
+// ======== 交易体系自愈巡检（红包过期退还 / 市集滞留订单收尾） ========
+try {
+  require('./services/yuanbao').startSweeper();
+} catch (e) {
+  console.error('[TradingSweeper] 启动失败:', e.message);
+}
+
+// ======== 学元账本 · 日终对账（按天去重，差异落库） ========
+// 与红包巡检共用 60s 节奏但不新增业务定时器：runKey 按天唯一，重复调用
+// 直接返回已有结果，不会一天写 1440 次。老库未跑 046 时安静跳过。
+try {
+  var reconciliation = require('./ledger/reconcile');
+  var lastReconDay = '';
+  function runDailyReconcile() {
+    var day = new Date().toISOString().slice(0, 10);
+    if (day === lastReconDay || !reconciliation.ready()) return;
+    try {
+      var r = reconciliation.run(null, { runKey: 'daily:' + day });
+      lastReconDay = day;
+      if (!r.ok) {
+        console.error('[LedgerReconcile] 日终对账发现 ' + r.issue_count +
+          ' 项差异，请查 /api/xy/admin/reconcile/latest');
+      } else {
+        console.log('[LedgerReconcile] 日终对账通过（' + day + '）');
+      }
+    } catch (e) {
+      console.error('[LedgerReconcile] 对账执行失败:', e.message);
+    }
+  }
+  runDailyReconcile();
+  var reconTimer = setInterval(runDailyReconcile, 60 * 1000);
+  if (reconTimer.unref) reconTimer.unref();
+} catch (e) {
+  console.error('[LedgerReconcile] 启动失败:', e.message);
 }
 
 // ======== 天气提醒定时检查 ========

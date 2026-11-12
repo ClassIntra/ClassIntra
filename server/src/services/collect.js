@@ -223,6 +223,7 @@ function pay(collectId, userId, opts) {
       from: uid,
       to: row.creator,
       amountCent: row.per_cent,
+      pool: o.pool,
       ref: 'collect:' + id + ':' + uid,
       operator: uid,
       memo: 'AA：' + row.title,
@@ -278,6 +279,21 @@ function close(collectId, userId, opts) {
   return { duplicate: false, collect: detail(id, uid) };
 }
 
+// 过期关单（2026-11-10）：expired 一直是计算字段，过期单会永远以 open 躺在列表里。
+// 由交易体系 60s 自愈巡检调用，只改状态、不碰任何资金（付款早在 pay() 里被 isExpired 拦住）。
+function sweepExpired() {
+  ensureSchema();
+  var t = now();
+  var rows = db.prepare("SELECT id FROM xy_collect WHERE status = 'open' AND expires_at <= ?").all(t);
+  var n = 0;
+  for (var i = 0; i < rows.length; i++) {
+    var r = db.prepare("UPDATE xy_collect SET status = 'closed', closed_at = ? WHERE id = ? AND status = 'open'")
+      .run(t, rows[i].id);
+    n += r.changes;
+  }
+  return n;
+}
+
 module.exports = {
   MAX_MEMBERS: MAX_MEMBERS,
   MAX_TITLE: MAX_TITLE,
@@ -286,5 +302,6 @@ module.exports = {
   detail: detail,
   list: list,
   pay: pay,
-  close: close
+  close: close,
+  sweepExpired: sweepExpired
 };

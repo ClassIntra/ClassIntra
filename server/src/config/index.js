@@ -59,7 +59,26 @@ module.exports = {
     rechargeQuotaYuan: Number(process.env.XUEYUAN_RECHARGE_QUOTA_YUAN || 300),
     // 教师发放：单次上限 + 每人每日累计上限（防一笔打乱整个价格体系）
     maxGrantYuan: Number(process.env.XUEYUAN_MAX_GRANT_YUAN || 0.5),
-    grantDailyCapYuan: Number(process.env.XUEYUAN_GRANT_DAILY_CAP_YUAN || 2)
+    grantDailyCapYuan: Number(process.env.XUEYUAN_GRANT_DAILY_CAP_YUAN || 2),
+    // 学元贷款：只借赠送学元 GRANT，不碰真金。金额按人民币元配置，
+    // 由 ledger/loan.js 用唯一单位链换算（0.1 元 = 100 学元）。
+    // 额度阶梯：首次基础额度，按「按时还款的自然日」每天 +1 档，封顶最大额度。
+    loanEnabled: (process.env.XUEYUAN_LOAN_ENABLED || 'true') !== 'false',
+    loanMinYuan: Number(process.env.XUEYUAN_LOAN_MIN_YUAN || 0.1),
+    loanMaxYuan: Number(process.env.XUEYUAN_LOAN_MAX_YUAN || 2),
+    loanBaseLimitYuan: Number(process.env.XUEYUAN_LOAN_BASE_LIMIT_YUAN || 0.5),
+    loanStepYuan: Number(process.env.XUEYUAN_LOAN_STEP_YUAN || 0.5),
+    loanMaxLimitYuan: Number(process.env.XUEYUAN_LOAN_MAX_LIMIT_YUAN || 2),
+    loanTermDays: Number(process.env.XUEYUAN_LOAN_TERM_DAYS || 7),
+    loanInterestPercent: Number(process.env.XUEYUAN_LOAN_INTEREST_PERCENT || 5),
+    // 按时还清的计分冷却：防止「小额借→立刻还」反复刷分。0 = 关闭冷却。
+    loanScoreCooldownHours: Number(process.env.XUEYUAN_LOAN_SCORE_COOLDOWN_HOURS || 24),
+    // 到期后的宽限小时数：宽限内不算逾期、不影响「按时还清」提额。
+    loanGraceHours: Number(process.env.XUEYUAN_LOAN_GRACE_HOURS || 24),
+    // 全班同时未还本金上限（人民币元）。防止贷款把整个班的赠金供给放大。
+    loanPoolYuan: Number(process.env.XUEYUAN_LOAN_POOL_YUAN || 100),
+    // 核销后的冷静期：防止「借了不还 → 求班管核销 → 立刻再借」循环。
+    loanWriteOffCooldownDays: Number(process.env.XUEYUAN_LOAN_WRITE_OFF_COOLDOWN_DAYS || 7)
   },
   resourcesDir: path.resolve(process.env.RESOURCES_DIR || path.join(__dirname, '../../../Resources')),
   dbPath: path.resolve(process.env.DB_PATH || path.join(__dirname, '../../database/classintra.db')),

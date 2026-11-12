@@ -49,9 +49,13 @@ function help() {
     '',
     '  classintra-devkit check [目录] [--json]     # manifest + Chrome 80 + 资源回收',
     '  classintra-devkit pack  [目录] [--write index.json] [--json]',
+    '  classintra-devkit sdk types [--write sdk.d.ts] [--force] # 导出宿主 SDK 类型',
+    '  classintra-devkit sdk docs  [--write SDK.md] [--force]   # 离线指南与恢复',
     '',
     '示例：',
-    '  npx classintra-devkit create app hello --label "你好" | cd hello && npx classintra-devkit check .',
+    '  classintra-devkit create app help-sample --label 示例应用 --dir ./work',
+    '  classintra-devkit check ./work/help-sample --json',
+    '  classintra-devkit pack ./work/help-sample --write ./market/index.json',
     '',
     '约定（check 会自动拦）：',
     '  · 前端 ES5：var / function，禁用 const/let/箭头函数/模板字符串/?. /??/class',
@@ -85,10 +89,12 @@ function cmdCreate(positional, flags) {
   for (const f of result.files) console.log('  + ' + f);
   console.log('');
   console.log('下一步：');
+  const target = path.relative(process.cwd(), result.dir) || '.';
+  const targetArg = '"' + target.replace(/"/g, '\\"') + '"';
   console.log('  1) 改 manifest.json 的 label / version');
   console.log('  2) 写 frontend/entry.js（微前端）或把 dist 拷进 frontend/（静态站）');
-  console.log('  3) npx classintra-devkit check ' + path.basename(result.dir));
-  console.log('  4) npx classintra-devkit pack ' + path.basename(result.dir) + ' --write <market>/index.json');
+  console.log('  3) npx classintra-devkit check ' + targetArg);
+  console.log('  4) npx classintra-devkit pack ' + targetArg + ' --write <market>/index.json');
   console.log('');
 }
 
@@ -147,6 +153,22 @@ function cmdPack(positional, flags) {
   process.stdout.write(payload + '\n');
 }
 
+function cmdSdk(positional, flags) {
+  const resources = { types: '../types/sdk.d.ts', docs: '../SDK.md' };
+  const resource = Object.prototype.hasOwnProperty.call(resources, positional[0]) && resources[positional[0]];
+  if (!resource) throw new Error('用法：classintra-devkit sdk <types|docs> [--write 文件] [--force]');
+  const content = fs.readFileSync(new URL(resource, import.meta.url), 'utf8');
+  if (!flags.write) {
+    process.stdout.write(content);
+    return;
+  }
+  if (typeof flags.write !== 'string') throw new Error('--write 需要指定类型文件路径');
+  const target = path.resolve(flags.write);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, content, { encoding: 'utf8', flag: flags.force ? 'w' : 'wx' });
+  console.log((positional[0] === 'types' ? 'SDK 类型已写入：' : 'SDK 指南已写入：') + target);
+}
+
 function main() {
   const { positional, flags } = parseArgs(process.argv.slice(2));
   const command = positional.shift();
@@ -161,6 +183,7 @@ function main() {
     if (command === 'create') return cmdCreate(positional, flags);
     if (command === 'check') return cmdCheck(positional, flags);
     if (command === 'pack') return cmdPack(positional, flags);
+    if (command === 'sdk') return cmdSdk(positional, flags);
     console.error('未知命令: ' + command);
     help();
     process.exitCode = 2;

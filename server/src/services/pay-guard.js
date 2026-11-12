@@ -28,7 +28,7 @@ function dayStartMs() {
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - 8 * 3600 * 1000;
 }
 
-function dailyOutCent(uid) {
+function dailyOutCent(uid, opts) {
   try {
     var uidStr = String(uid);
     var start = dayStartMs();
@@ -55,8 +55,15 @@ function dailyOutCent(uid) {
 
     return settled + packets + cross;
   } catch (e) {
-    // fail-open 是为了不因统计异常阻断学生正常转账，但必须留痕，便于发现账本/表结构问题
+    // 默认 fail-open：不因统计异常阻断学生正常转账（有支付 PIN 兜底），但必须留痕。
+    // 机器对机器 / 无 PIN 的路径（Cluss 桥）必须传 { strict: true } 改 fail-closed：
+    // 返回 0 等于「今天没花过钱」，异常期间可被连续刷过每日上限。
     console.error('[pay-guard] 日额度统计失败:', e.message);
+    if (opts && opts.strict) {
+      var err = new Error('日额度统计失败，暂时无法完成转账，请稍后重试');
+      err.quota_error = true;
+      throw err;
+    }
     return 0;
   }
 }

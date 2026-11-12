@@ -14,7 +14,7 @@ function getSyncState() {
     for (var i = 0; i < rows.length; i++) {
       watermarks[rows[i].data_type] = rows[i].watermark;
     }
-  } catch (e) {}
+  } catch (e) { console.error('[relay-sync] 非致命异常已跳过:', e && e.message); }
 
   state.last_chat_id = watermarks.chat_messages || 0;
   if (state.last_chat_id === 0) {
@@ -150,7 +150,7 @@ function updateWatermark(dataType, newId) {
     if (!current || newId > current.watermark) {
       db.prepare('INSERT OR REPLACE INTO sync_watermarks (data_type, watermark, updated_at) VALUES (?, ?, datetime(\'now\'))').run(dataType, newId);
     }
-  } catch (e) {}
+  } catch (e) { console.error('[relay-sync] 非致命异常已跳过:', e && e.message); }
 }
 
 var BATCH_SIZE = 200;
@@ -163,7 +163,7 @@ function getEffectiveBatchSize() {
     var mem = process.memoryUsage();
     if (mem.rss > 500 * 1024 * 1024) return LOW_MEM_BATCH_SIZE;
     if (mem.rss > 350 * 1024 * 1024) return 100;
-  } catch (e) {}
+  } catch (e) { console.error('[relay-sync] 非致命异常已跳过:', e && e.message); }
   return BATCH_SIZE;
 }
 
@@ -458,7 +458,7 @@ function applySyncData(syncData) {
           type: m.type || 'text',
           created_at: m.created_at
         });
-      } catch (e) {}
+      } catch (e) { console.error('[relay-sync] 非致命异常已跳过:', e && e.message); }
     }
   }
 
@@ -489,7 +489,7 @@ function applySyncData(syncData) {
           type: pm.type || 'text',
           created_at: pm.created_at
         });
-      } catch (e) {}
+      } catch (e) { console.error('[relay-sync] 非致命异常已跳过:', e && e.message); }
     }
   }
 
@@ -520,7 +520,7 @@ function applySyncData(syncData) {
           type: gm.type || 'text',
           created_at: gm.created_at
         });
-      } catch (e) {}
+      } catch (e) { console.error('[relay-sync] 非致命异常已跳过:', e && e.message); }
     }
   }
 
@@ -535,7 +535,7 @@ function applySyncData(syncData) {
           post.tags || '[]', post.share_count || 0, post.created_at
         );
         result.posts++;
-      } catch (e) {}
+      } catch (e) { console.error('[relay-sync] 非致命异常已跳过:', e && e.message); }
     }
   }
 
@@ -545,7 +545,7 @@ function applySyncData(syncData) {
       try {
         s.commentInsert.run(comment.id, comment.post_id, comment.user_id, comment.parent_id, comment.content, comment.like_count || 0, comment.created_at);
         result.comments++;
-      } catch (e) {}
+      } catch (e) { console.error('[relay-sync] 非致命异常已跳过:', e && e.message); }
     }
   }
 
@@ -555,7 +555,7 @@ function applySyncData(syncData) {
       try {
         s.likeInsert.run(like.id, like.user_id, like.target_type, String(like.target_id), like.created_at);
         result.likes++;
-      } catch (e) {}
+      } catch (e) { console.error('[relay-sync] 非致命异常已跳过:', e && e.message); }
     }
   }
 
@@ -565,7 +565,7 @@ function applySyncData(syncData) {
       try {
         s.reactionInsert.run(reaction.message_id, reaction.message_type, reaction.user_id, reaction.emoji, reaction.created_at);
         result.reactions++;
-      } catch (e) {}
+      } catch (e) { console.error('[relay-sync] 非致命异常已跳过:', e && e.message); }
     }
   }
 
@@ -575,7 +575,7 @@ function applySyncData(syncData) {
       try {
         s.bookmarkInsert.run(bookmark.user_id, bookmark.post_id, bookmark.created_at);
         result.bookmarks++;
-      } catch (e) {}
+      } catch (e) { console.error('[relay-sync] 非致命异常已跳过:', e && e.message); }
     }
   }
 
@@ -587,7 +587,7 @@ function applySyncData(syncData) {
         if (expLogExisting) continue;
         s.expLogInsert.run(expLog.user_id, expLog.action, expLog.exp_gained, expLog.created_at);
         result.exp_logs++;
-      } catch (e) {}
+      } catch (e) { console.error('[relay-sync] 非致命异常已跳过:', e && e.message); }
     }
   }
 
@@ -612,7 +612,7 @@ function applySyncData(syncData) {
         // 而被调用方当作新数据二次外发（这正是死循环的放大器）。
         var bcRes = s.bcInsert.run(bc.content, bc.priority || 'normal', bc.created_at);
         if (bcRes && bcRes.changes > 0) result.broadcasts++;
-      } catch (e) {}
+      } catch (e) { console.error('[relay-sync] 非致命异常已跳过:', e && e.message); }
     }
   }
 
@@ -627,7 +627,7 @@ function applySyncData(syncData) {
           s.groupInsert.run(grp.id, grp.name, grp.creator_id, grp.members_json, grp.announcement || '', grp.announcement_at || null, grp.created_at);
         }
         result.groups++;
-      } catch (e) {}
+      } catch (e) { console.error('[relay-sync] 非致命异常已跳过:', e && e.message); }
     }
   }
 
@@ -723,7 +723,7 @@ function applySyncData(syncData) {
           s.expInsert.run(uexp.user_id, uexp.exp, uexp.level, uexp.show_level_community, uexp.show_level_chat, uexp.last_login_date, uexp.last_login_exp_given || 0);
         }
         result.user_experience++;
-      } catch (e) {}
+      } catch (e) { console.error('[relay-sync] 非致命异常已跳过:', e && e.message); }
     }
   }
 
@@ -739,7 +739,7 @@ function applySyncData(syncData) {
           s.settingsInsert.run(usetting.user_id, usetting.theme, usetting.wallpaper, usetting.notifications_json);
         }
         result.user_settings++;
-      } catch (e) {}
+      } catch (e) { console.error('[relay-sync] 非致命异常已跳过:', e && e.message); }
     }
   }
 
@@ -903,7 +903,7 @@ function updateGroupWatermark() {
   try {
     var count = db.prepare('SELECT COUNT(*) as cnt FROM groups').get().cnt;
     db.prepare('INSERT OR REPLACE INTO sync_watermarks (data_type, watermark, updated_at) VALUES (?, ?, datetime(\'now\'))').run('groups', count);
-  } catch (e) {}
+  } catch (e) { console.error('[relay-sync] 非致命异常已跳过:', e && e.message); }
 }
 
 function recordTombstone(dataType, recordId) {

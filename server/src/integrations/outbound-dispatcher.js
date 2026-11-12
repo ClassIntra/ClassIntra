@@ -36,23 +36,38 @@ function dispatch(event, data, options) {
   // 查询所有活跃且有 webhook_url 的集成
   var integrations = _getActiveIntegrationsWithWebhook();
   var requiredScope = EVENT_SCOPE_MAP[event];
+  // 纵深防御：没有登记 scope 的事件一律不外发。
+  // 旧写法 `if (requiredScope && ...)` 在 undefined 时会跳过检查、推给所有集成；
+  // emit.js 已经拦了一道，这里再拦一道，防止将来有人绕过 emit 直接调 dispatch。
+  if (!requiredScope) {
+    console.warn('[outbound-dispatcher] 事件未登记 scope，拒绝外发:', event);
+    return;
+  }
 
   var pending = [];
   for (var i = 0; i < integrations.length; i++) {
     var it = integrations[i];
     // 排除指定集成
     if (excludeIds.indexOf(String(it.id)) !== -1) continue;
-    // 检查 scope（如果事件有对应 scope 要求）
-    if (requiredScope && it.scopes.indexOf(requiredScope) === -1) continue;
+    if (it.scopes.indexOf(requiredScope) === -1) continue;
     pending.push(_deliver(it, event, data));
   }
 
-  // 异步并行推送
+  // 异步并行推送。旧实现里 allSettled 分支压根没接 .then（结果从不落日志），
+  // 且整条链没有 catch —— _logResults 一抛就是 unhandledRejection。
   if (pending.length > 0) {
-    Promise.allSettled ? Promise.allSettled(pending) : Promise.all(pending.map(function(p) {
-      return p.then(function(v) { return { status: 'fulfilled', value: v }; }, function(e) { return { status: 'rejected', reason: e }; });
-    })).then(function(results) {
+    var all = Promise.allSettled
+      ? Promise.allSettled(pending)
+      : Promise.all(pending.map(function(p) {
+          return p.then(
+            function(v) { return { status: 'fulfilled', value: v }; },
+            function(e) { return { status: 'rejected', reason: e }; }
+          );
+        }));
+    all.then(function(results) {
       _logResults(event, results);
+    }).catch(function(e) {
+      console.warn('[outbound-dispatcher] 投递结果处理失败 ' + event + ':', e && e.message);
     });
   }
 }
@@ -119,7 +134,11 @@ function _postJson(url, body, headers, integrationId) {
     return fetch(url, {
       method: 'POST',
       headers: headers,
-      body: body
+      body: body,
+      // 没有超时的 fetch 会让一个失联 webhook 永久挂住 Promise；
+      // 5s 足够内网/公网投递，超时会走下面的 catch 记日志。
+      signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout)
+        ? AbortSignal.timeout(5000) : undefined
     }).then(function(res) {
       if (!res.ok) {
         console.warn('[outbound-dispatcher] webhook 推送失败 integration=' + integrationId + ' status=' + res.status);

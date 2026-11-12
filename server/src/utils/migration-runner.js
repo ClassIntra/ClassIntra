@@ -59,6 +59,7 @@ function loadMigrations() {
       version: mod.version,
       name: mod.name || files[i],
       up: mod.up,
+      foreignKeysOff: mod.foreignKeysOff === true,
       file: files[i]
     });
   }
@@ -80,18 +81,33 @@ function runAll() {
       continue;
     }
     console.log('[migration] 执行迁移 v' + m.version + ' ' + m.name + ' (' + m.file + ')');
+    // 少数迁移需要重建被其它表外键引用的表（如贷款表被还款明细引用）。
+    // SQLite 不能在事务内切换 foreign_keys，所以由迁移声明、这里在事务外关掉，
+    // 提交后再打开并跑一次 foreign_key_check。
+    var fkOff = m.foreignKeysOff === true;
+    if (fkOff) db.pragma('foreign_keys = OFF');
     var tx = db.transaction(function() {
       m.up(db);
       insertRecord.run(m.version, m.name);
     });
+    var committed = false;
     try {
       tx();
+      committed = true;
       applied.push('v' + m.version + ' ' + m.name);
       console.log('[migration] ✓ v' + m.version + ' ' + m.name + ' 完成');
     } catch (e) {
       console.error('[migration] ✗ v' + m.version + ' ' + m.name + ' 失败:', e.message);
       console.error('[migration] 中止后续迁移，请检查并修复后重试');
       throw e;
+    } finally {
+      if (fkOff) db.pragma('foreign_keys = ON');
+    }
+    if (fkOff && committed) {
+      var bad = db.prepare('PRAGMA foreign_key_check').all();
+      if (bad.length) {
+        throw new Error('[migration] v' + m.version + ' 外键校验失败: ' + JSON.stringify(bad.slice(0, 3)));
+      }
     }
   }
 
