@@ -23,7 +23,10 @@ var loan = require('./loan');
 
 // 已接入的第三方应用白名单。新增应用要在这里显式登记。
 var APPS = {
-  stock: { label: '学元证券', asset: 'PRACTICE', loan: true }
+  stock: { label: '学元证券', asset: 'PRACTICE', loan: true },
+  // 拾光群岛：跨班同学的游戏世界。走赠送学元通道（GRANT 不可购买、无真钱风险），
+  // 服务端限额兜底 —— 「游戏里的礼物不该要支付密码，但也不能没有闸门」。
+  shiguang: { label: '拾光群岛', asset: 'PRACTICE' }
 };
 
 function assertApp(appId) {
@@ -130,6 +133,42 @@ function issue(appId, userId, amountCent, ref, memo) {
   });
   r.view = practiceAccount(appId, userId);
   return r;
+}
+
+// ---- 赠送学元通道（2026-11-14 拾光群岛接入）----
+// 游戏内同学间的礼物：GRANT 资产可转账、不可购买（I9），无真钱风险，
+// 因此免支付密码 —— 但单笔与单日都有硬闸门，防止任何形式的刷分。
+function giftGrant(appId, from, to, amountCent, opts) {
+  assertApp(appId);
+  if (amountCent > 200) throw new Error('单次最多赠 2 学元');
+  var xy = require('../services/xueyuan');
+  // 双向懒开户（与钱包转账同一先例）：从没碰过学元的同学也能在游戏里收送礼物
+  try { xy.ensureAccount(String(from)); } catch (e) { /* 交给 transfer 报具体原因 */ }
+  try { xy.ensureAccount(String(to)); } catch (e) { /* 交给 transfer 报具体原因 */ }
+  var o = opts || {};
+  var ref = 'shiguang-gift:' + from + ':' + to + ':' + String(o.ref || Date.now());
+  var r = xy.transfer({
+    from: String(from),
+    to: String(to),
+    amountCent: amountCent,
+    pool: 'grant',
+    ref: ref,
+    app: 'shiguang',
+    memo: String(o.memo || '拾光群岛·田间赠礼').slice(0, 40)
+  });
+  return r;
+}
+
+// 完整账户视图（含赠送学元余额）—— 仅服务端内部使用，响应里只透出学元口径
+function accountView(appId, userId) {
+  assertApp(appId);
+  var xy = require('../services/xueyuan');
+  var v = xy.viewAccount(String(userId));
+  return {
+    exists: !!v.exists !== false,
+    grant_cent: v.grant_cent || 0,
+    grant: (v.grant_cent || 0) / 100
+  };
 }
 
 var KIND_LABEL = {
@@ -385,6 +424,8 @@ module.exports = {
   settleBuy: settleBuy,
   settleSell: settleSell,
   issue: issue,
+  giftGrant: giftGrant,
+  accountView: accountView,
   invest: investMove,
   withdrawnOut: withdrawnOut,
   topUpBase: topUpBase,
