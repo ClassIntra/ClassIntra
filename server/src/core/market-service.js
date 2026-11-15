@@ -47,6 +47,9 @@ var ALLOWED_EXTS = [
   '.json', '.js', '.mjs', '.css', '.svg', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico',
   '.woff', '.woff2', '.ttf', '.otf', '.txt', '.md', '.html',
   '.jsonc', '.mov', '.mp4', '.webm',
+  // 音频：游戏/互动类应用离不开（拾光群岛 v5 的 11 首 BGM + 30 个音效全是 ogg/wav）。
+  // 与图片同级的安全级别 —— 静态资源，不参与任何服务端执行。
+  '.ogg', '.wav', '.mp3', '.m4a',
   // 应用自带的可执行资产（象棋 Pikafish 引擎与 NNUE 权重，GPL-3）：
   // 2026-10 起随应用包分发，使 market 更新清目录后引擎能自动装回。
   // ⚠️ 放开此白名单意味着任何市场应用均可携带二进制，只在受信市场源下使用。
